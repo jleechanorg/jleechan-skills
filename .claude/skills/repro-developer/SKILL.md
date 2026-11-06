@@ -34,7 +34,7 @@ Use this skill when a user wants a reproducible artifact bundle for an agent fai
 
 5. Check for sensitive material before sharing externally.
    - Do not delete raw files from the bundle, but add `SENSITIVE_REVIEW.md` with findings.
-   - Flag credentials, private repo names, personal email, tokens, and sealed holdout paths.
+   - Flag credentials, private repo names, personal email, and tokens.
    - For holdout/evaluator content, include path and hash metadata only unless the user explicitly authorizes sharing the sealed material.
    - Treat `gitleaks detect --no-git` on the sanitized bundle as the required pass/fail gate.
 
@@ -45,72 +45,31 @@ Use this skill when a user wants a reproducible artifact bundle for an agent fai
 
 ## Commands
 
-For the July 6-7, 2026 Claude/fable vs Codex plan-miss incident, the committed artifact is:
-
-```text
-artifacts/repro-developer/claude-fable-adversarial-review-codex-plan-miss/
-```
-
-It contains a sanitized LFS archive and an encrypted exact raw LFS archive. Use the artifact README first for replay.
-
-Create a bundle:
+Create a bundle (replace every `<...>` placeholder with the incident's real paths):
 
 ```bash
 python3 ~/.claude/skills/repro-developer/scripts/collect_repro.py \
-  --repo /home/$USER/projects/dark-factory \
-  --incident claude-adversarial-review-missed-plan-flaws \
+  --repo <path/to/repo> \
+  --incident <incident-slug> \
   --out /tmp \
-  --claude-session-dir /home/$USER/.claude/projects/-home-$USER-projects-dark-factory/61098aae-66af-474b-a488-1a47f9e8b66d \
+  --claim "<one-sentence failure claim>" \
+  --claude-session ~/.claude/projects/<project-slug>/<session-id>.jsonl \
+  --claude-session-dir ~/.claude/projects/<project-slug>/<session-id> \
   --codex-session /path/to/codex-parent.jsonl \
   --codex-session /path/to/codex-subagent.jsonl \
-  --repo-file docs/factory-goal-gap-review-2026-07-06.md \
-  --repo-file docs/adversarial-review-miss-retrospective-2026-07-06.md
+  --repo-file docs/<review-doc>.md \
+  --repo-file docs/<retrospective-doc>.md \
+  --bead <bead-id>
 ```
 
-Create git/LFS-ready artifacts:
+Create git/LFS-ready artifacts by adding `--sanitize`,
+`--require-gitleaks-clean`, `--encrypt-raw`, and
+`--publish-dir artifacts/repro-developer/<incident-slug>` to the complete
+`collect_repro.py` command above.
 
 ```bash
-python3 ~/.claude/skills/repro-developer/scripts/collect_repro.py \
-  --repo /home/$USER/projects/dark-factory \
-  --incident claude-adversarial-review-missed-plan-flaws \
-  --out /tmp \
-  --sanitize \
-  --require-gitleaks-clean \
-  --encrypt-raw \
-  --publish-dir artifacts/repro-developer/claude-adversarial-review-missed-plan-flaws \
-  ...
-
 git lfs track "artifacts/repro-developer/**"
-git add .gitattributes artifacts/repro-developer/claude-adversarial-review-missed-plan-flaws
-```
-
-Exact command used for the committed incident:
-
-```bash
-python3 .claude/skills/repro-developer/scripts/collect_repro.py \
-  --repo /home/$USER/projects/dark-factory \
-  --incident claude-fable-adversarial-review-codex-plan-miss \
-  --out /tmp \
-  --claim "Claude fable ran a 53-agent adversarial review that confirmed current-state findings but missed plan-level hazards; a later Codex review with three subagents caught ordering, watchdog-metric, canary-overclaim, and self-reference issues already latent in the prior context." \
-  --claude-session /home/$USER/.claude/projects/-home-$USER-projects-dark-factory/61098aae-66af-474b-a488-1a47f9e8b66d.jsonl \
-  --claude-session-dir /home/$USER/.claude/projects/-home-$USER-projects-dark-factory/61098aae-66af-474b-a488-1a47f9e8b66d \
-  --codex-session /home/$USER/.codex/sessions/2026/07/06/rollout-2026-07-06T20-38-21-019f3aa7-c615-74a0-8d41-d643dd48a804.jsonl \
-  --codex-session /home/$USER/.codex/sessions/2026/07/06/rollout-2026-07-06T20-58-08-019f3ab9-e056-7540-ba77-72d4712ad4ba.jsonl \
-  --codex-session /home/$USER/.codex/sessions/2026/07/06/rollout-2026-07-06T20-58-14-019f3ab9-f9b6-7852-99e0-d2eba90a498d.jsonl \
-  --codex-session /home/$USER/.codex/sessions/2026/07/06/rollout-2026-07-06T20-58-18-019f3aba-09dd-72b2-b064-c55a372397dc.jsonl \
-  --repo-file docs/factory-goal-gap-review-2026-07-06.md \
-  --repo-file docs/adversarial-review-miss-retrospective-2026-07-06.md \
-  --repo-file docs/setup-agent-hooks-review-2026-07-06.md \
-  --repo-file roadmap/nextsteps-2026-07-06-gap-review.md \
-  --bead $USER-niq \
-  --bead $USER-ron \
-  --bead $USER-qdw \
-  --bead $USER-1m4 \
-  --bead $USER-gib \
-  --sanitize \
-  --require-gitleaks-clean \
-  --encrypt-raw \
-  --publish-dir artifacts/repro-developer/claude-fable-adversarial-review-codex-plan-miss
+git add .gitattributes artifacts/repro-developer/<incident-slug>
 ```
 
 The script writes:

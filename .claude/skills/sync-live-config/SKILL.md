@@ -28,9 +28,16 @@ has two subcommands:
   same `live_only` directory walk. A remote path with a symlinked component anywhere in it (leaf
   or parent directory) reports status **`symlink`** instead, with hash/size/
   commit/diff all withheld — see "Remote targets" for why.
-- `apply --direction {repo-to-live,live-to-repo} --paths PATH [PATH ...] [--remote HOST]`
+- `apply --direction {repo-to-live,live-to-repo} --paths PATH [PATH ...] [--remote HOST] [--dry-run]`
   — mechanically copies exactly the paths you name, in exactly the
-  direction you name. No inference, no batch-wide default. Every path is
+  direction you name. **`--dry-run` previews the whole decision without writing
+  anything**: per path it prints the exact source and destination absolutes,
+  whether the destination would be `CREATE`d, `OVERWRITE`n, is already `SAME`,
+  or why it would `FAIL`, with full hashes when available (`dst=missing` for
+  creates) — and exits non-zero if any path would fail
+  validation, so it doubles as a preflight. Reach for it before
+  every `apply`, especially a multi-path one. It refuses `--remote` rather than
+  silently previewing only the local half. No inference, no batch-wide default. Every path is
   validated to resolve inside one of the allowed roots (`.claude/`,
   `.codex/hooks/`, `hermes/skills/` and their live counterparts) before
   anything is touched — traversal, absolute paths, and symlink escapes are
@@ -47,6 +54,12 @@ has two subcommands:
 - **`--full`**: every tracked file under `.claude/`, `.codex/hooks/`,
   `hermes/skills/`. Expect this to surface a lot more — go per-directory
   first (see below), don't try to judge thousands of individual files.
+  Runtime/state subtrees (`projects/`, `state/`, `venvs/`, `node_modules/`,
+  `plugins/`, session and history dirs — see `RUNTIME_DIRS`) are pruned during
+  the walk: they are not syncable config, and `~/.claude/projects` alone is
+  ~72k files. Commit lookups are batched once per enclosing repo, so a full
+  report is minutes, not a hang. A run over ~3.5k tracked files yields ~5k
+  `live_only` rows; judge those per-directory, never row by row.
 
 ## Protocol — this is where the judgment happens
 

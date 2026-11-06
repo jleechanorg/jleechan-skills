@@ -34,48 +34,34 @@ Use this skill when:
 | **Codex Connected App** (`chatgpt-codex-connector[bot]`) | `chatgpt-codex-connector[bot]` | External (OpenAI) | Webhook on comment/push |
 | **CodeRabbit** (`coderabbitai[bot]`) | `coderabbitai[bot]` | External (CodeRabbit) | Webhook on push/comment |
 | **AO Worker sessions** | Personal account or `github-actions[bot]` | Local AO spawn | Manual or cron |
-| **Dark-factory daemon** (added 2026-07-23) | Personal account (e.g. `jleechan2015`, `author_association=MEMBER`) | Local launchd (`~/projects/dark-factory`) | Slow tier (every `slow_tick_secs` ≈ 30s) |
 
-### Dark-factory daemon — the comment-storm source (added 2026-07-23, bead $USER-rouf)
+### Operator-PAT daemon in a feedback loop — the comment-storm source (added 2026-07-23, bead $USER-rouf)
 
-**The `dark-factory` daemon** (in `~/projects/dark-factory`, launched via the
-`auto-factory` binary) is its own source of PR comments that doesn't fit cleanly
-into the launchd-vs-GHA-Workflows table. It posts via the `gh` CLI using the
-operator's PAT, so comments appear under the operator's GitHub username with
-`author_association=MEMBER` — they look like the operator typed them.
-
-**Body shape:** every dark-factory comment starts with one of:
-- `🤖 [dark-factory]` (escalation/verdict comments) — e.g. `🤖 [dark-factory] Escalation required: refusing factory PR adoption`
-- `🤖 [dark-factory /er]` (evidence review verdicts)
-- `🤖 [dark-factory]` (Bead-outcome telemetry comments)
+A local daemon that posts through the `gh` CLI with the operator's PAT is its
+own source of PR comments: its comments appear under the operator's username
+with `author_association=MEMBER`, so they look like the operator typed them.
 
 **Why this matters for spam diagnosis:** if a PR has 2,500+ comments that all
-share the same body prefix from one operator account, it's the dark-factory
-daemon in a feedback loop — NOT a hostile bot, NOT a leaked PAT, NOT CodeRabbit
-spam. The fix lives in `~/projects/dark-factory/daemon/src/tick.rs` (the
-escalation_dedup_should_emit block around line 1377-1424), not in GitHub App
-settings, not in launchd.
-
-**Disabling dark-factory comment spam (upstream fix, do NOT just kill the daemon):**
+share the same body prefix from one operator account, a daemon feedback loop is
+one hypothesis to check, not a confirmed attribution. The account and body
+pattern alone do not rule out a leaked PAT or another source. Verify that this
+daemon emitted the comments from its logs or process evidence before changing
+its dedup logic; if attribution is unavailable, keep credential-compromise
+triage in scope. Once attribution confirms this daemon, the fix is in its dedup
+logic, not in GitHub App settings or launchd.
 
 1. Find the loop — pull recent comments and group by body prefix:
    ```bash
    gh api "repos/$REPO/issues/comments?per_page=100&since=$(date -u -v-32H '+%Y-%m-%dT%H:%M:%SZ')&direction=desc&sort=updated" \
      | jq 'group_by(.user.login) | map({user: .[0].user.login, n: length, sample: (.[0].body // "")[0:120]}) | sort_by(-.n) | .[:5]'
    ```
-2. If 99% of comments share a `🤖 [dark-factory]` body prefix from one user, **the
-   daemon is in a feedback loop, not "spamming"** — killing the daemon loses all
-   the legitimate automation work.
-3. Read `daemon/src/tick.rs` around the failing block and check the dedup table:
-   `escalation_ledger(bead_id, reason)` keys on `bead_id` which is FRESH EVERY
-   SLOW TICK. The fix is to re-key on the stable identifier (branch, PR number,
-   etc.) that persists across the loop iterations.
-4. Verify the fix with unit tests that exercise the dedup contract against
-   `SqliteStateStore` (not the trait default). Pattern: 4 tests covering happy
-   path + regression-class pin + re-key correctness + cross-key isolation.
-
-**Reference:** verified fix in jleechanorg/dark-factory PR #470 (1 commit, 1 file,
-+164/-9, 4 new unit tests, all 399 lib tests green).
+2. If 99% of comments share one body prefix from one user, find the daemon that
+   emits that prefix before deciding whether to stop it.
+3. Check its dedup key: a key drawn from a per-tick object (a fresh bead or
+   session id) never matches. Re-key on a stable identifier (branch, PR number,
+   commit SHA) and run the dedup check before the comment is posted.
+4. Verify the fix with unit tests against the real state store: happy path,
+   regression pin, re-key correctness, cross-key isolation.
 
 ## Debugging Steps
 
@@ -204,7 +190,7 @@ If you want skeptic-cron to keep running (for 7-green checks) but stop posting t
 5. **Comment timestamp vs log timestamp**: PR comment timestamps are UTC. Local log timestamps are usually local time (PDT/PST). Subtract 7 hours to compare.
 6. **PAT comments look like user comments**: Comments posted by a local script using a personal access token appear under the user's GitHub username, NOT under a bot account. The only way to distinguish is timing correlation with local logs. Match `✅ Posted Codex support comment on PR #N` in `pr-monitor.err.log` to the `[AI automation]` comment on GitHub.
 7. **Hostname collision in launchd**: The 7-green monitor has TWO identical plist agents: `ai.hermes.schedule.pr-monitor-worldai` (Hermes) and `ai.hermes.schedule.pr-monitor-worldai` (Hermes). Both run `ao7green-pr-monitor.sh` and both are read-only (do NOT post comments). Don't disable these when trying to stop comment spam — they only check PR status.
-8. **Dark-factory `🤖 [dark-factory]` comments are not user spam** (added 2026-07-23, bead $USER-rouf). If a PR has 2,000+ comments from the operator account (`author_association=MEMBER`) all sharing a `🤖 [dark-factory]` body prefix, the dark-factory daemon is in a feedback loop — the operator did NOT actually type 2,000 comments. Disabling launchd, rotating the PAT, or revoking the GitHub App are the WRONG fixes. The fix lives in `~/projects/dark-factory/daemon/src/tick.rs` — specifically the `escalation_dedup_should_emit` block, which has been (a) posting the comment BEFORE the dedup check ran, AND (b) keying dedup on `bead_id` (fresh every slow tick) instead of the stable identifier (branch, PR number, etc.). Reference: jleechanorg/dark-factory PR #470.
+8. **Same-prefix operator-account comment floods are not user spam** (added 2026-07-23, bead $USER-rouf). If a PR has 2,000+ comments from the operator account (`author_association=MEMBER`) all sharing one body prefix, a PAT-driven daemon is in a feedback loop — the operator did NOT actually type 2,000 comments. Rotating the PAT or revoking the GitHub App are the WRONG fixes. Fix the daemon's dedup: post only after the dedup check, and key it on a stable identifier (branch, PR number), not a per-tick id.
 
 ## Quick Reference: jleechanorg PR Automation Stack
 
@@ -216,7 +202,6 @@ If you want skeptic-cron to keep running (for 7-green checks) but stop posting t
 | Skeptic Cron Reusable | `agent-orchestrator/.github/workflows/skeptic-cron-reusable.yml` | Comment + verdict logic | GitHub Actions (reusable) |
 | Codex Connected App | `chatgpt-codex-connector[bot]` | Responds to triggers | External (OpenAI) |
 | CodeRabbit | `coderabbitai[bot]` | Responds to `@coderabbitai` | External (CodeRabbit) |
-| Dark-factory daemon | (no label — run as `auto-factory` binary) | `🤖 [dark-factory]` escalation + verdict comments | `~/projects/dark-factory/daemon/`, slow tier every `slow_tick_secs` |
 
 ## References
 

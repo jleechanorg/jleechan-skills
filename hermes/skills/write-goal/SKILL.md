@@ -200,7 +200,7 @@ At the end, the agent's final reply MUST contain (finish-the-job Phase 4):
 ## Hand-off
 - Goal file written to: `.converge/goal.md` (this file)
 - To execute: `/h` (run /goal_harness against this goal) — or `/a` for hands-off single-task drive — or `ao spawn` via dispatch-task for raw worker dispatch
-- This goal spec is consumable by finish-the-job, goal_harness, and dark-factory — all three read `.converge/goal.md`
+- This goal spec is consumable by finish-the-job and goal_harness — both read `.converge/goal.md`
 ```
 
 ### Phase 5 — Quality scaffold the spec (mandatory self-check)

@@ -103,5 +103,4 @@ If the previously-failing matrix leg now shows `success`, the recovery succeeded
 
 - `~/.hermes/skills/gh-actions-slow-runs/SKILL.md` — the umbrella skill. **P7** explicitly documents the "silent step-2 abort = self-hosted runner OOM/disconnect" pattern this recipe recovers from. P6 covers why `gh run cancel` is a band-aid.
 - `~/.hermes/skills/workflow/drive-pr-to-green/SKILL.md` — the drive-to-green flow that this recipe slots into (post-merge, post-evidence-sync, mid-drive).
-- `~/.hermes/skills/devops/babysit-ao-pr-loop/SKILL.md` — babysit cron pattern for waiting on the recovery's effect without burning token budget on polling.
 - `incident-proposal-current-evidence-gate` SOUL.md COMMIT — the rule that fires on "failure recurs on same commit for >1 GH Actions run" (= open a `br create` bead). This recipe is the IMPLEMENTATION of that rule.

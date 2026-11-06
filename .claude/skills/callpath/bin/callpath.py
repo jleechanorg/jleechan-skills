@@ -142,7 +142,7 @@ def main() -> int:
     sub.add_parser("list", help="List registered profiles")
 
     run_p = sub.add_parser("run", help="Run a saved profile probe")
-    run_p.add_argument("profile", help="Profile name (e.g. dark-factory)")
+    run_p.add_argument("profile", help="Profile name (see `callpath list`)")
     run_p.add_argument("args", nargs=argparse.REMAINDER, help="Profile-specific flags")
 
     tr = sub.add_parser("trace", help="Ad-hoc hop trace")

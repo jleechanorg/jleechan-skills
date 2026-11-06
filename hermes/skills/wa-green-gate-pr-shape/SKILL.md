@@ -68,8 +68,8 @@ triggers:
   - "merge approved if green"
   - "three-way approval conditional"
   - "default-deny on missing verdicts"
-  - "dark-factory /er verdict"
-  - "dark-factory /advice verdict"
+  - "/er verdict"
+  - "/advice verdict"
   - "/er FAIL"
   - "/er PASS"
   - "no /er comment"
@@ -824,32 +824,29 @@ ao spawn --project <project> --claim-pr <M> --no-takeover --harness agy --prompt
 | Signal | What it is | Where to find it | Pass pattern |
 |---|---|---|---|
 | `/green` | 7-green gate (7 conditions in SOUL.md) | `gh pr view <N> --json statusCheckRollup` + reviews + comments | All 7 conditions green, no failing check, last CodeRabbit state = `APPROVED`, no unresolved CR comments, evidence-review-bot PASS, github-actions[bot] `VERDICT: PASS` |
-| `/er` | dark-factory evidence-review verdict | PR comments, posted by `jleechan2015` as a comment starting `🤖 **[dark-factory /er]**` | Body contains `Evidence review verdict: /er PASS` (or `/er FAIL <reason>` when failing) |
-| `/advice` | dark-factory docs-accuracy second-opinion | PR comments, posted by `jleechan2015` as a comment starting `🤖 **[dark-factory /advice]**` (or similar marker) | Body contains explicit "approve"/"LGTM" signal from dark-factory — note: when no advice comment exists yet, `/advice` is **not approved** (default-deny) |
+| `/er` | evidence-review verdict | PR body Review Gate Ledger and linked review receipt | A recorded `PASS` for the reviewed SHA, with canonical lifecycle applicability to this head |
+| `/advice` | independent source-review votes | PR body Review Gate Ledger and linked source-review receipts | All required independent approvals are recorded with reviewed SHAs and applicability to this head |
 
 **Critical pitfalls:**
 
-1. **`/er` and `/advice` are NOT user-invocable Hermes slash commands** in the way `/simplify` or `/er` (if it exists as a skill) would be. They are **dark-factory auto-posted PR comments** that the user invokes separately (likely via the dark-factory skill or `/dark-factory /er <PR>`). When the user says "/er and /advice approved", they mean: *look up those comments on the PR — if both are present and both say PASS, the conditional is met*. If either is missing or says FAIL, the conditional is NOT met, regardless of what `/green` says.
+1. **`/er` and `/advice` approvals are not generic comment-text signals.** Read the current PR body's Review Gate Ledger and linked receipts; verify review type and phase, exact reviewed SHA, reviewer and coverage, verdict, and applicability to the candidate head. A comment that merely mentions `/er`, `/advice`, "approve" or "LGTM" is not approval.
 
-2. **Default-deny on missing verdicts.** A PR with no `/er` comment at all is `/er: NOT APPROVED` (not "neutral", not "pending"). A PR with no `/advice` comment is `/advice: NOT APPROVED`. Don't merge on absence of verdict; the user is asking you to verify the verdict exists.
+2. **Default-deny on missing verdicts.** A missing, failed, pending, withheld, incomplete, or inapplicable Review Gate Ledger record does not satisfy `/er` or `/advice`. Don't merge on an absent or unverified review receipt, regardless of what `/green` says.
 
 3. **Green Gate (aggregator) ≠ underlying CI.** Green Gate Precheck can report `SUCCESS` while `Directory tests (core-mvp-2(self hosted))` is `FAILURE`. The aggregator is a *summary* — verify the underlying check-runs (`gh api repos/.../commits/<sha>/check-runs`) directly. Look for the latest run of each named check, NOT the aggregator's conclusion.
 
 4. **CodeRabbit state in 7-green is `APPROVED` of latest, not historical.** If CodeRabbit said APPROVED on commit 1, CHANGES_REQUESTED on commit 2, then COMMENTED on commit 3 (e.g. rate-limit summary), the *latest* state is COMMENTED — NOT APPROVED. The 7-green gate is fail-closed here.
 
-**Verdict-lookup recipes (zero-LLM, run before claiming "/er approved"):**
+**Verdict lookup (zero-LLM, run before claiming a review is approved):**
 
 ```bash
-# /er verdict on PR #N
-gh api repos/$GITHUB_REPOSITORY/issues/<N>/comments --jq \
-  '[.[] | select(.body | test("/er ")) | {user: .user.login, created_at, body}] | .[-1]'
-# Expect body to match: /er PASS  OR  /er FAIL <reason>
-# If empty array: /er was never run on this PR → not approved.
+gh pr view <N> --json body --jq .body
+```
 
-# /advice verdict on PR #N
-gh api repos/$GITHUB_REPOSITORY/issues/<N>/comments --jq \
-  '[.[] | select(.body | test("dark-factory.*advice|/advice ")) | {user: .user.login, created_at, body}] | .[-1]'
-# If empty: /advice was never run → not approved.
+Read the `/er` and `/advice` entries in the Review Gate Ledger and open their
+linked receipts. Confirm each receipt's verdict, reviewer and coverage, exact
+reviewed SHA, and the lifecycle's current-head applicability. Do not infer a
+verdict from the latest comment containing `/er` or `/advice`.
 
 # Underlying CI checks (the truth under Green Gate aggregator)
 gh api repos/$GITHUB_REPOSITORY/commits/<head_sha>/check-runs --jq \

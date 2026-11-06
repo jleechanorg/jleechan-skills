@@ -16,7 +16,7 @@ changelog:
 
 The `patch` tool uses **fuzzy matching** across the file's CURRENT text, not against what you read. If you read a file with `read_file(path, offset=1, limit=100)` to confirm a section before patching, then make 3 sequential patches, the file's current text on disk has CHANGED between calls. The tool tracks the disk version, not your mental model.
 
-**The actual failure mode (verified 2026-07-09, dark-factory /af wiring):**
+**The actual failure mode (verified 2026-07-09):**
 
 1. `read_file("factory-ao-remediate.sh", offset=1, limit=120)` → returns lines 1-120
 2. `patch(old_string="PROMPT=\"...\"", new_string="# Pull bead body...\n...large 40-line block...\nPROMPT=\"/goal\n...\n${BEAD_DESC}\"")` → ✅ inserts 40 lines

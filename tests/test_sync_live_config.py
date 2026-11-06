@@ -4,6 +4,8 @@ substring over-match), plus core evidence/mapping logic."""
 
 import shlex
 import subprocess
+import sys
+import tarfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -14,11 +16,14 @@ from scripts.sync_live_config import (
     RS,
     FileEvidence,
     _SYMLINK_GUARD_FN,
+    _apply_remote_repo_to_live,
     _validate_host,
     evidence_remote,
     find_command_files_for_skill,
     live_abs_for,
     live_rel_for,
+    last_commit,
+    prime_last_commit_cache,
     repo_abs_for,
     scope_live_roots,
     sha256_of,
@@ -75,6 +80,22 @@ class LiveRelForTest(unittest.TestCase):
 class ContainmentTest(unittest.TestCase):
     """The core fix for the path-escape finding: resolved paths must stay
     within the intended root even after a symlink or '..' is involved."""
+
+    def _commit_paths(self, root: Path, *paths: str) -> None:
+        subprocess.run(["git", "init"], cwd=root, capture_output=True, check=True)
+        subprocess.run(["git", "config", "user.name", "Probe"], cwd=root, check=True)
+        subprocess.run(
+            ["git", "config", "user.email", "probe@example.invalid"],
+            cwd=root,
+            check=True,
+        )
+        subprocess.run(["git", "add", "--", *paths], cwd=root, check=True)
+        subprocess.run(
+            ["git", "commit", "-m", "symlink fixture"],
+            cwd=root,
+            capture_output=True,
+            check=True,
+        )
 
     def test_live_abs_for_stays_within_home(self, ):
         import tempfile
@@ -140,6 +161,145 @@ class ContainmentTest(unittest.TestCase):
             (root / ".claude" / "commands" / "foo.md").symlink_to(sensitive)
             with self.assertRaises(ValueError):
                 repo_abs_for(root, ".claude/commands/foo.md")
+
+    def test_repo_abs_for_rejects_tracked_symlink_to_outside_mapped_roots(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as root_dir:
+            root = Path(root_dir)
+            (root / ".claude" / "commands").mkdir(parents=True)
+            sensitive = root / "other_top_level" / "secret.md"
+            sensitive.parent.mkdir()
+            sensitive.write_text("secret")
+            (root / ".claude" / "commands" / "foo.md").symlink_to(sensitive)
+            self._commit_paths(root, ".claude/commands/foo.md")
+
+            with self.assertRaises(ValueError):
+                repo_abs_for(root, ".claude/commands/foo.md")
+
+    def test_repo_abs_for_allows_tracked_symlink_within_mapped_root(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as root_dir:
+            root = Path(root_dir)
+            commands = root / ".claude" / "commands"
+            commands.mkdir(parents=True)
+            target = commands / "target.md"
+            target.write_text("internal fixture")
+            link = commands / "alias.md"
+            link.symlink_to(target)
+            self._commit_paths(
+                root, ".claude/commands/alias.md", ".claude/commands/target.md"
+            )
+
+            self.assertEqual(repo_abs_for(root, ".claude/commands/alias.md"), link)
+
+    def test_repo_abs_for_allows_tracked_hermes_link_to_claude_skill(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as root_dir:
+            root = Path(root_dir)
+            target = root / ".claude" / "skills" / "foo" / "SKILL.md"
+            target.parent.mkdir(parents=True)
+            target.write_text("canonical skill fixture")
+            link = root / "hermes" / "skills" / "foo" / "SKILL.md"
+            link.parent.mkdir(parents=True)
+            link.symlink_to(target)
+            self._commit_paths(root, "hermes/skills/foo/SKILL.md")
+
+            self.assertEqual(repo_abs_for(root, "hermes/skills/foo/SKILL.md"), link)
+
+    def test_repo_abs_for_rejects_tracked_link_to_other_mapped_root(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as root_dir:
+            root = Path(root_dir)
+            commands = root / ".claude" / "commands"
+            hooks = root / ".codex" / "hooks"
+            commands.mkdir(parents=True)
+            hooks.mkdir(parents=True)
+            target = hooks / "target.py"
+            target.write_text("hook fixture")
+            (commands / "foo.md").symlink_to(target)
+            self._commit_paths(root, ".claude/commands/foo.md", ".codex/hooks/target.py")
+
+            with self.assertRaises(ValueError):
+                repo_abs_for(root, ".claude/commands/foo.md")
+
+    def test_repo_abs_for_rejects_cross_root_parent_symlink(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as root_dir:
+            root = Path(root_dir)
+            claude_root = root / ".claude"
+            codex_hooks = root / ".codex" / "hooks"
+            claude_root.mkdir()
+            codex_hooks.mkdir(parents=True)
+            target = codex_hooks / "target.py"
+            target.write_text("hook fixture")
+            (claude_root / "commands").symlink_to(
+                codex_hooks, target_is_directory=True
+            )
+
+            with self.assertRaises(ValueError):
+                repo_abs_for(root, ".claude/commands/target.py")
+
+
+    def test_repo_abs_for_rejects_untracked_hermes_parent_link(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as root_dir:
+            root = Path(root_dir)
+            target = root / ".claude" / "skills" / "foo" / "SKILL.md"
+            target.parent.mkdir(parents=True)
+            target.write_text("canonical skill fixture")
+            link = root / "hermes" / "skills" / "foo"
+            link.parent.mkdir(parents=True)
+            link.symlink_to(target.parent, target_is_directory=True)
+            self._commit_paths(root, ".claude/skills/foo/SKILL.md")
+
+            with self.assertRaises(ValueError):
+                repo_abs_for(root, "hermes/skills/foo/SKILL.md")
+
+
+    def test_repo_abs_for_rejects_tracked_hermes_alias_to_external_canonical_target(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as root_dir, tempfile.TemporaryDirectory() as outside_dir:
+            root = Path(root_dir)
+            outside = Path(outside_dir) / "outside.md"
+            outside.write_text("owned external fixture")
+            canonical = root / ".claude" / "skills" / "foo" / "SKILL.md"
+            canonical.parent.mkdir(parents=True)
+            canonical.symlink_to(outside)
+            alias = root / "hermes" / "skills" / "foo" / "SKILL.md"
+            alias.parent.mkdir(parents=True)
+            alias.symlink_to("../../../.claude/skills/foo/SKILL.md")
+            self._commit_paths(
+                root,
+                ".claude/skills/foo/SKILL.md",
+                "hermes/skills/foo/SKILL.md",
+            )
+
+            staged = subprocess.run(
+                [
+                    "git",
+                    "ls-files",
+                    "--stage",
+                    "--",
+                    ".claude/skills/foo/SKILL.md",
+                    "hermes/skills/foo/SKILL.md",
+                ],
+                cwd=root,
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.splitlines()
+            self.assertEqual(len(staged), 2)
+            self.assertTrue(all(line.startswith("120000 ") for line in staged))
+
+            with self.assertRaises(ValueError):
+                repo_abs_for(root, "hermes/skills/foo/SKILL.md")
 
 
 class FindCommandFilesForSkillTest(unittest.TestCase):
@@ -207,6 +367,63 @@ class Sha256Test(unittest.TestCase):
             path.unlink()
 
 
+class PrimeLastCommitCacheTest(unittest.TestCase):
+    def test_regression_pr711_commit_metadata_cache_preserves_field_alignment(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as root_dir:
+            root = Path(root_dir)
+            subprocess.run(["git", "init"], cwd=root, capture_output=True, check=True)
+            subprocess.run(["git", "config", "user.name", "Probe"], cwd=root, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "probe@example.invalid"],
+                cwd=root,
+                check=True,
+            )
+            (root / "tracked.md").write_text("fixture\n", encoding="utf-8")
+            subprocess.run(["git", "add", "tracked.md"], cwd=root, check=True)
+            subprocess.run(
+                ["git", "commit", "-m", "known probe commit"],
+                cwd=root,
+                capture_output=True,
+                check=True,
+            )
+            expected_raw = subprocess.run(
+                [
+                    "git",
+                    "log",
+                    "-1",
+                    "--format=%H%x1f%aI%x1f%an%x1f%s",
+                    "--",
+                    "tracked.md",
+                ],
+                cwd=root,
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            sha, date, author, subject = expected_raw.split("\x1f", 3)
+
+            with patch(
+                "scripts.sync_live_config.subprocess.run",
+                wraps=subprocess.run,
+            ) as run:
+                prime_last_commit_cache(root, ["tracked.md"])
+                actual = last_commit(root, "tracked.md")
+
+            self.assertEqual(run.call_count, 1)
+            self.assertEqual(run.call_args.args[0][-2:], ["--", "tracked.md"])
+            self.assertEqual(
+                actual,
+                {
+                    "sha": sha[:12],
+                    "date": date,
+                    "author": author,
+                    "subject": subject,
+                },
+            )
+
+
 class UnifiedDiffTextTest(unittest.TestCase):
     def test_identical_text_returns_none(self):
         self.assertIsNone(unified_diff_text("same\n", "same\n", "a", "b"))
@@ -221,6 +438,197 @@ class FileEvidenceStatusTest(unittest.TestCase):
     def test_status_values_are_the_documented_set(self):
         ev = FileEvidence(repo_rel="x", live_rel="y", status="live_only")
         self.assertIn(ev.status, ("new", "modified", "ok", "live_only"))
+
+
+class ApplyDryRunOutputTest(unittest.TestCase):
+    def test_reports_full_hashes_and_preserves_fixture_targets(self):
+        import tempfile
+
+        root = Path(__file__).resolve().parents[1]
+        script = root / "scripts" / "sync_live_config.py"
+        create_path = ".claude/commands/.ruff.toml"
+        same_path = ".claude/skills/sync-live-config/SKILL.md"
+        overwrite_path = ".claude/commands/advice.md"
+
+        with tempfile.TemporaryDirectory() as home_dir:
+            home = Path(home_dir)
+            create_dest = home / create_path
+            same_dest = home / same_path
+            overwrite_dest = home / overwrite_path
+            same_dest.parent.mkdir(parents=True)
+            overwrite_dest.parent.mkdir(parents=True)
+            same_source = root / same_path
+            same_dest.write_bytes(same_source.read_bytes())
+            overwrite_dest.write_text("old fixture", encoding="utf-8")
+            same_before = (sha256_of(same_dest), same_dest.stat().st_mtime_ns)
+            overwrite_before = (
+                sha256_of(overwrite_dest),
+                overwrite_dest.stat().st_mtime_ns,
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "apply",
+                    "--direction",
+                    "repo-to-live",
+                    "--paths",
+                    create_path,
+                    same_path,
+                    overwrite_path,
+                    "--dry-run",
+                    "--home",
+                    str(home),
+                ],
+                cwd=root,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(f"CREATE {create_path}", result.stdout)
+            self.assertIn(
+                f"src={sha256_of(root / create_path)} dst=missing",
+                result.stdout,
+            )
+            self.assertIn(f"SAME   {same_path}", result.stdout)
+            self.assertIn(f"{same_source} -> {same_dest}", result.stdout)
+            same_hash = sha256_of(same_source)
+            self.assertIn(f"src={same_hash} dst={same_hash}", result.stdout)
+            self.assertIn(f"OVERWRITE {overwrite_path}", result.stdout)
+            self.assertIn(
+                f"src={sha256_of(root / overwrite_path)} "
+                f"dst={overwrite_before[0]}",
+                result.stdout,
+            )
+            self.assertFalse(create_dest.exists())
+            self.assertEqual(
+                (sha256_of(same_dest), same_dest.stat().st_mtime_ns),
+                same_before,
+            )
+            self.assertEqual(
+                (sha256_of(overwrite_dest), overwrite_dest.stat().st_mtime_ns),
+                overwrite_before,
+            )
+
+
+    def test_reports_effective_destination_when_target_is_directory(self):
+        import tempfile
+
+        root = Path(__file__).resolve().parents[1]
+        script = root / "scripts" / "sync_live_config.py"
+        repo_rel = ".claude/commands/advice.md"
+        source = root / repo_rel
+
+        with tempfile.TemporaryDirectory() as home_dir:
+            home = Path(home_dir)
+            destination_dir = home / repo_rel
+            destination_dir.mkdir(parents=True)
+            effective_destination = destination_dir / source.name
+            effective_destination.write_text("directory target fixture")
+            before = (
+                sha256_of(effective_destination),
+                effective_destination.stat().st_mtime_ns,
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "apply",
+                    "--direction",
+                    "repo-to-live",
+                    "--paths",
+                    repo_rel,
+                    "--dry-run",
+                    "--home",
+                    str(home),
+                ],
+                cwd=root,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(f"OVERWRITE {repo_rel}", result.stdout)
+            self.assertIn(f"{source}\n      -> {effective_destination}", result.stdout)
+            self.assertIn(
+                f"src={sha256_of(source)} dst={before[0]}",
+                result.stdout,
+            )
+            self.assertEqual(
+                (
+                    sha256_of(effective_destination),
+                    effective_destination.stat().st_mtime_ns,
+                ),
+                before,
+            )
+
+
+class RemoteApplyArchiveTest(unittest.TestCase):
+    def test_archives_tracked_hermes_link_contents_under_requested_path(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as root_dir:
+            root = Path(root_dir)
+            repo_rel = "hermes/skills/foo/SKILL.md"
+            target = root / ".claude" / "skills" / "foo" / "SKILL.md"
+            target.parent.mkdir(parents=True)
+            payload = b"canonical skill fixture\n"
+            target.write_bytes(payload)
+            link = root / repo_rel
+            link.parent.mkdir(parents=True)
+            link.symlink_to(target)
+            subprocess.run(["git", "init"], cwd=root, capture_output=True, check=True)
+            subprocess.run(["git", "config", "user.name", "Probe"], cwd=root, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "probe@example.invalid"],
+                cwd=root,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "add", "--", repo_rel, ".claude/skills/foo/SKILL.md"],
+                cwd=root,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "commit", "-m", "remote tar fixture"],
+                cwd=root,
+                capture_output=True,
+                check=True,
+            )
+            captured = {}
+            real_run = subprocess.run
+
+            def fake_run(cmd, *args, **kwargs):
+                if cmd[0] == "scp":
+                    with tarfile.open(cmd[3], "r:gz") as archive:
+                        member = archive.getmember(repo_rel)
+                        captured["regular_file"] = member.isfile()
+                        stream = archive.extractfile(member) if member.isfile() else None
+                        captured["payload"] = stream.read() if stream is not None else None
+                    return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+                if cmd[0] == "ssh":
+                    return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+                return real_run(cmd, *args, **kwargs)
+
+            with (
+                patch(
+                    "scripts.sync_live_config._remote_home",
+                    return_value="/remote/home",
+                ),
+                patch(
+                    "scripts.sync_live_config.subprocess.run",
+                    side_effect=fake_run,
+                ),
+            ):
+                _apply_remote_repo_to_live(root, [repo_rel], "fixture-host")
+
+            self.assertTrue(captured["regular_file"])
+            self.assertEqual(captured["payload"], payload)
 
 
 class EvidenceRemoteTest(unittest.TestCase):

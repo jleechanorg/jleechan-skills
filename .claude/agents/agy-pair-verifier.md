@@ -115,6 +115,7 @@ PROMPT_EOF
 # Run this Bash tool call with `run_in_background: true`; the shell launch must
 # also background AGY so the verifier's main thread remains available.
 agy --dangerously-skip-permissions \
+    --model gemini-3.8-flash-high \
     --new-project \
     --print-timeout 20m \
     --print "$(cat "$PROMPT_FILE")" > "$AGY_OUT" 2>&1 &

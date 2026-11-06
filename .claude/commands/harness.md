@@ -1,5 +1,5 @@
 ---
-description: Analyze failures and fix the harness (instructions, skills, tests, CI) rather than just the symptom
+description: Analyze failures, fix the harness when authorized, and close once with lean nextsteps
 type: skill
 execution_mode: immediate
 ---

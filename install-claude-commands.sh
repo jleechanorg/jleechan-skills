@@ -268,7 +268,11 @@ install_portable() {
         return 1
     fi
     python3 "$PLUGIN_SRC_DIR/scripts/verify_portable_skills.py" "$PLUGIN_SRC_DIR/portable"
-    CLAUDE_HOME="$(strip_trailing_slashes "$(python3 "$PLUGIN_SRC_DIR/scripts/verify_portable_skills.py" --target "${PORTABLE_HOME:-}" --canonical-home "$canonical_home")")"
+    # Separate assignment: a nested $(...) would mask the verifier's exit status,
+    # leaving CLAUDE_HOME empty and staging the backup in the current directory.
+    local checked_target
+    checked_target="$(python3 "$PLUGIN_SRC_DIR/scripts/verify_portable_skills.py" --target "${PORTABLE_HOME:-}" --canonical-home "$canonical_home")"
+    CLAUDE_HOME="$(strip_trailing_slashes "$checked_target")"
     INSTALL_ROOT="$CLAUDE_HOME"
     prepare_target
     install_component "$PLUGIN_SRC_DIR/portable/skills" "$INSTALL_ROOT/skills" "skills"

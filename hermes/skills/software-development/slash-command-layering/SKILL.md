@@ -1,6 +1,6 @@
 ---
 name: slash-command-layering
-description: "Use when designing, refactoring, or auditing Claude/Codex slash commands under `~/.claude/commands/*.md` or repo-local `.claude/commands/*.md`. Covers the project-agnostic (user-scope) vs repo-specific (repo-local) split, the bidirectional-pointer contract, the `> Worldai-only command` / `> Repo-local pointer` banner conventions, the audit pattern for finding repo-specific content embedded inside otherwise-generic commands (hardcoded paths, filter lists, single-repo example scopes), and the gotchas (symlinks to dark-factory, reciprocal-pointer requirement, mirror-on-update rule, missing-command probe-before-block). Triggers on 'make /X project agnostic', 'split this command into user-scope and repo-local', 'this command is too worldarchitect-specific', 'I want /X to work in any repo', 'audit ~/.claude/commands for repo-specific logic', 'add a bidirectional pointer', or when the user invokes a slash command that does not exist in the current runtime."
+description: "Use when designing, refactoring, or auditing Claude/Codex slash commands under `~/.claude/commands/*.md` or repo-local `.claude/commands/*.md`. Covers the project-agnostic (user-scope) vs repo-specific (repo-local) split, the bidirectional-pointer contract, the `> Worldai-only command` / `> Repo-local pointer` banner conventions, the audit pattern for finding repo-specific content embedded inside otherwise-generic commands (hardcoded paths, filter lists, single-repo example scopes), and the gotchas (symlinks to sibling repos, reciprocal-pointer requirement, mirror-on-update rule, missing-command probe-before-block). Triggers on 'make /X project agnostic', 'split this command into user-scope and repo-local', 'this command is too worldarchitect-specific', 'I want /X to work in any repo', 'audit ~/.claude/commands for repo-specific logic', 'add a bidirectional pointer', or when the user invokes a slash command that does not exist in the current runtime."
 changelog:
   - "1.1.2 (2026-07-30): Gotcha #6 patch — Codex canonical skill root is `~/.agents/skills/`, not `~/.codex/skills/` (the latter was archived 2026-06-13). Symlink `ln -s ~/.claude/skills/<name> ~/.agents/skills/<name>` is the preferred Codex-native pattern; pointer-only fallback is functional but indirect. Added Gotcha #8 — Hermes `SOUL.md` redundancy carve-out: cross-runtime invariants get 4 runtime pointers only, not a 5th SOUL.md copy; SOUL.md pointers are reserved for Hermes-specific behavior (`## COMMIT:` blocks, launchd, Slack-routing)."
   - "1.1.1 (2026-07-20): Corrected Gotcha #7 — `/superpowers-brainstorm` DOES exist at `~/.claude/commands/superpowers-brainstorm.md` (326 B, wraps `superpowers:brainstorming` skill). The prior 1.1.0 'verified case' claiming 'No such slash command exists' was the wrong answer the user corrected in C0AH3RY3DK6/1784584779 reply 'Read the slash commands that one definitely exists'. Now documents: (a) the required grep recipe before claiming a slash cmd is absent, (b) the slash-command-vs-skill distinction (wrapper file = instructions to invoke the skill, follow the SKILL not the wrapper), (c) the brainstorming skill pitfalls (HARD-GATE no-implement-before-design, one-Q-at-a-time rule violated by multi-option A/B/C dumps, `/super` override only)."
@@ -132,7 +132,7 @@ Two-line minimum:
 
 For repo-local commands that exist only to expose the user-scope canonical
 in the repo's command surface. Examples: `your-project.com/.claude/commands/investigatedice.md`,
-`auto-factory.md`, `gene.md`. YAML frontmatter + 2-3 line body:
+`gene.md`. YAML frontmatter + 2-3 line body:
 
 ```markdown
 > **Repo-local pointer.** This file exists so the <repo>'s command surface
@@ -200,16 +200,15 @@ other commands also have repo-specific content as a follow-up finding.
 ## Gotchas
 
 1. **Symlinks can rewrite the wrong file.** Commands like
-   `~/.claude/commands/auto-factory.md` and `~/.claude/commands/af.md`
-   are often symlinks to sibling repos (e.g.
-   `~/projects/dark-factory/.claude/commands/<name>.md`). When the `patch`
+   `~/.claude/commands/<name>.md` are often symlinks to sibling repos
+   (e.g. `~/projects/<sibling-repo>/.claude/commands/<name>.md`). When the `patch`
    tool writes via the symlink path, it writes to the sibling repo, not
    the user-scope file. Always check `ls -la` and `readlink` before
    editing; resolve the symlink explicitly if you want the user-scope
    file to be the edited target. (`dev/er.md` had this exact failure
    mode in the original session — fixing the symlink-target edited the
-   dark-factory copy, which was correct because the dark-factory repo is
-   the canonical home, but not obvious without `readlink`.)
+   sibling repo's copy, which was correct because that repo was the
+   canonical home, but not obvious without `readlink`.)
 
 2. **Marker-name preservation.** Repo-local commands with revision
    markers (`WORLDARCHITECT_CODE_STANDARDS_COMMAND_V1`) MUST keep the
@@ -374,7 +373,7 @@ other commands also have repo-specific content as a follow-up finding.
 
 See `references/code-standards-bidirectional-contract-2026-07-15.md` for
 the verbatim contract, lane attribution table, audit-bucket results
-(A/B/C), the auto-factory symlink gotcha, and the list of reciprocal
+(A/B/C), the sibling-repo symlink gotcha, and the list of reciprocal
 pointers created in the same session that spawned this skill. Use it as
 a copy-paste template for other layered slash-command pairs.
 

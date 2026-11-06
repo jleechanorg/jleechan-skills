@@ -15,7 +15,7 @@ callpath list
 callpath run <profile> $ARGUMENTS
 ```
 
-Run saved probes; interpret stdout. Example: `callpath run dark-factory --prs 8058,8060`.
+Run saved probes; interpret stdout. Example: `callpath run <profile> --prs 1234,1235`.
 
 ### 2. No matching profile → **fresh investigation** (mandatory)
 

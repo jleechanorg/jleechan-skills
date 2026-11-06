@@ -1013,7 +1013,7 @@ fundamentally diverge on user intent — auto-deciding is wrong.
   three sibling PRs (#8537 450K, #8555 400K, #8556 350K-replay), the dispatch time
   window, the `mergeable_state: dirty` even-when-CI-green signal, and the three-option
   decision matrix. (Authored after skill update.)
-- `babysit-ao-pr-loop` §"Phase 1 — Observe" — the babysit should treat `mergeable_state:
+- PR babysit loops — the babysit should treat `mergeable_state:
   dirty` + `check-rollup.status: success` as a **stale-target signal**, not a CI failure.
   Post the three-option question to the originating thread; do NOT auto-nudge the worker.
 - `dispatch-task` §"Pre-compute target-vs-main check" — the durable fix at dispatch time.
@@ -1059,7 +1059,7 @@ fundamentally diverge on user intent — auto-deciding is wrong.
   the replay target is semantically stale. The fix is NOT a force-push replay; the fix is a
   user re-decision (rebase+retarget to 400K / keep 350K / re-raise). The dispatcher must
   surface the three-option question; do NOT auto-decide. Companion: pre-dispatch target-vs-main
-  check (in `dispatch-task`), mid-run main-advance check (in `babysit-ao-pr-loop` Phase 1),
+  check (in `dispatch-task`), mid-run main-advance check (in the PR babysit loop),
   and sibling-PR-time-window-narrowed query (in `references/stale-replay-target-detection-2026-07-24.md`).
 - **1.4.0 (2026-07-23):** Add Phase 3.7 — Value retune of an open PR (clean replay
 - **1.4.0 (2026-07-23):** Add Phase 3.7 — Value retune of an open PR (clean replay

@@ -1,16 +1,21 @@
 ---
 name: advice
-description: Use when a focused second opinion is needed; collect two independent, full-coverage reviewer votes on an exact change or saved-document bundle.
+description: Use when a focused second opinion is needed; collect the applicable independent, full-coverage reviewer votes on an exact change or saved-document bundle.
 ---
 
 # /advice — independent second opinion
 
-Use `/advice [question]` instead of `advisor()`. This skill owns reviewer orchestration: which reviewers run, the
-quorum, deadlines, isolation and receipts. [static-review](../static-review/SKILL.md) owns what each reviewer
-receives. pr-lifecycle's [Advice applicability](../pr-lifecycle/SKILL.md#advice-applicability) section owns phases,
-thresholds, applicability and publication; evidence-standards owns evidence classes. Do not restate those here.
+Use `/advice [question]` instead of `advisor()`. This skill owns reviewer orchestration: selection, quorum, deadlines,
+isolation and receipts. [static-review](../static-review/SKILL.md) owns reviewer input. pr-lifecycle's [Advice
+applicability](../pr-lifecycle/SKILL.md#advice-applicability) section owns phases, thresholds, applicability and
+publication; evidence-standards owns evidence classes. Do not restate those here.
 
 ## 1. Pin the question and complete scope
+
+Before queueing reviewers, inspect existing verdicts under §5 Applicability.
+An eligible approval for unchanged claims needs no phase, format or frozen-head
+restamp. Preserve original eligibility; request only genuinely missing or
+affected independent judgment, or an explicitly requested further review.
 
 Every reviewer gets only the static-review channel preamble plus its template: no question, summary, excerpt or
 framing. The user's `[question]` stays with the orchestrator, which records it in the §5 report and answers it from
@@ -21,31 +26,65 @@ the complete change, never a transcription. A verdict built on truncated input i
 - **Document-only review** covers explicitly named, non-ignored, non-symlink Markdown files, committed or not. Give
   every reviewer identical complete bytes (an existing CLI input path, or an upload for web seats), keep the packet, and record per-file
   and bundle SHA256 hashes (integrity, not immutability). It never approves code, `HEAD` or dirty state.
+- Revision-bound saved-content review uses the full 40-hex head SHA only when the PR URL, base/head SHAs, and complete
+  revision-bound coverage are verified. A complete unbound packet uses exactly `DOCUMENTS sha256:<BUNDLE HASH>` and approves
+  only that bundle. Incomplete claimed revision binding means `WITHHELD`; never use an abbreviated SHA or mutable `HEAD`.
 - Each approver reads the whole declared scope. Partial coverage is never combined across reviewers into an
   approval.
 
 ## 2. Select independent reviewers
 
-Approval needs two independent votes, each covering the whole scope. Votes come from three rungs, tried in order:
-CLI seats, then outside routes, then static reviewers. Launch every candidate on a rung concurrently; never
-serialize healthy seats. The orchestrator's own synthesis and `/research` (nonvoting, only for material open
-questions) are never votes. One competent objection can block.
+**Required quorum.** Use two independent full-scope source votes by default.
+Use one only when pr-lifecycle positively selects a one-source-review route and
+the reviewer confirms its eligibility; preserve that route rather than starting
+extra advice seats. An explicitly requested advice invocation follows the same
+qualified count. Archive-integrity review is not source approval.
+Stricter user, repository, security and domain requirements remain binding. The
+mandatory supplementary-review substitution still needs two eligible advice
+votes and applicable evidence review. Record the route/count before dispatch;
+neither one-vote readiness nor advice approval changes merge authority.
 
-### Rung 1: CLI seats
+### Capability profile and tier selection
 
-| Seat (preference order) | Command |
+Use only capabilities actually available and authorized. Keep one machine-local profile of seat label, host, actual
+account/identity key, model, transport and command or profile reference, permitted scope/isolation row, disclosure
+authorization, availability and attempt receipt. Use existing ADVICE configuration and owning transport skills; this
+is an orchestration record, not a new runner, configuration parser or prompt framework. Do not put personal accounts,
+destinations, credentials or host paths in this repository. Preference for a different CLI/model does not make aliases
+of one account independent.
+
+| Tier | Available reviewers | Admission and counting |
+|---|---|---|
+| 1 — preferred | Available authorized CLI seats, including configured extra CLIs; authorized ChatGPT Dot accounts | Prefer different eligible CLI/model identities. CLI and Dot are alternatives in the same tier; no brand or mixture is mandatory. Count at most one Dot vote. |
+| 2 — fallback | Native static subagents; Hermes or Hermes-PC | Static subagents collectively count as at most one vote; Hermes instances collectively count as at most one distinct vote. Each counted vote must independently cover the entire scope. |
+| 3 — last fallback | Existing authorized authenticated web chats through /web-advice | Use only after earlier-tier candidates cannot fill the remaining quorum. Preserve packet, upload, account-attestation and receipt rules. |
+
+Start independent eligible candidates concurrently where transport and resource rules permit. Retain valid earlier-tier
+votes and fill only remaining slots. Advance when the current tier cannot fill them; a missing brand is not a reason to
+wait. An eligible in-flight attempt remains bounded by §3, not declared unavailable merely to prefer a later result.
+Stop new dispatch once quorum is met unless another workflow obligation requires it; retain competent findings from
+valid in-flight attempts.
+The author, orchestrator and /research do not vote. One competent blocking objection can block.
+
+Record availability separately from verdicts: AVAILABLE; UNAVAILABLE with missing capability, unsupported scope
+or authorization reason; BUSY with an existing handle when known; QUOTA with a printed reset time when available;
+or DUPLICATE with the shared identity key. Busy, missing, quota-blocked and duplicate seats do not reserve votes
+or justify indefinite waits. Do not duplicate an active request. Keep the existing deadline and explicit-wait
+rules for in-flight attempts. Delivery, acknowledgement and assignment are not approval.
+
+### CLI capabilities
+
+| Seat | Machine-local command override or default |
 |---|---|
 | Codex | `ADVICE_CODEX_CMD`, else `codex exec --yolo -m gpt-6-sol --config model_reasoning_effort=high` |
-| Opus | `ADVICE_CLAUDE_CMD`, else `claude -p --model opus --dangerously-skip-permissions` |
-| Claude alternate | `ADVICE_CLAUDE_ALT_CMD`, else the Opus argv with `--model <actual-model>` |
-| Cursor alternate | `cursor agent -p --force` |
-| AGY alternate | `agy --print="<review request>" --model gemini-3.8-flash-high --dangerously-skip-permissions --new-project` |
-| Extra seats | `ADVICE_EXTRA_CLIS`, in listed order (unset by default) |
+| Claude | `ADVICE_CLAUDE_CMD`, else `claude -p --model opus --dangerously-skip-permissions` |
+| Claude alternate | `ADVICE_CLAUDE_ALT_CMD`, else the Claude argv with `--model <actual-model>` |
+| Cursor | `cursor agent -p --force` |
+| AGY | `agy --print="<review request>" --model gemini-3.8-flash-high --dangerously-skip-permissions --new-project` |
+| Existing extra seats | `ADVICE_EXTRA_CLIS`, in configured order (unset by default); registration does not authorize a new reviewer |
 
-Start with Codex and Opus together; when one is known unavailable, start the next eligible seat alongside the
-other. The order only decides which verdict fills a slot when several could: a later seat never displaces an
-eligible earlier one. No slot is reserved for a particular label, so a quorum without Codex or Claude is valid once
-those seats are genuinely exhausted.
+These are capabilities, not required installed seats or a mandatory starting pair. Resolve eligible independent
+identities from the machine-local profile before selecting them.
 
 - **Configuration.** An `ADVICE_*` variable that is set but empty, unparseable, or names a missing or
   non-executable program makes that seat `UNAVAILABLE`. It never falls back to the default, because the default
@@ -60,82 +99,107 @@ those seats are genuinely exhausted.
   token or inside one (`--print={prompt}`), is replaced by the request; with none, the request is appended as the
   last argument. An empty label or command, a duplicate label, an unparseable entry or a missing program makes that
   seat `UNAVAILABLE`.
-- **No runner.** This skill ships instructions only (the owner's *markdown only, zero runner code* decision). The
-  orchestrator launches each seat itself under §3, and a machine-local capability never requires code in this
-  repository. A seat the orchestrator cannot bound end to end, or cannot produce a receipt for, is `UNAVAILABLE`; do not add a runner,
+- **No review-dispatch runner.** The orchestrator still launches each seat under §3 and owns its deadline and receipt.
+  `quota_cache.py` only reads/writes the bounded quota hint; it never invokes a provider or starts/retries a review.
+  A capability the orchestrator cannot bound end to end or cannot receipt is `UNAVAILABLE`; do not add a runner,
   wrapper, watchdog or timer.
-- **Quota walls fail fast.** A usage limit, quota exhaustion, an exhausted 429 retry, "rate limit reached", an
-  expired plan or a similar account-level refusal makes the seat `UNAVAILABLE` at once with reason `quota` and the
-  reset time when printed. Do not wait out its budget, retry the same account or switch models to get around it.
-  Another account (a `claudewa`-style alternate) is a separate seat and is still tried.
+- **Review readback discipline.** Bind each read to the existing attempt and
+  inspect its complete attributable result once. An identical unchanged read is
+  not a new verdict or progress: use the existing attempt deadline and
+  completion signal, do independent work, and do not loop on the same capture.
+  A completed, timed-out, or unavailable attempt is not polled again; route a
+  missing vote through an eligible independent seat without duplicating work.
 
-### Rung 2: outside routes
+- **Quota walls fail fast.** A usage limit, quota exhaustion, exhausted 429 retry, rate limit, expired plan or similar
+  account refusal makes the seat `UNAVAILABLE` with reason `quota` and the printed reset time. Do not wait, retry the
+  same account or switch models around it; a separate account remains eligible.
+- **Remember only confirmed quota windows.** Before launching each CLI seat, check the short-lived quota record:
+  ```bash
+  python3 "$HOME/.claude/skills/advice/scripts/quota_cache.py" check --provider <verified-provider> --identity-sha256 <verified-account-identity-sha256>
+  ```
+  `ELIGIBLE` permits the normal launch. `QUOTA_BLOCKED` means skip that exact account until its printed UTC reset
+  time and continue the fallback route. Derive the identity digest from the account identity in an existing,
+  verified machine-local seat binding; checking the cache must not trigger a new provider request. Do not use a
+  guessed seat label, email, token, credential path or model name as identity. Pass only this SHA-256 digest, never
+  the raw account identity. If no verified account binding is available, fail open and use the normal seat admission
+  path; do not use the cache to skip a reviewer. The cache key combines the verified provider and account-identity
+  digest. Cache only an explicit provider quota response and reset time:
+  ```bash
+  python3 "$HOME/.claude/skills/advice/scripts/quota_cache.py" record --provider <verified-provider> --identity-sha256 <verified-account-identity-sha256> --model <actual-model> --observed-at <quota-response-observation-time> --reset-at <provider-reported-ISO-8601-reset>
+  ```
+  The record includes its observation time and is stored with private permissions under `/tmp`; it contains only a
+  keyed hash of the provider/account digest plus provider, model and UTC times, never credentials, raw identity or raw error text. No printed reset
+  means no cache entry. Record the timestamp from when the provider response was observed, not when the record
+  command happens to run. The cache orders quota and success events by that timestamp, so a delayed quota write
+  cannot re-block a seat after a later successful probe. A fresh successful probe performed by the normal review
+  path clears an earlier record before counting that seat as available:
+  ```bash
+  python3 "$HOME/.claude/skills/advice/scripts/quota_cache.py" clear --provider <verified-provider> --identity-sha256 <verified-account-identity-sha256> --observed-at <successful-probe-observation-time>
+  ```
+  Expired records clear themselves. Cache lock contention, invalid paths, and unavailable storage fail open and must
+  not stall or deny an authorized attempt. The cache is a scheduling hint, not a second quota detector: record only a quota error actually observed
+  from that exact seat; transport timeouts, unrelated tool errors and missing authentication are not quota signals.
 
-As soon as the remaining CLI seats cannot fill every open slot (typically all are quota-walled, missing or void),
-dispatch every authorized outside route at once (accounts within one route follow that route's order), without
-waiting for static reviewers or asking the user to choose. Two outside votes from distinct identities are a full
-quorum.
+### Outside-route authorization and transports
 
 **Authorization is machine-local.** These routes send PR content off the machine, so this portable skill grants
-nothing by itself. A route is authorized only when the machine's `ADVICE_OUTSIDE_ROUTES` lists it (a
-comma-separated subset of `dot,hermes,web`, exported in that machine's `~/.bashrc`) or the current task explicitly
-authorizes it. That opt-in is the standing authorization pr-lifecycle's optional-`/wa` rule and `/hermes`'s
-disclosure rule require. Unlisted routes are `UNAVAILABLE — disclosure not authorized`, and so is any route when the
-user, task or repository restricts external disclosure of the reviewed content, or the content holds secrets. (The
+nothing by itself. A route is authorized only when `ADVICE_OUTSIDE_ROUTES` lists it (comma-separated `dot,hermes,web`)
+in that machine's `~/.bashrc`, or the current task explicitly authorizes it. That opt-in is the standing authorization
+required by pr-lifecycle's optional-`/wa` rule and `/hermes`'s disclosure rule. Unlisted routes are `UNAVAILABLE —
+disclosure not authorized`, as are routes restricted by the user, task or repository, or content holding secrets. (The
 repository owner opted in on 2026-11-04: "when all cli reviewers out of quota ... it should try to use /wa and ask
 hermes hermes pc and the dots in dot coordination for a review".)
 
-Each Dot account gets its own §3 attempt, capped at the Dot route's absolute deadline: one budget `B` after its
-first send. No account is asked after that deadline and a running one is cut off at it and recorded `TIMED_OUT`
-(unless the user asked to await that account, per §3), so rotation never delays the static rung by more than one
-budget.
+Each Dot account gets its own §3 attempt, capped at the Dot route's absolute deadline: one budget B after its
+first send. No account is asked after that deadline; record a running one TIMED_OUT at it unless the user
+explicitly required waiting under §3. Rotate on unavailable or failed attempts while a Dot vote is still needed.
+After one eligible Dot vote, do not request another Dot to fill a second vote.
 
-| Route | Transport | Seats |
-|---|---|---|
-| Dot | the [`/dot` skill](../dot/SKILL.md) (host-installed; absent means `UNAVAILABLE`), coordinator ask, `isolation: remote` | one Dot account at a time, in its configured `rotation` order (the Dots [dot-coordinator](../dot-coordinator/SKILL.md) is configured for), each addressed explicitly with `--account <name>` and `DOT_ROTATE_ON_LIMIT=0` (otherwise `dot.sh` rotates on a usage limit by itself); only when an account is busy, limited, blocked or timed out is it recorded `UNAVAILABLE` and the next account asked, matching pr-lifecycle's `/dot` rotation; the Dot route still runs concurrently with the other routes; revision review only |
-| Hermes | the `/hermes` skill's Slack-only transport (host-installed; absent means `UNAVAILABLE`), coordinator ask, `isolation: remote`. **When the machine's `ADVICE_HERMES_CHANNEL` names a Slack channel (the owner's is `#dot-coordination`) and it is available to the sending identity, post there, one thread per Hermes instance (the opt-in makes that channel the authorized destination for vote requests and replies);** otherwise use the conversation `/hermes` resolves | one per configured Hermes instance, for example the primary Hermes and `hermes-pc`, resolved from machine-local configuration; revision review only |
-| Web advice | [`/web-advice`](../web-advice/SKILL.md) (user shorthand `wa`; host-installed, absent means `UNAVAILABLE`), `isolation: packet` for revisions, `none` for documents | one per authenticated provider and account; the orchestrator records the signed-in account from the web session as `attested.account` |
+| Route | Transport and scope |
+|---|---|
+| Dot (tier 1) | Use the host-installed [dot](../dot/SKILL.md) skill and [dot-coordinator](../dot-coordinator/SKILL.md)'s configured account rotation, explicitly targeting `--account <name>` with `DOT_ROTATE_ON_LIMIT=0`; coordinator ask, `isolation: remote`, revision review only. |
+| Hermes or Hermes-PC (tier 2) | Use the host-installed /hermes Slack-only transport, coordinator ask and `isolation: remote`, revision review only. Resolve the configured eligible instance; another instance may replace a failed/unavailable one, not add a second Hermes vote. Use an available authorized machine-local `ADVICE_HERMES_CHANNEL` destination, otherwise the conversation /hermes resolves. |
+| Web (tier 3) | Use host-installed [web-advice](../web-advice/SKILL.md); `isolation: packet` for revisions, `none` for documents. Record the authenticated provider/account from the session as `attested.account`. |
 
-A reply is a vote only once it carries full-scope `COVERAGE:` and the SHA-bound `VERDICT:` line, read back at the
-source. An acknowledgement, "on it", a reaction or a delegated-coder promise is `SENT` (per `/hermes`), not a
-verdict. A missing transport (no Slack connector, no authenticated Dot profile, no reachable
-browser, no configured Hermes) makes that route `UNAVAILABLE` with the exact blocker; never substitute a transport
-its owning skill forbids.
+Missing transports are UNAVAILABLE with the exact blocker; never substitute a forbidden transport. A reply
+counts only with full-scope COVERAGE and the exact SHA-bound VERDICT read back at its source, not an
+acknowledgement, reaction or promise. Route availability does not override disclosure restrictions.
 
-### Rung 3: static reviewers
+### Native static fallback
 
-Static reviewers (an owner-authorized exception chosen on 2026-10-29) follow
-[static-review](../static-review/SKILL.md) for identity, cold start, deadline and receipts. Launch them alongside
-rung 2, or alongside rung 1 when no outside route is authorized. A static vote fills only a slot still open after
-every CLI seat and every outside route and account has ended under §3 (a quota wall ends a seat at once) and been
-recorded as below. One outside vote may pair with one static vote. When a coordinator verdict is itself being
-substituted by `/er` plus two `/advice` votes under pr-lifecycle, static reviewers cannot be that whole quorum; it
-needs a real outside vote. A late objection still blocks and reopens the affected stage per pr-lifecycle.
+Static reviewers follow [static-review](../static-review/SKILL.md) for cold input, full coverage, identity, deadlines
+and receipts. Admit them in tier 2 with an eligible Hermes instance when needed; §2's aggregate caps still apply
+(static reviewers collectively at most one vote, Hermes instances collectively at most one), and each counted verdict
+covers the whole scope. Eligible CLI pairs, CLI plus static, or eligible outside combinations may supply the quorum.
+There is no generic remote minimum or remote-only prohibition; preserve any separately explicit outside-review
+obligation. Review votes never replace missing substantive evidence.
 
 ### Identity
 
-- One account is one vote, whatever its label, wrapper, alias or retry. Two seats whose commands reach the same
-  account count once; an outside reviewer whose coder ran the account that just hit its quota is that account.
-- A CLI seat must report the model it ran, or it is `UNAVAILABLE`. Outside routes report model and account as
-  `attested.` values. Codex models may be only `gpt-6-astra`, `gpt-6-luna`, `gpt-6-sol` or `gpt-6.1-sol`.
-- The orchestrator never awards itself a vote, and no verdict counts twice: a Dot account whose verdict fills the
+- One account is one vote, whatever its label, wrapper, alias or retry; seats reaching the same account count once,
+  including an outside reviewer whose coder used the account that hit quota.
+- A CLI seat needs its actual model from reliable CLI/runtime metadata, or it is `UNAVAILABLE`. Outside routes record
+  exposed model/account fields as `attested.` values; never invent a hidden runtime SKU. A verified Dot account is its
+  own CLI/model identity under the one-Dot cap. Missing public fields do not invalidate a privately verified session;
+  an actually unverified account is unavailable. Keep its frozen expected binding, positive identity probe and source-
+  author independence proof. Codex models may be only `gpt-6-astra`, `gpt-6-luna`, `gpt-6-sol` or `gpt-6.1-sol`.
+- Neither the author nor the orchestrator awards itself a vote, and no verdict counts twice: a Dot account whose verdict fills the
   pr-lifecycle `/dot` leg at this head is not also an `/advice` vote.
 - Run every seat with full permissions and record its actual command, model, account and transport.
 
 Record every unavailable or skipped reviewer as `UNAVAILABLE: <host> — <reviewer> — attempted|skipped — <time> —
 <reason>` and tell the user. A failure on one host (a cloud box) says nothing about the same CLI on another host (a
-Mac or Ubuntu machine); try or record each host separately. When no rung yields two eligible votes, the result is
+Mac or Ubuntu machine); try or record each host separately. When the tiers cannot supply the required eligible votes within their counting caps, the result is
 `WITHHELD`, listing every `UNAVAILABLE` line and the earliest known quota reset.
 
 ## 3. Enforce the attempt deadline
 
-- **Budget `B`.** Each attempt gets 1800 seconds end to end (static reviewers: 600 seconds, per static-review) unless the user set a limit, shorter or longer,
-  which governs that attempt. A specific user instruction to await a named reviewer overrides that attempt's deadline, even without
-  a duration, per pr-lifecycle § Reviewer timeout and completion; record the instruction and the wait actually
-  honoured in the receipt. A CLI attempt already running under a native timeout cannot have that timeout
-  lengthened: when it expires, record it `TIMED_OUT`, mark the requested wait route `UNAVAILABLE`, and keep the gate open
-  for that reviewer instead of counting late output. Never preempt a valid in-deadline result, count late output, claim a wait that did not
-  happen, or issue a duplicate review. Status updates never pause or reset the clock.
+- **Budget `B`.** Each attempt gets 1800 seconds end to end (static reviewers: 600 seconds, per static-review) unless
+  the user sets a limit. A specific user instruction to await a named reviewer overrides that attempt's deadline, even
+  without a duration, per pr-lifecycle § Reviewer timeout and completion; record the instruction and actual wait. A CLI
+  attempt already under native timeout cannot be lengthened: on expiry record `TIMED_OUT`, mark that route
+  `UNAVAILABLE`, and keep the gate open rather than counting late output. Never preempt a valid result, count late
+  output, claim a wait that did not happen, or issue a duplicate review. Status updates do not reset the clock.
 - **Clock.** Shared, immutable packet preparation may happen first. Immediately before dispatch, capture the queue
   boundary on the host that launches the seat:
 
@@ -148,51 +212,52 @@ Mac or Ubuntu machine); try or record each host separately. When no rung yields 
   Monotonic values are host- and boot-local, so a CLI seat runs on that same host and the epoch value is audit-only.
   Outside routes take both the send and the reply-observed times on the orchestrator's host; the remote side's
   timestamps are `attested.` audit values. If the boundary cannot be captured, the seat is `UNAVAILABLE`.
-- **Bound.** Choose a positive cleanup reserve `C` and wait grace `G`, both inside `B`, or the seat is `UNAVAILABLE`.
-  Launch with a native timeout of `B - C` measured from the queue boundary, reclaim cleanup inside `C`, and bound
-  the wait by the same absolute deadline. For outside routes, `C` covers only readback and receipt writing. Record
-  the queue boundary, absolute deadline and actual exit in the receipt, never in the prompt. The orchestrator's own
-  bounded tool call is the mechanism.
-- **Outcome.** Setup, delivery, review, output capture, receipt writing and cleanup all count against `B`. The
-  deadline decides eligibility; it is not a real-time guarantee. A cleanup or receipt write that overruns makes the
-  attempt nonzero and voids its vote. A late, incomplete, failed or timed-out result is not an approval: keep its
-  partial findings, record cleanup status, and use another eligible reviewer. Do not keep waiting for unresolved cleanup or
-  reuse a resource whose process or cleanup state is unresolved, and never claim cleanup without receipt evidence.
+- **Bound.** Choose positive cleanup reserve `C` and wait grace `G` inside `B`, or the seat is `UNAVAILABLE`. Launch
+  with native timeout `B - C` from the queue boundary, reclaim cleanup inside `C`, and bound the wait by the same
+  deadline. For outside routes, `C` covers only readback and receipt writing. Record queue boundary, deadline and
+  actual exit in the receipt, never the prompt; the orchestrator's bounded tool call is the mechanism.
+- **Outcome.** Setup, delivery, review, capture, receipt writing and cleanup all count against `B`; the deadline
+  decides eligibility, not a real-time guarantee. Cleanup or receipt overrun makes the attempt nonzero and voids its
+  vote. A late, incomplete, failed or timed-out result is not approval: keep partial findings and cleanup status, then
+  use another eligible reviewer. Do not wait on unresolved cleanup, reuse an unresolved resource, or claim cleanup
+  without receipt evidence.
 
-## 4. Isolate review copies
+## 4. Review access modes and isolation
 
-The contract is one table. A receipt records exactly the row's `isolation:` value, and the review template's fields are
-derived from the same row, so the two skills cannot drift apart.
+Select the cheapest complete access before dispatch. Read-only API or existing
+checkout access needs no donor, clone or export. Use a copy only when object
+access or mutation isolation requires it. Shared immutable preparation may
+precede the attempt; per-seat setup, capture, technical receipt and cleanup
+remain inside §3's bound. This table owns mode names, template fields and checks;
+static-review owns the actual templates and per-channel preambles.
 
-| record | who clones | what the receipt must prove | who verifies | who deletes | template fields |
-|---|---|---|---|---|---|
-| `pin` (internal; never sent to a seat, never a seat's working directory) | orchestrator: clone the original checkout into allocated scratch with `--no-local`, check out `<SHA>`, fetch the base-branch tip from the PR remote | `donor_path`; `review_sha` = donor `HEAD`; `base_sha` = `git merge-base <SHA> <fetched base tip>`; `--git-common-dir` = `--git-dir`; `donor_removed` = `test ! -e <donor path>` | orchestrator | orchestrator, after the last seat clone is gone | none |
-| `isolation: orchestrator-clone` | orchestrator: clone the donor into `<SCRATCH PATH>`, then `git remote remove origin` | `clone_path` = `<SCRATCH PATH>`; `cwd: set` or `attested.cwd: instructed`; at launch **and again after the seat process is gone**: `--git-common-dir` = `--git-dir`, `HEAD` = `review_sha`, `git merge-base --is-ancestor <BASE SHA> HEAD` exits 0, `git remote` is empty; then `clone_removed` = `test ! -e <SCRATCH PATH>` | orchestrator, every key except any `attested.` one | orchestrator, whatever the seat's outcome | `<PR URL>` `<SHA>` `<BASE SHA>` `<SCRATCH PATH>` |
-| `isolation: none` | nobody | `packet_path`; per-file SHA-256; `bundle_sha256`; `clone_path: none`; `clone_removed: n/a` | orchestrator | nobody; the packet is kept as evidence | `<PACKET PATH>` `<BUNDLE HASH>` |
-| `isolation: remote` (Dot, Hermes) | nobody: the outside reviewer reads `<SHA>` from a checkout it already has (fetching only the missing objects, no new clone, no branch switch); the orchestrator clones nothing for it | `<SHA>` is reachable on the PR remote (`git ls-remote` or the PR API) both at send and at reply readback; route and message reference/permalink; the returned `VERDICT:` line names `<SHA>`; `attested.model`; `attested.account`; `attested.clone_path`; `clone_path: remote`; `clone_removed: n/a` | orchestrator, every key except any `attested.` one | the outside reviewer; never claimed | `<PR URL>` `<SHA>` `<BASE SHA>` |
-| `isolation: packet` (`/web-advice` revision review) | nobody; the orchestrator writes a packet of the complete `git diff <BASE SHA>..<SHA>` plus the full post-change content of every changed file, from the `pin` donor, in place of `/web-advice`'s own `origin/main...HEAD` packet | `packet_path` (kept locally, never sent to the provider); per-file SHA-256; `bundle_sha256`; every file delivered as an upload, not pasted inline; provider shows no truncation; `COVERAGE:` names every packet file; `clone_path: none`; `clone_removed: n/a` | orchestrator | nobody; the packet is kept as evidence | `<PR URL>` `<SHA>` `<BASE SHA>` `<BUNDLE HASH>` |
+| Mode | Access and template | Required receipt and checks | Fields |
+|---|---|---|---|
+| pin (internal) | Resolve review SHA and true comparison merge-base against the fetched target tip using an existing checkout/API. For clone seats only, prepare one standalone --no-local donor pinned at that SHA. Never send it as a seat cwd. | Original/donor references, immutable head/base and object inventory. For a donor, git-common-dir equals git-dir; remove it after all seat clones are gone. | none |
+| orchestrator-clone | Orchestrator clones donor into allocated Scratch and removes origin; shared revision template. | Before launch and after process exit: standalone Git, exact head, base ancestor, no remotes; original checkout/refs/config/hooks unchanged. Confirm no reviewer process remains, then remove this owned clone and record absence. | `<PR URL>` `<SHA>` `<BASE SHA>` `<SCRATCH PATH>` |
+| orchestrator-export | Orchestrator supplies a complete pinned export in Scratch, with full diff, base/head snapshots or absence, object inventory and hashes; shared revision template. | No .git or new repository. Verify all exported bytes and original checkout state before/after; confirm process completion, then remove this owned export. Missing required objects must be retrieved read-only at the pin or withheld. | `<PR URL>` `<SHA>` `<BASE SHA>` `<SCRATCH PATH>` |
+| read-only | GitHub/API or existing checkout; shared revision template. No new copy, fetch or branch switch. | Complete immutable objects/diff and requested SHA, API no-truncation/retrieval proof or existing-checkout before/after state. clone_path:none, clone_removed:n/a. A managed native completion replaces a CLI exit/process check only when there is no CLI process. | `<PR URL>` `<SHA>` `<BASE SHA>` |
+| remote (Dot/Hermes) | Configured coordinator ask; shared revision template. Existing checkout or pinned API access; only missing objects may be fetched, without changing branch refs/working tree. No new clone. | Requested SHA reachable at send and reply readback; verified route/account binding, message reference, exact-SHA verdict and complete coverage. Record exposed fields as attested, not invented. API-only access has no checkout path to attest; existing-path details may remain private. clone_path:remote, clone_removed:n/a. | `<PR URL>` `<SHA>` `<BASE SHA>` |
+| packet (web revision) | Orchestrator uploads the complete pinned diff, changed-path base/head content or verified absence, all special objects and relevant evidence; revision packet template. | Bundle/per-file hashes, actual attachment delivery, authenticated provider/account, full-file no-truncation and returned coverage/verdict at the SHA. Never substitute a summary, bare private URL or function-only excerpt for required full scope. clone_path:none, clone_removed:n/a. | `<PR URL>` `<SHA>` `<BASE SHA>` `<BUNDLE HASH>` |
+| none (saved material) | Named complete documents, or a fully revision-bound saved packet; saved-material template. Web gets actual uploads and the attached-files path, never a local private path. | Per-file and bundle hashes, complete scope, and revision metadata/diff/base/head objects when revision approval is requested. Without verified revision binding approve only named documents, never code/HEAD. Keep this packet as evidence; no clone or cleanup claim. Dot/Hermes cannot use an inaccessible local packet. | `<PACKET PATH>` `<BUNDLE HASH>` `<REVIEW TARGET>` |
 
-- **The orchestrator owns every copy.** Seats never clone, delete or attest. The orchestrator creates each copy,
-  verifies every key it can measure, and removes the copy once the seat process is confirmed gone, whatever the
-  outcome. A failed check or failed removal voids that vote. A key it could not measure is written `attested.<key>`
-  and never satisfies an orchestrator-verified cell.
-- **Base.** `<BASE SHA>` is computed once, in `pin`; later checks use `git merge-base --is-ancestor <BASE SHA>
-  HEAD` and never compare branch tips.
-- **No seat gets a git remote.** Only `pin` uses the PR remote. Staying in `<SCRATCH PATH>` is an instruction, not
-  a sandbox; the post-return checks detect a changed `HEAD` or remote and void the vote.
-- **Unpushed SHAs** work for clone seats, which come from the local donor; if `<SHA>` is missing from the original
-  checkout, `pin` fails and revision mode is `UNAVAILABLE`. Remote seats need `<SHA>` pushed and reachable: a
-  verdict naming another SHA, or `<SHA>` becoming unreachable, voids the vote.
-- **Document-only review** has no donor or clone: CLI, web and static seats use `none` (Dot and Hermes cannot
-  read a local packet and are `UNAVAILABLE`), record `clone_path: none`, and never
-  claims a clone or cleanup.
-- **Host guards.** Clones live only in an allocated scratch directory, never `/tmp` (the scratch-routing guard
-  refuses it), and deletion names the literal absolute path, never `rm -rf "$VAR"` (the destructive-path guard
-  refuses it).
-- **Not a sandbox.** Copy isolation protects Git metadata and review state, not the host's network, environment or
-  processes. Full permissions do not authorize unrelated destructive actions, credential changes or publication.
-  Before and after each attempt, check read-only that the original checkout, refs, local config and hooks are
-  unchanged; any mutation voids that vote.
+The orchestrator owns copies and verifies measurable cells; remote facts are
+`attested.` and never proof of an orchestrator-verified cell. Do not claim a
+copy or cleanup for a mode that created none. Compute base once; later clone
+checks test ancestor/head and never replace it with a moving branch tip. Source
+approval covers complete objects at both pins, including binary/mode/symlink/
+gitlink/LFS content. Verified identical spans may be reused; partial readers
+cannot be combined. Unpushed revisions need local access; remote routes need
+reachable objects.
+
+Reviewers remain read-only; full permissions do not authorize repairs, external
+writes, credential changes or unrelated destructive actions. Original state must
+remain unchanged. Failed copy checks or unresolved cleanup make an attempt
+non-countable, while findings are retained. Copies live in configured Scratch,
+never a code/home tree or new `/tmp` clone; remove only exact owned copies after
+process exit, preserving source and private receipts. Technical receipt and
+cleanup complete within the attempt budget; later publication is separate and
+retains the original clocks.
 
 ## 5. Reconcile and report
 
@@ -205,17 +270,23 @@ directory removal does not prove its descendants exited: record that and do not 
 
 **Verdict.** Reconcile disagreements within the declared scope yourself; do not ask the user to pick between
 reviewers. A competent blocking objection, even from a partial-coverage reviewer, means `NOT APPROVED`; partial
-coverage never supplies an approval. Without two independent full-coverage approvals from any rung, the result is
+coverage never supplies an approval. Without the required independent full-coverage approvals under §2's tier caps, the result is
 `WITHHELD`.
 
-**Report.** Give the reviewed SHA (or `DOCUMENTS sha256:<bundle hash>`; never `HEAD`), each reviewer's verdict,
+**Report.** Give the full 40-hex reviewed SHA for revision-bound review or `DOCUMENTS sha256:<bundle hash>` for a
+complete bundle-only review; never use an abbreviated SHA or mutable `HEAD`. Each reviewer's verdict,
 coverage, reasoning, risk and findings, the question's answer, and every `UNAVAILABLE` line. Keep a receipt per
 attempt: identity, actual CLI, account and model, start and completion times, exit or timeout, the exact prompt
 (any deviation voids the vote, per static-review), complete output, coverage and cleanup result. End with exactly
-one line: `VERDICT: APPROVED at <SHA>`, `VERDICT: NOT APPROVED at <SHA>`, or `VERDICT: WITHHELD at <SHA> — <reason>`;
-for document-only review, `DOCUMENTS sha256:<bundle hash>` takes the place of `<SHA>`.
+one line: `VERDICT: APPROVED at `<SHA>``, `VERDICT: NOT APPROVED at `<SHA>``, or `VERDICT: WITHHELD at `<SHA>` — <reason>`;
+for bundle-only saved-content review, `DOCUMENTS sha256:<bundle hash>` takes the place of ``<SHA>``.
 
 **Applicability.** Keep the original reviewers and reviewed SHAs. Before relying on them at a later head, inspect
 the complete delta, claims, evidence and phase; applicability is not a new vote, and material uncovered changes
 need affected independent review. Classify instruction changes by behaviour and contract effect, never by path.
 Never claim approval, applicability or publication without its receipt.
+
+For visual follow-up, use [visual-verification's reuse and scoped follow-up](../visual-verification/SKILL.md#reuse-and-scoped-follow-up).
+Repair mechanically verifiable receipt fields yourself rather than dispatching a
+reviewer for bookkeeping; preserve §3 eligibility and original clocks. Such a
+repair cannot supply missing coverage, alter a verdict or revive a void vote.

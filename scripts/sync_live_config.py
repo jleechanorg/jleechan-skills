@@ -24,6 +24,7 @@ import base64
 import difflib
 import hashlib
 import json
+import os
 import re
 import shlex
 import shutil
@@ -43,6 +44,17 @@ TOP_LEVEL_MAP = {
 DIFF_SNIPPET_MAX_BYTES = 200_000
 DIFF_SNIPPET_MAX_LINES = 60
 NOISE_DIRS = {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
+# Runtime/state directories under the live roots. A config sync tool has no
+# business enumerating these: ~/.claude/projects alone is ~72k files and 24 GB of
+# session transcripts. Walking them made `report --full` exceed any sane timeout
+# while adding nothing but live_only noise (transcripts are not syncable config).
+# Pruned DURING the walk (below), not filtered after rglob has already stat'd
+# every entry.
+RUNTIME_DIRS = {
+    "projects", "state", "session-env", "venvs", "node_modules", "plugins",
+    "file-history", "supervisor", "shell-snapshots", "todos", "statsig",
+    "logs", "backups", "teams", "ide", "local", "downloads", "tmp", "cache",
+}
 NOISE_SUFFIXES = {".pyc", ".pyo"}
 NOISE_NAMES = {".DS_Store"}
 RS, FS, GS = "\x1e", "\x1f", "\x1d"  # record / field / (nested-commit) group separators
@@ -114,15 +126,69 @@ def live_abs_for(repo_rel: str, home: Path) -> Path:
     return candidate
 
 
+_GIT_TRACKED_CACHE: dict[str, set[str]] = {}
+
+
+def _is_git_tracked(root: Path, repo_rel: str) -> bool:
+    """True when `repo_rel` is a path git actually tracks in `root`.
+
+    One `git ls-files` per repo, cached: this runs on a hot path in --full.
+    """
+    key = str(root)
+    if key not in _GIT_TRACKED_CACHE:
+        try:
+            out = subprocess.run(
+                ["git", "ls-files", "--", ".claude/", ".codex/hooks/", "hermes/"],
+                cwd=root, capture_output=True, text=True,
+            )
+            _GIT_TRACKED_CACHE[key] = set(out.stdout.splitlines()) if out.returncode == 0 else set()
+        except OSError:
+            _GIT_TRACKED_CACHE[key] = set()
+    return repo_rel in _GIT_TRACKED_CACHE[key]
+
+
 def repo_abs_for(root: Path, repo_rel: str) -> Path:
-    """Resolve repo_rel to an absolute repo path, contained within its specific
-    mapped root (same reasoning as live_abs_for)."""
+    """Resolve repo_rel while keeping its target within a mapped config root."""
     prefix, _ = _matched_top_level(repo_rel)
     allowed_root = (root / prefix).resolve()
-    candidate = (root / repo_rel).resolve()
-    if not candidate.is_relative_to(allowed_root):
-        raise ValueError(f"resolved repo path escapes its allowed root {allowed_root}: {candidate}")
-    return candidate
+    claude_skills_root = (root / ".claude" / "skills").resolve()
+    candidate = root / repo_rel
+    is_symlink = candidate.is_symlink()
+    if is_symlink and not _is_git_tracked(root, repo_rel):
+        raise ValueError(
+            f"untracked symlink in an allowed root (refusing to follow): {candidate}"
+        )
+
+    resolved = candidate.resolve()
+    if not resolved.is_relative_to(allowed_root):
+        canonical_skill = (
+            claude_skills_root / repo_rel[len(prefix):]
+        ).resolve()
+        is_hermes_skill_link = (
+            prefix == "hermes/skills/"
+            and canonical_skill.is_relative_to(claude_skills_root)
+            and resolved == canonical_skill
+        )
+        if is_hermes_skill_link:
+            parts = PurePosixPath(repo_rel).parts
+            current = root
+            symlink_count = 0
+            for index, part in enumerate(parts):
+                current = current / part
+                if not current.is_symlink():
+                    continue
+                link_rel = PurePosixPath(*parts[: index + 1]).as_posix()
+                if not _is_git_tracked(root, link_rel):
+                    is_hermes_skill_link = False
+                    break
+                symlink_count += 1
+            is_hermes_skill_link = is_hermes_skill_link and symlink_count > 0
+        if not is_hermes_skill_link:
+            raise ValueError(
+                f"resolved repo path escapes its allowed root {allowed_root}: {resolved}"
+            )
+    # The Hermes export contains tracked links to the matching Claude skill.
+    return candidate if is_symlink else resolved
 
 
 def git_tracked_files(root: Path, *paths: str) -> list[str]:
@@ -198,7 +264,102 @@ def sha256_of(path: Path) -> str | None:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+_LAST_COMMIT_CACHE: dict[str, "dict | None"] = {}
+_PRIMED_LIVE_REPOS: set[str] = set()
+
+
+def live_repo_last_commit(enclosing: Path, rel_path: str) -> dict | None:
+    """`last_commit` against an ENCLOSING live repo, batched once per repo.
+
+    Some live roots are themselves git repos (`~/.hermes` is
+    `jleechanorg/jleechanclaw`), so every file under them needs a commit lookup in
+    THAT repo. Doing it per file spawned one `git log` per path -- the dominant
+    cost of `report --full`, minutes for a few thousand files. Prime the whole
+    repo once on first use, then serve every later path from the cache.
+    """
+    key = str(enclosing)
+    if key not in _PRIMED_LIVE_REPOS:
+        _PRIMED_LIVE_REPOS.add(key)
+        try:
+            out = subprocess.run(
+                ["git", "ls-files"], cwd=enclosing, capture_output=True, text=True,
+            )
+            tracked = out.stdout.splitlines() if out.returncode == 0 else []
+        except OSError:
+            tracked = []
+        # Prime only paths we could plausibly ask about; unbounded priming of a
+        # huge live repo would just move the cost, not remove it.
+        prime_last_commit_cache(enclosing, tracked)
+    return last_commit(enclosing, rel_path)
+
+
+
+
+
+def prime_last_commit_cache(cwd: Path, rel_paths: list[str]) -> None:
+    """Fill the last_commit cache for many paths with ONE git invocation.
+
+    `last_commit` spawns a `git log` per path, which is fine for the ~29-file core
+    scope but pathological for --full: 3531 tracked files x ~0.1 s each is ~6
+    minutes of pure subprocess overhead, and the report never finished. One
+    `git log --name-only` pass over the whole set costs about as much as a single
+    call, so a full report becomes seconds instead of minutes.
+
+    Only the FIRST (most recent) commit touching each path is kept, which is
+    exactly what the per-path `git log -1` produced.
+    """
+    if not rel_paths:
+        return
+    wanted = {f"{cwd}\x00{r}" for r in rel_paths}
+    pathspecs = set()
+    for rel_path in rel_paths:
+        parts = PurePosixPath(rel_path).parts
+        pathspecs.add(
+            PurePosixPath(*parts[:2]).as_posix() if len(parts) > 2 else rel_path
+        )
+    key_prefix = str(cwd)
+    fmt = "%H%x1f%aI%x1f%an%x1f%s"
+    try:
+        out = subprocess.run(
+            [
+                "git",
+                "--literal-pathspecs",
+                "log",
+                "--format=@@" + fmt,
+                "--name-only",
+                "--no-renames",
+                "--",
+                *sorted(pathspecs),
+            ],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return
+    if out.returncode != 0:
+        return
+    current: dict | None = None
+    for raw in out.stdout.splitlines():
+        if raw.startswith("@@"):
+            fields = raw[2:].split("\x1f", 3)
+            if len(fields) == 4:
+                sha, date, author, subject = fields
+                current = {"sha": sha[:12], "date": date, "author": author, "subject": subject}
+            else:
+                current = None
+            continue
+        if not raw or current is None:
+            continue
+        cache_key = f"{key_prefix}\x00{raw}"
+        if cache_key in wanted and cache_key not in _LAST_COMMIT_CACHE:
+            _LAST_COMMIT_CACHE[cache_key] = current
+
+
 def last_commit(cwd: Path, rel_path: str) -> dict | None:
+    cache_key = f"{cwd}\x00{rel_path}"
+    if cache_key in _LAST_COMMIT_CACHE:
+        return _LAST_COMMIT_CACHE[cache_key]
     out = subprocess.run(
         ["git", "log", "-1", "--format=%H%x1f%aI%x1f%an%x1f%s", "--", rel_path],
         cwd=cwd, capture_output=True, text=True,
@@ -219,17 +380,32 @@ def last_commit(cwd: Path, rel_path: str) -> dict | None:
     return {"sha": sha[:12], "date": date, "author": author, "subject": subject}
 
 
+_ENCLOSING_GIT_CACHE: dict[str, "Path | None"] = {}
+
+
 def find_enclosing_git_repo(path: Path, home: Path) -> Path | None:
-    """Walk up from `path` looking for a .git dir, without escaping `home`."""
+    """Walk up from `path` looking for a .git dir, without escaping `home`.
+
+    Memoized per DIRECTORY: `--full` calls this once per file, and an uncached
+    walk-up does one `stat` per ancestor per file - tens of thousands of redundant
+    stats for files that share a directory. Keyed on the containing directory plus
+    `home`, and invalidated per process run (the report is a single snapshot).
+    """
     cur = path.parent if path.is_file() or path.suffix else path
+    key = f"{home}|{cur}"
+    if key in _ENCLOSING_GIT_CACHE:
+        return _ENCLOSING_GIT_CACHE[key]
     home_r = home.resolve()
+    result: Path | None = None
     while cur.is_relative_to(home_r) or cur == home_r:
         if (cur / ".git").exists():
-            return cur
+            result = cur
+            break
         if cur == home_r:
             break
         cur = cur.parent
-    return None
+    _ENCLOSING_GIT_CACHE[key] = result
+    return result
 
 
 def unified_diff_text(a_text: str, b_text: str, a_label: str, b_label: str) -> str | None:
@@ -270,6 +446,8 @@ class FileEvidence:
 def evidence_local(root: Path, files: list[str], home: Path, full: bool) -> list[FileEvidence]:
     out = []
     seen_live_rel = set()
+    # One batched git pass instead of a `git log` subprocess per tracked file.
+    prime_last_commit_cache(root, files)
     for f in files:
         live_rel = live_rel_for(f)
         seen_live_rel.add(live_rel)
@@ -297,18 +475,32 @@ def evidence_local(root: Path, files: list[str], home: Path, full: bool) -> list
             if enclosing is not None and enclosing != root:
                 rel_in_that_repo = str(live_abs.relative_to(enclosing))
                 ev.live_repo_root = str(enclosing)
-                ev.live_last_commit = last_commit(enclosing, rel_in_that_repo)
+                ev.live_last_commit = live_repo_last_commit(enclosing, rel_in_that_repo)
             if status == "modified":
                 ev.diff_snippet = unified_diff_snippet(repo_abs, live_abs)
         out.append(ev)
 
+    # Discover the walk's files first so every enclosing live repo can be primed
+    # ONCE with a real path list; priming with an empty list (an earlier mistake
+    # here) fills nothing and silently leaves every path on the per-file subprocess
+    # path, which is exactly the slowness this batching exists to remove.
     for live_root_rel in scope_live_roots(files, full):
         live_root_abs = home / live_root_rel
         if not live_root_abs.is_dir():
             continue
-        for f in sorted(live_root_abs.rglob("*")):
-            if not f.is_file() or NOISE_DIRS.intersection(f.parts) or f.suffix in NOISE_SUFFIXES or f.name in NOISE_NAMES:
-                continue
+        # os.walk + in-place dirnames pruning: excluded subtrees are never
+        # descended, so cost tracks the syncable config tree, not total bytes.
+        walked: list[Path] = []
+        for dirpath, dirnames, filenames in os.walk(live_root_abs):
+            dirnames[:] = sorted(
+                d for d in dirnames
+                if d not in RUNTIME_DIRS and d not in NOISE_DIRS
+            )
+            for name in sorted(filenames):
+                if Path(name).suffix in NOISE_SUFFIXES or name in NOISE_NAMES:
+                    continue
+                walked.append(Path(dirpath) / name)
+        for f in walked:
             live_rel = str(f.relative_to(home))
             if live_rel in seen_live_rel:
                 continue
@@ -317,7 +509,7 @@ def evidence_local(root: Path, files: list[str], home: Path, full: bool) -> list
             enclosing = find_enclosing_git_repo(f, home)
             if enclosing is not None and enclosing != root:
                 ev.live_repo_root = str(enclosing)
-                ev.live_last_commit = last_commit(enclosing, str(f.relative_to(enclosing)))
+                ev.live_last_commit = live_repo_last_commit(enclosing, str(f.relative_to(enclosing)))
             out.append(ev)
     return out
 
@@ -659,10 +851,80 @@ def cmd_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def _dry_run_local(root: Path, home: Path, paths: list[str], direction: str) -> int:
+    """Describe what `apply` would do, without touching either side.
+
+    Reports per path: source/destination absolute paths, whether the destination
+    is missing / identical / would be overwritten, and both hashes. Exits non-zero
+    if any path would fail validation, so a dry run is a real preflight rather
+    than a pure narrative. Never writes, never creates parent directories, and
+    never contacts a remote host.
+    """
+    src_is_repo = direction == "repo-to-live"
+    print(f"DRY RUN — direction {direction}; nothing will be written")
+    failing = 0
+    would_change = 0
+    for p in paths:
+        try:
+            if src_is_repo:
+                src = repo_abs_for(root, p)
+                dst = live_abs_for(p, home)
+            else:
+                src = live_abs_for(p, home)
+                dst = repo_abs_for(root, p)
+        except (ValueError, OSError) as exc:
+            print(f"  FAIL  {p}\n         {exc}")
+            failing += 1
+            continue
+        if not src.is_file():
+            print(f"  FAIL  {p}\n         source missing: {src}")
+            failing += 1
+            continue
+        src_hash = sha256_of(src)
+        if dst.is_dir():
+            dst = dst / src.name
+        if not dst.exists():
+            print(
+                f"  CREATE {p}\n"
+                f"         {src} -> {dst}\n"
+                f"         destination did not exist\n"
+                f"         src={src_hash} dst=missing"
+            )
+            would_change += 1
+            continue
+        dst_hash = sha256_of(dst)
+        if src_hash == dst_hash:
+            print(
+                f"  SAME   {p}\n"
+                f"         {src} -> {dst}\n"
+                f"         already identical, no change\n"
+                f"         src={src_hash} dst={dst_hash}"
+            )
+            continue
+        print(
+            f"  OVERWRITE {p}\n         {src}\n      -> {dst}\n"
+            f"         src={src_hash} dst={dst_hash if dst_hash else 'unreadable'}"
+        )
+        would_change += 1
+    print(f"\nsummary: {len(paths)} path(s), {would_change} would change, {failing} would fail")
+    return 1 if failing else 0
+
+
 def cmd_apply(args: argparse.Namespace) -> int:
     root = repo_root()
     home = Path(args.home).expanduser() if args.home else Path.home()
     paths = [validate_repo_rel(p) for p in args.paths]
+    if getattr(args, "dry_run", False):
+        if args.remote:
+            # A remote dry run would need a per-path read-only round trip; refuse
+            # rather than silently reporting only the local half as if it were whole.
+            print(
+                "error: --dry-run does not support --remote yet; run `report --remote <host>` "
+                "for remote evidence, or apply without --dry-run",
+                file=sys.stderr,
+            )
+            return 1
+        return _dry_run_local(root, home, paths, args.direction)
     if args.direction == "repo-to-live":
         if args.remote:
             _apply_remote_repo_to_live(root, paths, args.remote)
@@ -723,7 +985,10 @@ def _apply_remote_repo_to_live(root: Path, paths: list[str], host: str) -> None:
     try:
         with tarfile.open(tar_path, "w:gz") as tar:
             for p in paths:
-                tar.add(repo_abs_for(root, p), arcname=p)
+                source = repo_abs_for(root, p)
+                if source.is_symlink():
+                    source = source.resolve()
+                tar.add(source, arcname=p)
         subprocess.run(["scp", "-o", "ConnectTimeout=10", tar_path, f"{host}:{remote_tar}"], check=True)
         # Destinations are fully resolved here (Python-side), never left for the
         # remote shell to expand — that literal-$HOME expansion bug is what this fixes.
@@ -811,6 +1076,10 @@ def main() -> int:
     ap_apply.add_argument("--paths", required=True, nargs="+", metavar="REPO_REL_PATH")
     ap_apply.add_argument("--remote", metavar="HOST", help="target this SSH host instead of the local machine")
     ap_apply.add_argument("--home", metavar="DIR", help="override home directory (for tests)")
+    ap_apply.add_argument(
+        "--dry-run", action="store_true",
+        help="report exactly which paths would be created/overwritten and exit; writes nothing",
+    )
     ap_apply.set_defaults(func=cmd_apply)
 
     args = ap.parse_args()

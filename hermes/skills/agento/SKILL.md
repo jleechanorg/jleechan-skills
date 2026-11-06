@@ -469,7 +469,7 @@ If you catch yourself about to say "I'll..." or "Routing..." — STOP. Call the 
 
 **Heuristic:** if you can hold the full diff in your head as ≤ 5 `patch` tool calls on a fresh worktree branch from `origin/main`, it is inline. If it requires multi-step recon, multi-file refactor, or operator-context that the worker does not have, dispatch.
 
-**Pitfall — `ao spawn` 600s timeout is paid up-front, not at the end (verified 2026-07-09, dark-factory /af wiring).** A single `ao spawn` from a Slack-gateway session routinely hits the 600s tool-timeout while the underlying tmux session IS being created (orchestrator handshake is slow). The subagent ALSO times out at 600s with no useful output. Two failed dispatches = 2400s of context burn before you even start the fix. If the change fits the inline heuristic, skip AO entirely — do not "try AO first, fall back to inline."
+**Pitfall — `ao spawn` 600s timeout is paid up-front, not at the end (verified 2026-07-09).** A single `ao spawn` from a Slack-gateway session routinely hits the 600s tool-timeout while the underlying tmux session IS being created (orchestrator handshake is slow). The subagent ALSO times out at 600s with no useful output. Two failed dispatches = 2400s of context burn before you even start the fix. If the change fits the inline heuristic, skip AO entirely — do not "try AO first, fall back to inline."
 
 **Inline PR still goes through `gh pr create`** — the `push-pr-donot-stop-halfway` rule applies regardless of dispatch vs inline. Local commits + stop = process violation. The inline path is `git worktree add` → `patch` × N → `bash -n` + `shellcheck` → `git push` → `gh pr create`.
 
@@ -667,7 +667,7 @@ session `wa-2346` on PR #7524, 2026-06-13.
 
 ---
 
-## Pitfalls — verified 2026-07-08 `/af` cross-repo drive burst
+## Pitfalls — verified 2026-07-08 cross-repo AO drive burst
 
 These are durable pitfalls discovered while driving 49 non-draft PRs across 7 repos in one burst. Future batches will hit the same walls unless encoded.
 
@@ -687,7 +687,7 @@ Let `gh` fall through to `~/.config/gh/hosts.yml`. Without the unset, sequential
 
 Without `--claim-pr`, the spawn creates a generic session bound to the project (e.g., `df-107`, `auf-4`) but with NO `pulls/N` URL link. The session can do useful project-level work but won't auto-attach to any specific PR. CodeRabbit + Bugbot never see the comment-tracker link.
 
-**Always use `--claim-pr <N>` when the goal is driving a specific PR.** The auto-factory tick (`factory-af-tick.sh`) does this automatically; direct dispatches must include the flag.
+**Always use `--claim-pr <N>` when the goal is driving a specific PR.** Every dispatch, scripted or direct, must include the flag.
 
 ### 3. Per-project spawn lock — only ONE `ao spawn` per project at a time
 
@@ -771,9 +771,7 @@ The fix has to come from the **LLM provider's quota reset** (often hours), not f
 
 With 40+ active sessions, `ao session ls` takes 10-30s. Don't grep the live output — read it via `re.findall` in `execute_code` for batch processing.
 
-### 10. The auto-factory `target_repo = $GITHUB_REPOSITORY` is hardcoded
-
-`$HOME/projects/dark-factory/daemon/factory-overlay.sh` only dispatches PRs to the `--project worldarchitect` worker. For cross-repo fanouts, bypass the overlay and use direct `ao spawn -p <project> --claim-pr <N>`.
+For cross-repo fanouts, use direct `ao spawn -p <project> --claim-pr <N>` per project.
 
 See `references/cross-repo-af-drive.md` for a complete cross-project fanout cookbook and a script template. See `scripts/spawn_safe.sh` for a ready-to-use safe-spawn wrapper (handles `env -i` + `unset GH_TOKEN/GITHUB_TOKEN` correctly).
 

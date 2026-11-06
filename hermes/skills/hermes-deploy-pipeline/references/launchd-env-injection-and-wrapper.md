@@ -40,7 +40,7 @@ Cons: requires re-bootstrap after every change (and `launchctl bootout`/`bootstr
 
 ### Pattern B — `launchd-wrapper.sh` indirection
 
-Existing dark-factory pattern at `daemon/launchd/launchd-wrapper.sh`:
+Wrapper pattern at `<repo>/daemon/launchd/launchd-wrapper.sh`:
 
 ```bash
 #!/usr/bin/env bash
@@ -60,8 +60,8 @@ Plist invocation becomes:
 <key>ProgramArguments</key>
 <array>
     <string>/bin/bash</string>
-    <string>@HOME@/projects/dark-factory/daemon/launchd/launchd-wrapper.sh</string>
-    <string>@HOME@/projects/dark-factory/daemon/factory-af-tick.sh</string>
+    <string>@REPO@/daemon/launchd/launchd-wrapper.sh</string>
+    <string>@REPO@/daemon/scripts/<job>.sh</string>
 </array>
 ```
 

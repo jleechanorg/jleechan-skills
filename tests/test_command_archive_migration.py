@@ -9,10 +9,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 COMMANDS_DIR = REPO_ROOT / ".claude" / "commands"
 EXTENDED_LIBRARY_DIR = COMMANDS_DIR / "extended-library"
 
-# 27 seed commands from top-20 human ∪ top-20 agent union (hard floor; 'innov' is 28th include)
+# 26 seed commands from top-20 human ∪ top-20 agent union, less the retired /f (hard floor; 'innov' is an extra include)
 SEED_COMMANDS: tuple[str, ...] = (
     "advice", "auto", "browser", "browserclaw", "claw", "copilot",
-    "end2end-testing", "er", "es", "execute", "f", "fixpr", "green",
+    "end2end-testing", "er", "es", "execute", "fixpr", "green",
     "harness", "history", "learn", "levelup", "linux", "ms", "nextsteps",
     "repro", "research", "roadmap", "skillify", "smoke", "web-advice",
     "wiki-search",
@@ -43,7 +43,7 @@ class CommandArchiveMigrationTest(unittest.TestCase):
 
     def test_every_seed_command_still_active(self):
         self.assertEqual(
-            len(SEED_COMMANDS), 27, f"SEED_COMMANDS must have 27 entries, got {len(SEED_COMMANDS)}"
+            len(SEED_COMMANDS), 26, f"SEED_COMMANDS must have 26 entries, got {len(SEED_COMMANDS)}"
         )
         missing_files = [s for s in sorted(SEED_COMMANDS) if not (COMMANDS_DIR / f"{s}.md").is_file()]
         self.assertEqual(missing_files, [], f"Seed files missing from {COMMANDS_DIR}: {missing_files}")

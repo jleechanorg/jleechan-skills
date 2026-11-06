@@ -170,10 +170,12 @@ def test_related_skills_exist_on_disk():
         )
 
 
-def test_dark_factory_skill_exists():
-    """`dark-factory` is the canonical home for /f and /fs."""
-    path = HERMES_PROD_SKILLS / "software-development" / "dark-factory" / "SKILL.md"
-    assert path.exists(), f"dark-factory skill not found at {path}"
+def test_spec_step_routes_to_write_goal():
+    """Phase 1 specs come from `write-goal`; the retired /fs and /f routes stay gone."""
+    body = load_body()
+    assert "write-goal" in load_frontmatter().get("related_skills", [])
+    assert "### Phase 1 — Spec first (`write-goal`)" in body
+    assert "`/fs`" not in body and "`/f`" not in body
 
 
 # ── 6. The user's verbatim rule is quoted ───────────────────────────────────

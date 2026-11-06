@@ -4,12 +4,6 @@ Routes user phrases to skill entries. Each section is a skill with its canonical
 
 ---
 
-## auto-factory — /af, /auto-factory
-
-**File:** `~/.claude/skills/auto-factory/SKILL.md`
-**Triggers:** Explicit `/af` or `/auto-factory` invocation only
-**Note:** Once invoked, all coding work for that task stays inside `/af`. Ordinary coding requests use the normal workflow.
-
 ## skillify — skillify this, make this proper, add tests and evals, run skillify workflow
 
 **File:** `skills/skillify/SKILL.md`

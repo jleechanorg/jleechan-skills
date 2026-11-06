@@ -98,32 +98,46 @@ No bundled creation script is assumed. Use an optional helper only if it exists,
 preserves the applicable creation state, ownership and expected-head requirements; never run a missing,
 unverified or incompatible helper because old guidance names one.
 
-## Stage changes and evidence
+## Route selection and evidence
 
-The [compact risk-based route](../pr-lifecycle/SKILL.md#compact-risk-based-route) skips intermediate stage-title/label ceremony only; do not skip its required checks or Stage 5 closure. For opted-in repositories, apply [stage transitions](../pr-lifecycle/SKILL.md#stage-title-and-labels), [default PR route and lighter non-production path](../pr-lifecycle/SKILL.md#default-pr-route--prw), and [evidence applicability](../pr-lifecycle/SKILL.md#sha-binding-rule-critical--applies-to-every-gate-in-this-chain). Title/label changes are not execution proof, review approval or merge authority.
+Select the applicable route from [pr-lifecycle's review-obligation table](../pr-lifecycle/SKILL.md#review-obligations-by-changed-claim-and-risk), applying the target repository's override first. That contract is the sole owner of risk, claim, threshold, reviewer, evidence and visual/runtime applicability; this entry point adds no second routing table, provider ladder or source-vote requirement. Artifact presence alone, such as supplemental video on a test-only diff, does not change the route.
 
-After each push, inspect the latest applicable checks and review findings. Diagnose original logs before a
-targeted fix or retry, preserve assertions, and follow the canonical ready/final phases. Waiting or blocked is
-not Working, and badges, skipped tests, an assignment or a pending review never make a PR ready.
-Before promoting a user-visible change outside the compact route and the one-liner fast path (see
-[proportional exceptions](../pr-lifecycle/SKILL.md#proportional-exceptions-and-fast-paths)) to `stage:5-final-approval`, apply the
-[canonical visual-approval contract](../pr-lifecycle/SKILL.md#review-routes-for-opted-in-repositories)
-and [draft-phase visual gate](../pr-lifecycle/SKILL.md#draft-phase-final-acceptance-gates-in-order):
-an independent reviewer's `VISUAL APPROVED at <40-char-sha>` with its required findings.
-`/dot: REQUESTED, pending`, author inspection and link checks do not satisfy approval.
+The [compact risk-based route](../pr-lifecycle/SKILL.md#compact-risk-based-route) may skip intermediate stage-title/label ceremony and the separate seven-element committed specification only where repository instructions permit the compact exception. It does not skip required checks or Stage 5 closure. For opted-in repositories, apply [stage transitions](../pr-lifecycle/six-stage.md#stage-title-and-labels), [default PR route and lighter non-production path](../pr-lifecycle/SKILL.md#default-pr-route--prw), and [evidence applicability](../pr-lifecycle/SKILL.md#sha-binding-rule-critical--applies-to-every-gate-in-this-chain). Title/label changes are not execution proof, review approval or merge authority.
+
+At start, after each push and on a new failure, refresh the head, applicable checks and findings. Record the requested endpoint, changed claims, authorized acceptance environment, non-goals, actual blockers (required gates/P0 versus nonblocking findings), executing owner, next action and clearance evidence in the existing PR/task record. This caller-order guidance applies the lifecycle route; it does not select or add review obligations.
+
+For wrong, stale or inconsistent reviewer data, verify the premise against the
+authoritative current source and artifact/head, pin counterevidence, and ask the
+original reviewer to correct it or confirm withdrawal before dependent code
+changes; do not silently discard a disproven finding. Clarify materially
+ambiguous feedback with the reviewer before dependent edits. If a supported
+finding requires code changes, return the affected work to coding and collect
+fresh focused proof for affected claims; preserve understood independent work
+and still-valid proof. Follow the lifecycle's
+[change-impact review and test depth](../pr-lifecycle/SKILL.md#change-impact-review-and-test-depth)
+and [SHA-binding rule](../pr-lifecycle/SKILL.md#sha-binding-rule-critical--applies-to-every-gate-in-this-chain)
+rather than repeating their procedures.
+
+Before expensive work, assess existing results against their recorded SHAs and clear cheap relevant failures. Pin the measured merge-base/head scope, target-tip conflict status, selected lifecycle route, prior-proof applicability and producer gaps. Start required source review as soon as its pinned source inputs and scope are ready; it need not wait for a separate evidence producer to finish. Start evidence review only when the route-required proof is complete, readable and hash-bound. A source approval may therefore arrive before evidence production finishes, but it never makes the PR ready while required proof is missing. Reuse votes whose claim coverage and SHA applicability still hold; phase change alone does not require a duplicate review. Changed claims or an affected obligation do require the lifecycle's delta assessment and any review that assessment identifies.
+
+For evidence generation on a remote or native lane, follow the existing `parallelize-to-ceiling` and `linux-mirror` / `mac-mirror` owners to confirm an actual supported start or resumable job; queued composer input alone is not execution. Optional evidence packaging does not block independent required work. Resolve review templates by the owner's named access mode, not file position: validate the rendered prompt as data, correct it to that mode, reject unresolved placeholders, and do not switch modes or export merely to satisfy a template error. Select an eligible available model and coverage; count a vote only when the actual model, complete coverage and receipt SHA match. New conditions must trace to the user/intake contract; identify new scope instead of silently gating readiness on it.
+
+After applicable reviews and proof satisfy the requested endpoint, synchronize its final title/label/body markers. Then re-read the exact head, the new applicable check-attempt set and conflict status before any merge decision; phase-marker changes do not establish readiness. A harmless phase change or a change with no changed claims does not restart reviews whose recorded scope still applies. A same-cause probe/review that clears no blocker and reduces no uncertainty calls for a changed approach while independent work continues. Continue through the requested endpoint without invented approval stops or cycle/time caps. Diagnose original logs before a targeted fix/retry, preserve assertions, and follow canonical ready/final phases. Waiting or blocked is not Working; badges, skipped tests, assignment and pending review never establish readiness.
+Before promoting a user-visible change to `stage:5-final-approval`, apply the
+[canonical visual-approval contract](../pr-lifecycle/six-stage.md#review-routes-for-opted-in-repositories)
+and [draft-phase visual gate](../pr-lifecycle/SKILL.md#draft-phase-final-acceptance-gates-in-order).
+The compact route does not itself waive an applicable visual receipt: follow the lifecycle's
+claim/risk table and preserve its explicit one-liner and bounded nonvisual/source-only exceptions.
+When required, record `VISUAL APPROVED at <40-char-sha>` with the required findings.
+`/dot: REQUESTED, pending`, author inspection, and link checks do not satisfy that receipt.
 
 ## PR description and reporting
 
-Use the repository's actual template and authoritative description requirements.
-Record scope and non-goals, full production/non-production deltas, original execution evidence,
-review coverage/applicability, current stage, owner, blockers and next action.
-Keep receipts and prior verdict attribution; verify the rendered body and reviewer access.
-Report partial publication or an uncertain result before retrying. No private source, credentials or
-personal communications may be published outside their authorized destination.
+Use the repository's actual template and [pr-lifecycle's review-record contract](../pr-lifecycle/SKILL.md#review-records-in-the-pr-description). Report scope, current stage/head, owner, blockers, next action and exact evidence; preserve original receipt attribution and disclose partial or uncertain publication. Never publish private source, credentials or personal communications outside their authorized destination.
 
 ## Boundaries
 
 Creating or updating a PR does not authorize merge, deployment, credential changes, new quota,
 native/account operations, schedule changes or another owner's source work.
 Merge authority remains repository/user-specific and must be satisfied separately.
-Stage-exit receipts follow [pr-lifecycle's stage-exit receipt contract](../pr-lifecycle/SKILL.md#evidence-attached-to-every-stage-exit); that contract is the single owner.
+Stage-exit receipts follow [pr-lifecycle's stage-exit receipt contract](../pr-lifecycle/six-stage.md#evidence-attached-to-every-stage-exit); that contract is the single owner.

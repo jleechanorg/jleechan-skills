@@ -137,12 +137,12 @@ launchd launches plists with a **stripped PATH** (`/usr/bin:/bin:/usr/sbin:/sbin
     <string>$HOME/.cargo/bin:$HOME/.local/bin:$HOME/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
     <key>HERMES_SLACK_BOT_TOKEN</key>
     <string>[REDACTED_SLACK_TOKEN]</string>
-    <key>FACTORY_SLACK_CHANNEL_ID</key>
+    <key>SERVICE_SLACK_CHANNEL_ID</key>
     <string>C0REPLACEMEWITHCHANNELID</string>
 </dict>
 ```
 
-**(B) `launchd-wrapper.sh` indirection** (existing pattern in dark-factory's `ai.dark-factory.af-tick.plist`). The plist invokes a wrapper script that sources `~/.bashrc` (or `~/.zshrc`) before exec'ing the actual tick script. This is **less secure for secrets** (bashrc typically contains tokens) but gives the daemon the full user PATH including all installed CLIs. The wrapper exists at `daemon/launchd/launchd-wrapper.sh` in dark-factory; copy the pattern, do not bypass it with `EnvironmentVariables` if the repo already standardizes on the wrapper.
+**(B) `launchd-wrapper.sh` indirection** (an existing pattern in some repos' tick plists). The plist invokes a wrapper script that sources `~/.bashrc` (or `~/.zshrc`) before exec'ing the actual tick script. This is **less secure for secrets** (bashrc typically contains tokens) but gives the daemon the full user PATH including all installed CLIs. When the owning repo ships a `daemon/launchd/launchd-wrapper.sh`, copy the pattern, do not bypass it with `EnvironmentVariables` if the repo already standardizes on the wrapper.
 
 **For secrets / channel IDs, ALWAYS use placeholder substitution — never commit real tokens.** Pattern:
 
@@ -150,7 +150,7 @@ launchd launches plists with a **stripped PATH** (`/usr/bin:/bin:/usr/sbin:/sbin
 2. `install-launchagents.sh` (or equivalent installer) reads the real value from `~/.bashrc` / 1Password CLI / `op read op://Vault/Item/field` and substitutes before `launchctl bootstrap`.
 3. CI / pre-commit guard rejects commits that contain `xoxb-` or `C0[A-Z0-9]{10}` literals in `.plist` or `.plist.template` files.
 
-**Diagnostic when the daemon exits 1 every tick** (verified 2026-07-09, dark-factory /af):
+**Diagnostic when the daemon exits 1 every tick** (verified 2026-07-09):
 
 ```bash
 launchctl print gui/$(id -u)/<label> | grep -E "state|last exit"
@@ -165,14 +165,14 @@ tail -50 ~/Library/Logs/<service>.err.log
 
 If you see this pattern: open the plist template, add the `EnvironmentVariables` block OR ensure the plist invokes a `launchd-wrapper.sh` that sources `~/.bashrc`. Do NOT just symlink `br` into `/usr/local/bin` — that hides the underlying deployment-environment bug and bites the next daemon that needs a different binary.
 
-**Fail-soft notification pattern** (also added 2026-07-09, dark-factory `libnotify-slack.sh`): daemon scripts that post to Slack should gate every notification on `slack_capable` returning 1 (both `HERMES_SLACK_BOT_TOKEN` and `FACTORY_SLACK_CHANNEL_ID` set). When unset, the helper no-ops silently so the daemon runs in environments without Slack without breaking the tick loop. Pattern:
+**Fail-soft notification pattern** (also added 2026-07-09, `libnotify-slack.sh`): daemon scripts that post to Slack should gate every notification on `slack_capable` returning 1 (both `HERMES_SLACK_BOT_TOKEN` and `SERVICE_SLACK_CHANNEL_ID` set). When unset, the helper no-ops silently so the daemon runs in environments without Slack without breaking the tick loop. Pattern:
 
 ```bash
 if [ "$(slack_capable)" != "1" ]; then return 0; fi
 # only reach the curl chat.postMessage call when both vars are present
 ```
 
-This is the opposite of "crash loud on missing creds" — for *notifications*, silent no-op is correct; for *dispatch*, fail-loud is correct. Pick the right default per call site. Full recipe + the dark-factory `daemon/scripts/libnotify-slack.sh` template at `references/launchd-env-injection-and-wrapper.md`.
+This is the opposite of "crash loud on missing creds" — for *notifications*, silent no-op is correct; for *dispatch*, fail-loud is correct. Pick the right default per call site. Full recipe + the `daemon/scripts/libnotify-slack.sh` template at `references/launchd-env-injection-and-wrapper.md`.
 
 ## Deploy Script Flags (verified 2026-06-25 via `deploy.sh --help`)
 

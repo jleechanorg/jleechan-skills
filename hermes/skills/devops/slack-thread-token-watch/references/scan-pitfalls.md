@@ -93,8 +93,7 @@ that's a different workflow (interactive components) and out of scope.
 
 `mcp__slack__conversations_replies` may return `not_in_channel` for some
 channels when the bot identity is missing. The fallback is XOX-P curl with
-`SLACK_USER_TOKEN` (sourced from `~/.profile`, NOT `~/.bashrc` — see the
-v1.9.0 SLACK_USER_TOKEN extraction pitfall in `babysit-ao-pr-loop`).
+`SLACK_USER_TOKEN` (sourced from `~/.profile`, NOT `~/.bashrc`).
 
 **Verified working extraction:**
 ```bash

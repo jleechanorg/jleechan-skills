@@ -7,7 +7,7 @@ description: Enforcement rules for reviewing evidence artifacts against the evid
 
 ## Claim-proportionate evidence and publication
 
-For claim-proportionate proof, follow [pr-lifecycle](../pr-lifecycle/SKILL.md#proportional-exceptions-and-fast-paths); for PR publication, use its [stage-exit receipt contract](../pr-lifecycle/SKILL.md#evidence-attached-to-every-stage-exit). Evidence content and integrity remain governed by [evidence-standards](../evidence-standards/SKILL.md).
+For claim-proportionate proof, follow [pr-lifecycle](../pr-lifecycle/exceptions.md#proportional-exceptions-and-fast-paths); for PR publication, use its [stage-exit receipt contract](../pr-lifecycle/six-stage.md#evidence-attached-to-every-stage-exit). Evidence content and integrity remain governed by [evidence-standards](../evidence-standards/SKILL.md).
 
 ## Retained review integrations
 
@@ -17,9 +17,46 @@ Follow [pr-lifecycle's retained review integrations](../pr-lifecycle/SKILL.md#re
 
 **Invoked by**: `/er [subject or path]`
 
-**Repo overlay (always check)**: this is the **user-scope (global)** `/er` policy, the floor. Before judging, also read any `<repo>/.claude/skills/evidence-review/SKILL.md` and `<repo>/.claude/skills/evidence-standards/SKILL.md`; they add domain-specific proof (e.g. worldarchitect.ai adds BQ/streaming/dice modes). For lifecycle stages, generic review routing, proportionality and SHA reuse, the shared [pr-lifecycle precedence rule](../pr-lifecycle/SKILL.md#precedence-and-scope) governs conflicting copies. Domain proof, security and separate merge authority remain intact.
+**Standards source**: `evidence-standards` skill (`/es`). When in doubt about a requirement, read the standards first.
+
+**Repo overlay (always check)**: this is the **user-scope (global)** `/er` policy — the floor. Before judging, resolve repo overlays through the target repository's instructions/catalog. Check `<repo>/.claude/skills/<overlay-name>.md` and `<repo>/.claude/skills/<overlay-name>/SKILL.md`, where `overlay-name` is `evidence-review` or `evidence-standards`; inspect both forms if present. These add domain-specific proof (e.g. worldarchitect.ai adds BQ/streaming/dice modes). For lifecycle stages, generic review routing, proportionality and SHA reuse, the shared [pr-lifecycle precedence rule](../pr-lifecycle/SKILL.md#precedence-and-scope) governs conflicting copies. Domain proof, security and separate merge authority remain intact.
 
 ---
+
+## Evidence-only scope and read-only dispatch
+
+`/er` approves evidence for the actual claims, not full source correctness or an
+`/advice` vote. `/er` is not source approval and does not count toward source-review
+quorum. Read the complete base-to-head diff to derive explicit and implicit claims,
+then inspect claim-relevant source, artifacts, and provenance. Do not require prior
+source approval or an adjacent, undeclared source-review log. If claim-relevant
+source or provenance is missing, withhold the affected evidence claim rather than
+guessing.
+
+Completeness means every artifact needed for the actual claims and applicable
+owner requirements, not a whole-repository semantic dump to restamp unchanged
+proof. This scope boundary does not waive real-service, auth, provider, BQ,
+source/provenance, visual or integrity gates, independent code/advice quorum, or
+separate user/merge authority. An observed acceptance violation remains FAIL,
+never a limitation or nonblocking P1.
+
+Every review dispatch, including coordinator asks, must explicitly say: remain
+read-only; do not mutate source/evidence, post, push, update branches, or change
+PR metadata/stages. Return findings only. Do not regenerate evidence or write a
+verification report into the producer bundle. Frame extraction may use unique
+review scratch without changing original media. The separately authorized owner
+handles fixes and publication; a review invocation does not authorize them.
+
+### Claim and artifact preflight
+
+Inventory claimed artifacts and reconcile raw bytes, provenance, and checksum
+coverage with existing utilities. Map canonical producer files to `/es` duties;
+do not demand duplicate logs. Independently verify coverage and bytes, and
+reproduce each applicable documented check. Runtime claims require actual
+runtime/provider provenance. Missing claim-required proof is non-approving.
+Source-only Markdown changes do not trigger an artifact campaign; runtime or
+artifact claims retain named domain proof. Batch fixes before dispatch; use
+Phase 0 for later deltas rather than relabeling old evidence.
 
 ## Verdict Rubric
 
@@ -30,21 +67,26 @@ Follow [pr-lifecycle's retained review integrations](../pr-lifecycle/SKILL.md#re
 | **FAIL** | A claim is contradicted by an artifact, or integrity is broken (sha256 mismatch, dirty capture producing the claim, scope exclusion). |
 | **INCONCLUSIVE** | Not enough artifact data exists to decide. Request more. |
 
-## Draft-lifecycle integration
+## Lifecycle applicability
 
-The canonical lifecycle, its documentation-only `/er` allowlist and the SHA-binding rule live in `pr-lifecycle`; apply them, including the staleness-tolerance diff test (`evidence-standards` § "Evidence Staleness Tolerance"), before invoking this skill. On a HEAD move that test classifies as non-behavioral, do not run a fresh pass; re-affirm the prior verdict at the new SHA (see `evidence-standards` § "Evidence Sequencing").
-
-- **Documentation-only exception**: when the complete PR diff matches the exact documentation allowlist in `pr-lifecycle`, `/er` is not run. Record `/er: NOT REQUIRED — documentation-only (<changed paths>)` at the reviewed SHA. Other diffs follow the normal gate unless the entire diff qualifies for the explicit trivial-change exception in pr-lifecycle.
-
-Every other PR, outside the canonical trivial-change exception and any low-risk class the repo's own instructions exempt per `pr-lifecycle`, needs `/er` = **PASS** applicable to the candidate before `/advice`, keeping the original reviewed SHA and the documented delta assessment when they differ. PARTIAL, FAIL or INCONCLUSIVE is informative but does not satisfy the gate.
-
-When `/er` is required and invoked via `gh pr comment N --body "/er"`, the evidence-review-bot returns one of the four verdicts as a structured comment. Evidence review is a draft-phase quality gate; `/green` remains the separate two-gate check in `pr-green-definition`.
+The [canonical pr-lifecycle contract](../pr-lifecycle/SKILL.md) owns `/er`
+applicability, phase, and SHA-bound reuse or delta review. Resolve that route
+before invoking this skill; do not restate or expand its exceptions. Preserve
+original tested/reviewed SHAs and explain candidate applicability under its
+delta rule. Follow the lifecycle and domain owners for any separate review,
+runtime-proof, or publication requirements.
 
 ---
 
 ## Mandatory Pre-PASS Checks (all must pass)
 
 ### 1. Bundle integrity
+
+The example below handles the default manifest and sibling modes. If the
+canonical producer uses another aggregate filename, explicitly record its mapping
+to the same complete coverage contract and verify it with the existing producer
+verification utility or `sha256sum -c <mapped-manifest>` instead. A filename
+difference is not missing integrity; absent coverage or mismatching bytes is.
 
 ```bash
 (
@@ -83,7 +125,7 @@ When `/er` is required and invoked via `gh pr comment N --body "/er"`, the evide
 - A top-level `checksums.sha256` means bundle-checksum mode; without one, verify every per-file `*.sha256`.
 - Any checksum mismatch → **FAIL** (not just PARTIAL: the bundle is tampered or stale).
 - No checksum files → **INCONCLUSIVE** for integrity; do not award PASS.
-- The manifest must have entries for every file in the claim map and every file covered by `checksums.sha256` or the per-file `*.sha256` files, resolving per-file entries relative to each `.sha256` file's directory.
+- Independently inventory every substantive bundle artifact, including every claim-map artifact, and reconcile it against checksum coverage. A complete aggregate `checksums.sha256` manifest OR per-file `.sha256` siblings is sufficient; do not demand both. Resolve manifest paths from the bundle root and sibling entries from their own directory. Missing coverage or a listed-but-missing artifact is an integrity **FAIL**. A successful `sha256sum -c` checks listed bytes only and does not establish inventory completeness.
 
 **Checksums establish integrity, not provenance.** A matching digest proves only that the reviewed bytes match the manifest, not where they came from, which code path produced them, or that they demonstrate the claimed behavior. For STRONG evidence, also resolve the primary raw artifact against its capture provenance (for example `metadata.json.provenance.git_head`, runtime/process metadata, and the raw request/response or test output that directly shows the claim). A claim supported only by a checksum or manifest entry is **MISSING**, not STRONG.
 
@@ -119,10 +161,11 @@ Select video requirements from the user-scope evidence-standards and the reposit
 For each applicable video requirement, verify:
 - The required format is present and accessible, including any inline GIF or downloadable MP4 the PR claims to provide.
 - The caption identifies the test/action, observed result and tested SHA.
-- UI footage visibly shows the relevant element and before/action/after behavior.
+- Apply the canonical [`evidence-standards` continuous-video rule](../evidence-standards/SKILL.md#continuous-video-only--slideshows-are-forbidden). A slideshow remains **FAIL** even when transport and file-integrity checks pass.
+- UI footage visibly shows the relevant element and the applicable before→after behavior; when a user action exists, it also shows the before/action/after flow.
 - Terminal footage, when required, shows the command and relevant result.
-- The mpdecimate retained-frame count and nominal count are reported with the fail-closed probe in `../ui-video-evidence/SKILL.md`; `kept < 10` or `kept/nominal < 5%` is **FAIL** unless the caption names the action and after-state frame timestamps and they show the claim.
-- Each clip includes the user action (e.g. the Send tap) plus the before state; a window anchored only to completion that omits the action fails. If the observable has no user action, record N/A with the reason and require a before-state → after-state transition clip.
+- The mpdecimate retained-frame count and nominal count are reported with the fail-closed probe in `../ui-video-evidence/SKILL.md`; a low count is diagnostic evidence of a possible slideshow or frozen capture, while the canonical continuous-capture provenance rule remains mandatory.
+- When a user action exists, each clip includes the action (e.g. the Send tap) plus the before state; a window anchored only to completion that omits the action fails. If the observable has no user action, record N/A with the reason and require a before-state → after-state transition clip.
 - Before/after clips come from fresh runs of each build; any re-cut or reused baseline is labeled `derived` with its source.
 - This `/er` verdict (and any `/advice` on the evidence) comes from a different agent/lane than the one that produced the evidence, and the verdict names that lane (lanes may share one GitHub account).
 
@@ -130,11 +173,11 @@ A missing applicable artifact yields **PARTIAL**. Record inapplicable formats as
 
 **Video acceptance needs an independent content review.** When a video backs an acceptance claim, an independent AI reviewer (not the author or orchestrator) extracts frames from the published video itself (not the capture's own screenshots) and returns PASS/FAIL per acceptance step with the timestamp where it is visible. Privacy masking, decode/playback, upload read-back, captions, and turn-record or coverage-judge JSON are separate checks and never substitute. No content review → **PARTIAL**; a step the frames contradict → **FAIL**.
 
-**Mandatory AI Visual Inspection (`VISUAL APPROVED at <40-char-sha>`):** applicability, record contents and SHA binding are owned by [pr-lifecycle's visual-approval contract](../pr-lifecycle/SKILL.md#review-routes-for-opted-in-repositories). For any user-visible change outside the documented exemptions, the approving seat (an `/advice` visual lane, `/dot`, or an `/er` visual lane run by a seat other than the one that produced or reviewed the evidence, as that contract requires) MUST download and visually inspect the actual rendered image or extracted video frames, never just URL status or checksums, and record `VISUAL APPROVED at <40-char-sha>` (or `VISUAL REJECTED at <40-char-sha>`) with the per-claim findings that contract requires. A link-existence check or pending request (e.g. `/dot: REQUESTED, pending`) is NEVER a visual approval PASS: it caps `/er` at **PARTIAL** and blocks `stage:5-final-approval` and merge readiness.
+**Mandatory AI Visual Inspection (`VISUAL APPROVED at <40-char-sha>`):** applicability, record contents and SHA binding are owned by [pr-lifecycle's visual-approval contract](../pr-lifecycle/six-stage.md#review-routes-for-opted-in-repositories). For any user-visible change outside the documented exemptions, the approving seat (an `/advice` visual lane, `/dot`, or an `/er` visual lane run by a seat other than the one that produced or reviewed the evidence, as that contract requires) MUST download and visually inspect the actual rendered image or extracted video frames, never just URL status or checksums, and record `VISUAL APPROVED at <40-char-sha>` (or `VISUAL REJECTED at <40-char-sha>`) with the per-claim findings that contract requires. A link-existence check or pending request (e.g. `/dot: REQUESTED, pending`) is NEVER a visual approval PASS: it caps `/er` at **PARTIAL** and blocks `stage:5-final-approval` and merge readiness.
 
 ### 5. Media hosting check
 
-Apply this check when inline or linked media backs a claim; it does not by itself require publishing an otherwise private evidence bundle. Evidence classes and hosting rules are owned by evidence-standards (§ Visual Evidence & Mandatory Inline Rendering in PRs); this check applies them and adds no stricter hosting rule.
+Apply this check when inline or linked media backs a claim; it does not by itself require publishing an otherwise private evidence bundle. Evidence classes and hosting rules are owned by evidence-standards (§ UI/media proof); this check applies them and adds no stricter hosting rule.
 
 - GCS is the default host; a GitHub attachment or any other host the task authorizes is also acceptable.
 - Authorized private hosting is acceptable when the intended reviewer can open and play the media; record the access mode.
@@ -208,7 +251,13 @@ Example: if a warm-up request fires while consent is off under a dialog saying "
 
 ### Phase 0 — Staleness gate (run before anything else)
 
-Resolve the last posted `ER-VERDICT:` and its original HEAD, base, evidence, claims and review phase. Apply [pr-lifecycle's SHA-binding rule](../pr-lifecycle/SKILL.md#sha-binding-rule-critical--applies-to-every-gate-in-this-chain) before reusing it: a matching HEAD alone does not establish unchanged evidence, base, scope or final-phase coverage. Record applicability without restamping the original verdict. A delta that changes production behavior, or any assertion, driver or executable instruction a claim depends on, needs fresh affected proof and independent review, and so does uncertain coverage; keep unaffected claims and fully rerun only when impact cannot be bounded. Never rerun once per finding: while fixes are still landing, wait until they are batched into one new SHA (`evidence-standards` § "Evidence Sequencing") before spending a full pass.
+Resolve the last `ER-VERDICT:` and its original HEAD, base, claims, evidence, and
+phase. Apply [pr-lifecycle's SHA-binding rule](../pr-lifecycle/SKILL.md#sha-binding-rule-critical--applies-to-every-gate-in-this-chain):
+a matching HEAD alone does not establish unchanged scope or coverage. Record
+candidate applicability without restamping the original verdict. Recheck claims
+affected by changes to behavior or to a dependent assertion, driver, or
+executable instruction, using the review coverage the lifecycle requires.
+If impact cannot be bounded, rerun the affected review; batch fixes first.
 
 Continue necessary review and already-authorized fixes within the task scope and autonomy deadline. A review-only invocation reports findings without editing the reviewed source or evidence; fixes use write authority the parent task already holds. Review count alone does not require escalation; ask only for missing authority or an unresolved decision that blocks the affected action.
 
@@ -296,12 +345,11 @@ Produce output in this format:
 
 **Skill-load guard is mandatory.** Before any review, resolve this skill's path (user-scope `~/.claude/skills/evidence-review/SKILL.md` takes priority over any repo-scope copy). If the file cannot be found, **abort and report the error**; never proceed with an inline or paraphrased methodology. A subagent invoked as a fallback reviewer loads this file itself rather than having the methodology inlined into its prompt.
 
-**Dispatch order:**
-1. Attempt codex dispatch first (`ai_orch run --agent-cli codex "<review prompt>"`) and, on success, read the resulting log for findings.
-2. On codex failure or no log, fall back to the `evidence-reviewer` subagent, which loads this skill file itself (per the guard above).
-3. Whichever path produced the evidence-review result, then run a separate manual `evidence-standards` compliance pass (read the user-scope and any repo-scope `evidence-standards` skill and judge the collected evidence against them). It is never skipped because codex succeeded. This two-pass cost is paid ONCE per Phase-0-cleared SHA, never per push; a Phase 0 re-affirmation does not re-trigger it.
+**Review and standards coverage:** Select one available independent evidence reviewer through [advice's capability profiles and tiers](../advice/SKILL.md#capability-profile-and-tier-selection), using the first authorized tier that can cover the complete scope; no fixed CLI, model or machine dependency applies. The selected reviewer loads this skill and the applicable user-scope and repository `evidence-standards` requirements, then reports artifact-level findings. Evidence adjudication is separate from the `/advice` source-vote quorum: this reviewer supplies the evidence verdict, not a source-review vote. The lifecycle owns quorum, stage coverage, and receipt reuse.
 
-**Two-source verdict synthesis.** `/er` combines this skill's evidence-review verdict with the evidence-standards compliance verdict into one raw overall verdict and returns it unnormalized. Goal-driving harnesses own final normalization (collapsing PARTIAL/INCONCLUSIVE to FAIL and WARN to PASS, per their own convergence policy):
+**Verdict synthesis.** Combine this skill's evidence findings with the
+applicable evidence-standards compliance result into one raw overall verdict.
+Goal-driving harnesses own any further normalization under their own policy:
 
 | ER verdict | ES verdict | Raw overall verdict | Harness-normalized |
 |-----------|-----------|---------------------|--------------------|

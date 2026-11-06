@@ -1,17 +1,10 @@
-# Cross-repo `/af` drive cookbook
+# Cross-repo AO PR-drive cookbook
 
-Verified 2026-07-08 driving **49 non-draft PRs across 7 repos** with the auto-factory protocol: 2 MERGED, 6 CLEAN+APPROVED, 9 CLEAN, 25 UNSTABLE, 7 CONFLICTING after one ~45-min burst with 30 parallel AO workers.
+Verified 2026-07-08 driving **49 non-draft PRs across 7 repos** with direct `ao spawn --claim-pr` fanout: 2 MERGED, 6 CLEAN+APPROVED, 9 CLEAN, 25 UNSTABLE, 7 CONFLICTING after one ~45-min burst with 30 parallel AO workers.
 
-This is the operational recipe for "drive every non-draft PR to /green + /er using /af" when the scope spans multiple repos (which is the common case for any real fleet).
+This is the operational recipe for "drive every non-draft PR to /green + /er" when the scope spans multiple repos (which is the common case for any real fleet).
 
-## What `/af` actually is
-
-The slash command `/af` runs a single tick of the auto-factory orchestration:
-1. Pick up beads (QUEUED state in `~/.dark-factory/daemon-cxdb.sqlite`) with `pr_number` set
-2. For each, call `factory-ao-remediate.sh` which spawns an AO worker via `ao spawn --project worldarchitect --claim-pr <N>`
-3. Run verifier ticks against 7 gates (CI, conflicts, CR, Bugbot, comments, evidence, skeptic)
-
-**Critical constraint:** The auto-factory's `target_repo = $GITHUB_REPOSITORY` is hardcoded in `$HOME/projects/dark-factory/daemon/factory-overlay.sh`. It only spawns workers for the WA project. For cross-repo batches you must bypass the overlay and call `ao spawn` directly.
+AO has a per-project spawn lock, so call `ao spawn -p <project> --claim-pr <N>` directly for each project.
 
 ## Recipe: cross-repo fanout
 
@@ -20,7 +13,7 @@ The slash command `/af` runs a single tick of the auto-factory orchestration:
 PRS="754 753 752 751 750"
 for pr in $PRS; do
   ~/bin/ao spawn -p jleechanclaw --claim-pr $pr \
-    "drive PR #$pr to /green + /er via auto-factory batch — push to existing branch only, do not open new PR, do not merge"
+    "drive PR #$pr to /green + /er — push to existing branch only, do not open new PR, do not merge"
 done
 ```
 
