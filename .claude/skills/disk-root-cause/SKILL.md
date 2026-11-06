@@ -68,7 +68,7 @@ If `schema_version != 2`, the snapshot is pre-v2 (coverage inflates by parent/ch
 
 ## Phase 1 — floor + deltas (snapshot history)
 
-`~/.disk_magician_backup` is a git repo. Every commit is a snapshot. The skill reads history with `git log --all` (+ reflog for orphaned commits per the 07-11 incident) and `git show <sha>:snapshots/disk_snapshot.json`.
+`~/.disk_magician_backup` is a git repo. Snapshot history may use both layouts: older commits store `backup/<host>/disk_snapshot.json`; current commits use `snapshots/disk_snapshot.json`. Search both paths when selecting floors with `git log --all -- 'backup/*/disk_snapshot.json' snapshots/disk_snapshot.json`, including commits recovered by the existing reflog procedure. Read the path present in each selected commit with `git show <sha>:<path>`; the current-layout path may be absent from older commits. If both files exist in one commit, compare their embedded timestamps and select the capture for the requested window without counting a duplicate twice.
 
 Three deltas, always reported:
 

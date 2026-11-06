@@ -12,7 +12,7 @@ No scripts, runtime code, tests, installed-skill changes, service changes, clean
 
 - `disk-magician` identifies the quick-check versus forensic route and labels its full audit as attribution-only.
 - Quick-path freshness is determined from the owning tool output (`diskm ledger-freshness`), without a hardcoded interval in the skill.
-- Root-cause work keeps the full three-lane audit; current and historical snapshot instructions use `snapshots/disk_snapshot.json`, with the frozen `backup/<host>/` layout identified as legacy.
+- Root-cause work keeps the full three-lane audit; current snapshots use `snapshots/disk_snapshot.json`, while historical commits are read from whichever layout they contain, including legacy `backup/<host>/disk_snapshot.json`. If both paths exist in one commit, their embedded timestamps distinguish the captures.
 - The root-cause example uses generic `df -h`; no mount path is tied to one host.
 - The 14-day worktree caution, explicit `WORKTREE APPROVED` requirement, never-delete list, and command-specific approval gates remain. No approval token appears as a runnable command prefix.
 - Cleanup examples use only verified read-only preview interfaces; `clean-all --dry-run` and the default report-only worktree-hygiene path remain discoverable.
