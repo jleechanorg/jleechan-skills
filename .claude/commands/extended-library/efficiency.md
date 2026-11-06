@@ -4,7 +4,7 @@ description: Audit PR merge rate, LOC efficiency, and duplicate detection
 
 # /efficiency — PR Pipeline Audit
 
-**Skill**: `.claude/skills/pr-efficiency-audit.md`
+**Skill**: `.claude/skills/pr-efficiency-audit/SKILL.md`
 
 ## Usage
 

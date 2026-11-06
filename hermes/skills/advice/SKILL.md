@@ -1,21 +1,43 @@
 ---
 name: advice
 version: 1.5.0
-description: "Hermes wrapper for the `/advice` token-efficient second-opinion slash command. Canonical source is `~/.claude/skills/advice/SKILL.md`. Adds docs-accuracy review template, patch-review template, and three operator-correction pitfalls verified 2026-07-30: #14 'I don't care about X' = indifferent mechanism, not a ban; #15 gateway re-injection = break the echo chain on turn 2; #16 env-driven configuration preference."
+description: "Hermes entry point for canonical advice and static-review: capability tiers, qualified quorum and complete revision-bound review."
 ---
 
 # /advice — Token-Efficient Second Opinion (Hermes overlay)
 
 **This is the Hermes-side wrapper.** The canonical skill lives at:
-- `~/.claude/skills/advice/SKILL.md` — full pattern, all 3 reviewers, fallback chain
+- `~/.claude/skills/advice/SKILL.md` — quorum, dispatch order, fallback chain
 
 **Read the canonical file for the full procedure.** This overlay exists so that:
 1. `skill_view(name='advice')` works from the Hermes session (the canonical Claude skill is not registered in the Hermes skill registry).
 2. Future agents learn to **search both `~/.hermes/skills/` AND `~/.claude/skills/`** when a user invokes a `/slash` command — slash commands are not Hermes-native; they are Claude Code constructs.
 
+## Canonical reviewer contract
+
+The canonical advice skill owns reviewer capabilities, risk-selected count,
+tier order and class caps. Static-review owns cold prompts, access-mode
+preambles, full pinned source coverage and receipts. Load both current owners;
+fill exactly the fields of advice §4's selected mode rather than assuming only
+a URL/SHA pair. This overlay supplies no separate prompt or dispatch policy.
+Use actual authorized accounts/capabilities on the current host; preserve
+complete coverage, deadlines, identity deduplication and explicit outside
+requirements. Missing an integration means UNAVAILABLE, not an improvised
+review or approval.
+
+
 ## When to use
 
 User says `/advice [optional question]`, or you reach a decision point that needs a second opinion without shipping the full conversation uncached.
+
+## Historical notes — not review-dispatch instructions
+
+The legacy examples, templates, seat-availability claims and fanout recommendations below are preserved as
+historical context only. They do not authorize dispatch, establish current machine capability, supply a review
+prompt or override the canonical advice/static-review owners. For every live review, resolve current local
+capabilities, quorum and tiers from the canonical skills above and use only static-review's current templates
+and transport preambles. Do not execute a historical command or request a named seat merely because it appears
+below.
 
 ## Review types (added 2026-07-06)
 

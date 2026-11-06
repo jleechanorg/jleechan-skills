@@ -56,284 +56,60 @@ def cursor_coverage(output: str) -> dict:
 
 
 class ApprovalContractsTest(unittest.TestCase):
-    def test_superpowers_quick_delegates_recommended_choices_and_finishes_documents(self) -> None:
-        command = (COMMANDS / "superpowers-quick.md").read_text()
-        quick = skill("superpowers-quick")
 
-        self.assertIn("~/.claude/skills/superpowers-quick/SKILL.md", command)
-        self.assertNotIn("superpowers:brainstorming", command)
-        self.assertNotIn("superpowers:writing-plans", command)
-        self.assertIn("superpowers:brainstorming", quick)
-        self.assertIn("superpowers:writing-plans", quick)
-        self.assertIn("disable-model-invocation: false", quick)
-        self.assertIn("recommended", quick.lower())
-        self.assertIn("invocation is the user's explicit authorization", quick.lower())
-        self.assertIn("do not ask the user", quick.lower())
-        self.assertIn("docs/superpowers/specs/", quick)
-        self.assertIn("docs/superpowers/plans/", quick)
-        self.assertIn("terminal condition", quick.lower())
+    def test_commentcheck_fenced_code_blocks_are_not_nested(self) -> None:
+        path = COMMANDS / "extended-library" / "commentcheck.md"
+        in_fence = False
+        fence_count = 0
 
-    def test_superpowers_quick_resolves_portable_dependencies_and_overrides_child_pauses(self) -> None:
-        quick = skill("superpowers-quick")
+        for line_number, line in enumerate(path.read_text().splitlines(), start=1):
+            if line.startswith("### Phase 5:") or line.startswith("### Phase 6:"):
+                self.assertFalse(in_fence, f"phase heading fenced at {line_number}")
+            if not line.startswith("```"):
+                continue
+            fence_count += 1
+            if in_fence:
+                self.assertEqual(
+                    line.strip(),
+                    "```",
+                    f"unexpected nested fence at {line_number}",
+                )
+                in_fence = False
+            else:
+                in_fence = True
 
-        for dependency in ("superpowers-brainstorming", "superpowers-writing-plans"):
-            dependency_path = SKILLS / dependency / "SKILL.md"
-            self.assertTrue(dependency_path.is_file(), dependency_path)
-            self.assertIn(f"~/.claude/skills/{dependency}/SKILL.md", quick)
+        self.assertGreater(fence_count, 0)
+        self.assertFalse(in_fence, "commentcheck.md has an unclosed code fence")
 
-        self.assertIn("Do not offer the visual companion", quick)
-        self.assertIn("Do not pause for user review", quick)
-        self.assertIn("Do not commit or push", quick)
-        self.assertIn("Skip its execution handoff", quick)
-        self.assertIn("Terminate immediately after", quick)
-        self.assertIn("takes precedence over every child instruction", quick)
-        self.assertIn("write either artifact to a different path", quick)
-        self.assertIn("still write and self-review both documents", quick)
-        self.assertNotIn("stop with the exact blocker", quick)
-
-    def test_superpowers_quick_reports_autopicks_and_advice_without_unapproved_disclosure(self) -> None:
-        quick = skill("superpowers-quick")
-
+    def test_superpowers_quick_and_dependencies_have_valid_packages(self) -> None:
+        command_path = COMMANDS / "superpowers-quick.md"
+        self.assertTrue(command_path.is_file(), command_path)
         self.assertIn(
-            "question, the auto-picked answer, and the underlying rationale",
-            quick,
+            "~/.claude/skills/superpowers-quick/SKILL.md",
+            command_path.read_text(encoding="utf-8"),
         )
-        self.assertIn("both the design specification and implementation plan", quick)
-        self.assertIn(
-            "A bare `/superpowers-quick` invocation does not authorize external browser review",
-            quick,
-        )
-        self.assertIn("Run at most one standalone `/web-advice`", quick)
-        self.assertIn("Do not pause or ask the user to log in", quick)
-        self.assertIn(
-            "`/web-advice is disabled; do not invoke it or any external browser transport.`",
-            quick,
-        )
-        self.assertIn(
-            "Verify the synthesis records no browser submission",
-            quick,
-        )
-        self.assertIn(
-            "Treat an attempted browser submission as an incomplete `/advice` run and record it as `FAILED`",
-            quick,
-        )
-        self.assertIn(
-            "Retry `/advice` once only for a transient transport or reviewer-launch failure",
-            quick,
-        )
-        self.assertIn(
-            "permits the terminal report but prohibits claiming that advice passed or approved the documents",
-            quick,
-        )
-        self.assertIn(
-            "record `/web-advice` as `FAILED` with the attempted-submission reason",
-            quick,
-        )
-        self.assertIn(
-            "When no external attempt occurred and explicit authorization is absent",
-            quick,
-        )
-        self.assertIn(
-            "Retry the whole `/advice` invocation only when it failed before any reviewer launched",
-            quick,
-        )
-        self.assertIn(
-            "Any browser submission made during `/advice` consumes the single `/web-advice` run",
-            quick,
-        )
-        self.assertIn(
-            "only when `/advice` made no browser submission",
-            quick,
-        )
-        self.assertIn("`/advice`: `RAN | FAILED`", quick)
-        self.assertIn(
-            "`/web-advice`: `RAN | SKIPPED | UNAVAILABLE | FAILED`",
-            quick,
-        )
-        self.assertIn("<repo-root>/docs/superpowers/specs/", quick)
-        self.assertIn("<repo-root>/docs/superpowers/plans/", quick)
-        self.assertIn("advice attempts and required status records are complete", quick)
 
-    def test_advice_reviews_repository_before_approving(self) -> None:
-        advice = skill("advice")
-        command = (COMMANDS / "advice.md").read_text()
-        readme = (REPO_ROOT / "README.md").read_text()
-        self.assertIn("**Pointer**", advice)
-        self.assertIn("Send the pointer, not a transcription.", advice)
-        self.assertIn("A verdict built on a truncated inline artifact may not be `APPROVED`.", advice)
-        self.assertIn("VERDICT: WITHHELD at <SHA>", advice)
-        self.assertIn("COVERAGE", advice)
-        self.assertIn("research-only output are not approval reviewers", advice)
-        self.assertIn("combined scope covers the whole declared change", advice)
-        self.assertIn("`COVERAGE: <files/diff scope actually read>`", advice)
-        self.assertIn("Each original\nindependent approving reviewer must inspect", advice)
-        self.assertIn("explicitly reaffirm", advice)
-        self.assertIn("never by directory or", advice)
-        self.assertIn("Codex + Opus CLI", command)
-        self.assertIn("/research", command)
-        self.assertIn("/extended-library:secondo", command)
-        self.assertNotIn("/web-advice", command)
-        self.assertNotIn("/web-advice", advice)
-        self.assertNotIn("Reviewer D", advice)
-        self.assertIn("up to four reviewers concurrently", readme)
-        self.assertIn("`/extended-library:secondo`", readme)
-        self.assertNotIn("up to four reviewers concurrently: an Opus subagent", readme)
-
-    def test_ready_requires_advice_without_web_advice_fanout(self) -> None:
-        ready = skill("ready")
-        draft_first = skill("draft-first-pr")
-        advice = skill("advice")
-        web_advice_command = (COMMANDS / "web-advice.md").read_text()
-
-        self.assertIn("/er and /advice\nwhere `draft-first-pr` (including repo-defined exemptions) requires them", (COMMANDS / "ready.md").read_text())
-        self.assertIn("**/advice**", ready)
-        self.assertIn("→ /advice APPROVED @ SHA", draft_first)
-        self.assertNotIn("/web-advice", advice)
-        self.assertNotIn("Reviewer D", advice)
-        self.assertIn("canonical skill", web_advice_command)
-
-    def test_web_advice_requires_real_browser_transport(self) -> None:
-        web_adv = skill("web-advice")
-        self.assertIn(
-            "COVERAGE: exact filenames from the attached packet actually read",
-            web_adv,
+        package_names = (
+            "superpowers-quick",
+            "superpowers-brainstorming",
+            "superpowers-writing-plans",
         )
-        self.assertIn("Zero Aside Inference Invariant", web_adv)
-        self.assertIn("NEVER use Aside inference", web_adv)
-        self.assertIn("chrome_headless_cookies", web_adv)
-        self.assertIn("playwright_mcp", web_adv)
-        self.assertNotIn("fall back to a subagent", web_adv.lower())
-        self.assertNotIn("fall back to subagent", web_adv.lower())
+        package_texts = {}
+        for name in package_names:
+            path = SKILLS / name / "SKILL.md"
+            self.assertTrue(path.is_file(), path)
+            text = path.read_text(encoding="utf-8")
+            metadata = re.match(r"\A---\n(.*?)\n---\n", text, re.S)
+            self.assertIsNotNone(metadata, path)
+            self.assertRegex(
+                metadata.group(1), rf"(?m)^name:\s*{re.escape(name)}$"
+            )
+            package_texts[name] = text
 
-        workflow = (
-            REPO_ROOT
-            / "hermes"
-            / "skills"
-            / "workflow"
-            / "apply-supplied-patch-and-open-pr"
-            / "SKILL.md"
-        ).read_text()
-        self.assertNotIn("recorded CLI review via `codex exec`", workflow)
-        self.assertNotIn("/web-advice (Codex)", workflow)
-
-        evals = (
-            SKILLS / "web-advice" / "evals" / "web_advice_evals.md"
-        ).read_text()
-        self.assertIn("authenticated Playwright fallback", evals)
-        self.assertIn("Chrome cookie headless", evals)
-        self.assertNotIn("the four ladder rungs", evals)
-
-    def test_evidence_review_separates_integrity_from_provenance(self) -> None:
-        review = skill("evidence-review")
-        self.assertIn("Checksums establish integrity, not provenance", review)
-        self.assertIn("does not make a claim STRONG", review)
-
-    def test_evidence_staleness_is_about_production_behavior(self) -> None:
-        standards = skill("evidence-standards")
-        self.assertIn("the delta and the claim decide, not the path", standards)
-        self.assertIn("A moving HEAD does NOT invalidate evidence by itself.", standards)
-
-    def test_draft_gate_requires_sha_bound_approval_not_withheld(self) -> None:
-        draft_first = skill("draft-first-pr")
-        self.assertIn("`WITHHELD at <SHA>`", draft_first)
-        self.assertIn("does not satisfy the draft gate", draft_first)
-        self.assertIn("SHA-binding rule", draft_first)
-
-    def test_documentation_only_draft_gate_skips_evidence_review(self) -> None:
-        draft_first = skill("draft-first-pr")
-        evidence_review = skill("evidence-review")
-        green = skill("pr-green-definition")
-        readme = (REPO_ROOT / "README.md").read_text()
-
-        self.assertIn("Documentation-only `/er` exception", draft_first)
-        self.assertIn("do not run `/er`", draft_first)
-        self.assertIn("`README.md`", draft_first)
-        self.assertIn("`docs/**`", draft_first)
-        self.assertIn("`.claude/**`", draft_first)
         self.assertRegex(
-            draft_first,
-            r"still require `/es`\s+and, unless a repo-exempted class applies,"
-            r"\s+`/advice`",
+            package_texts["superpowers-quick"],
+            r"(?m)^disable-model-invocation:\s*false$",
         )
-        allowlist = re.search(
-            r"For this `/er` exemption, every changed path must be one of:\n\n"
-            r"(?P<paths>(?:- `[^`]+`\n)+)",
-            draft_first,
-        )
-        self.assertIsNotNone(allowlist)
-        self.assertEqual(
-            re.findall(r"- `([^`]+)`", allowlist.group("paths")),
-            ["README.md", "CHANGELOG.md", "CONTRIBUTING.md", "docs/**"],
-        )
-        self.assertIn("Documentation-only exception", evidence_review)
-        self.assertIn("`/er` is not run", evidence_review)
-        receipt = "`/er: NOT REQUIRED — documentation-only (<changed paths>)`"
-        self.assertIn(receipt, draft_first)
-        self.assertIn(receipt, evidence_review)
-        self.assertRegex(
-            draft_first,
-            r"Any\s+mixed diff uses the normal `/er` gate",
-        )
-        self.assertRegex(
-            evidence_review,
-            r"Mixed diffs and every path outside that allowlist follow the normal gate",
-        )
-        self.assertIn("requires `/er` = **PASS** at the current SHA", evidence_review)
-        self.assertIn("outside any low-risk class the repo's own\ninstructions exempt per `draft-first-pr`", evidence_review)
-        self.assertNotIn("Acceptable for `/green` on NON_PRODUCTION", evidence_review)
-        self.assertIn("when `/er` is required by that lifecycle", green)
-        self.assertNotIn("DRAFT → `/es` → `/er` → `/advice`", green)
-        self.assertIn("draft-phase gate", readme)
-        self.assertIn("Documentation-only PRs skip `/er`", readme)
-        self.assertNotIn("production-tier `/green` requires PASS", readme)
-
-    def test_portable_and_orchestration_contracts_disclose_actual_behavior(self) -> None:
-        history = skill("conversation-history-sparse")
-        factory = skill("dark-factory")
-        swarm = skill("swarm")
-
-        discovery = history.split("### 2)", 1)[1].split("### 3)", 1)[0]
-        self.assertIn("Return filenames only", discovery)
-        self.assertIn("at most three", discovery)
-        self.assertIn("--files-with-matches", discovery)
-        self.assertNotIn("xargs -0 rg -n", discovery)
-        self.assertIn("HISTORY_FILES_JSON", history)
-        self.assertIn("Always tell the user the **actual command** you ran", factory)
-        self.assertIn("The top-level session owns named visible lanes", swarm)
-
-    def test_github_cli_reference_fallback_and_merge_authority(self) -> None:
-        ref = skill("github-cli-reference")
-        norm = " ".join(ref.split())
-        self.assertIn("read-only or idempotent", ref)
-        self.assertIn("must read back", ref)
-        self.assertIn("Human merge authority", ref)
-        self.assertIn(
-            "When an uncertain response occurs on a non-idempotent mutation (such as creating a comment, creating a release, or modifying state), the client must read back the current state or check idempotency before any retry attempt; never retry a mutation blindly to avoid creating duplicate comments, releases, or side effects.",
-            norm,
-        )
-        self.assertIn(
-            "Human merge authority and approval gates remain strictly preserved; automated fallbacks must never merge pull requests without explicit authorization.",
-            norm,
-        )
-
-
-
-    def test_history_source_admission_and_empty_results_fail_closed(self) -> None:
-        history = " ".join(skill("conversation-history-sparse").split())
-        for rule in (
-            "Before any filesystem probe, glob, helper invocation, or connector search",
-            "Never probe denied roots, credentials, backups, or unrelated profiles",
-            "do not request access to a policy-denied corpus or try another tool to bypass denial",
-            "If a source includes an excluded subtree and the helper cannot exclude it",
-            "skip that helper/source",
-            "Never describe dot-room search as all-account history",
-            "An empty helper result does not prove no matches",
-            "successful parsing/search, and completion of the declared search scope",
-            "do not label a source `no-match` solely from an empty result or exit code zero",
-        ):
-            with self.subTest(rule=rule):
-                self.assertIn(rule, history)
-
     def test_history_claude_fixture_enforces_source_and_excerpt_budgets(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -421,5 +197,12 @@ class ApprovalContractsTest(unittest.TestCase):
             self.assertIn("zero returned hits", partial)
 
 
+class WorkspaceSpecificIdentifierTest(unittest.TestCase):
+    def test_agento_report_has_no_workspace_specific_slack_channel(self):
+        report = (SKILLS / "agento-report" / "SKILL.md").read_text(encoding="utf-8")
+        self.assertNotIn("#ai-slack-test", report)
+
+
 if __name__ == "__main__":
     unittest.main()
+

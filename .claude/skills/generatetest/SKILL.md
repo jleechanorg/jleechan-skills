@@ -22,7 +22,7 @@ bundles directly to `/tmp/<repo>/<branch>/<work>/<timestamp>/`.
 /generatetest test campaign creation flow end-to-end
 ```
 
-**MANDATORY**: Read `.claude/skills/evidence-standards.md` (repo-level) and
+**MANDATORY**: Read `.claude/skills/evidence-standards/SKILL.md` (repo-level) and
 the user-scope `~/.claude/skills/evidence-standards/SKILL.md` before
 generating any test code. This ensures generated tests follow current
 evidence standards.
@@ -259,7 +259,7 @@ save_evidence(evidence_dir, test_results, "results.json")
 ```
 
 **Benefits of Using Shared Libraries:**
-1. **Automatic standards compliance** - Evidence follows `.claude/skills/evidence-standards.md`
+1. **Automatic standards compliance** - Evidence follows `.claude/skills/evidence-standards/SKILL.md`
 2. **Zero maintenance burden** - Updates benefit all tests automatically
 3. **Consistent behavior** - All tests use identical evidence structure
 4. **Reduced duplication** - No need to copy/paste utility code
@@ -315,7 +315,7 @@ Focus: [extracted focus]
 Work Name: [work_name]
 
 REAL MODE ONLY - No mocks, no test mode
-Evidence standards: .claude/skills/evidence-standards.md
+Evidence standards: .claude/skills/evidence-standards/SKILL.md
 """
 from __future__ import annotations
 
@@ -401,7 +401,7 @@ if __name__ == "__main__":
 4. Track missing/dropped data with warnings
 5. Check subprocess return codes
 
-**Evidence Standards Checklist (from `.claude/skills/evidence-standards.md`):**
+**Evidence Standards Checklist (from `.claude/skills/evidence-standards/SKILL.md`):**
 - [ ] Git provenance: HEAD commit, origin/main, changed files (via `capture_git_provenance()`)
 - [ ] Server environment: PID, port, env vars (via `capture_server_runtime()`)
 - [ ] Checksums: SHA256 for ALL evidence files including JSONL and server logs
@@ -597,7 +597,7 @@ provenance = capture_provenance(
 
 ## EVIDENCE STANDARDS COMPLIANCE
 
-From `.claude/skills/evidence-standards.md`:
+From `.claude/skills/evidence-standards/SKILL.md`:
 
 | Requirement | Implementation |
 |-------------|----------------|
@@ -771,5 +771,5 @@ LOW: Documentation, edge cases
   policy (layers, evidence class table, unit-test exceptions, bundle anatomy).
   This skill's evidence bundle format is a concrete implementation of that policy
   for `testing_mcp/` E2E tests.
-- Repo-level `.claude/skills/evidence-standards.md` — your-project.com-specific
+- Repo-level `.claude/skills/evidence-standards/SKILL.md` — your-project.com-specific
   extensions (dice-claim, campaign-isolation, BigQuery, Gemini specifics).

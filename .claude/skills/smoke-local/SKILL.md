@@ -25,8 +25,12 @@ This is the on-demand entry point. The same flow also runs automatically on a ca
 
 Real server + real **agy** LLM + real Firestore, always. The run is invalid if any of
 these env vars are set: `MOCK_SERVICES_MODE`, `TEST_MODE=mock`, `USE_MOCK_FIREBASE`,
-`USE_MOCK_GEMINI`, `FORCE_TEST_MODEL=true`, or `SMOKE_TOKEN`. Auth is via
-`TESTING_AUTH_BYPASS=true` + `ALLOW_TEST_AUTH_BYPASS=true` only.
+`USE_MOCK_GEMINI`, `FORCE_TEST_MODEL=true`, or `SMOKE_TOKEN`. Authenticate through
+real Firebase Auth with a dedicated non-primary test account. For tests under
+`testing_mcp/`, resolve the project root and follow its `testing_mcp/AGENTS.md`
+invocation and account rules; acceptance runs must explicitly set both bypass flags
+to `false`. If the test harness cannot meet that contract yet, report the run blocked
+and do not claim authenticated acceptance.
 
 The LLM path MUST be agy. `$PROJECT_ROOT/llm_providers/provider_gateway.py ::
 is_agy_provider_mode()` is DEFAULT-ON for local dev, but it only returns `True` when
@@ -73,7 +77,7 @@ it auto-starts, so the entire game path routes LLM calls through agy.
 ### Step 3 — run the smoke test (it auto-starts its own real local server)
 
 ```bash
-TESTING_AUTH_BYPASS=true ALLOW_TEST_AUTH_BYPASS=true \
+TESTING_AUTH_BYPASS=false ALLOW_TEST_AUTH_BYPASS=false \
   GOOGLE_APPLICATION_CREDENTIALS="$HOME/serviceAccountKey.json" \
   PYTHONPATH="$(pwd):$(pwd)/mvp_site" \
   python3 testing_mcp/core/test_smoke_local.py
@@ -117,8 +121,9 @@ Evidence bundle is written to `/tmp/<repo>/<branch>/test_smoke_local/latest/`
 ### Step 5 — report PASS/FAIL
 
 Report the overall verdict with the full absolute evidence bundle path. The test tears
-down its own auto-started server on exit — no manual teardown needed. (If you also ran
-`local.sh` interactively, stop it with `lsof -ti :8081 -sTCP:LISTEN | xargs kill`.)
+down its own auto-started server on exit — no manual teardown needed. If you also ran
+`local.sh` interactively, inspect the listener and stop only the process you started;
+never terminate an unrelated listener by port or command-name match.
 
 ### agy reliability notes (why the test retries)
 
@@ -150,10 +155,10 @@ invoked by this command.
 |---------|-------|-----|
 | Test silently uses Gemini, not agy | Step 2 `source` skipped, or `/tmp/agy-clean-home-v1` missing | Re-run `install.sh` then `source` the env file; confirm `AGY_RUNTIME_HOME` exists |
 | `_assert_no_mock_services` aborts the run | A mock env var is set | Unset `MOCK_SERVICES_MODE` / `TEST_MODE` / `USE_MOCK_*` / `SMOKE_TOKEN` |
-| Auto-started server never becomes healthy | A stale test server / port collision | `pkill -f "mvp_site.main serve"`, then re-run the test |
+| Auto-started server never becomes healthy | A stale test-owned server / port collision | Inspect the test runner's server receipt and use its scoped teardown for that exact process; never broadly kill matching server processes |
 | `AGY provider transport trace` / `Missing provider transport trace` bundle error | Ran with `--server` (external) — capture env not wired | Drop `--server`; let the test auto-start its server (bead rev-siu48) |
 | agy calls time out | agy is slower than the SDK | `AGY_TIMEOUT_SECONDS=900` from the env file must be active; keep the source in scope |
-| 401 on interaction | Auth bypass not set | Ensure `TESTING_AUTH_BYPASS=true` + `ALLOW_TEST_AUTH_BYPASS=true` |
+| 401 on interaction | Real test-account authentication is missing or invalid | Verify the dedicated test account, token, and server logs; keep both auth-bypass flags `false` and report the missing prerequisite if real authentication cannot be established |
 
 ## Relevant files
 

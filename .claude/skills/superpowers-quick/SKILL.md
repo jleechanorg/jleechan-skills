@@ -6,57 +6,46 @@ disable-model-invocation: false
 
 # Superpowers Quick
 
-## Retained review integrations
-
-The shared catalog preserves host-installed `/advice` and `/web-advice` integrations instead of installing them. Before invoking either, resolve its `../advice/SKILL.md` or `../web-advice/SKILL.md` relative to this package and read the existing skill. For a remote invocation, check the corresponding skill on the target host. If absent, report that integration as `UNAVAILABLE` and identify the missing package; do not invent a replacement runner, claim an approval, or treat a required gate as passed. Continue independent authorized work, but leave any dependent readiness or plan-approval gate unmet. Existing review quorum, external-disclosure authorization, and optional-review rules still apply.
-
-
 ## Contract
 
-Run the full design-to-plan workflow autonomously. The invocation is the user's explicit authorization to select every recommended option and approve each recommended design and specification checkpoint for this invocation only.
+Run the full design-to-plan workflow autonomously. For this invocation, select recommended choices and approve each recommended design and specification checkpoint. Do not pause for routine questions or review; resolve ordinary ambiguity from available evidence and record assumptions and recommended defaults.
 
-This authorization covers planning decisions and the `/advice` review required below, not implementation, destructive actions, credentials, expanded scope, or disclosure to external browser reviewers. A bare `/superpowers-quick` invocation does not authorize external browser review; Step 6 defines the only opt-in path for `/web-advice`.
+This authorization covers planning decisions and the `/advice` review below, not implementation, destructive actions, credentials, or expanded scope. The caller's existing authorization for implementation or execution continues after this planning report; `/sq` does not grant it. Standing authorization covers the required `/web-advice` plan submission unless the current request explicitly prohibits external submissions.
 
-## Child-Contract Overrides
+## Owners and boundaries
 
-For this invocation only, use the installed `superpowers:brainstorming` and `superpowers:writing-plans` skills when available; the bundled portable fallbacks are `~/.claude/skills/superpowers-brainstorming/SKILL.md` and `~/.claude/skills/superpowers-writing-plans/SKILL.md`. This wrapper takes precedence over every child instruction that would require interactive input, mutate Git, invoke implementation, create an external side effect other than the required `/advice` review or a browser review explicitly authorized under Step 6, write either artifact to a different path, or continue past this wrapper's terminal condition.
+- Use the installed `superpowers:brainstorming` and `superpowers:writing-plans` skills when available; otherwise follow `../superpowers-brainstorming/SKILL.md` and `../superpowers-writing-plans/SKILL.md`. Those skills own their detailed design and plan-writing methods. Always produce both architectural documents, including for work otherwise classified as bounded.
+- Use the active `/advice` and `/web-advice` skills for reviewer selection, transport, quorum, and recovery. Read their definitions before invocation. This wrapper owns the required `/sq` review scope and artifacts below; it does not duplicate their procedures.
+- Follow the active artifact owner for durable Markdown. Under the shared policy, save both documents in `~/roadmap/` as `sq-<topic>-design-YYYY-MM-DD.md` and `sq-<topic>-plan-YYYY-MM-DD.md`.
 
-Do not pause for user review, approval, clarification, or checkpoint responses. Select and record recommended defaults as specified below. Do not offer the visual companion, open it, or wait for a response. Do not commit or push as an automatic planning side effect. Documents may be committed, staged, modified, or untracked: `/sq` has no commit-state prerequisite. Never ask the user to commit, uncommit, stash, or clean unrelated work merely to run planning or document review.
-
-Complete the required architectural design, specification self-review, implementation plan, and plan self-review. Skip its execution handoff. Do not invoke implementation or execution skills. Terminate immediately after reporting the two document paths, questions asked and answers auto-picked, and the advice status.
+Do not commit, push, or mutate Git as a planning side effect. Documents may be committed, staged, modified, or untracked; `/sq` has no commit-state prerequisite. Do not ask the user to clean unrelated work. Do not create product artifacts during planning. For a user-visible change, run `/user-story` in audit-only mode and include required story/index work in the plan. Do not offer or wait for the visual companion.
 
 ## Workflow
 
-1. **REQUIRED SUB-SKILL:** Use `superpowers:brainstorming` when that plugin skill is available. Otherwise read `~/.claude/skills/superpowers-brainstorming/SKILL.md` completely and use it as the bundled portable fallback. Always use its architectural path so this command produces both required documents, even when the underlying change would normally be classified as bounded.
-2. **Inspect project context & auto-pick design choices:** For every clarification, tradeoff, or design fork that would normally be presented to the user during interactive brainstorming, formulate the question and select the option you recommend based on repository evidence and best practices. For open-ended questions, infer the safest reversible answer. Record each question, the auto-picked answer, and the underlying rationale under `Assumptions and Recommended Defaults` in the design specification. Do not ask the user preference or approval questions.
-3. **Explore alternatives & complete design:** Explore 2-3 architectural approaches, select the recommended path, and complete the design internally. Treat this command's invocation as approval of the recommended design sections and final specification.
-4. **Write & self-review specification:** Write and self-review the specification at `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md`. Remove placeholders, contradictions, and ambiguous requirements.
-5. **REQUIRED SUB-SKILL:** Use `superpowers:writing-plans` when that plugin skill is available. Otherwise read `~/.claude/skills/superpowers-writing-plans/SKILL.md` completely and use it as the bundled portable fallback. Write and self-review the implementation plan at `docs/superpowers/plans/YYYY-MM-DD-<topic>.md` with concrete files, tests, commands, and implementation steps.
-   **TDD plan step check (before advice):** Apply this self-review whether the plan came from the installed Superpowers skill or the fallback.
-   - For every task that changes behavior, check the Superpowers writing-plans sequence: write the failing test → run it to verify the expected failure → write the minimal implementation → run the test and relevant regressions to verify they pass → commit. Require exact test and implementation paths, runnable commands, and expected RED/GREEN outcomes tied to the intended behavior, not an unrelated setup error.
-   - For a task that does not change behavior, record `TDD: N/A` with a concrete reason and a specific verification check; do not silently exempt implementation tasks.
-   - Inspect every task, fix missing, reordered, or vague steps, and recheck the saved plan before advice. Record each task's checked sequence or justified N/A under `TDD Plan Check` in the plan. If execution needs unavailable facts, tools, or authority, record the exact precondition and make the affected steps conditional.
-   - This is plan inspection, not evidence that RED/GREEN tests have run: do not execute tests, edit implementation code, or commit during this planning-only check.
-6. **Execute advice reviews (`/advice` and conditional `/web-advice`):**
-   - Use `/advice` document-review mode for the two saved Markdown paths: pass `--document <repo-relative-spec-path> --document <repo-relative-plan-path>` to its primary-pair runner, retaining the normal reviewer selection and parent authorization constraints. This reviews their exact current bytes regardless of Git status, without committing or pushing. The checkout HEAD supplies context only; bind the document verdict to the recorded document hashes, never claim PR/code approval from it. Do not invoke the revision-only clean-checkout mode for this handoff.
-   - Determine whether the user's current request separately and explicitly authorizes submitting both documents to external browser reviewers before invoking `/advice`.
-   - Run `/advice` on both the design specification and implementation plan. Without that separate authorization, pass this explicit parent constraint in the `/advice` request: `/web-advice is disabled; do not invoke it or any external browser transport.` (`/web-advice` is not an `/advice` lane; A1/A2/B/C are the lanes.) Verify the synthesis records no browser submission. Treat an attempted browser submission as an incomplete `/advice` run and record it as `FAILED`. If `/advice` attempts any external browser submission without authorization, record `/web-advice` as `FAILED` with the attempted-submission reason; never label that path `SKIPPED`.
-   - Retry `/advice` once only for a transient transport or reviewer-launch failure. Retry the whole `/advice` invocation only when it failed before any reviewer launched; the preceding retry permission never permits rerunning a partial fan-out. If any reviewer launched, do not rerun `/advice`; preserve completed lane results, record the incomplete run as `FAILED` with its failure reason, and continue to the terminal report. If the pre-launch retry also fails, record `/advice` as `FAILED` with both failure reasons. A `FAILED` state permits the terminal report but prohibits claiming that advice passed or approved the documents. A returned `APPROVED`, `NOT APPROVED`, or `WITHHELD` synthesis counts as `RAN`; report that exact verdict without rewriting it.
-   - `/web-advice` is applicable only when the user's current request separately and explicitly authorizes submitting the documents to external browser reviewers. Any browser submission made during `/advice` consumes the single `/web-advice` run. If it returned a verdict covering both documents, reuse it. If it was unavailable or failed, record `/web-advice` as `UNAVAILABLE` or `FAILED` with that reason and do not submit the documents again. Run at most one standalone `/web-advice`, and only when `/advice` made no browser submission.
-   - If browser authentication or transport is unavailable, record `/web-advice` as `UNAVAILABLE` and continue. Do not pause or ask the user to log in. When no external attempt occurred and explicit authorization is absent, record `/web-advice` as `SKIPPED` and continue.
-   - Record `/advice` and `/web-advice` execution states and verdicts separately.
-7. **Report to user:** In the final response, you MUST always include:
-   - **Document paths:** Resolve the repository root and report full absolute filesystem paths to the generated specification (`<repo-root>/docs/superpowers/specs/...`) and implementation plan (`<repo-root>/docs/superpowers/plans/...`).
-   - **Questions asked & answers auto-picked:** A structured list or table detailing all questions considered, the specific choices auto-picked, and their rationale.
-   - **Advice status:** Two separate entries using these exact state sets:
-     - `/advice`: `RAN | FAILED` — exact verdict or failure reason.
-     - `/web-advice`: `RAN | SKIPPED | UNAVAILABLE | FAILED` — exact verdict or reason, and whether the result came from a submission during `/advice` or a standalone review.
-   Do not begin implementation or ask which execution mode to use.
+1. Inspect project context and existing decisions. Resolve routine uncertainties from evidence; explore useful alternatives, select the recommended design, and record considered questions, selected answers, and reasons under `Assumptions and Recommended Defaults` in the specification. Do not ask preference or approval questions.
+2. Complete and self-review the architectural design. Save it to the roadmap path above; remove placeholders, contradictions, and ambiguous requirements.
+3. Complete and self-review the implementation plan at its roadmap path. Include concrete files, tests, commands, and implementation steps.
+4. **TDD plan check, before advice:** inspect every plan task. For each behavior change, require the writing-plans sequence: failing test, run to verify the expected failure, minimal implementation, passing test and relevant regressions, then commit. Name exact test and implementation paths, runnable commands, and behavior-specific RED/GREEN outcomes. For tasks that do not change behavior, record `TDD: N/A`, a concrete reason, and a specific verification check. Record each task's check under `TDD Plan Check`; make unavailable facts, tools, or authority explicit preconditions and affected steps conditional. This is plan inspection only: do not run tests, edit implementation code, or commit during this check.
+5. **Review the exact saved documents:** resolve `SPEC_PATH` and `PLAN_PATH`. Resolve and validate the roadmap repository before deriving repository-relative names:
+     ```bash
+     if ! ROADMAP_REPO="$(git -C "$HOME/roadmap" rev-parse --show-toplevel)" ||
+         [ -z "$ROADMAP_REPO" ]; then
+       echo "The roadmap directory is unavailable or is not a Git repository." >&2
+       exit 1
+     fi
+     case "$SPEC_PATH" in
+       "$ROADMAP_REPO"/*) SPEC_DOCUMENT="${SPEC_PATH#"$ROADMAP_REPO"/}" ;;
+       *) echo "Specification is outside the roadmap repository" >&2; exit 1 ;;
+     esac
+     case "$PLAN_PATH" in
+       "$ROADMAP_REPO"/*) PLAN_DOCUMENT="${PLAN_PATH#"$ROADMAP_REPO"/}" ;;
+       *) echo "Plan is outside the roadmap repository" >&2; exit 1 ;;
+     esac
+     ```
+   Both paths must exist there as non-ignored, non-symlink Markdown files. Use `/advice` document-review mode on both relative paths, with normal reviewer selection and authorization constraints. Record each file's SHA256 and the bundle hash; reviewers must assess the exact current bytes regardless of Git status. The checkout HEAD is context only. A document verdict never approves code, HEAD, or dirty state. Do not use revision mode or a bundled runner.
+6. Run `/web-advice` for the `/sq` plan review under standing authorization unless the current request explicitly prohibits external submission. It is separate from `/advice` lanes. Reuse a `/advice` browser submission only when it covers both exact document hashes; otherwise submit through `/web-advice`. Bind any review after a document edit to its new hash. Follow both review owners for failures and recovery, preserve completed valid votes, and record every attempt and exact verdict. Do not impose wrapper attempt caps or duplicate completed verdicts. If all supported browser routes and owner-defined recovery are unavailable, report `/web-advice: UNAVAILABLE` and continue independent caller work. Use `SKIPPED` only when the current request prohibits submission or the workflow does not call for it. Report `/advice` and `/web-advice` states separately.
+7. Report both actual absolute document paths, the considered questions and auto-picked answers with rationale, and separate review states: `/advice: RAN | FAILED` with verdict or reason; `/web-advice: RAN | SKIPPED | UNAVAILABLE | FAILED` with verdict or reason and whether it came from `/advice` submission or standalone review. Do not ask which execution mode to use.
 
-## Terminal Condition
+## Terminal condition
 
-This skill is planning-only: it never starts implementation. If implementation was already authorized by the user, the calling workflow must continue explicitly after this report (per `draft-first-pr` § Coding lifecycle); do not treat the report as the end of that work.
-
-Finish only when both documents exist, cover the requested outcome, pass their respective self-reviews, the TDD plan step check is complete, contain no `TBD`, `TODO`, or deferred decision, and the advice attempts and required status records are complete. The final response must include both absolute document paths, the questions and auto-picked answers with rationale, and the two separate advice status entries.
-
-If implementation would require unavailable user-specific information or new authority, still write and self-review both documents. Record the exact unmet precondition under `Implementation Preconditions`, make every affected implementation step conditional on it, and do not treat the planning invocation as authorization to satisfy it. Ordinary ambiguity, an unseen design, or the normal brainstorming approval checkpoints never justify stopping before both documents exist.
+Finish this planning workflow when both complete documents exist, pass their self-reviews, the TDD plan check is recorded, contain no `TBD`, `TODO`, or deferred decision, and required advice attempts and status records are complete. For planning-only requests, stop without implementation or execution handoff. If implementation was already authorized by the live request or ongoing caller workflow, return to that workflow after the report and continue under its existing authorization without requesting it again. If a new authority or user-specific fact is needed, still finish both documents, record the exact precondition under `Implementation Preconditions`, and make affected steps conditional.

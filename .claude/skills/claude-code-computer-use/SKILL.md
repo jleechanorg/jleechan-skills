@@ -7,6 +7,8 @@ description: Use Claude Code to run computer-use style UI automation loops with 
 
 Run Claude Code as a bounded UI-control agent that observes screenshots, takes one action, re-checks state, and repeats until success or stop conditions.
 
+For browser tasks, follow the [browser-control contract](../browser-control/SKILL.md) for context ownership and authentication. Keep browser automation isolated and headless by default; never attach to personal/default Chrome or use its profile or cookies. Use visible browser automation only when the current task explicitly requests it and a separate task-owned context is verified.
+
 ## Required loop
 
 1. Restate the user goal in one sentence.

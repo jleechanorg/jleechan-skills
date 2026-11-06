@@ -22,7 +22,10 @@ related_skills:
   - pr-green-definition
   - session-history-search
   - memory-search
+  - code-standards
   - ponytail
+  - zero-framework-cognition
+  - zfc-leveling-roadmap
   - root-cause-first
   - harness
 changelog:
@@ -57,7 +60,7 @@ Three failure modes that keep recurring in the user's last month of coding-CLI s
 
 ## Pipeline (execute the phases that apply, in order)
 
-Applicability and review timing follow `draft-first-pr` § Coding lifecycle. A small low-risk change, including a small code fix, may skip history mining (Phase 2) and the heavier phases; user-required gates, high-risk/security gates, and real-proof requirements are never skipped.
+Applicability and review timing follow `pr-lifecycle` § Coding lifecycle. A small low-risk change, including a small code fix, may skip history mining (Phase 2) and the heavier phases; user-required gates, high-risk/security gates, and real-proof requirements are never skipped.
 
 ### Phase 1 — Intake (≤1 turn)
 
@@ -118,7 +121,7 @@ Pick the ONE end-state the agent must provably reach, drawing on Phase 2's histo
 
 | Outcome shape | When to pick | Required proof artifact |
 |---|---|---|
-| **green-pr-merged** | Default for code changes that touch production paths | `gh pr view <N> --json state` = `MERGED` (verified at current-head SHA with CI green + no merge conflicts; `/er` verdicts are advisory) + Layer-2 evidence (env-preferences rule: unit-only is INSUFFICIENT for production changes) |
+| **green-pr-merged** | Default for code changes that touch production paths | `gh pr view <N> --json state` = `MERGED`, after canonical `/green`, applicable final reviews, and separate merge authorization; evidence matches the actual claims and boundaries per `evidence-standards` |
 | **pr-open-green** | When the user must do the merge (e.g. protected branch, auth gate) | `gh pr view <N> --json statusCheckRollup,mergeable` shows `mergeable == MERGEABLE` + success-only, null-safe current-head `statusCheckRollup[]` (0 non-success checks excluding exact advisory `Green Gate` and `Cursor Bugbot`; reviewDecision, mergeStateStatus advisory only) + one-line blocker the user must clear |
 | **local-state-verified** | For non-PR changes (config, ops, infra) | `git diff --stat` + `git log --oneline -3` + actual command output captured in the final reply (described = fail; shown = pass) |
 | **dry-run-on-machine** | For risky migrations / destructive changes the user will execute | Exact pasteable commands run against a fresh worktree, output captured, user can paste and get the same result |
@@ -136,7 +139,7 @@ Write the goal to `.converge/goal.md` in the session's cwd (the path `/harness` 
 <ONE of: green-pr-merged | pr-open-green | local-state-verified | dry-run-on-machine>
 
 ### Proof artifact
-<exact artifact the agent must produce at completion — e.g. "PR #N on $GITHUB_REPOSITORY merged with current-head CI green + no merge conflicts, /er PASS verdict (advisory), screenshot of /campaigns/new after merge">
+<exact artifact the agent must produce at completion — e.g. "PR #N on $GITHUB_REPOSITORY merged after current-head /green, applicable final /er and /advice, and separate merge authorization; matching evidence for the claimed behavior">
 
 ## Scope
 - Repo(s): <owner/repo>
@@ -147,7 +150,7 @@ Write the goal to `.converge/goal.md` in the session's cwd (the path `/harness` 
 - <each constraint the user named or that's encoded in memory — e.g. "no parallel PRs; push onto existing PR's head branch if one exists", "centralize new strings in frontend_constants.ts", "no ANTHROPIC_API_KEY in ai_universe backend", "use nvm Node 22, never Homebrew node">
 
 ## Evidence required
-- Layer: **Layer 2 integration minimum** (env-preferences rule — unit-only is INSUFFICIENT for production changes; <100 delta lines of non-test code is the only unit-only exception)
+- Layer: choose the **lowest sufficient layer** for the actual claims and boundaries using `evidence-standards`, `/4layer`, and `testing-layers`; retain commands, results, and tested SHA. Bounded deterministic unit proof cannot establish model compliance, auth, persistence races, or browser behavior; size alone never selects or waives a layer.
 - Artifacts:
   - <e.g. "real callstack log showing the fix path is hit, mock only at external API boundaries">
   - <e.g. "browser screenshot of the user-facing surface after deploy">
@@ -167,13 +170,15 @@ Write the goal to `.converge/goal.md` in the session's cwd (the path `/harness` 
 - Failure on CI or merge conflicts = iterate the fix, push to PR head branch (pr-ci-fix-autopush rule: push without being asked), re-check. Do NOT report "fixed" until the new head SHA shows both gates PASS.
 
 ## Quality bar (adversarial gates this repo uses)
-Run the applicable gates at completion (from /harness). Applicability and timing follow `draft-first-pr` § Coding lifecycle; user-required, high-risk/security, and real-proof gates always apply:
-- **/es** — Evidence Standards (both ~/.claude/skills/evidence-standards/SKILL.md AND .claude/skills/evidence-standards.md if the repo has one)
-- **/er** — Evidence Review (adversarial, independent reviewer): a draft-phase gate per `draft-first-pr`, not part of `/green`; the `(advisory)` marks below refer to `/green` only
-- **/code_standards** — 3 parallel lanes:
+Run the applicable gates at completion (from /harness). Applicability and timing follow `pr-lifecycle` § Coding lifecycle; user-required, high-risk/security, and real-proof gates always apply:
+- **/es** — Evidence Standards (both ~/.claude/skills/evidence-standards/SKILL.md AND .claude/skills/evidence-standards/SKILL.md if the repo has one)
+- **/er** — Evidence Review (adversarial, independent reviewer): an applicable draft-phase gate and explicit final closing review per `pr-lifecycle`, separate from `/green`; apply the owner's required final `/advice` sequence as well.
+- **/code_standards** — four canonical lanes, applied with the repository's documented applicability:
+  - Ponytail — reuse established pipelines and remove dead paths before adding code
   - ZFC (zero-framework cognition) — no keyword routing, no regex intent detection, no hand-tuned scoring
   - ZFC-leveling — no level-up fields leaking into non-leveled surfaces
   - root-cause-first — prompt/schema fixes tried before backend protection; document why if backend enforcement is added
+  - Record each lane's verdict and concrete file/line evidence; do not collapse these into a generic quality-pass statement.
 - **Independent Agent Review** — full-diff code review by an isolated subagent
 - All applicable gates PASS = DONE. Any FAIL = fix & loop with a changed approach. No cycle- or repeated-score count stops work; stop only at the autonomy deadline or a genuine human dependency (exact blocker + resumption trigger).
 
@@ -195,7 +200,7 @@ At the end, the agent's final reply MUST contain (finish-the-job Phase 4):
 - <pitfall 1 — e.g. "PR mergeability flipped to CONFLICTING after main branch updated — re-verify mergeable status at current HEAD">
 - <pitfall 2 — e.g. "merge conflicts on world_logic.py recur because it's a 421KB file — always pull --rebase before push">
 - <pitfall 3 — e.g. "Quick `looks green` false positive — must verify current-head statusCheckRollup, not `gh pr checks` conclusion">
-- <pitfall 4 — e.g. "Unit tests pass but Layer 2 integration fails — env-preferences says unit-only is INSUFFICIENT for production changes">
+- <pitfall 4 — e.g. "Unit tests pass but the claimed service boundary fails — bounded unit proof cannot establish an unexercised integration">
 
 ## Prior context (Phase 2 output summary)
 - History searches: <count> sessions matched "<topic>" in last 30 days
@@ -243,8 +248,8 @@ Post a single reply containing:
 ## Pitfalls (do NOT do these)
 
 - ❌ **Inventing acceptance criteria** — gates, workflow names, pitfall shape that don't appear in Phase 2 history are fabrication. If Phase 2 returned nothing for a field, write "first run — to be discovered during execution" rather than guessing.
-- ❌ **Activity-shaped outcomes** — "improve cold start", "investigate the BQ gap", "address reviewer feedback" are activities. Rewrite as "PR #N merged with cold-start p50 < Xs measured by <probe> / CI green + no merge conflicts / /er PASS (advisory)".
-- ❌ **Unit-only evidence for production changes** — env-preferences: unit-only is INSUFFICIENT for production changes (Layer 2 integration minimum). Only the <100 delta lines of non-test code exception applies.
+- ❌ **Activity-shaped outcomes** — "improve cold start", "investigate the BQ gap", "address reviewer feedback" are activities. Rewrite as "PR #N merged with cold-start p50 < Xs measured by <probe>, canonical /green, applicable final reviews, and separate merge authorization".
+- ❌ **Unit-only evidence for a live-boundary claim** — choose proof from actual claims and boundaries, not a production-path or line-count shortcut. Bounded deterministic unit proof is valid only for its self-contained claim; model, auth, persistence-race, and browser claims need matching boundary proof.
 - ❌ **`gh pr checks` as green proof** — env-preferences: `gh pr checks` can report stale passes; must verify current-head `statusCheckRollup` (CI green) and `mergeable == MERGEABLE` (no conflicts).
 - ❌ **Goal with no dispatch routing** — without an inline-vs-AO rule, a future agent will self-execute a 30-commit PR inline and drop it when the gateway session caps. Cite `scope-pivot-to-ao`.
 - ❌ **Goal with no "no follow-up question" in DoD** — finish-the-job's contract requires the agent drive to conclusion. A goal that allows "want me to X?" mid-stream reproduces the silent-stop pattern.

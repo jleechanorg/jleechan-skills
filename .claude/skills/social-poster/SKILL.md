@@ -7,6 +7,17 @@ summary: Local shim for the canonical Hermes social-poster skill.
 
 # Social Poster
 
+## Runtime routing
+
+Apply [Social common editorial policy](../social/SKILL.md#common-editorial-policy)
+before selecting either runtime route; read that section without re-entering
+Social's dispatcher.
+
+- **Inside Aside with runtime-provided browser/tools:** follow [Social Aside](../social-aside/SKILL.md), applying [Social common policy](../social/SKILL.md#common-editorial-policy). Do not enter the Claude/Hermes route below.
+- **Other supported runtimes:** retain the existing Claude/Hermes workflow below.
+
+## Claude/Hermes route
+
 This is the local Claude skill entrypoint for social-post drafting, staging, and explicitly approved publishing.
 
 Canonical implementation:
@@ -14,10 +25,10 @@ Canonical implementation:
 
 ## Routing rule
 
-When this skill is invoked:
+Only for non-Aside runtimes, after applying the common policy:
 1. Read and follow `~/.hermes/skills/social-poster/SKILL.md` as the source of truth.
 2. Prefer the skill-defined workflow over re-specifying individual script calls in slash commands.
-3. **Intent and approval:** draft/stage requests never publish. An explicit publish/crosspost request authorizes the identified, reviewed content and destination. Follow the canonical publishing workflow and platform allowlist; its legacy `POST APPROVED` token is internal bookkeeping, not an extra user phrase. Preserve any independently required tool/policy confirmation. Requesting `/social`, logging in, or staging is not posting approval.
+3. **Intent and approval:** default discovery/drafting targets Reddit and Twitter/X only, with a separate result for each source URL. LinkedIn, Instagram, Facebook, and Meta Threads require explicit per-request selection. X threads are not Meta Threads. Draft requests never auto-stage; draft/stage requests never publish. An explicit publish/crosspost request authorizes the identified, reviewed content and destination. Follow the canonical publishing workflow and platform allowlist; its legacy `POST APPROVED` token is internal bookkeeping, not an extra user phrase. Preserve any independently required tool/policy confirmation. Requesting `/social`, logging in, or staging is not posting approval.
 4. Treat current live browser state as higher-confidence evidence than old logs, stale session notes, or previous failed runs.
 
 ## Operational rules added from the 2026-07-11 Fable run
@@ -29,7 +40,7 @@ When this skill is invoked:
 3. Before declaring a platform blocked, check for one-click auth continuations such as:
    - Google account chooser
    - Continue with Instagram
-   - Continue as Jeffrey / existing-account OAuth buttons
+   - Continue as the expected account / existing-account OAuth buttons
 4. For LinkedIn-source posts, extract and use the canonical outbound asset URL in drafts when possible instead of reposting LinkedIn shortlinks.
 5. When the creative is already known, carry the asset explicitly through the workflow:
    - canonical source-post URL
@@ -38,7 +49,7 @@ When this skill is invoked:
    - platform notes on whether media upload is required or optional
 6. When the user asks for both source and video links, include both in every platform draft. Use the full source text when platform limits allow; otherwise use a faithful summary plus both links.
 7. For Instagram, prefer a real media-post workflow when a screenshot/image asset is part of the creative. Do not treat Instagram as caption-only if the intended post mirrors a LinkedIn image + video-link format.
-8. For Instagram media posts, leave “Share to Threads” and “Share to Facebook” enabled by default unless the user explicitly opts out. Mention the cross-post state in the staging summary.
+8. For explicitly selected Instagram media posts, keep “Share to Threads” and “Share to Facebook” disabled unless each destination is explicitly selected for this request. Verify and report the cross-share state before staging or publishing; selection alone is not publication approval.
 9. Do not trust screenshots of login walls or empty compose boxes as proof of staging.
 
 For Twitter/X, follow the canonical **Twitter/X browser workflow** before generic
@@ -56,11 +67,15 @@ For every selected platform, whether running inside Aside or from another local 
 ## Reddit staging supplement
 
 This is a Reddit-only supplement to the universal staging flow:
+Before recommending a subreddit or drafting for it, complete the canonical
+promotion-rule gate and record the rule source/date and allowed, conditional,
+prohibited, or unverified disposition. Inaccessible or ambiguous rules do not
+establish permission to promote; this check is not publication authorization.
 
 1. Read the subreddit rules and choose a required post flair before staging. Use a context-appropriate flair such as `Discussion`; do not assume a flair is optional.
 2. On old Reddit self-post forms, target named fields: `textarea[name="title"]` and `textarea[name="text"]`. Do not use generic `input` selectors, which can reach hidden fields or page-level search controls.
 3. Verify the staged visible title, body, and selected flair. A submit form, search page, unchanged fields, or a page that merely loaded is **not staged**.
-4. Exclude zero-self-promotion communities from default targets unless the user explicitly names them.
+4. Exclude communities whose current rules prohibit the proposed content. A user naming a community does not override its rules.
 
 Do not configure PRAW, OAuth credentials, or a Reddit posting MCP inside `/social`. Keep credential setup separate from this workflow.
 

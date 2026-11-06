@@ -26,12 +26,17 @@ def test_help_is_general_and_has_no_stale_session_dependency():
     assert "jeff-ubuntu-crash-3wk" not in result.stdout + result.stderr
 
 
-def test_chatgpt_uses_the_general_document_input_not_an_ambiguous_first_input():
-    assert CFG["chatgpt"]["upload_input"] == "#upload-files"
+def test_chatgpt_uploads_through_its_menu_not_a_dynamic_input_id():
+    site = CFG["chatgpt"]
+    assert site["upload_strategy"] == "menu"
+    assert site["upload_button"] == "Add files and more"
+    assert site["upload_menu_item"] == "Add photos & files"
+    assert "upload_input" not in site
 
 
 def test_chatgpt_uses_its_send_button_after_filling_the_composer():
-    assert CFG["chatgpt"]["send_selector"] == 'button[aria-label="Send prompt"]'
+    selector = CFG["chatgpt"]["send_selector"]
+    assert 'button[aria-label="Send"]' in selector
 
 
 def test_only_a_received_response_makes_a_browser_seat_complete():

@@ -1,11 +1,11 @@
 ---
 name: disk-root-cause
-description: Use when a user asks why a disk is filling, what uses its capacity, what grew over time, or what can be safely reclaimed.
+description: Use when a user asks why a disk is filling, what uses its capacity, or what grew over time. For a quick capacity check or a simple "what can I reclaim" question that needs no forensic attribution, use the zero-du triage in disk-audit instead.
 ---
 
 # disk-root-cause — forensic attribution skill
 
-When a user asks **why the disk filled up**, **what grew over a window**, or **where a specific bucket came from**, this skill is the entry point. It never assumes an answer; it pulls facts from this machine's snapshot history (`~/.disk_magician_backup`), never deletes anything without an explicit human OK, and prefers parallel-subagent fan-out to keep wall-clock bounded.
+When a user asks **why the disk filled up**, **what grew over a window**, or **where a specific bucket came from**, this skill is the entry point. A quick capacity check, or a reclaim question that needs no attribution, is not a root-cause investigation — route it to the zero-du triage in `../disk-audit/SKILL.md` so one request cannot select both procedures. It never assumes an answer; it pulls facts from this machine's snapshot history (`~/.disk_magician_backup`), never deletes anything without an explicit human OK, and prefers parallel-subagent fan-out to keep wall-clock bounded.
 
 ## Default first-use workflow
 
@@ -39,7 +39,7 @@ Trigger when the user asks any of:
 - "Find the minimum disk used in the last month" (floor)
 - "Root cause the disk growth"
 - "Show me the delta between then and now"
-- "Reclaim X GB / how do I reclaim more" (skill is read-only forensics; safe-cleanup commands below)
+- "Which bucket is worth reclaiming, and why" — an attribution question. This skill is read-only forensics; safe-cleanup commands are below. A plain "how much can I free" with no attribution need goes to the zero-`du` triage in `../disk-audit/SKILL.md`.
 
 Do **not** use this skill for one-off size queries — `du -sh <path>` answers those directly.
 

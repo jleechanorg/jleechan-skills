@@ -203,18 +203,14 @@ Propagate this rule into every sub-agent prompt you write. Workers that
 
 ## PR description — required sections
 
-Use a consistent PR body structure so reviewers and CI can find what they
-need. A canonical order:
-
-1. **Background** — what is the problem and why does this PR exist.
-2. **Goals** — the user-visible outcomes this PR produces.
-3. **Tenets** — the design principles that shaped the implementation.
-4. **High-level description** — the architecture and main code paths.
-5. **Testing** — what was tested, how, and what evidence was captured.
-6. **Low-level details** — non-obvious decisions, gotchas, migration notes.
-
-For user-visible changes, add **User Stories** (actor + action + outcome) or
-`N/A` with a one-line justification.
+Follow the canonical PR description contract in `~/.codex/AGENTS.md` § PR
+descriptions, then the target repository's policy and PR template. Open with
+production and non-production line deltas. Include a plain-language summary,
+background, goals, a user story (or a reasoned no-user-facing-change statement),
+tenets, changes by area, test plan and evidence, risks, out-of-scope items, and
+follow-ups. Add the visible per-file `## Line Deltas (Prod vs Non-Prod)` section.
+Put evidence and review-gate records after the human-readable body, and make
+`## Advice Approval` the final section; record `N/A` with a reason when advice is optional and not run.
 
 ---
 

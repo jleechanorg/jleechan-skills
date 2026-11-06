@@ -150,16 +150,16 @@ installPageScript, page
 Original investigation: aside repl live probe during social-poster skill build (2026-07-05). Captured by running each candidate API call individually:
 
 ```text
-aside repl "console.log(typeof listBrowserTabs)"        → "function"
-aside repl "const t = listBrowserTabs(); t.length"      → undefined (it's a Promise)
-aside repl "const t = await listBrowserTabs(); t.length" → number ✓
-aside repl "const t = await listBrowserTabs(); t[0].url" → URL string ✓
-aside repl "const t = await listBrowserTabs(); t[0].url()" → TypeError: t.url is not a function
-aside repl "console.log(typeof require)"               → "undefined"
-aside repl "console.log(typeof process)"               → "undefined"
-aside repl "console.log(typeof Buffer)"                → "function"
-aside repl "const s = await screenshot(p); s.length"   → "screenshot is not defined"
-aside repl "const s = await annotatedScreenshot(p); Object.keys(s)" → "[ 'base64Image' ]"
-aside repl "const s = await annotatedScreenshot(p); s.base64Image.slice(0,30)"
+aside repl --account <agent-account> "console.log(typeof listBrowserTabs)"        → "function"
+aside repl --account <agent-account> "const t = listBrowserTabs(); t.length"      → undefined (it's a Promise)
+aside repl --account <agent-account> "const t = await listBrowserTabs(); t.length" → number ✓
+aside repl --account <agent-account> "const t = await listBrowserTabs(); t[0].url" → URL string ✓
+aside repl --account <agent-account> "const t = await listBrowserTabs(); t[0].url()" → TypeError: t.url is not a function
+aside repl --account <agent-account> "console.log(typeof require)"               → "undefined"
+aside repl --account <agent-account> "console.log(typeof process)"               → "undefined"
+aside repl --account <agent-account> "console.log(typeof Buffer)"                → "function"
+aside repl --account <agent-account> "const s = await screenshot(p); s.length"   → "screenshot is not defined"
+aside repl --account <agent-account> "const s = await annotatedScreenshot(p); Object.keys(s)" → "[ 'base64Image' ]"
+aside repl --account <agent-account> "const s = await annotatedScreenshot(p); s.base64Image.slice(0,30)"
                                                       → "iVBORw0KGgoAAAANSUhEUgAAC0AAAAc"  (PNG base64 ✓)
 ```

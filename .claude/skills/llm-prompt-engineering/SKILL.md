@@ -381,4 +381,4 @@ Run this test BEFORE merging prompt changes.
 
 - Evidence bundle: `/tmp/worktree_worker12/claude/character-creation-agent-i9xyR/character_creation_flag_clearing_fix/20260109T072437Z`
 - Commit: `bc9dbc29b36204e914bd4b54a2731812c6ddabfc`
-- Related: `.claude/skills/evidence-standards.md`
+- Related: `.claude/skills/evidence-standards/SKILL.md`

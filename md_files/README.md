@@ -34,6 +34,35 @@ Two runtimes, one source of truth:
   (`~/.claude/CLAUDE.md` adds Claude-only subagent rules, model routing,
   voice/calibration). Edit the adapter; the shared rules stay untouched.
 
+## Where the autonomy guidance lives
+
+`AGENTS.shared.md` is the autonomy owner. The "stop and ask dumb questions"
+failure mode is addressed by these sections (all present in the committed
+template — verify with the grep below after any refresh):
+
+| Section in `AGENTS.shared.md` | What it forbids |
+|---|---|
+| `## Authorization, scope, and instruction authority` | Re-asking for authorization the user already gave; treating retrieved plans as live stop conditions. |
+| `## Do not offload work to the user` | Handing verification back instead of exhausting automated paths. |
+| `## Act, don't ask, on read-only and reversible work` | "Want me to check X?" for reads, greps, queries, test runs, diff inspection. |
+| `## A required artifact is pre-authorized — produce it, don't ask` | Halting on an artifact a gate/pipeline already mandates. |
+| `## Visible progress — never look frozen` | Ending the turn because a job needs more time. |
+| `## Autonomy time-box` | Silently running past the 8-hour default; demanding a magic extension phrase. |
+| `## Proportionality, evidence, and autonomous execution` | Maximal gate stacks on small diffs; treating cycle counts as an exit. |
+| `## Autonomous follow-through` | Routine reversible decisions escalated to the user; misreading a status question as a stop signal. |
+| `## Editing shared policy or runtime adapters` | Shipping a shorten/restructure that drops enforcement behavior. |
+
+The Claude adapter (`CLAUDE.adapter.md`) does **not** duplicate these — it
+imports them via `@~/.codex/AGENTS.md` and adds only Claude-specific rules
+(subagent routing, resource admission, voice calibration).
+
+Autonomy-presence check (run after any refresh):
+
+```console
+$ grep -cE '^## (Authorization, scope|Do not offload|Act, don.t ask|A required artifact|Visible progress|Autonomy time-box|Proportionality, evidence, and autonomous execution|Editing shared policy or runtime adapters|Autonomous follow-through)' md_files/AGENTS.shared.md
+9
+```
+
 ## Reproducing this layout on a fresh machine
 
 ```bash
@@ -251,5 +280,10 @@ Sanitize any hit before commit. Common substitutions:
 - **To refresh from your home directory:** copy the file, run the path-scan,
   fix any hits, then commit. Do not `cp` a home file directly into this
   directory without the scan — it will reintroduce user-specific paths.
+- **Last refreshed:** 2026-10-17 from `~/.codex/AGENTS.md` (297 lines) and
+  `~/.claude/CLAUDE.md` (66 lines). That refresh picked up the autonomy
+  sections `A required artifact is pre-authorized`, `Standing authorization:
+  documents /web-advice`, and the cmux full-buffer reading rule, none of which
+  existed in the 2026-09-09 snapshot.
 - **Absolute user paths (e.g. `/Users/<name>/...` or `/home/<name>/...`) in PR diffs is a regression.** Treat the path-scan
   as a pre-commit gate.

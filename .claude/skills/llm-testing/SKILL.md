@@ -49,6 +49,19 @@ credential copying, and generated environment file. A missing runtime requires
 setup and diagnosis; it does not authorize switching to the Gemini SDK. Preserve
 the selected provider's permission profile and the repository's test-account rules.
 
+Before an authorized paid request, preflight the actual launched server process,
+not just its parent shell or health endpoint: verify the effective credential
+selection after wrapper/venv activation, the required authenticated test
+identity, selected provider and required credential availability. Check each
+required operation’s permission nonbillably; a successful read does not prove
+write access. If a safe authorized check is unavailable, report it unverified.
+Never print secret values. If activation replaced a required path, correct the
+task-scoped launch
+without changing persistent defaults or other services, then recheck. Health or
+a terminal frame alone is not evidence of a successful provider turn or event.
+Inspect the runner and server for retries; keep them within the user-approved
+attempt scope. If a prerequisite fails, diagnose it before any billable call.
+
 Exercise the production streaming transport when the claim involves it or the
 repository's testing owner requires it. Distinguish
 transport/SSE delivery from provider-native token streaming: evidence for one does
@@ -87,7 +100,7 @@ Print the full absolute evidence path and record the actual command and target.
 - UI/interactive behavior also requires a **captioned video** (`.mp4`/`.gif`/`.cast`) tied to the
   PR HEAD SHA.
 - Provenance: input captured from the real client, never reconstructed from backend reference
-  files (no circular provenance). See `.claude/skills/bypass-claims.md`.
+  files (no circular provenance). See `.claude/skills/bypass-claims/SKILL.md`.
 - Apply evidence-standards' staleness-tolerance diff test and final evidence
   sequencing. Re-run affected evidence for a material behavior change; re-affirm
   qualifying nonbehavioral changes while preserving the original tested SHA,

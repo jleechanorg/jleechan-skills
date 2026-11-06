@@ -1,6 +1,9 @@
-"""Prompt contracts for the /sq TDD plan self-review, not model execution tests."""
+"""Executable check of the /sq advice setup snippet."""
 
 from pathlib import Path
+import os
+import subprocess
+import tempfile
 import unittest
 
 
@@ -12,53 +15,41 @@ QUICK_SKILLS = (
 
 
 class SqTddPlanContractTest(unittest.TestCase):
-    def test_sq_aliases_delegate_without_copying_the_workflow(self):
-        aliases = (
-            ROOT / ".claude/commands/sq.md",
-            ROOT / "portable/skills/sq/SKILL.md",
+    def _run_setup(self, home, spec, plan, tail=""):
+        text = QUICK_SKILLS[0].read_text()
+        marker = "Resolve and validate the roadmap repository"
+        start = text.index("```bash", text.index(marker)) + len("```bash\n")
+        end = text.index("\n     ```", start)
+        setup = "\n".join(
+            line[5:] if line.startswith("     ") else line
+            for line in text[start:end].splitlines()
         )
-        for path in aliases:
-            with self.subTest(path=path.relative_to(ROOT)):
-                text = path.read_text()
-                self.assertIn("superpowers-quick/SKILL.md", text)
-                self.assertNotIn("TDD plan step check", text)
-                self.assertLessEqual(len(text.splitlines()), 15)
-
-    def test_each_behavior_task_gets_ordered_superpowers_tdd_steps(self):
-        expected_steps = (
-            "write the failing test",
-            "run it to verify the expected failure",
-            "write the minimal implementation",
-            "run the test and relevant regressions to verify they pass",
-            "commit",
+        env = {**os.environ, "HOME": str(home), "SPEC_PATH": str(spec), "PLAN_PATH": str(plan)}
+        return subprocess.run(
+            ["/bin/bash", "-c", setup + tail],
+            cwd=home, env=env, capture_output=True, text=True, check=False,
         )
-        for path in QUICK_SKILLS:
-            with self.subTest(path=path.relative_to(ROOT)):
-                text = path.read_text()
-                self.assertIn("**TDD plan step check (before advice):**", text)
-                check = text.split("**TDD plan step check (before advice):**", 1)[1]
-                self.assertIn("For every task that changes behavior", check)
-                positions = [check.index(step) for step in expected_steps]
-                self.assertEqual(positions, sorted(positions))
-                self.assertIn("exact test and implementation paths", check)
-                self.assertIn("runnable commands", check)
-                self.assertIn("expected RED/GREEN outcomes", check)
-                self.assertLess(text.index("**TDD plan step check"),
-                                text.index("Run `/advice`" if path == QUICK_SKILLS[0]
-                                           else "Run [advice]"))
 
-    def test_plan_check_repairs_gaps_without_running_implementation(self):
-        for path in QUICK_SKILLS:
-            with self.subTest(path=path.relative_to(ROOT)):
-                text = path.read_text()
-                self.assertIn("fix missing, reordered, or vague steps", text)
-                self.assertIn("recheck the saved plan before advice", text)
-                self.assertIn("`TDD Plan Check`", text)
-                self.assertIn("`TDD: N/A`", text)
-                self.assertIn("concrete reason and a specific verification check", text)
-                self.assertIn("do not execute tests, edit implementation code, or commit", text)
-                self.assertIn("not evidence that RED/GREEN tests have run", text)
-                self.assertIn("TDD plan step check is complete", text)
+    def test_sq_advice_setup_rejects_a_missing_git_roadmap(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            home = Path(temp_dir)
+            (home / "roadmap").mkdir()
+            result = self._run_setup(home, home / "roadmap/design.md", home / "roadmap/plan.md")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("not a Git repository", result.stderr)
+
+    def test_sq_advice_setup_yields_repository_relative_documents(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            home = Path(temp_dir).resolve()
+            roadmap = home / "roadmap"
+            roadmap.mkdir()
+            subprocess.run(["git", "init", "-q", str(roadmap)], check=True)
+            tail = '\nprintf "%s|%s" "$SPEC_DOCUMENT" "$PLAN_DOCUMENT"'
+            ok = self._run_setup(home, roadmap / "d/design.md", roadmap / "plan.md", tail)
+            outside = self._run_setup(home, home / "design.md", roadmap / "plan.md", tail)
+        self.assertEqual(ok.returncode, 0, ok.stderr)
+        self.assertEqual(ok.stdout, "d/design.md|plan.md")
+        self.assertNotEqual(outside.returncode, 0)
 
 
 if __name__ == "__main__":

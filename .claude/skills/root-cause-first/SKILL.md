@@ -5,6 +5,38 @@ description: Use when a bug may cross an LLM/backend boundary or tempts changes 
 
 # Root Cause First
 
+## Repository policy first
+
+On every invocation, including a global slash command or an absolute global
+skill path, locate the active repository and read its applicable `AGENTS.md` /
+`CLAUDE.md` and scoped instructions before diagnosing or choosing a lane.
+
+1. Check the repository's declared skill locations and canonical pointers,
+   including `.claude/skills/root-cause-first/SKILL.md`,
+   `.agents/skills/root-cause-first/SKILL.md`, and
+   `.codex/skills/root-cause-first/SKILL.md` when present. Resolve wrappers and
+   mirrors to their canonical source; do not count a mirror as another policy.
+2. Read the repository-specific root-cause-first policy completely and follow
+   its required companion discovery. **Repository policy is PRIMARY** over this
+   portable reference for project-specific diagnosis, ownership, and evidence.
+   This precedence never overrides higher-priority instructions, current user
+   scope, safety, access controls, or mandatory confirmations.
+3. Load that local policy once. If it reads this global file as a reference,
+   continue below without rediscovering or reinvoking the local entrypoint.
+   Likewise, lane skills referring back here reuse the current route verdict;
+   reclassify only when new evidence changes the first divergence.
+4. If no repository policy exists, explicitly report that none was found and
+   the locations checked, then use this portable workflow. An unreadable policy
+   is not an absent policy: report the access/missing-content gap, pause only
+   decisions that depend on it, and continue independent authorized work.
+
+Resolve required `llm-first`, `backend-first`, and `redgreen` (`/rg`) companions
+from repository instructions first, then verified installed/global locations
+(such as siblings of this skill). Read the selected owner's instructions before
+execution. Do not silently replace a missing required companion or invent a
+repository policy. A review may read companions to evaluate a claim without
+executing their repair workflows.
+
 ## Rule
 
 Diagnose before editing. This skill locates the first divergence and chooses one
@@ -14,7 +46,8 @@ causal lane. It does not tune prompts or change backend behavior itself.
 
 - **Direct diagnostic mode** applies when the active task asks to diagnose a
   concrete failure and authorizes investigation
-  or fixes. After the route verdict, it may execute the selected owner skill.
+  or fixes. After the route verdict, use the selected owner only for steps
+  already authorized by that task; diagnosis alone does not authorize repairs.
 - **Review-only mode** applies when the task requests a review or audit, including
   a diagnostic loaded by another review workflow. Reviewing a diff, PR, guard,
   or proof does not itself authorize repairs. Emit the evidence-backed verdict
@@ -27,6 +60,28 @@ Resolve the mode from the active task. A request to diagnose authorizes
 investigation, not every possible fix or production mutation. If the task is
 review-only or its scope remains unclear, return the verdict to the caller and
 continue only the caller's already-authorized work.
+
+## Reachability and fresh RED/GREEN
+
+Before a behavior fix, identify the reachable user flow, violated contract,
+current base/head revisions, and existing PRs or active owners touching the
+same path. Compare proposed work with those PRs before writing; avoid competing
+fixes. A source-level suspicion is not proof that the user flow reaches it.
+
+In an authorized fix lane, use `/rg` (the verified redgreen owner) to execute a
+fresh causal failing test before changing behavior, then rerun the same check
+and relevant regressions after the narrow fix. Record commands, timestamps,
+baseline/candidate revisions, artifacts, and the tested process's true exit
+status; a successful log/tee command is not a test pass. A missing dependency,
+historical incident, unrelated assertion, or source-string match alone does
+not establish the reported runtime failure. Keep synthetic/captured-fixture,
+real-server, and live-provider claims separate.
+
+Review-only mode audits this evidence without launching fixes or experiments.
+Missing causal RED blocks the dependent fix, not independent investigation.
+Choose the lowest sufficient evidence layer; this skill neither mandates a
+paid experiment nor authorizes provider requests, retries, publication, or
+production writes.
 
 ## Boundary trace
 
@@ -67,7 +122,9 @@ Emit exactly one route label with the first divergent artifact:
 - `ROOT CAUSE ROUTE: BACKEND`
 - `ROOT CAUSE ROUTE: UNDER-INSTRUMENTED`
 
-In direct diagnostic mode, execute only the selected owner skill:
+In direct diagnostic mode, execute only already-authorized steps of the selected
+owner skill. Investigation alone does not authorize repairs; pause any repair
+step that needs additional scope while continuing permitted diagnosis:
 
 - LLM route: execute `/llm-first`.
 - Backend route: execute `/backend-first`.
@@ -104,3 +161,4 @@ policy.
   or hidden model-decision fallbacks.
 - Synthetic fixtures prove deterministic behavior only.
 - One real response proves capability, not statistical reliability.
+

@@ -1,9 +1,0 @@
-[Unit]
-Description=AGY Dot pings at :10, :30 and :50
-
-[Timer]
-OnCalendar=*:10,30,50:00
-Persistent=false
-
-[Install]
-WantedBy=timers.target

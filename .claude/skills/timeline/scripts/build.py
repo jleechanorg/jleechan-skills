@@ -53,6 +53,14 @@ def fmt_est(r):
     return f"{lo}m" if hi == lo else f"{lo}–{hi}m"
 
 
+def axis_ticks(span):
+    step = max(10, int(math.ceil(span / 100.0)) * 10)
+    ticks = list(range(0, span, step))
+    if len(ticks) > 1 and (span - ticks[-1]) * COLS / span < len(str(ticks[-1])) + 1:
+        ticks.pop()
+    return ticks + [span]
+
+
 def finish_text(snapshot, mins):
     m = re.match(r"(\d{4}-\d\d-\d\d)[ T~]+(\d\d:\d\d)\s*(\S*)", snapshot or "")
     if not m:
@@ -190,7 +198,10 @@ def publish_bead(spec, path, gist_url, preview):
     if not db:
         db = json.loads(run(["br", "info", "--json"]))["database_path"]
         top = run(["git", "rev-parse", "--show-toplevel"])
-        if Path(top).resolve() not in Path(db).resolve().parents:
+        # A linked worktree shares its main checkout's .beads via the common git dir.
+        common = run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"])
+        roots = {Path(top).resolve(), Path(common).resolve().parent}
+        if not roots & set(Path(db).resolve().parents):
             raise RuntimeError(f"bead db {db} is outside this worktree; set spec bead_db")
     side = Path(f"{path}.bead")
     saved = side.read_text().split() if side.exists() else []
@@ -215,6 +226,9 @@ def main(spec_path, out_path=None, branch=None, pr=None, publish=False):
         spec["branch"] = branch
     if pr:
         spec["pr"] = pr
+    retrospective = spec.get("mode", "forecast") == "retrospective"
+    if retrospective and not all(spec.get(k) for k in ("window_start", "window_end")):
+        raise ValueError("retrospective requires window_start and window_end")
     dest = out_file(spec, out_path)
     for suffix in ("", ".owner", ".gist", ".short", ".bead"):
         if Path(f"{dest}{suffix}").is_symlink():
@@ -229,6 +243,11 @@ def main(spec_path, out_path=None, branch=None, pr=None, publish=False):
         if r["unknown"]:
             r["lo"], r["hi"] = 10, None
         r.setdefault("hi", r["lo"])
+        r.setdefault("kind", "observed" if retrospective else "forecast")
+        if r["kind"] not in ("observed", "forecast"):
+            raise ValueError("row kind must be observed or forecast")
+        if r["kind"] == "observed" and not r["unknown"] and r["hi"] != r["lo"]:
+            raise ValueError("observed intervals require equal lo and hi; use detail for uncertainty")
     known = [r for _, r in rows if not r["unknown"]] or [r for _, r in rows]
     lo_end = max(r["start"] + r["lo"] for r in known)
     hi_end = max(r["start"] + (r["hi"] if r["hi"] is not None else r["lo"]) for r in known)
@@ -236,18 +255,25 @@ def main(spec_path, out_path=None, branch=None, pr=None, publish=False):
     for _, r in rows:
         if r["unknown"]:
             r["lo"] = max(1, min(r["lo"], span - r["start"]))
-    est = f"≈ {lo_end}–{hi_end} min" if hi_end != lo_end else f"≈ {lo_end} min"
-    f_lo, f_hi = finish_text(spec.get("snapshot"), lo_end), finish_text(spec.get("snapshot"), hi_end)
-    finish = f" → finish ~{f_lo}–{f_hi}" if f_lo else ""
-    head = f"Snapshot {spec.get('snapshot', '')} · estimate {est}{finish}"
+    if retrospective:
+        head = f"Observed window {spec['window_start']} → {spec['window_end']} · wall-clock intervals, not summed effort"
+    else:
+        est = f"≈ {lo_end}–{hi_end} min" if hi_end != lo_end else f"≈ {lo_end} min"
+        f_lo, f_hi = finish_text(spec.get("snapshot"), lo_end), finish_text(spec.get("snapshot"), hi_end)
+        finish = f" → finish ~{f_lo}–{f_hi}" if f_lo else ""
+        head = f"Snapshot {spec.get('snapshot', '')} · estimate {est}{finish}"
+    ticks_at = axis_ticks(span)
 
     css = re.search(r"<style>(.*?)</style>", TEMPLATE.read_text(), re.S)[1]
-    css = re.sub(r"calc\(100%/\d+\)", f"calc(100%/{span // 10})", css)
+    css = re.sub(r"calc\(100%/\d+\)", f"calc(100%/{span / (ticks_at[1] - ticks_at[0])})", css)
+    css += "\n.ticks{display:block;position:relative;height:20px}.ticks span{position:absolute;transform:translateX(-50%)}.ticks span:first-child{transform:none}.ticks span:last-child{transform:translateX(-100%)}"
     e = html.escape
     pct = lambda v: f"{100.0 * v / span:.2f}%"
     out = [f'<!doctype html><html><head><meta charset="utf-8"><title>{e(spec["title"])}</title>',
            f"<style>{css}</style></head><body>", f"<h1>{e(spec['title'])}</h1>",
            f'<div class="sub">{e(head)}' + (f" · {e(spec['subtitle'])}" if spec.get("subtitle") else "") + "</div>"]
+    if spec.get("baseline"):
+        out.append(f'<div class="sub">Baseline: {e(str(spec["baseline"]))}</div>')
     if spec.get("done"):
         items = "".join(f"<div>✓ {e(d)}</div>" for d in spec["done"])
         out.append(f'<div class="status"><div class="card"><b>Done</b>{items}</div></div>')
@@ -261,22 +287,29 @@ def main(spec_path, out_path=None, branch=None, pr=None, publish=False):
         if not r.get("owner"):
             print(f"build.py: row {r.get('id', r['name'])} has no owner", file=sys.stderr)
         meta = " · ".join(str(r[k]) for k in ("owner", "bead", "detail") if r.get(k))
+        if retrospective:
+            meta = f"{r['kind']} · {fmt_est(r)}" + (f" · {meta}" if meta else "")
+        elif r["lo"] / span < 0.12:
+            meta = f"{fmt_est(r)}" + (f" · {meta}" if meta else "")
         det = f"<small>{e(meta)}</small>" if meta else ""
+        bar_label = fmt_est(r) if r["lo"] / span >= 0.12 else ""
         out.append(f'<div class="lbl">{e(str(r.get("id", "")))} · {e(r["name"])}{det}</div>')
         bar = (f'<div class="bar" style="left:{pct(r["start"])};width:{pct(r["lo"])};'
-               f'background:var(--{var})">{e(fmt_est(r))}</div>')
+               f'background:var(--{var})">{e(bar_label)}</div>')
         if r["hi"] is not None and r["hi"] > r["lo"]:
             bar += (f'<div class="ext" style="left:{pct(r["start"] + r["lo"])};'
                     f'width:{pct(r["hi"] - r["lo"])};background:var(--{var})"></div>')
         out.append(f'<div class="track">{bar}</div>')
     out.append("</div>")
-    ticks = "".join(f"<span>{t}{' min' if t == span else ''}</span>" for t in range(0, span + 1, 10))
+    ticks = "".join(f'<span style="left:{pct(t)}">{t}{" min" if t == span else ""}</span>' for t in ticks_at)
     out.append(f'<div class="axis"><div></div><div class="ticks">{ticks}</div></div>')
     sw = lambda v, t: f'<span><span class="sw" style="background:var(--{v})"></span>{t}</span>'
+    legend = ("observed solid = wall interval; forecast solid = low, faded = up to high; color = duration/high"
+              if retrospective else "color = HIGH estimate · solid = low estimate, faded = up to high")
+    origin = "window start" if retrospective else "snapshot time"
     out.append('<div class="legend">' + sw("green", "&lt; 10 min") + sw("yellow", "10–30 min")
                + sw("red", "30+ min") + sw("unk", "unknown")
-               + "<span>color = HIGH estimate · solid = low estimate, faded = up to high</span>"
-               + "<span>0 = snapshot time</span></div>")
+               + f"<span>{legend}</span><span>0 = {origin}</span></div>")
     if spec.get("flow"):
         out.append('<div class="flow">')
         for g in spec["flow"]:
@@ -306,14 +339,15 @@ def main(spec_path, out_path=None, branch=None, pr=None, publish=False):
         word = color(r["hi"])[0]
         who = " ".join(str(r[k]) for k in ("owner", "bead") if r.get(k))
         print(f"{(str(r.get('id', '')) + ' ' + r['name']).ljust(w)} |{bar.ljust(COLS)}| "
-              f"{fmt_est(r)} {word}" + (f" [{who}]" if who else ""))
+              + (f"{r['kind']} " if retrospective else "") + f"{fmt_est(r)} {word}" + (f" [{who}]" if who else ""))
     axis = [" "] * (COLS + 8)
-    for t in range(0, span + 1, 10):
+    for t in ticks_at:
         s = str(t)
         for i, ch in enumerate(s):
             axis[min(cell(t) + i, len(axis) - 1)] = ch
     print(" " * w + " |" + "".join(axis).rstrip() + " min")
-    print("█ low  ░ low→high | green <10m, yellow 10–30m, red 30+m (by high), grey unknown")
+    print(("█ observed wall interval / forecast low  ░ forecast low→high" if retrospective else "█ low  ░ low→high")
+          + " | green <10m, yellow 10–30m, red 30+m (by high), grey unknown")
     print()
     if not publish:
         print(f"HTML (local): {dest}")

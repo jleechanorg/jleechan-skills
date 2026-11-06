@@ -33,14 +33,14 @@ planning, handoff, and execution authorization boundaries.
 **Guidelines Consultation**: Calls `/guidelines` for systematic mistake prevention and protocol compliance.
 
 **MANDATORY Skills Consultation** (before any implementation):
-1. **Code Centralization** (`.claude/skills/code-centralization.md`):
+1. **Code Centralization** (`.claude/skills/code-centralization/SKILL.md`):
    - Search for existing similar code BEFORE writing new code
    - Document search results and justify new code only if reuse impossible
    - Prove you investigated existing implementations
-2. **File Justification** (`.claude/skills/file-justification.md`):
+2. **File Justification** (`.claude/skills/file-justification/SKILL.md`):
    - For each file touched, document GOAL/MODIFICATION/NECESSITY/INTEGRATION PROOF
    - New files require extreme scrutiny - prove integration impossible
-3. **Integration Verification** (`.claude/skills/integration-verification.md`):
+3. **Integration Verification** (`.claude/skills/integration-verification/SKILL.md`):
    - For any integration claims, provide Three Evidence Rule
    - Configuration + Trigger + Log evidence required
 4. **Harness Engineering** (`.claude/skills/harness-engineering/SKILL.md`):

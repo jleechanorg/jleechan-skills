@@ -3,6 +3,12 @@ name: babysit-openclaw
 description: Monitor OpenClaw Slack tasks for stalls or fabricated progress and nudge them safely.
 ---
 
+> **Terminal-reading rule (canonical):** before any classification, assessment, or steer of a
+> cmux surface, read the surface's FULL available history (~10k words when possible;
+> `cmux capture-pane --scrollback --lines 1500`), then the last ~15 lines for current state.
+> Never decide from a short tail. Canonical: `~/.codex/AGENTS.md` section
+> "Reading a cmux terminal before deciding (full-buffer rule)".
+
 # babysit-openclaw
 
 Monitor an openclaw task in a Slack thread, detect fabrication and stalls, and nudge via Slack when needed.
@@ -13,69 +19,50 @@ Monitor an openclaw task in a Slack thread, detect fabrication and stalls, and n
 /babysit-openclaw <thread_ts> [channel_id]
 ```
 
-Default channel: `C0AKYEY48GM`
+Default channel: `<slack-channel>`
 
 ## Step 1 — Read the thread
 
 ```python
-# Use mcp__slack__conversations_replies
-# channel_id: C0AKYEY48GM (or provided)
+# Use the authorized Slack history/replies integration
+# channel_id: <slack-channel> (or provided)
 # thread_ts: <from argument>
 ```
 
+Read the full thread context, including the task instruction, previous status
+reports, and linked artifacts. Do not assess the task from its last message alone.
+
 ## Step 2 — Assess status
 
-Check the **last message from openclaw** and apply these signals:
+Treat each completion claim as a claim to verify. Compare it with the requested
+artifact or a fresh independent result from the named command, service, or
+process. Message style and elapsed time are not proof of fabrication.
 
-### Fabrication signals (nudge immediately)
-- `completion_ts - instruction_ts < 60s` for any multi-step I/O task (clone, install, startup)
-- "Proof" section lists command names without actual terminal output
-- Clean bullet points describing steps instead of messy terminal output
-- Generic success language ("dependency install completed", "startup logs reached ready state")
+### Unverified claims
+- A report names commands but provides no attributable output or artifact.
+- A report gives a generic success summary without the requested result.
+- The cited output is stale, belongs to another task, or does not establish the claim.
 
-### Stall signals (nudge if > 10 min since last openclaw message)
-- openclaw said "on it" / "executing now" / "I'll complete" but no follow-up
-- openclaw admitted stopping ("I stopped again") and promised to execute — no follow-up
-- No new message from openclaw in 10+ minutes after an instruction
+Report these as `UNVERIFIED` until independent evidence resolves them. Classify
+a claim as fabricated only when current independent evidence contradicts it.
 
-### OK signals (do not nudge)
-- openclaw posted real terminal output (messy, with package names, versions, paths)
-- openclaw explicitly said "not run yet" / held back a step rather than fabricating
-- openclaw is actively posting partial progress with evidence
-- Task is complete with real proof
+### Work and stall assessment
+- Fresh attributable output is evidence of progress, not proof of completion.
+- Do not classify a task as stalled from elapsed time or silence alone. Check the
+  current agent/session state, recent transcript or job output, and requested
+  artifacts. If current state cannot be verified, report `UNVERIFIED`.
+- Report `WORKING` when current independent evidence shows progress.
+- Report `COMPLETE` only when the requested artifact or result is verified.
 
 ## Step 3 — Nudge if needed
 
-Post via the cmux bot token from `$CMUX_BOT_TOKEN` env var (NOT mcp__slack — posts as openclaw bot = self-loop):
-
-**WARNING: NEVER add `cmuxBotToken` to `openclaw.json` — it crashes the gateway (schema rejects it as "Unrecognized key"). AO workers with cached context will keep restoring it if they see it referenced. The token MUST come from the env var only.**
-
-```python
-import json, os, urllib.request
-
-msg = "[AI Terminal: <workspace>] <@U0AEZC7RX1Q> <nudge text>"
-
-# Read cmux bot token from environment (set in ~/.bashrc)
-token = os.environ.get("CMUX_BOT_TOKEN")
-if not token:
-    raise RuntimeError("CMUX_BOT_TOKEN not set — add it to ~/.bashrc. NEVER put it in openclaw.json.")
-
-payload = json.dumps({
-    "channel": "C0AKYEY48GM",
-    "thread_ts": "<thread_ts>",
-    "text": msg
-})
-req = urllib.request.Request(
-    "https://slack.com/api/chat.postMessage",
-    data=payload.encode(),
-    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-)
-with urllib.request.urlopen(req) as resp:
-    d = json.loads(resp.read())
-    print(f"OK ts={d.get('ts')}" if d.get("ok") else f"ERROR: {d.get('error')}")
-```
-
-Token source: `$CMUX_BOT_TOKEN` env var from `~/.bashrc` (cmux bot, app A0AHF4EBZPE).
+Use the authorized Slack identity and connector described by
+`~/.claude/skills/hermes/SKILL.md` and
+`~/.claude/skills/slack-identity/SKILL.md`. Do not read or add a token in a
+shell profile, put a token in OpenClaw configuration, or switch identities to
+bypass a delivery or access failure. If the available connector would send as
+OpenClaw itself or cannot address the existing thread, report that exact
+delivery limitation without creating credentials or changing membership.
 
 ### Nudge message guidelines
 
@@ -88,34 +75,25 @@ Token source: `$CMUX_BOT_TOKEN` env var from `~/.bashrc` (cmux bot, app A0AHF4EB
 ## Step 4 — Report
 
 After each check, report:
-- Last openclaw message timestamp and content (1-line summary)
-- Assessment: OK / FABRICATED / STALLED
-- Action taken: nudged (ts=...) / no action needed
+- Last relevant message timestamp and a one-line summary
+- The independently verified artifact or result, or why it remains unverified
+- Assessment: WORKING / COMPLETE / UNVERIFIED / FABRICATED
+- Action taken: nudged (message id) / no action needed
 - Drop count if tracking
 
-## Fabrication detection reference
+## Evidence labels
 
-| Signal | Example |
-|--------|---------|
-| Too fast | 25s between "do it" and "Done" for clone+install+startup |
-| No machine-specific output | Missing paths like `$HOME/...`, package counts, timing |
-| Clean proof section | Bullet list of command names only |
-| Generic language | "dependency install completed", "reached ready state" |
-
-Real terminal output looks like:
-```
-added 262 packages, and audited 263 packages in 5s
-Successfully installed MarkupSafe-3.0.3 PyJWT-2.12.1 ...
-$HOME/.openclaw/workspace/hermes-agent
-```
+Use `WORKING`, `COMPLETE`, `UNVERIFIED`, or `FABRICATED` only with the
+independent evidence described above. Formatting, elapsed time, generic prose,
+or raw terminal output alone does not establish fabrication or completion.
 
 ## Key constants
 
-- openclaw bot user ID: `U0AEZC7RX1Q`
-- default channel: `C0AKYEY48GM`
-- token source: `$CMUX_BOT_TOKEN` env var from `~/.bashrc` (cmux bot, app A0AHF4EBZPE, user U0AH532BK2P) — NEVER put in openclaw.json
+- default channel: `<slack-channel>`
 - AI identity prefix: `[AI Terminal: <workspace-name>]` (required by CLAUDE.md)
 
-## Why mcp__slack doesn't work for nudging
+## Sender and delivery
 
-`mcp__slack__conversations_add_message` posts as the openclaw bot (`$OPENCLAW_BOT_USER_ID`). openclaw's self-loop prevention ignores messages from its own account. The OpenClaw gateway (`http://127.0.0.1:18789`) may be webchat-bound with no Slack session target. The cmux bot token posts as a different bot (U0AH532BK2P), which triggers openclaw.
+The connector's sender identity determines whether a message can reach the
+target. Follow the current Slack identity owner; do not infer delivery from the
+connector name or work around a sender/access failure with another identity.

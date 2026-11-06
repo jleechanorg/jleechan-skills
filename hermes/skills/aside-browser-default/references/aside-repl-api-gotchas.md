@@ -1,6 +1,6 @@
 # Aside REPL API — Verified Surface (gotchas + correct recipes)
 
-Captured 2026-07-05 against `aside` CLI v1.26.703.1528 (Aside Daemon 1.26.703.1528); **extended 2026-07-13 against v1.26.713.1911** with the `slack.getClient()` bot-rejoin recipe (was §7, now §11), the bash-shell escaping trap (§12), and the membership-vs-listing pitfall for Slack bot work (§13). Several examples in `SKILL.md` Phase 2 show functions that **don't exist or have different return shapes** than documented. This reference is the canonical fix list.
+Captured 2026-07-05 against `aside` CLI v1.26.703.1528 (Aside Daemon 1.26.703.1528); extended 2026-07-13 against v1.26.713.1911 with REPL and Slack membership observations. The historical `slack.getClient()` recipe is retired because it used browser-backed authentication to bypass API scope limits. Several examples in `SKILL.md` Phase 2 show functions that **don't exist or have different return shapes** than documented. This reference is the canonical fix list.
 
 ## Top-line gotchas
 
@@ -54,7 +54,8 @@ Path("/tmp/foo.png").write_bytes(png)
 listBrowserTabs().map(t => t.url());
 
 // ❌ Will return undefined
-const n = listBrowserTabs().length;
+const tabs = await listBrowserTabs();
+const n = tabs.length;
 
 // ✅ Must await
 const tabs = await listBrowserTabs();
@@ -141,7 +142,7 @@ The `aside` CLI auto-updates the daemon on each invocation sometimes (saw daemon
 navigator, tabs, listBrowserTabs, attachBrowserTab, attachActiveBrowserTab,
 getTabByTargetId, openTab, closeTab, snapshot, annotatedScreenshot,
 installPageScript, page,
-slack,                       // Aside-managed Slack Web API client (see §11)
+slack,                       // Cookie-backed; do not use for Slack API calls (see §7)
 aside,                       // aside sub-primitives: pdf, settings, sessions, routines
 applePasswords, captcha, chrome, cua, gmail, googleAccounts, googleDocs,
 googlePeople, googleSearch, googleSheets, imageSearch, youtube, linkedin,
@@ -150,89 +151,13 @@ twitter, notion, blockToMarkdown, markdownToBlockSpecs, display
 
 `Buffer` is also available (built-in). Everything else (fs, require, process, fetch, setTimeout-as-promise) is **not** in the REPL sandbox — use the stdout pattern to ship data out.
 
-> **MISSING from the REPL — verified 2026-07-13 against v1.26.713.1911:** `browser_click`, `browser_type`, `browser_fill`, `browser_press`, `browser_hover`, `browser_snapshot` (full-named version; the bare `snapshot` IS available). Any SKILL.md example that calls `await browser_click({ ref: 'e73' })` will throw `ReferenceError: browser_click is not defined`. Use `mcp__aside-mcp__*` from a runtime that exposes them, or drive the page via `page.evaluate(() => element.click())`, or for Slack flows use the `slack.getClient()` bypass (§11).
+> **MISSING from the REPL — verified 2026-07-13 against v1.26.713.1911:** `browser_click`, `browser_type`, `browser_fill`, `browser_press`, `browser_hover`, `browser_snapshot` (full-named version; the bare `snapshot` IS available). Any SKILL.md example that calls `await browser_click({ ref: 'e73' })` will throw `ReferenceError: browser_click is not defined`. Use `mcp__aside-mcp__*` from a runtime that exposes them, or drive the page via `page.evaluate(() => element.click())`.
 
-### 7. `slack` is a top-level global — full Slack Web API via `getClient(teamId).apiCall()`
+### 7. Slack operations require approved scopes
 
-Aside ships a managed Slack Web client that **auto-injects auth cookies** for the signed-in workspaces — no token, no manual OAuth. Verified 2026-07-09 by creating the `#factory` channel (id `C0BGEC77EP4`) in workspace `T09FXQ4LCQP` from a fresh agent session, with zero environment setup.
+The Aside `slack` global uses browser-backed authentication. Do not call it, `slack.getClient()`, or any equivalent cookie-backed API path. For Slack operations, use the approved Slack connector/API with its existing authorized scopes. A missing scope is an authorization boundary: report it or use an appropriate Slack UI action in an already authorized, verified isolated agent-owned browser context. Never inherit personal-browser cookies or use browser cookies to bypass a missing scope.
 
-```js
-// 1. List joined workspaces (each entry has teamId, name, url, isLastActive)
-const ws = await slack.listWorkspaces();
-console.log(JSON.stringify(ws));
-
-// 2. Get a Web-API client bound to a specific team. lastActiveTeamId is
-//    the default if you pass nothing.
-const c = await slack.getClient(ws[0].teamId);
-
-// 3. Call any Slack Web API method. Returns the raw JSON response.
-const result = await c.apiCall('conversations.create', {
-  name: 'factory',
-  is_private: false,
-});
-// → { ok: true, channel: { id: "C0BGEC77EP4", creator: "U09GH5BR3QU", ... } }
-
-// 4. Send a message, set topic, invite users, list members — same shape.
-const inv = await c.apiCall('conversations.invite', {
-  channel: 'C0BGEC77EP4',
-  users: 'U0AEZC7RX1Q',   // user-id, NOT @handle
-});
-const msg = await c.apiCall('chat.postMessage', {
-  channel: 'C0BGEC77EP4',
-  text: ':factory: channel is live',
-});
-```
-
-**Critical pitfall:** `mcp__slack__*` does **not** expose `conversations.create`, `conversations.invite`, or `conversations.setTopic`. Direct `curl https://slack.com/api/conversations.create` requires `channels:write` scope on a token you own — Jeffrey's `SLACK_MCP_XOXP_TOKEN` only has `chat:write` as of 2026-07-09, so the raw Web-API path is **blocked**. **Use Aside's `slack.getClient()` instead** — it is the only zero-scope-setup path that actually creates channels.
-
-**Available `client` methods:** `apiCall`, `paginate`, `chatStream`, `filesUploadV2`, `fetchAllUploadURLExternal`, `completeFileUploads`, `postFileUploadsToExternalURL`, `getAllFileUploads`. Use `apiCall` for everything except file uploads — it accepts the exact same args as the Web API docs.
-
-## Canonical Slack bot-rejoin recipe (verified 2026-07-13)
-
-**Problem:** A Slack bot (e.g. MCP Mail `U0A4G7LDJ4R`) gets removed from some channels. Morning-sweep says "bot is in 0 channels" but the bot is actually fine — wait, no, this sweep is from the bot, and `conversations.list` returns names visible in the workspace, NOT membership. **First verify with `conversations.members` (see §13)**. If the bot IS missing from specific channels:
-
-```js
-// 1. Get the user's signed-in Slack client (Aside-managed, inherits workspace scopes)
-const ws = await slack.listWorkspaces();
-const c = await slack.getClient(ws[0].teamId);  // 'T09FXQ4LCQP' for $USER AI
-
-// 2. Resolve channel NAME → ID first (you typically know the name, not the C-id).
-//    Pass types=public_channel,private_channel so you catch all of them.
-const list = await c.apiCall('conversations.list', {
-  types: 'public_channel,private_channel',
-  limit: 200,
-  exclude_archived: true,
-});
-const byName = Object.fromEntries(list.channels.map(ch => [ch.name, ch.id]));
-
-// 3. Bulk-invite the bot to the channels it was removed from.
-//    First verify which channels it IS NOT a member of.
-const targets = ['life','worldai','worldai-bugs','all-$USER-ai','agent-orchestrator','ai-general','jleechanclaw','agentf','ai-universe','hermes-pc','mcp-mail','ralph-status'];
-const botUser = 'U0A4G7LDJ4R';
-for (const name of targets) {
-  const id = byName[name];
-  if (!id) { console.log('SKIP', name, '(not found)'); continue; }
-  const r = await c.apiCall('conversations.invite', { channel: id, users: botUser });
-  console.log(name, r.ok ? 'OK' : ('ERR ' + r.error), r.channel?.is_member ? '(now member)' : '');
-}
-```
-
-**Verified output (excerpt, 2026-07-13 against `aside` v1.26.713.1911, 35 channels):**
-```
-worldai-bugs OK (now member)
-life OK (now member)
-...
-```
-
-**Then verify from the bot side** (XOXB/XOXP token):
-```bash
-curl -sH "Authorization: Bearer $HERMES_SLACK_BOT_TOKEN" \
-  "https://slack.com/api/conversations.info?channel=C0BDEAJH8PK" \
-  | python3 -c "import json,sys; d=json.load(sys.stdin); print('is_member:', d['channel']['is_member'])"
-# 200 OK is_member: True
-```
-
-**Pitfall — `slack.getClient()` is stateless across invocations.** Each `aside repl "..."` call spawns a fresh VM. Capture the client in a closure variable, do all your channel resolutions in the SAME invocation. If you split into two repls the client from the first one is gone by the time the second runs.
+For bot membership checks, use `conversations.members` through an approved Slack connector/API whose existing scopes permit the call; `conversations.list` shows visible channels and does not prove membership. If the required read scope is unavailable, report that limitation. See §13 for the distinction.
 
 ### 8. **`aside repl` is stateless — `tabs[0]` does NOT survive across `repl` invocations**
 
@@ -240,12 +165,12 @@ Every `aside repl "..."` CLI call is a fresh browser connection. State that you 
 
 ```bash
 # ❌ Will fail: t is undefined in the second call.
-aside repl "const t = await openTab('https://example.com');"
-aside repl "await t.evaluate(() => location.href)"  # ReferenceError
+aside repl --account <agent-account> "const t = await openTab('https://example.com');"
+aside repl --account <agent-account> "await t.evaluate(() => location.href)"  # ReferenceError
 
 # ✅ Pattern: bundle the entire script into ONE repl call as a heredoc or
 # JS string. Use await sleep() inside the same script for any pauses.
-aside repl "$(cat <<'JS'
+aside repl --account <agent-account> "$(cat <<'JS'
   const t = await openTab('https://example.com');
   await sleep(5000);
   const dump = await t.evaluate(() => ({ url: location.href, title: document.title }));
@@ -255,7 +180,7 @@ JS
 
 # ✅ Or: write the script to a file and pipe it via stdin / cat.
 cat /tmp/script.mjs | tr '\n' ' ' | tr -s ' ' > /tmp/cmd.txt
-aside repl "$(cat /tmp/cmd.txt)"
+aside repl --account <agent-account> "$(cat /tmp/cmd.txt)"
 ```
 
 For multi-step stateful flows (login → click → type → submit), keep the **entire** sequence inside a single `repl` invocation.
@@ -290,11 +215,11 @@ A common 60-second trap:
 
 ```bash
 # ❌ Looks like the call hung — no output ever appears
-aside repl "Object.keys(globalThis).slice(0, 30).join(',')"
+aside repl --account <agent-account> "Object.keys(globalThis).slice(0, 30).join(',')"
 # (returns silently with [ok | 6ms] only)
 
 # ✅ console.log echoes to stdout and is what the caller sees
-aside repl "console.log('GLOBAL:', Object.keys(globalThis).slice(0, 30).join(','))"
+aside repl --account <agent-account> "console.log('GLOBAL:', Object.keys(globalThis).slice(0, 30).join(','))"
 ```
 
 **Reason:** `aside repl` runs the JS via a Node REPL whose final expression value is normally echoed (`[ok | Nms]` only confirms the call returned; the actual value is dropped unless you `console.log` it). For multi-step scripts, always `console.log` what you want captured.
@@ -312,9 +237,9 @@ curl -sH "Authorization: Bearer $HERMES_SLACK_BOT_TOKEN" \
 
 # ✅ Authoritative: list of member USER-IDs (which includes you if you're a member)
 curl -sH "Authorization: Bearer $HERMES_SLACK_BOT_TOKEN" \
-  "https://slack.com/api/conversations.members?channel=C0BDEAJH8PK&limit=200"
-# → { ok: true, members: ["U09GH5BR3QU","U0AEZC7RX1Q","U0BC138QXUJ"] }
-# If "U0A4G7LDJ4R" (the bot) is NOT in the array, it's NOT in the channel.
+  "https://slack.com/api/conversations.members?channel=<SLACK_ID>&limit=200"
+# → { ok: true, members: ["<SLACK_ID>","<SLACK_ID>","<SLACK_ID>"] }
+# If "<SLACK_ID>" (the bot) is NOT in the array, it's NOT in the channel.
 ```
 
 **Why this matters:** the morning EA sweep on 2026-07-13 reported "bot is member of 0 channels" — but the channels *list* call had been used to verify, not `members`. The bot was actually a member of all 35 channels; only #worldai-bugs needed re-adding (the bot had been removed there after a stale-token rotation). Verified by direct `conversations.info` and `conversations.history` calls.
@@ -325,7 +250,7 @@ Inline `aside repl "... JS ..."` with parens, template literals, or object-liter
 
 ```bash
 # ❌ Bash tokenizes the JS, errors on the `(` inside `.filter(l => ...)`, never reaches Aside
-aside repl "const lines = String(s.tree).split('\n').filter(l => /ref=e\d+/.test(l)).slice(0, 60); console.log(lines.length)"
+aside repl --account <agent-account> "const lines = String(s.tree).split('\n').filter(l => /ref=e\d+/.test(l)).slice(0, 60); console.log(lines.length)"
 # bash: eval: line 16: syntax error near unexpected token `('
 # [error | <Nms>]
 
@@ -334,10 +259,10 @@ cat > /tmp/script.js <<'JS'
 const lines = String(s.tree).split('\n').filter(l => /ref=e\d+\]/.test(l));
 console.log('hits:', lines.length);
 JS
-aside repl "$(cat /tmp/script.js)"
+aside repl --account <agent-account> "$(cat /tmp/script.js)"
 
 # ✅ Pattern B — heredoc the file CONTENTS as the inline code
-aside repl "$(cat <<'JS'
+aside repl --account <agent-account> "$(cat <<'JS'
   const lines = ...;
   console.log(lines);
 JS
@@ -348,29 +273,26 @@ JS
 
 **Heuristic:** if your `aside repl "<...>"` invocation has more than ~3 `(`/`)`, more than one `=>`, OR template-literal backticks — write it to a file first.
 
-### 13. **Slack bots are NOT auto-rejoined to channels after app reinstall or token rotation** (verified 2026-07-13)
+### 13. Slack bot membership after reinstall or token rotation
 
-A common slip: when an MCP Mail bot was uninstalled/reinstalled or its token rotated, agents assume Slack will "see the bot is back" and re-add it to its previous channels. It will not. Slack requires an explicit `conversations.invite` (or UI click) per channel. If the XOXP token lacks `channels:write.invites` scope (which is the default), the UI fallback path is the `slack.getClient()` bypass (§11).
+Slack does not automatically rejoin a bot to channels after app reinstall or token rotation. Verify actual membership through an approved Slack connector/API with the existing required scopes; `conversations.list` alone only shows channels visible to the caller. To rejoin, use an approved API call with its existing authorized scopes, or an authorized UI action in an already verified isolated agent-owned browser context. If the required scope or human authorization is missing, report the boundary. Do not use Aside's cookie-backed Slack client or any browser-cookie API bypass.
 
-**Triage order when a sweep reports "bot is in 0 channels":**
-1. Confirm with `conversations.members` (§11) — not `conversations.list`.
-2. If actually missing, try `conversations.invite` from bot token first (some bot scopes include it: `{"ok":false,"error":"not_in_channel"}` not `missing_scope`).
-3. If bot token returns `missing_scope`, use Aside's `slack.getClient()` (§7).
-4. Only as a last resort, have the user click "Add people to channel" in the Slack UI.
-
-### 14. **Aside CLI exits "fetch failed" when the Aside GUI app is not running**
+### 14. **Aside CLI exits "fetch failed" when its background service is unavailable**
 
 Symptom: every `aside account list`, `aside repl`, and `aside mcp` returns `fetch failed` immediately. Diagnostic reports (`~/Library/Logs/DiagnosticReports/AsideUpdater-*.ips`) accumulate because the bundled updater can't reach the GUI.
 
-Fix:
+Do not activate, restart, or repair the desktop app as part of browser
+automation. Start or reconnect only an agent-owned profile in background mode
+(aside-browser-default § Background mode). If that fails or the CLI is
+unavailable, use isolated headless Chromium and report the layer that failed.
+Do not use this diagnosis as authority to inspect or change the user's desktop.
 
 ```bash
-pgrep -lf "Aside.app/Contents/MacOS/Aside" || open -a /Applications/Aside.app
-sleep 4
-aside account list   # should show signed-in profile again
+pgrep -lf "Aside.app/Contents/MacOS/Aside"
+aside account list
 ```
 
-If `aside mcp` is in a crash-restart loop (`pgrep` shows repeating supergateway processes for `aside-mcp`), the **same root cause** — start the GUI app. The wrapper keeps respawning the MCP child, but the child hits `fetch failed` because no GUI is alive to back it. Verified 2026-07-09 — resolved by `open -a /Applications/Aside.app`.
+If `aside mcp` is in a crash-restart loop, do not start the GUI app or kill/restart processes. Use isolated headless Chromium for the task and report that Aside is unavailable. Historical recovery observations do not authorize changing desktop state.
 
 ### 15. **`aside --effort ultrabrowse` times out (>180s) on multi-step structured flows** (verified 2026-07-14)
 
@@ -414,8 +336,8 @@ const shot2 = await annotatedScreenshot(p2);
 **Fallbacks when you MUST capture the heavy SPA:**
 
 1. **`page.evaluate(() => document.body.innerHTML)` first** — capture the DOM while it's still alive, before the screenshot call that disconnects. Decode later via curl regex / grep on the captured HTML.
-2. **`browserclaw cookies inject`** with a real user session — already-logged-in Chrome bypasses the SPA's auth-redirect, so the page renders directly without the heavy "logged-out" → "logged-in" → "load dashboard" cascade.
-3. **curl + regex on the deployed JS bundle** — if you need to prove "the new field `reset_time_*` is in the success path", `curl /frontend_v1/app.js | grep reset_time` answers that without ever loading the SPA. See `evidence-attach-to-slack` skill for the full curl+regex fallback chain.
+2. **Use the browser-control contract** for any authorized authenticated test. Never use a personal browser session, copied personal cookies, bearer injection, or direct API probing as a rendering workaround. An explicitly authorized transfer from one agent-owned source profile is governed by that contract.
+3. **Use an authorized source-level check only when it answers the question.** Do not use curl/regex against deployed bundles as a substitute for authenticated UI behavior or evidence; report that the UI state could not be verified if the authorized browser path is unavailable.
 4. **Direct invocation of the underlying function** — if the evidence target is a backend function (like `_build_allowed_response`), import it in Python and call it directly with realistic data. Bypasses the entire SPA render.
 
 **The principle:** when browser automation fails, fall back to **the cheapest evidence tier that still answers the user's question**. Don't fabricate a screenshot, don't pretend CDP worked, and don't loop retries on the failing path.
@@ -425,47 +347,34 @@ const shot2 = await annotatedScreenshot(p2);
 Original investigation: aside repl live probe during social-poster skill build (2026-07-05). Captured by running each candidate API call individually:
 
 ```text
-aside repl "console.log(typeof listBrowserTabs)"        → "function"
-aside repl "const t = listBrowserTabs(); t.length"      → undefined (it's a Promise)
-aside repl "const t = await listBrowserTabs(); t.length" → number ✓
-aside repl "const t = await listBrowserTabs(); t[0].url" → URL string ✓
-aside repl "const t = await listBrowserTabs(); t[0].url()" → TypeError: t.url is not a function
-aside repl "console.log(typeof require)"               → "undefined"
-aside repl "console.log(typeof process)"               → "undefined"
-aside repl "console.log(typeof Buffer)"                → "function"
-aside repl "const s = await screenshot(p); s.length"   → "screenshot is not defined"
-aside repl "const s = await annotatedScreenshot(p); Object.keys(s)"   → "[ 'base64Image' ]"
-aside repl "const s = await annotatedScreenshot(p); s.base64Image.slice(0,30)"
+aside repl --account <agent-account> "console.log(typeof listBrowserTabs)"        → "function"
+aside repl --account <agent-account> "const t = listBrowserTabs(); t.length"      → undefined (it's a Promise)
+aside repl --account <agent-account> "const t = await listBrowserTabs(); t.length" → number ✓
+aside repl --account <agent-account> "const t = await listBrowserTabs(); t[0].url" → URL string ✓
+aside repl --account <agent-account> "const t = await listBrowserTabs(); t[0].url()" → TypeError: t.url is not a function
+aside repl --account <agent-account> "console.log(typeof require)"               → "undefined"
+aside repl --account <agent-account> "console.log(typeof process)"               → "undefined"
+aside repl --account <agent-account> "console.log(typeof Buffer)"                → "function"
+aside repl --account <agent-account> "const s = await screenshot(p); s.length"   → "screenshot is not defined"
+aside repl --account <agent-account> "const s = await annotatedScreenshot(p); Object.keys(s)"   → "[ 'base64Image' ]"
+aside repl --account <agent-account> "const s = await annotatedScreenshot(p); s.base64Image.slice(0,30)"
                                                       → "iVBORw0KGgoAAAANSUhEUgAAC0AAAAc"  (PNG base64 ✓)
 ```
 
-Bot-rejoin verification transcript (2026-07-13):
-
-```text
-aside repl "const ws = await slack.listWorkspaces(); console.log(JSON.stringify(ws))"
-→ [{"teamId":"T09FXQ4LCQP","name":"$USER AI","url":"https://app.slack.com/client/T09FXQ4LCQP","status":"joined","isLastActive":true,"slug":"jleechanai","userId":"U09GH5BR3QU"}]
-
-aside repl "const c = await slack.getClient('T09FXQ4LCQP'); const r = await c.apiCall('conversations.invite', {channel: 'C0BDEAJH8PK', users: 'U0A4G7LDJ4R'}); console.log(JSON.stringify(r))"
-→ {"ok":true,"channel":{"id":"C0BDEAJH8PK","name":"worldai-bugs","is_member":true,"latest":{"subtype":"channel_join","user":"U0A4G7LDJ4R","text":"<@U0A4G7LDJ4R> has joined the channel","inviter":"U09GH5BR3QU","ts":"1783982071.800869"},...}}
-
-# Bot-side confirmation via REST:
-curl -sH "Authorization: Bearer $HERMES_SLACK_BOT_TOKEN" \
-  "https://slack.com/api/conversations.info?channel=C0BDEAJH8PK"
-→ name=worldai-bugs is_member=True
-```
+Historical bot-rejoin transcript omitted because it documents the retired cookie-backed Slack API bypass.
 
 Heavy-SPA CDP-disconnect verification (2026-07-15, PR #7953 evidence):
 
 ```text
 # Heavy SPA landing page — 5 disconnects
-aside repl "const p = await openTab('https://mvp-site-app-s3-...run.app/'); await sleep(8000); const s = await annotatedScreenshot(p); console.log('B64=' + s.base64Image)"
+aside repl --account <agent-account> "const p = await openTab('https://mvp-site-app-s3-...run.app/'); await sleep(8000); const s = await annotatedScreenshot(p); console.log('B64=' + s.base64Image)"
 → ✔︎ Opened a new tab and set it active: tabs[0], page → WorldAI (https://mvp-site-app-s3-...)
 → landed at: https://your-project.com/ | title: WorldAI
 → Error: CDP websocket disconnected
     at #y (file:///.../Aside Daemon.app/Contents/MacOS/aside-daemon:1267:490740)
 
 # Lightweight /health endpoint — works first try
-aside repl "const p = await openTab('https://mvp-site-app-s3-...run.app/health'); await sleep(4000); const s = await annotatedScreenshot(p); console.log('B64=' + s.base64Image)"
+aside repl --account <agent-account> "const p = await openTab('https://mvp-site-app-s3-...run.app/health'); await sleep(4000); const s = await annotatedScreenshot(p); console.log('B64=' + s.base64Image)"
 → ✔︎ Opened a new tab and set it active: tabs[0], page →  (https://mvp-site-app-s3-.../health)
 → health page url: https://your-project.com/ | title: WorldAI
 → SHOT_BASE64_LEN: 68516

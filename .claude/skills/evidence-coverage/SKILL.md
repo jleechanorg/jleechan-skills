@@ -63,7 +63,7 @@ git diff <evidence_sha>..HEAD -- $PROJECT_ROOT/
 
 Read the full diff, including test files, against the claims the evidence backs.
 
-Apply `~/.claude/skills/evidence-standards/SKILL.md` sections Evidence Staleness
+Apply `../evidence-standards/SKILL.md` sections Evidence Staleness
 Tolerance and Evidence Sequencing. Re-run evidence affected by a material behavior
 change after batching pending fixes. For a qualifying nonbehavioral delta, record
 the diff assessment and re-affirm the prior result for the current SHA. Preserve
@@ -81,12 +81,17 @@ For L3 rows, link the provider/model/configuration metadata and reproduction
 directions in **Provenance**. Mark missing attribution as a gap for any claim
 that depends on the actual provider or model.
 
+For L1 rows, retain commands, results, and tested SHA, with the raw test output
+or an accessible CI run/job link bound to that SHA. Unit proof may satisfy a
+bounded deterministic claim; N/A is not a substitute for its evidence. Preserve
+original tested identity and record any current applicability separately.
+
 **Evidence Status values:**
 - `FRESH (SHA xxx, N/N pass)` — evidence exists at current HEAD, all scenarios pass
 - `RE-AFFIRMED (tested SHA xxx, current SHA yyy)` — prior evidence remains applicable after the canonical nonbehavioral-diff check
 - `STALE (SHA xxx, N/N pass)` — a material change invalidates the evidence for this claim
 - `MISSING` — no evidence bundle found
-- `N/A` — layer doesn't require evidence (e.g., L1 unit tests run in CI)
+- `N/A` — no applicable behavior or claim needs proof in this row; explain why. A unit-tested claim uses FRESH, RE-AFFIRMED, STALE, or MISSING instead.
 
 **Gap values:**
 - Empty — covered
@@ -119,7 +124,7 @@ After the matrix, include:
 ## Evidence bundle locations
 
 - MCP tests: `/tmp/your-project.com/<branch>/<test_name>/latest/`
-- Unit tests: CI (no local evidence needed)
+- Unit tests: retained raw output or an accessible exact-SHA CI run/job link, including commands, results, and tested SHA; a local copy is optional when the CI proof is accessible.
 - Antagonism prompt contract: `testing_mcp/test_living_world_antagonism_prompt_contract.py` (L1, standalone)
 - Sanctuary mode: `testing_mcp/test_sanctuary_mode.py` (L3, real LLM)
 - LW trigger gate: `testing_mcp/test_lw_trigger_gate.py` (L3, real LLM)
@@ -129,6 +134,6 @@ After the matrix, include:
 ## Cross-references
 
 - Testing layers: `.claude/skills/testing-layers/SKILL.md`
-- E2E testing: `.claude/skills/end2end-testing.md`
-- Evidence standards: `~/.claude/skills/evidence-standards/SKILL.md` (user-scope) and `.claude/skills/evidence-standards.md` (repo-scope)
+- E2E testing: `.claude/skills/end2end-testing/SKILL.md`
+- Evidence standards: `../evidence-standards/SKILL.md` (user-scope) and `.claude/skills/evidence-standards/SKILL.md` (repo-scope)
 - Root-cause first: `.claude/skills/root-cause-first/SKILL.md`

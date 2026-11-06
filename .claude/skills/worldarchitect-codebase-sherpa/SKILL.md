@@ -24,7 +24,7 @@ Equip Claude with a quick-start orientation for the WorldArchitect.ai repository
 
 ## Quick spin-up checklist
 1. **Install deps**: `pip install -r requirements/base.txt`
-2. **Environment**: Copy `.env.example` to `.env`; ensure `TEST_MODE=mock` for local work.
+2. **Environment**: Never copy secrets into `.env`. Follow `testing_mcp/CLAUDE.md` and `testing_ui/CLAUDE.md` for service, account, and environment requirements.
 3. **Run API locally**:
    ```bash
    ./vpython $PROJECT_ROOT/main.py serve
@@ -32,12 +32,12 @@ Equip Claude with a quick-start orientation for the WorldArchitect.ai repository
    ./run_local_server.sh
    ```
 4. **Pair MCP tools**: Use `./scripts/install_mcp_servers.sh claude` or `./start_game_mcp.sh` depending on the workflow.
-5. **Stop services**: `./kill_dev_server.sh` cleans up hanging processes.
+5. **Stop services**: identify the exact process and verify it belongs to this task before stopping it; follow the service owner's shutdown procedure.
 
 ## Frequently referenced commands
-- Tests: `./run_tests.sh`, `./run_tests.sh --integration`, `./run_tests_with_coverage.sh`
-- Linting: `./run_lint.sh`, `pre-commit run -a`
-- UI checks: `./run_ui_tests.sh`
+- Tests: use focused `./run_tests.sh <path-or-filter>` checks; CI owns the unfiltered full suite. Follow the scoped real-service contracts for `testing_mcp/` and `testing_ui/`.
+- Linting: use `./run_lint.sh <scope>` or targeted checks; never run `pre-commit run -a`.
+- UI checks: follow `testing_ui/CLAUDE.md`; the generic `./run_ui_tests.sh` runner is not acceptance evidence.
 - Deployment helpers: `./deploy.sh`, `./deploy_mcp.sh`
 - Oracle CLI: `source scripts/oracle_helpers.sh` then use helpers like `oracle_arch_preview` (dry-run bundle), `oracle_arch` (architecture review), `oracle_ai_debug` (AI pipeline bug with optional report path), `oracle_diff_review` (reviews `git diff`), `oracle_ui_debug` (frontend triage). Playbook at `docs/oracle_playbook.md`.
 

@@ -38,8 +38,7 @@ Do NOT use for:
 
 ## Output Artifact
 
-Always produces `~/roadmap/nextsteps-<YYYY-MM-DD>-<scope>-stage-pr-plan.md`
-synced to `<repo>/roadmap/nextsteps-<YYYY-MM-DD>-<scope>-stage-pr-plan.md`.
+Always produces `~/roadmap/nextsteps-<YYYY-MM-DD>-<scope>-stage-pr-plan.md` as the durable agent-authored plan. Do not copy this report into the code repository; repository-owned product artifacts follow their owner instructions.
 
 The doc has these sections in order:
 1. **Goal** — one paragraph
@@ -55,7 +54,7 @@ The doc has these sections in order:
 11. **TDD Plan** — fresh failure and verification for behavior fixes
 12. **/4layer Coverage** — sufficient layers selected by the repository's testing owner
 13. **Cross-References** — all related roadmap docs (active, predecessor, foundational, skills)
-14. **Sync Requirement** — paths to copy doc to
+14. **Durable Plan Path** — the canonical `~/roadmap/` plan path to link from repository materials when useful; do not copy the plan into the repository
 
 ---
 
@@ -133,11 +132,12 @@ Keep commits coherent and reviewable. Honor explicit size limits in the current
 user request or accepted plan; do not impose a 100-line minimum, pad a small fix,
 or remove needed behavior to meet an inherited line-count target.
 
-### Rule 4: PR size
+### Rule 4: PR size and stage-PR count ceiling
 
 Choose commit and PR boundaries from dependencies, risk, and the delivery goal.
+**Hard stage-PR cap**: Group target work into **1 unified PR by default, or at most 2–5 coarse vertical stage-PRs; never exceed 5 PRs for one feature** (see `pr-quantity-control`).
 A small coherent fix may be one commit. Preserve explicit user-requested staging
-or count limits, but do not invent a minimum number of commits or PRs.
+or count limits, but do not invent a minimum number of commits or PRs, and never split tests into a standalone PR separate from the production code they verify.
 
 ### Rule 5: /4layer test coverage per stage-PR
 Select sufficient checks using the repository's testing and evidence owners.
@@ -175,7 +175,7 @@ Plan writes:
 ### Phase 0: Discovery (read-only)
 1. Identify scope keyword (e.g., "auth", "checkout", "level-up").
 2. List existing roadmap docs in scope: `ls ~/roadmap/ | grep -i <scope>`.
-3. List existing repo roadmap docs: `ls <repo>/roadmap/ | grep -i <scope>`.
+3. Inspect repository-owned planning artifacts only when the task owner requires them; do not treat this as a destination for a copy of the agent-authored plan.
 4. List open PRs in scope: `gh pr list --state open --search "<scope> in:title"`.
 5. List active beads in scope: `br list | grep <scope>` (or equivalent).
 6. Check MEMORY.md for relevant entries: `grep -l <scope> ~/.claude/projects/.../memory/*.md`.
@@ -186,8 +186,8 @@ Plan writes:
 3. Inspect files touched by multiple PRs and assign coordination or sequencing for actual conflicts.
 
 ### Phase 2: Stage decomposition
-1. Group target work into the smallest coherent set of stage-PRs that fits the accepted plan.
-2. Assign each file to exactly one stage-PR.
+1. Group target work into **1 unified PR by default, or at most 2–5 coarse vertical stage-PRs; never exceed 5 PRs for one feature** (see `pr-quantity-control`).
+2. Assign each file (and its corresponding tests) to its owning vertical stage-PR.
 3. Verify no file is in two stage-PRs.
 4. Choose sequencing: parallel-eligible vs serial-required.
 
@@ -212,7 +212,7 @@ Write the artifact at `~/roadmap/nextsteps-<date>-<scope>-stage-pr-plan.md`.
 Include all 14 sections above. Cross-reference every roadmap doc found in Phase 0.
 
 ### Phase 5: Sync
-Copy doc to `<repo>/roadmap/` and any active worktrees.
+Keep the durable plan in `~/roadmap`; share its path when needed rather than copying it into the repository.
 
 ### Phase 6: Memory write
 Add entry to `~/.claude/projects/<project>/memory/` describing the plan and add a one-line pointer to `MEMORY.md`.
@@ -221,12 +221,12 @@ Add entry to `~/.claude/projects/<project>/memory/` describing the plan and add 
 
 ## Anti-Patterns to Avoid
 
-- **PR proliferation**: opening a new PR for each small fix when an existing PR in scope could absorb it
+- **PR proliferation**: opening a new PR for each small fix when an existing PR in scope could absorb it, or splitting a feature into >5 micro-PRs
 - **File contention**: two PRs editing the same file simultaneously → rebase churn, stale CR
 - **Missing RED proof**: a combined test/fix commit still needs evidence that the check failed before the behavior fix
-- **Unreviewable changes**: split incoherent changes by dependency or risk; a line count alone is not a split requirement
+- **Unreviewable changes**: split incoherent changes by dependency or risk into at most 2–5 coarse vertical subsystem PRs (see `pr-quantity-control`); a line count alone is not a split requirement
 - **Bead-after-the-fact**: creating a bead AFTER the PR opens — defeats tracking
-- **Roadmap-drift**: writing a plan but never syncing the repo copy
+- **Roadmap-drift**: failing to create or update the canonical `~/roadmap/` plan; link it from repository materials instead of creating a duplicate copy
 - **Generic plans**: "fix bugs", "improve performance" — must have concrete file ownership
 
 ---
@@ -234,16 +234,15 @@ Add entry to `~/.claude/projects/<project>/memory/` describing the plan and add 
 ## Template Sections (copy into each plan)
 
 ### Goal (template)
-> Close out <scope> work with N stage-PRs sequenced so no two open PRs modify
+> Close out <scope> work with N stage-PRs (1 unified PR by default, or 2–5 coarse vertical stage-PRs maximum) sequenced so no two open PRs modify
 > the same file at the same time. Existing M small open PRs remain open but
 > are handled later — they do not gate this plan.
 
 ### File-Exclusive Ownership Map (template)
-| Stage-PR | Owns (exclusive) | May read | Closes |
+| Stage-PR | Owns (exclusive, including tests) | May read | Closes |
 |---|---|---|---|
-| **PR-A: <name>** | `path/a.py`, `path/b.py` | `path/c.py` | <bug class / bead> |
-| **PR-B: <name>** | `path/d.py` | `path/a.py` (read) | <bug class / bead> |
-| **PR-C: Evidence** | `tests/test_*.py` | none modify | Gate-6 evidence |
+| **PR-A: <subsystem A>** | `path/a.py`, `path/b.py`, `tests/test_a.py` | `path/c.py` | <bug class / bead> |
+| **PR-B: <subsystem B>** | `path/d.py`, `tests/test_d.py` | `path/a.py` (read) | <bug class / bead> |
 
 ### Per-PR Commit Plan (template)
 Illustrative activities, not a commit or line-count quota. Select the rows and
@@ -253,7 +252,7 @@ boundaries required by the accepted plan; one coherent commit may be sufficient.
 
 | # | Type | Files | Size estimate, if useful | Bead | Description |
 |---|---|---|---|---|---|
-| 1 | tracking/docs, if needed | `roadmap/...md` | <estimate or n/a> | <tracking> | Link governing work |
+| 1 | tracking/docs, if needed | `~/roadmap/<topic>-YYYY-MM-DD.md` | <estimate or n/a> | <tracking> | Link the canonical plan |
 | 2 | test and implementation | <test and source paths> | <estimate or n/a> | <tracking> | Capture required RED before the fix and verify GREEN |
 | 3 | broader evidence, if needed | <scoped driver or artifact> | <estimate or n/a> | <tracking> | Record results at the authorized destination |
 
@@ -281,7 +280,7 @@ Execute the concurrency check defined in [Rule 1: File-exclusive ownership](#rul
 
 ## See Also
 - `.claude/skills/zfc-leveling-roadmap/SKILL.md` — domain-specific instance
-- `.claude/skills/deletion-milestone.md` — net-LOC discipline for deletion PRs
+- `.claude/skills/deletion-milestone/SKILL.md` — net-LOC discipline for deletion PRs
 - `.claude/skills/repro-twin-clone-evidence/SKILL.md` — evidence capture
 - `.claude/commands/4layer.md` — minimal-repro ladder
 - `.claude/commands/tdd.md` — red/green/refactor with matrix testing

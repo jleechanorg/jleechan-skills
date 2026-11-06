@@ -27,7 +27,7 @@ If you're about to write to a field, check who the current writer is. If it's no
 |-------|---------------------|----------|---------|
 | `level_up_available` | `_check_and_set_level_up_pending` | Bool: XP crossed level threshold | agents.py, world_logic.py UI functions |
 | `new_level` | `_check_and_set_level_up_pending` | Int: target level after level-up | world_logic.py builder, agents.py |
-| `xp_gained` | `ensure_level_up_rewards_pending` | Int: XP delta visible in the rewards box | rewards resolver/builder, tests |
+| `xp_gained` | Active repository field contract | Int: current-turn XP display projection, if the active reward schema defines it | rewards resolver/builder, tests |
 | `gold` | `_check_and_set_level_up_pending` (merge) | Int: gold to award | builder |
 | `items` | `_check_and_set_level_up_pending` (merge) | List: items to award | builder |
 | `processed` | LLM via state_updates, `_check_and_set_level_up_pending` | Bool: has the reward been shown to user | agents.py routing |
@@ -38,9 +38,9 @@ If you're about to write to a field, check who the current writer is. If it's no
 
 | Field | Authoritative Writer | Semantic | Readers |
 |-------|---------------------|----------|---------|
-| `current` | LLM via state_updates | Int: cumulative XP (D&D 5e style) | `_extract_xp_robust`, `level_from_xp` |
+| `current` | Active repository field contract | Int: cumulative accepted XP; the writer and any projection are defined by the repository's current field-specific ZFC contract | `_extract_xp_robust`, `level_from_xp` |
 
-**Note:** The LLM sets `experience.current` directly in its response. The backend NEVER modifies this field — it only reads it to detect level-up thresholds.
+**WorldArchitect note:** Do not use these generic rows as authority to rewrite model-owned progression values. Read the repository overlay `.claude/skills/worldai-zfc/SKILL.md` alongside `~/.claude/skills/zero-framework-cognition/SKILL.md` and follow the current field-specific prompt/schema contract. Schema validity and deterministic calculation alone do not authorize transformation.
 
 ## Contract Registry: custom_campaign_state level-up flags
 

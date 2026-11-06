@@ -4,7 +4,7 @@
 <ONE of: green-pr-merged | pr-open-green | local-state-verified | dry-run-on-machine>
 
 ### Proof artifact
-<exact artifact the agent must produce at completion — e.g. "PR #N on $GITHUB_REPOSITORY, Green Gate workflow log showing 7/7 gates PASS, /er PASS verdict, screenshot of /campaigns/new after merge">
+<exact artifact the agent must produce at completion — e.g. "PR #N on $GITHUB_REPOSITORY after canonical /green, applicable final /er and /advice, and separate merge authorization; matching evidence for the claimed behavior">
 
 ## Scope
 - Repo(s): <owner/repo>
@@ -18,11 +18,11 @@
 - <constraint 4 — e.g. "use nvm Node 22, never Homebrew node">
 
 ## Evidence required
-- Layer: <choose the evidence that exercises the changed behavior; follow actual repository requirements>
+- Layer: <choose the lowest sufficient layer for the actual claims and boundaries using evidence-standards, /4layer, testing-layers, and repository requirements; retain commands, results, and tested SHA; unit proof does not establish model, auth, persistence-race, or browser behavior>
 - Artifacts:
   - <e.g. "real callstack log showing the fix path is hit, mock only at external API boundaries">
   - <e.g. "browser screenshot of the user-facing surface after deploy">
-  - <e.g. "/er verdict URL from skeptic gate">
+  - <e.g. "/er verdict URL">
 - Forbidden:
   - Bullet list of command names only (proof-before-claim rule)
   - "Key output observed: dependency install completed" (fabrication pattern)
@@ -34,12 +34,12 @@
   - <workflow 2> — PASS
   - ...
 - Green Gate exit-0 is NOT sufficient — verify current-head CI conclusions and mergeability using the canonical `/green` skill
-- Draft readiness follows the canonical `draft-first-pr` skill before the PR is marked ready
+- Draft acceptance and ready/final review closure follow the canonical `pr-lifecycle` skill; undrafting starts ready work, not completed readiness
 - Failure on a gate = iterate the fix, push to PR head branch (pr-ci-fix-autopush rule: push without being asked), re-check. Do NOT report "fixed" until the new head SHA shows the gate green.
 
 ## Quality bar (adversarial gates this repo uses)
 Select the applicable checks from the repository instructions and user request:
-- **/es** — Evidence Standards (both ~/.claude/skills/evidence-standards/SKILL.md AND .claude/skills/evidence-standards.md if the repo has one)
+- **/es** — Evidence Standards (both ~/.claude/skills/evidence-standards/SKILL.md AND .claude/skills/evidence-standards/SKILL.md if the repo has one)
 - **/er** — Evidence Review (adversarial, independent reviewer)
 - **code-standards**, when required by this repository:
   - ZFC (zero-framework cognition) — no keyword routing, no regex intent detection, no hand-tuned scoring
@@ -66,7 +66,7 @@ At the end, the agent's final reply MUST contain (finish-the-job Phase 4):
 - <pitfall 1 — cite real session/date/memory key>
 - <pitfall 2>
 - <pitfall 3>
-- <pitfall 4 — e.g. "Unit tests pass but Layer 2 integration fails — env-preferences says unit-only is INSUFFICIENT for production changes">
+- <pitfall 4 — e.g. "Unit tests pass but the claimed service boundary fails — bounded unit proof cannot establish an unexercised integration">
 
 ## Prior context (Phase 2 output summary)
 - History searches: <count> sessions matched "<topic>" in last 30 days

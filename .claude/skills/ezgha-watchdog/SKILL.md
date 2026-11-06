@@ -214,7 +214,7 @@ operational daemon). The same discipline applies upstream: PR #67 and PR
 #70 merging in ez-gh-actions is not proof they are running on the actual
 Mac/Linux hosts — verify live deployment there too before relying on them.
 
-**Whenever a PR touches this skill's `scripts/` or `install/` files, the
+**Whenever a PR touches this skill's `scripts/` files, the
 close-out checklist is incomplete until BOTH of these are run and show real
 output, not just "PR merged":**
 
@@ -259,34 +259,22 @@ tail -n 20 /tmp/ezgha-watchdog.log
 
 ## Install on a new host
 
-Templates live in this skill's `install/` dir:
-`org.jleechanorg.ezgha-watchdog.plist.template` (macOS launchd) and
-`ezgha-watchdog.service` + `ezgha-watchdog.timer` (Linux systemd --user).
-Both use an `@INSTALL_DIR@` placeholder for the absolute repo checkout path
-(the macOS plist also has `@HOME@` / `@LOG_DIR@`) — substitute with `sed`
-before installing, same convention as
-`.claude/skills/runner-health/launchd/*.plist.template`.
+This skill ships only `scripts/ezgha-fleet-watchdog.sh` and
+`scripts/test_restart_gate.sh`; no launchd plist, systemd unit or timer
+template exists in this repository, so there is no `install/` directory to
+copy from. Create the job by hand and keep it on `--dry-run` until the
+restart gate above is lifted:
 
-```bash
-# 1. MacBook: install launchd plist from the template
-cd .claude/skills/ezgha-watchdog/install
-sed -e "s|@HOME@|$HOME|g" \
-    -e "s|@INSTALL_DIR@|$(cd ../../../.. && pwd)|g" \
-    -e "s|@LOG_DIR@|$HOME/Library/Logs|g" \
-  org.jleechanorg.ezgha-watchdog.plist.template \
-  > ~/Library/LaunchAgents/org.jleechanorg.ezgha-watchdog.plist
-launchctl load ~/Library/LaunchAgents/org.jleechanorg.ezgha-watchdog.plist
+- macOS: write a `~/Library/LaunchAgents/org.jleechanorg.ezgha-watchdog.plist`
+  that runs `bash <repo>/.claude/skills/ezgha-watchdog/scripts/ezgha-fleet-watchdog.sh --dry-run`
+  every 2 minutes and logs to `/tmp/ezgha-watchdog.log`; follow the
+  `launchd-plist-template` skill (template in the repo that owns the job,
+  `@HOME@` placeholders), then `launchctl load` it.
+- Linux (jeff-ubuntu): write an `ezgha-watchdog.service` (same command) and an
+  `ezgha-watchdog.timer` (`OnUnitActiveSec=2min`) under `~/.config/systemd/user/`,
+  then `systemctl --user daemon-reload && systemctl --user enable --now ezgha-watchdog.timer`.
 
-# 2. Linux (jeff-ubuntu): install systemd --user timer from the templates
-cd .claude/skills/ezgha-watchdog/install
-mkdir -p ~/.config/systemd/user
-sed "s|@INSTALL_DIR@|$(cd ../../../.. && pwd)|g" ezgha-watchdog.service \
-  > ~/.config/systemd/user/ezgha-watchdog.service
-sed "s|@INSTALL_DIR@|$(cd ../../../.. && pwd)|g" ezgha-watchdog.timer \
-  > ~/.config/systemd/user/ezgha-watchdog.timer
-systemctl --user daemon-reload
-systemctl --user enable --now ezgha-watchdog.timer
-```
+Confirm with the two live checks in the close-out checklist above.
 
 ## Troubleshooting
 

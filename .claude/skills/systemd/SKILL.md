@@ -58,9 +58,11 @@ fi
 - Use absolute paths for all system binaries (`/bin/systemctl`,
   `/usr/bin/loginctl`, `/usr/bin/id`).
 - **Always `UnsetEnvironment=GITHUB_TOKEN GH_TOKEN`** in the unit so the
-  keyring auth (via `gh auth login --web` + `gh auth token`) wins over a
-  stale shell-exported token. See PR #206 for the rationale; this is
-  non-negotiable for jobs that touch `gh api`.
+  existing host auth can win over stale inherited tokens. A wrapper that
+  sources shell profiles must also unset those variables afterward, before
+  resolving `gh auth token`; otherwise the profile can reintroduce the stale
+  value. Use existing valid host auth; do not initiate login merely from one
+  failed status probe.
 
 ### 4. Clean Re-installation Protocol
 - Always execute a clean `systemctl --user disable --now <unit>` before
@@ -129,6 +131,9 @@ elif [[ -f ~/.bashrc ]]; then
     source ~/.bashrc 2>/dev/null || true
     set -u
 fi
+
+# Profiles may re-export stale GitHub tokens after the unit cleared them.
+unset GITHUB_TOKEN GH_TOKEN
 
 # 2. Prepend explicit directories to PATH defensively before credential lookup.
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:/usr/local/bin:${PATH:-/usr/bin:/bin:/usr/sbin:/sbin}"
@@ -313,9 +318,10 @@ OnUnitActiveSec=60
   same OnCalendar slot, breaking the cadence contract. Either pick
   `Type=simple` + `Restart=` (long-running) or `Type=oneshot` + `Restart=no`
   (timer-fired).
-- **`OnCalendar=daily`**: shorthand for `*-*-* 00:00:00` **UTC**, not local
-  time. Almost always wrong for "every day at 03:00 my time." Use
-  `*-*-* 03:00:00` for explicit local time.
+- **`OnCalendar=daily`**: midnight in the local timezone unless a timezone is
+  specified. Use `*-*-* 03:00:00` for 03:00 local or an explicit timezone when
+  required, and verify with `systemd-analyze calendar` on the target host.
+  See [systemd.time](https://www.freedesktop.org/software/systemd/man/latest/systemd.time.html).
 - **PATH not set in unit**: `--user` services inherit the user's
   `~/.config/environment.d/*.conf` on some distros but not others. The
   wrapper script's explicit `export PATH=...` line is the only

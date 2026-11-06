@@ -63,130 +63,30 @@ ao session cleanup --dry-run
 - Tiny read-only checks: `git status`, `gh pr view`, `rg`, simple file inspection.
 - One-off local diagnostics where starting a full worker would be slower than the task.
 
-## Step 0 — Pre-spawn cap check (added 2026-06-27)
+## Spawn admission and resource handling
 
-**Before every `ao spawn`, run this pre-flight.**
+Before a spawn, follow `ao-spawn-gate/SKILL.md`; for bulk or iterative spawn
+sequences, also follow `ao-spawn-safety/SKILL.md`. Those are the current
+owners for the live channel setting, AO worker cap, batch size, and GitHub API
+quota handling. Do not copy their mutable values into a local environment
+variable or treat old defaults/history as the current setting.
 
-**Cap authority:** the operator policy cap lives in `~/.claude/skills/ao-spawn-safety/SKILL.md` (currently a 30-worker absolute cap with 15-worker batches). Honor that; do not restate the numbers here.
+If an applicable worker/channel limit is reached, defer only the new spawn and
+report the measured count and resumption condition. Do not run `ao session
+cleanup`, kill workers, or raise a cap automatically. Preserve unrelated
+sessions and continue independent authorized work.
 
-⚠️ **Corrected 2026-07-25 — this cap is NOT software-enforced.** This section previously claimed AO enforces `MAX_CONCURRENT_SESSIONS=20` per project at `packages/core/dist/session-manager.js:853`, overridable via `AO_MAX_CONCURRENT_SESSIONS`. That is stale: `~/projects/agent-orchestrator` has no `packages/core/` tree and no `MAX_CONCURRENT_SESSIONS` constant anywhere outside `node_modules`, and `~/.hermes/agent-orchestrator.yaml` sets no concurrency limit. **Nothing will reject an over-cap spawn for you** — do not rely on a `Reason: N active sessions >= cap` rejection that will never arrive. The count check below is the only gate.
+An activity or quota statement in a worker pane is only a lead. Before
+classifying a worker or provider as blocked, use the full-history, two-sample
+procedure in `ao-session-monitor/SKILL.md` and record the current provider
+status with its source and timestamp. Do not classify from a grep/tail result,
+count matching keywords, or route to a different provider automatically.
+Honor explicit user-selected agent/runtime/model constraints. Consider an
+alternative only when the task permits it and current evidence confirms the
+requested provider cannot complete the specific operation.
 
-The script below still honors `AO_MAX_CONCURRENT_SESSIONS` if you export it, purely as a local override for the pre-flight arithmetic.
-
-```bash
-# 1. Count active sessions on the target project (exclude terminal status)
-PROJ="${1:-worldarchitect}"
-ACTIVE=$(ao session ls -p "$PROJ" 2>/dev/null \
-  | grep -E "^\s+(wa|jc|ao|cc|co)-" \
-  | grep -cvE '\[(done|failed|cancelled|exited|archived)\]')
-CAP="${AO_MAX_CONCURRENT_SESSIONS:-30}"   # policy cap — see ao-spawn-safety/SKILL.md
-echo "[/ao preflight] project=$PROJ active=$ACTIVE cap=$CAP"
-
-# 2. If at or near cap, run auto-cleanup (DRY-RUN first, then real)
-if [ "$ACTIVE" -ge "$((CAP - 1))" ]; then
-  echo "[/ao preflight] at/near cap → running cleanup --dry-run"
-  ao session cleanup -p "$PROJ" --dry-run 2>&1 | tail -20
-
-  # The CLI's cleanup() removes sessions where ANY of:
-  #   - PR is MERGED or CLOSED
-  #   - Linked issue is COMPLETED
-  #   - Runtime (tmux handle) reports !isAlive()
-  # See packages/core/dist/session-manager.js:2079-2174
-  # It will NOT kill: stuck-but-alive workers (e.g. quota-blocked LLM)
-  # Those need explicit `ao session kill <id>` (destructive — needs user OK).
-
-  echo "[/ao preflight] applying cleanup (real)"
-  ao session cleanup -p "$PROJ" 2>&1 | tail -10
-
-  # Re-count after cleanup
-  ACTIVE=$(ao session ls -p "$PROJ" 2>/dev/null \
-    | grep -E "^\s+(wa|jc|ao|cc|co)-" \
-    | grep -cvE '\[(done|failed|cancelled|exited|archived)\]')
-  echo "[/ao preflight] post-cleanup active=$ACTIVE cap=$CAP"
-fi
-
-# 3. If STILL at/near cap after cleanup → surface stuck sessions and STOP
-if [ "$ACTIVE" -ge "$((CAP - 1))" ]; then
-  echo "[/ao preflight] ⚠️ still at/near cap after cleanup; stuck sessions:"
-  ao session ls -p "$PROJ" 2>/dev/null \
-    | grep -E "^\s+(wa|jc|ao|cc|co)-" \
-    | grep -vE '\[(done|failed|cancelled|exited|archived)\]'
-  echo ""
-  echo "[/ao preflight] cleanup could not free enough slots."
-  echo "  Stuck sessions are alive (tmux IS responding) but not progressing —"
-  echo "  likely quota-blocked. To free slots, explicit user approval required:"
-  echo "    ao session kill <session-id>     # destructive, needs user OK"
-  echo "    OR raise cap: set AO_MAX_CONCURRENT_SESSIONS env on the"
-  echo "    orchestrator launchd plist and bounce ao start."
-  echo ""
-  echo "[/ao preflight] STOPPING — refusing to spawn over cap."
-  exit 1
-fi
-
-# 4. Pre-spawn sanity: also check no duplicate of (project, issue, prompt) exists
-#    (AO has its own duplicate detection, but explicit check surfaces the cause)
-echo "[/ao preflight] OK — proceeding to spawn"
-```
-
-**Bug-ref (2026-06-27):** dispatch-task v1.3.0 claimed "AO has no worker-count
-cap" — that was wrong. `MAX_CONCURRENT_SESSIONS=20` is enforced at runtime. See
-`packages/core/dist/session-manager.js:853`. Cap can be raised via
-`AO_MAX_CONCURRENT_SESSIONS` env var on the `ao start` launchd plist (requires
-restart of the orchestrator daemon, PID 4341).
-
-**When to skip Step 0:** if the user has already issued `ao session cleanup`
-or `ao session kill` in the current turn, the cleanup has already run — go
-straight to spawn.
-
-## Step 0.5 — Quota-wall auto-fallback (added 2026-06-27)
-
-If Step 0 didn't free enough slots AND the stuck sessions are quota-blocked
-(rather than genuinely busy), suggest spawning on a **different agent provider**
-that has its own quota pool. The default `--agent` for `worldarchitect` was
-flipped to `minimax` on 2026-06-27 — verify that's the live value before
-suggesting alternatives.
-
-```bash
-# 1. Detect quota wall — count sessions whose tmux pane shows the
-#    "weekly limit" message or other quota-block signals
-PROJ="${1:-worldarchitect}"
-QUOTA_HITS=0
-for SESS_DIR in ~/.agent-orchestrator/*/sessions/; do
-  for SESS in "$SESS_DIR"/*; do
-    [ -f "$SESS" ] || continue
-    # Match the target project via session-prefix (wa-* = worldarchitect)
-    [[ "$(basename "$SESS")" == wa-* ]] || continue
-    TMUX=$(grep -oE 'tmux-target=[^[:space:]]+' "$SESS" | head -1 | cut -d= -f2)
-    [ -n "$TMUX" ] || continue
-    PANE=$(tmux capture-pane -t "$TMUX" -p 2>/dev/null | tail -50)
-    if echo "$PANE" | grep -qE 'weekly limit|You.{0,3}ve hit your.*limit|RESOURCE_EXHAUSTED|429.*quota|quota.*exceeded'; then
-      QUOTA_HITS=$((QUOTA_HITS + 1))
-    fi
-  done
-done
-
-# 2. If >2 sessions on the target project hit quota wall, suggest minimax
-if [ "$QUOTA_HITS" -ge 2 ]; then
-  echo "[/ao Step 0.5] ⚠️ $QUOTA_HITS wa-* sessions appear quota-blocked."
-  echo "[/ao Step 0.5] Three independent quota pools are available:"
-  echo "  --agent minimax     # MiniMax/M3 (default for worldarchitect since 2026-06-27)"
-  echo "  --agent codex       # GPT-5.4 — separate pool, good for code-heavy work"
-  echo "  --agent claude-code # Sonnet — reserved for CodeRabbit-class reasoning"
-  echo ""
-  echo "[/ao Step 0.5] Suggested next spawn:"
-  echo "  ao spawn --agent codex \"$TASK\"     # routes around the quota wall"
-fi
-```
-
-**Why this matters:** When 14+ workers all hit the same provider's quota wall
-simultaneously, no amount of cleanup frees them — they're alive but unable to
-respond. The fix is to spawn on a **different provider**, not to kill the stuck
-ones.
-
-**Bug-ref (2026-06-27, Slack thread 1782582007.796799):** wa-2901 was archived 5×
-in 3 minutes cycling on PR #7980 conflicts because the LLM was quota-blocked
-and could not process the steer message. Same pattern across wa-2882/wa-2883
-(PR #7592), wa-2898/wa-2899/wa-2900/wa-2902/wa-2903/wa-2904. All `agent=claude-code`.
+Historical provider-quota incidents are dated diagnosis context, not current
+provider defaults or authorization to clean up sessions or change the worker.
 
 ## Parameter fidelity and post-spawn verification rules
 
@@ -227,4 +127,4 @@ When reporting AO setup or supervision, include:
 - Config reference: `references/config.md`
 - CLI help: `ao --help`, `ao spawn --help`, `ao start --help`
 - Repo policies: `AGENTS.md`, `CLAUDE.md`
-- **Binary installation norms:** [Binary Installation — Canonical Install Paths](../../AGENTS.md#binary-installation--canonical-install-paths) — `scripts/setup.sh` for repo maintainers, `npm install -g @jleechanorg/ao-cli` for others; `ao doctor` must pass after any install or update
+- **Binary installation norms:** `scripts/setup.sh` for repo maintainers, `npm install -g @jleechanorg/ao-cli` for others; `ao doctor` must pass after any install or update

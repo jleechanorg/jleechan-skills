@@ -1,5 +1,6 @@
-"""Contract tests: draft-first-pr owns the coding lifecycle and sibling skills agree."""
+"""Structural guards for pr-lifecycle: frontmatter name, linked anchors and in-file section references."""
 
+import re
 import unittest
 from pathlib import Path
 
@@ -13,179 +14,136 @@ def read(name: str) -> str:
 
 
 class CodingLifecycleContract(unittest.TestCase):
-    def setUp(self):
-        self.owner = read("draft-first-pr")
-        self.section = self.owner.split("## Coding lifecycle", 1)[1].split(" ## ", 1)[0]
+    def test_pr_lifecycle_frontmatter_name_matches_directory(self):
+        self.assertIn("name: pr-lifecycle", read("pr-lifecycle"))
 
-    def test_wording_only_small_changes_skip_spec_and_plan(self):
-        self.assertIn("Wording-only / small low-risk", self.section)
-        self.assertIn("Skip standalone spec, plan, and plan-review cycle", self.section)
 
-    def test_ordinary_feature_uses_tdd_and_checkpoint(self):
-        self.assertIn("Ordinary feature", self.section)
-        self.assertIn("TDD", self.section)
-        self.assertIn("correctness checkpoint", self.section)
+class PrLifecycleAnchorResolution(unittest.TestCase):
+    """Every `pr-lifecycle/SKILL.md#<slug>` link in the skill catalog resolves to a heading.
 
-    def test_cross_service_requires_integration_test(self):
-        self.assertIn("integration-layer test", self.section)
+    Compaction edits must not reword a heading that a sibling links to. Targets are
+    discovered by scanning, not hard-coded, so new links are covered automatically.
+    """
 
-    def test_high_risk_keeps_full_chain(self):
-        self.assertIn("No layer skipping", self.section)
-        self.assertIn("independent final coverage", self.section)
+    @staticmethod
+    def _github_slug(heading: str) -> str:
+        text = heading.strip().lstrip("#").strip().lower()
+        text = re.sub(r"[^\w\- ]", "", text)
+        return text.replace(" ", "-")
 
-    def test_large_change_checkpoint_is_optional_not_a_gate(self):
-        self.assertIn("optional, never a gate", self.section)
+    @classmethod
+    def _heading_anchors(cls, markdown: str) -> set:
+        """Anchors GitHub generates: skips fenced code, suffixes duplicates with -1, -2, ..."""
+        anchors = set()
+        seen = {}
+        in_fence = False
+        for line in markdown.splitlines():
+            if line.lstrip().startswith("```"):
+                in_fence = not in_fence
+                continue
+            if in_fence or not line.startswith("#"):
+                continue
+            slug = cls._github_slug(line)
+            count = seen.get(slug, 0)
+            seen[slug] = count + 1
+            anchors.add(slug if count == 0 else f"{slug}-{count}")
+        return anchors
 
-    def test_execution_handoff_invariant(self):
-        self.assertIn("Execution handoff invariant", self.section)
-        self.assertIn("executing owner or started tool before reporting `Working`", self.section)
-        self.assertIn("report `Blocked` or `Waiting`", self.section)
-        self.assertIn("a blocker never makes it `Working`", self.section)
-        self.assertIn("not execution", self.section)
+    def test_every_linked_anchor_resolves_to_a_heading(self):
+        links = {}
+        for path in SKILLS.rglob("SKILL.md"):
+            for match in re.finditer(r"pr-lifecycle/([\w.-]+\.md)#([^)\s\"'>`]+)", path.read_text(encoding="utf-8")):
+                links.setdefault((match.group(1), match.group(2)), set()).add(path.relative_to(SKILLS).as_posix())
+        self.assertGreater(len(links), 0)
+        missing = {}
+        for (part, slug), src in links.items():
+            target = SKILLS / "pr-lifecycle" / part
+            if not target.is_file():
+                missing[f"{part}#{slug}"] = sorted(src)
+                continue
+            if slug not in self._heading_anchors(target.read_text(encoding="utf-8")):
+                missing[f"{part}#{slug}"] = sorted(src)
+        self.assertEqual(missing, {}, f"unresolved pr-lifecycle anchors: {missing}")
 
-    def test_docs_only_sha_move_is_reaffirmed_by_delta(self):
-        ready = read("ready")
-        self.assertNotIn("re-run after every head move", ready)
-        self.assertIn("may instead be reaffirmed at the new SHA", ready)
-        self.assertIn("is not stale: re-affirm at the new SHA", read("web-advice"))
 
-    def test_reaffirmation_never_depends_on_path_category_alone(self):
-        self.assertIn("never by path category", self.owner)
-        for name in ("draft-first-pr", "ready", "web-advice", "evidence-standards"):
-            text = read(name)
-            self.assertNotIn("docs, tests, skills, ordinary pr-policy", text.lower())
-            self.assertNotIn("test-only or otherwise non-behavioral", text)
-            self.assertNotIn("non-behavioral paths is not stale", text)
-            self.assertNotIn("test-only, docs-only", text)
-        self.assertIn("actual delta", read("web-advice"))
-        self.assertIn("actual delta", read("ready"))
+class PrLifecycleSectionReferences(unittest.TestCase):
+    """Every `§ Heading` reference to pr-lifecycle, in-file or from another skill, names a real heading.
 
-    def test_changed_assertion_driver_or_behavioral_skill_edit_invalidates_proof(self):
-        # Counterexamples: tests, drivers, and skill instructions are not auto-reaffirmed.
-        self.assertIn(
-            "a changed assertion, driver, or behavioral instruction invalidates", self.owner
-        )
-        hint = read("evidence-standards").split("Path category is a starting hint only", 1)[1][:400]
-        for cls in ("test", "evidence driver/capture", "prompt", "contract", "schema", "skill"):
-            self.assertIn(cls, hint)
-        self.assertIn("assertion, driver, or executable instruction changed", hint)
-        self.assertIn("changed assertion/driver requires a fresh run", read("ready"))
+    A reference resolves when a leading run of its words equals a heading, or the part of a heading
+    before its parenthetical or em-dash subtitle, and the remaining words (if any) follow a comma or start with a
+    sentence joiner or dash. Bare prefixes such as `§ Merge` do not resolve.
+    """
 
-    def test_production_behavior_change_requires_fresh_evidence(self):
-        self.assertIn("A production behavior change still requires fresh evidence", self.owner)
+    REF = re.compile(r"§\s*[\"`]?([A-Z][^§.;:()`\"\n]*)")
+    JOINERS = {"or", "and", "in", "for", "takes", "to", "still", "governs", "instead", "before",
+               "after", "including", "applies", "with", "that", "is", "are", "owns", "below", "above",
+               "\u2014", "-"}
 
-    def test_no_undefined_reviewer_d(self):
-        self.assertNotIn("Reviewer D", read("superpowers-quick"))
-        self.assertNotIn("Reviewer D", read("advice"))
+    @classmethod
+    def _headings(cls):
+        heads, fenced = [], False
+        # SKILL.md plus its on-demand parts: a `§ Heading` reference resolves anywhere in the skill.
+        for path in sorted((SKILLS / "pr-lifecycle").glob("*.md")):
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if line.lstrip().startswith("```"):
+                    fenced = not fenced
+                elif not fenced and line.startswith("#"):
+                    heads.append(line.lstrip("#").strip())
+        return heads
 
-    def test_write_goal_has_no_cycle_count_stop_or_dual_er_status(self):
-        goal = read("write-goal")
-        self.assertNotIn("Same score 2 iterations = STALLED", goal)
-        self.assertIn("No cycle- or repeated-score count stops work", goal)
-        self.assertIn("draft-phase gate", goal)
+    @classmethod
+    def _resolves(cls, ref, heads):
+        words = ref.strip().split()
+        for k in range(len(words), 0, -1):
+            cand = " ".join(words[:k]).rstrip(",")
+            rest = words[k:]
+            ends_clause = words[k - 1].endswith(",")
+            if rest and not ends_clause and rest[0].lower() not in cls.JOINERS:
+                continue
+            for h in heads:
+                if cand == h or h.startswith(cand + " (") or h.startswith(cand + " \u2014"):
+                    return True
+        return False
 
-    def test_ready_advice_reaffirmation_is_delta_based_and_keeps_quorum(self):
-        ready = read("ready")
-        self.assertIn("The same delta-based reaffirmation applies here", ready)
-        self.assertIn("never reduces the two-reviewer quorum", ready)
+    @classmethod
+    def _references(cls):
+        refs = []
+        own = (SKILLS / "pr-lifecycle" / "SKILL.md").read_text(encoding="utf-8")
+        for n, line in enumerate(own.splitlines(), 1):
+            for m in cls.REF.finditer(line):
+                before = line[: m.start()][-90:]
+                if "SKILL.md" in before or "AGENTS.md" in before or "pr-green-definition" in before:
+                    continue  # points into another file
+                refs.append((f"pr-lifecycle:{n}", m.group(1)))
+        for path in sorted(SKILLS.rglob("SKILL.md")):
+            if path.parent.name == "pr-lifecycle":
+                continue
+            for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                for m in cls.REF.finditer(line):
+                    before = line[: m.start()]
+                    k = before.rfind("pr-lifecycle")
+                    if k < 0:
+                        continue
+                    between = before[k + len("pr-lifecycle"):]
+                    if len(between) > 60 or re.search(r"[a-z0-9]+-[a-z0-9-]+(/SKILL\.md)?`", between):
+                        continue  # the reference belongs to a different skill named later
+                    refs.append((f"{path.parent.name}:{n}", m.group(1)))
+        return refs
 
-    def test_sq_stays_planning_only_with_explicit_caller_continuation(self):
-        sq = read("superpowers-quick")
-        self.assertIn("planning-only: it never starts implementation", sq)
-        self.assertIn("calling workflow must continue explicitly", sq)
+    def test_section_references_resolve(self):
+        heads = self._headings()
+        refs = self._references()
+        self.assertGreater(len(refs), 10)
+        unresolved = [(where, ref.strip()) for where, ref in refs if not self._resolves(ref, heads)]
+        self.assertEqual(unresolved, [], f"unresolved pr-lifecycle section references: {unresolved}")
 
-    def test_worldai_code_standards_scales_by_substance_not_line_count(self):
-        path = SKILLS.parents[2] / "worldarchitect.ai" / ".claude" / "skills" / "code-standards" / "SKILL.md"
-        if not path.is_file():
-            self.skipTest("worldarchitect.ai checkout not alongside this repo")
-        cs = " ".join(path.read_text(encoding="utf-8").split())
-        self.assertIn("never to a line count", cs)
-        self.assertIn("apply the four standards inline", cs)
-        self.assertIn("always the full independent lanes", cs)
-        self.assertIn("Required final independent approvals", cs)
-        self.assertNotIn("independent review lanes** every time", cs)
-
-    def test_goal_and_ironclad_entrypoints_delegate_instead_of_applying_universally(self):
-        goal = read("write-goal")
-        self.assertNotIn("no optional skips", goal)
-        self.assertNotIn("Run all of these at completion", goal)
-        self.assertIn("execute the phases that apply", goal)
-        self.assertIn("Run the applicable gates at completion", goal)
-        iron = read("ironclad")
-        self.assertIn("applicability follows `draft-first-pr` § Coding lifecycle", iron)
-        self.assertIn("never waives user-required, high-risk, approval/merge, or real-proof gates", iron)
-
-    def test_small_code_fix_is_eligible_for_the_proportional_path(self):
-        iron = read("ironclad")
-        self.assertNotIn("a nontrivial plan means a runtime", iron)
-        self.assertNotIn("multiple coordinated steps or files", iron)
-        self.assertIn("A small low-risk change, including a small code fix, takes the proportional path", iron)
-        self.assertIn("runtime change or file count alone never triggers this gate", iron)
-        # Explicit and high-risk gates survive.
-        for term in ("explicitly required review", "data-integrity", "permission", "deployment"):
-            self.assertIn(term, iron)
-        owner = read("draft-first-pr")
-        self.assertIn("(including a small code fix)", owner)
-        self.assertIn("Runtime change or file count alone does not make a change non-small", owner)
-        self.assertIn("A standalone plan review applies only to high-risk or user-required cases", owner)
-
-    def test_mandatory_versus_skippable_is_stated_once_in_the_owner(self):
-        owner = read("draft-first-pr")
-        self.assertIn("Mandatory regardless of class", owner)
-        self.assertIn("Skippable by class", owner)
-        self.assertIn("none may apply universally", owner)
-        self.assertIn("high-risk/security", read("write-goal"))
-        for name in ("write-goal", "ironclad"):
-            self.assertIn("real-proof", read(name))
-
-    def test_evidence_standards_canonical_section_has_no_path_only_rule(self):
-        std = read("evidence-standards")
-        self.assertNotIn("only PRODUCTION changes stale evidence", std)
-        self.assertNotIn("required only when a production change exists", std)
-        self.assertNotIn("git diff --name-only <evidence-sha> HEAD", std)
-        self.assertIn("the delta and the claim decide, not the path", std)
-        self.assertIn("a changed test assertion, evidence driver/capture", std)
-        self.assertNotIn("git diff --name-only <verdict-sha> HEAD", read("draft-first-pr"))
-
-    def test_staleness_gates_read_content_diffs_including_tests(self):
-        er = read("evidence-review")
-        self.assertNotIn("git diff --name-only", er)
-        self.assertNotIn("only a material production-behavior diff", er)
-        self.assertIn("assertion, driver, or executable instruction a claim depends on", er)
-        cov = read("evidence-coverage")
-        self.assertNotIn("git diff <evidence_sha>..HEAD --name-only", cov)
-        self.assertIn("Read the full diff, including test files", cov)
-        std = read("evidence-standards")
-        self.assertIn("cannot waive the delta-and-claim test", std)
-        self.assertNotIn("a production-behavior file in the evidenced path changed", std)
-        self.assertIn("delta-and-claim test above: the delta changes production behavior, or any test assertion", std)
-
-    def test_repo_defined_low_risk_review_exemptions_are_honored(self):
-        owner = read("draft-first-pr")
-        self.assertIn("may exempt defined low-risk classes", owner)
-        self.assertIn("docs-only, test-only, or small non-production changes", owner)
-        self.assertIn("default when the repo defines none", owner)
-        self.assertIn("No exemption covers changes to approval, merge, review, evidence, or security rules", owner)
-
-    def test_gate_entrypoints_respect_repo_exemptions(self):
-        owner = read("draft-first-pr")
-        self.assertIn("accept these final gates, where applicable, in sequence", owner)
-        self.assertIn("documentation-only class below or a repo-exempted class", owner)
-        self.assertIn("unless a repo-exempted class applies", owner)
-        self.assertIn("outside any low-risk class the repo's own instructions exempt", read("evidence-review"))
-        ready = read("ready")
-        self.assertIn("/er and /advice where `draft-first-pr` (including repo-defined exemptions) requires them", ready)
-        self.assertNotIn("Final acceptance remains /es → /er → /advice at the current SHA;", ready)
-        self.assertIn("2. **/er** — when `draft-first-pr` (including repo-defined exemptions) requires it,", ready)
-        self.assertIn("3. **/advice** — when `draft-first-pr` (including repo-defined exemptions) requires it,", ready)
-        self.assertIn("still require `/es` and, unless a repo-exempted class applies, `/advice` at the current SHA", owner)
-        self.assertNotIn("still require `/es` and `/advice` at the current SHA", owner)
-        self.assertIn("→ /advice APPROVED @ SHA (unless a repo-exempted class applies)", owner)
-        self.assertIn("or a repo-exempted class applies)", owner)
-        self.assertIn("security, permission, credential, or merge-path code", owner)
-        command = " ".join((SKILLS.parent / "commands" / "ready.md").read_text().split())
-        self.assertIn("/er and /advice where `draft-first-pr` (including repo-defined exemptions) requires them", command)
+    def test_bare_prefix_and_unknown_references_do_not_resolve(self):
+        heads = self._headings()
+        for bad in ("Merge", "Merge for details", "Review", "Coding", "Nonexistent section"):
+            with self.subTest(bad=bad):
+                self.assertFalse(self._resolves(bad, heads))
 
 
 if __name__ == "__main__":
     unittest.main()
+

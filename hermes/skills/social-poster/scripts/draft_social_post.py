@@ -12,7 +12,7 @@ Usage:
     --intent "announce jleechanclaw open-source release" \\
     --key-points "AI agent orchestration, hermes deploy pipeline" \\
     --link "https://github.com/jleechanorg/jleechanclaw" \\
-    --platforms linkedin,hackernews,twitter,reddit,threads,facebook,instagram,mastodon,devto \\
+    --platforms reddit,twitter \\
     --reddit-subs "LocalLLaMA,Rag,OpenAI" \\
     --image "" \\
     --out /tmp/drafts/social-2026-07-06/
@@ -27,6 +27,7 @@ import sys
 import textwrap
 from datetime import datetime, timezone
 from pathlib import Path
+from platform_policy import parse_platforms, resolve_reddit_subs
 
 # ----- Platform config -----
 
@@ -320,13 +321,15 @@ def draft_reddit(sub: str, intent: str, key_points: list[str], link: str) -> dic
     if rules.get("claude_specific_only") or rules.get("chatgpt_specific_only"):
         rules["skip_post"] = "sub requires platform-specific content"
 
-    title = f"jleechanclaw: {intent[:200]}"
+    title = intent[:300]
     if has_clickbait(title):
         title = re.sub(r"(?i)" + "|".join(CLICKBAIT_PHRASES), "", title).strip()
 
     bullets = "\n".join(f"- {kp}" for kp in key_points[:5])
 
-    if sub == "LocalLLaMA":
+    if not sub:
+        body = "\n\n".join(part for part in (intent, bullets, link) if part)
+    elif sub == "LocalLLaMA":
         body = f"""I built jleechanclaw — an AI agent harness with a deterministic deploy pipeline, skill framework, and 7-green verification gate — because every other harness I tried died on the same three failure modes: skill drift, manual CI re-runs, silent cron loops.
 
 ## What it does
@@ -458,12 +461,18 @@ def main():
     ap.add_argument("--description", default="", help="Dev.to / OG description override")
     ap.add_argument("--hashtags", default="ai,opensource,python,agents,llm",
                     help="Comma-separated hashtag list (used by LinkedIn + Instagram)")
-    ap.add_argument("--platforms", default="linkedin,hackernews,twitter,threads,facebook,instagram,mastodon,devto",
-                    help="Comma-separated platform list")
-    ap.add_argument("--reddit-subs", default="LocalLLaMA,Rag,OpenAI",
-                    help="Comma-separated subreddit list (Reddit only)")
+    ap.add_argument("--platforms", default=None,
+                    help="Comma-separated platforms (default: reddit,twitter; x aliases twitter)")
+    ap.add_argument("--reddit-subs", default=None,
+                    help="Narrow Reddit targets; omitted uses scoped names or an untargeted draft for bare reddit")
     ap.add_argument("--out", required=True, help="Output directory for drafts + manifest")
     args = ap.parse_args()
+
+    try:
+        platforms = parse_platforms(args.platforms)
+        reddit_subs = resolve_reddit_subs(platforms, args.reddit_subs)
+    except ValueError as exc:
+        ap.error(str(exc))
 
     out_dir = Path(args.out).expanduser().resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -471,10 +480,10 @@ def main():
 
     key_points = [kp.strip() for kp in args.key_points.split(",") if kp.strip()]
     hashtags = [h.strip() for h in args.hashtags.split(",") if h.strip()]
-    platforms = [p.strip() for p in args.platforms.split(",") if p.strip()]
-    reddit_subs = [s.strip() for s in args.reddit_subs.split(",") if s.strip()]
 
     manifest = {
+        "mode": "draft",
+        "discovery_status": "not_performed",
         "intent": args.intent,
         "key_points": key_points,
         "link": args.link,
@@ -492,7 +501,10 @@ def main():
         key = f"reddit_{sub}" if sub else filename.replace(".md", "")
         manifest["files"][key] = str(path)
 
-    for platform in platforms:
+    # Render the resolved Reddit targets once, even when family and scoped flags overlap.
+    draft_platforms = list(dict.fromkeys(
+        "reddit" if p.startswith("reddit_") else p for p in platforms))
+    for platform in draft_platforms:
         if platform == "linkedin":
             content = draft_linkedin(args.intent, key_points, args.link, hashtags)
             write_and_track("linkedin.md", content)
@@ -564,12 +576,12 @@ def main():
             manifest["warnings"]["devto"] = v["warnings"]
 
         elif platform == "reddit":
-            for sub in reddit_subs:
+            for sub in reddit_subs or [""]:
                 rd = draft_reddit(sub, args.intent, key_points, args.link)
-                fname = f"reddit_{slugify(sub)}.md"
+                fname = f"reddit_{slugify(sub)}.md" if sub else "reddit.md"
                 content = f"## Title\n\n{rd['title']}\n\n## Body\n\n{rd['body']}\n"
                 write_and_track(fname, content, sub=sub)
-                manifest["files"][f"reddit_{sub}_title"] = rd["title"]
+                manifest["files"][f"reddit_{sub}_title" if sub else "reddit_title"] = rd["title"]
                 if rd.get("rules", {}).get("skip_post"):
                     manifest["warnings"][f"reddit_{sub}"] = [rd["rules"]["skip_post"]]
                     continue
@@ -596,8 +608,7 @@ def main():
         for plat, ws in manifest["warnings"].items():
             for w in ws:
                 print(f"  - [{plat}] {w}")
-    print(f"\nNext: stage in Aside browser with stage_in_aside.py")
-    print(f"      then post only after 'POST APPROVED' token.")
+    print("\nDraft only: review source facts and complete discovery before selecting targets.")
     return 0
 
 

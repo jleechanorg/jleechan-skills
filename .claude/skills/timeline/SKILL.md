@@ -1,6 +1,6 @@
 ---
 name: timeline
-description: Use when the user invokes /timeline or asks for a visual timeline, Gantt chart, or HTML diagram of remaining steps, parallelism, and time estimates. Builds a self-contained HTML Gantt plus a flow strip, renders and visually reviews it, and always prints a text Gantt in chat.
+description: Use when the user invokes /timeline or asks for a visual timeline, Gantt chart, or HTML diagram of remaining steps, parallelism, and time estimates, or a retrospective comparing observed work with a recorded forecast. Builds a self-contained HTML Gantt plus a flow strip, renders and visually reviews it, and always prints a text Gantt in chat.
 ---
 
 # /timeline
@@ -29,6 +29,44 @@ Turn a plan into an HTML Gantt (bars, parallelism, time estimates) plus a flow s
 ```
 
 `span` is optional (defaults to the latest high end, rounded up to 10). `flow` items: a list = parallel stack, `"→"` = dependency, `"‖"` = independent side work, a string = single node.
+
+## Retrospective mode
+
+Use `mode: "retrospective"` for a completed historical window. Set absolute,
+timezone-bearing `window_start` and `window_end`; `start` is minutes from window
+start, and `span` is the window length in minutes. The header shows the observed
+window, never a projected finish derived from actual durations. `baseline` is an
+optional descriptive string naming the original forecast, timestamp and source.
+Each row uses `kind: "observed"` (default in this mode) or `kind: "forecast"`.
+Observed intervals have `lo == hi`; use `lo: null` for unknown duration, and name
+uncertainty in `detail`. Forecast rows retain their low/high ranges. Keep both
+kinds in separately named phases. Example additions to the ordinary spec:
+
+```json
+{"mode": "retrospective", "window_start": "2026-10-11 12:00 PDT",
+ "window_end": "2026-10-12 12:00 PDT", "span": 1440,
+ "baseline": "No contemporaneous forecast recovered; comparison is qualitative"}
+```
+
+- Recover timestamped session/tool evidence for the requested window. Re-pin live
+  state only for claims about the present. Name the source and confidence in each
+  row's `detail`; a gap is waiting/unknown, not automatically active work.
+- Compare against the original recorded forecast. Preserve its JSON, HTML and
+  source timestamp in a `mktemp` directory under `/tmp` before overwriting a
+  stable timeline path. Publish durable provenance with the report if required.
+  Check displayed timestamps against source events and disclose corrections.
+  Do not invent a usual duration when no forecast exists; label any new estimate
+  as a counterfactual, with assumptions, rather than an original prediction.
+- Classify each delay in `detail`: critical blocker, evidence-only blocker,
+  nonblocking side work, or waiting/unknown. Name the deliverable and exact gate
+  blocked. Separate a required final gate from work that could run concurrently;
+  do not relabel mandatory evidence as optional because execution was inefficient.
+- Report wall-clock coverage, repeated work and supported causes. Do not sum
+  overlapping lane intervals as elapsed time or claim utilization from sparse
+  transcript timestamps. A counterfactual critical path needs explicit dependencies.
+- This is a point-in-time report: no ten-minute refresh for a completed historical
+  window. Publication, visual review and text output remain required. For review,
+  verify window boundaries and row kinds instead of a forecast finish time.
 
 ## Stable path, gist, and bead
 

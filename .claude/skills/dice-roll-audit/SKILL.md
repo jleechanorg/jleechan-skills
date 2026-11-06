@@ -115,16 +115,25 @@ Project: `worldarchitecture-ai`
 
 ### Chi-Squared Authenticity Check
 
-The audit now includes chi-squared testing for dice authenticity:
+The audit includes chi-squared analysis as a triage signal. A statistical
+deviation alone does not establish fabrication; sample size, die type, and
+observed execution evidence all matter.
 
-| Chi-Squared | Verdict |
-|-------------|---------|
-| < 30 | PASS - Normal random variation |
-| 30-50 | WARNING - Minor anomaly |
-| 50-100 | FAIL - Significant deviation |
-| > 100 | FAIL - Likely fabrication |
+| Chi-Squared | Interpretation |
+|-------------|----------------|
+| < 30 | No statistical anomaly detected; this does not prove the roll used RNG |
+| 30-50 | Review sample size and roll context |
+| 50-100 | Prioritize investigation of the executed roll path |
+| > 100 | Strong statistical anomaly; investigate the executed path before attributing a cause |
 
-**Reference case**: PR #2551 detected fabrication with chi-squared = 411.81
+**Evidence required before calling a roll fabricated**: inspect the actual
+`DICE_TOOL_EXEC` and `DICE_TOOL_RESULT` records, the corresponding receipt or
+event, and the executed RNG path. A chi-squared score is corroborating context,
+not a fabrication verdict.
+
+**Reference case**: PR #2551 investigated a chi-squared result of 411.81 as
+part of a broader code and execution-evidence review. The score alone is not
+proof of fabrication.
 
 Full chi-squared methodology and RNG verification standards previously lived in a now-archived skill (historical 2025 WorldAI content).
 

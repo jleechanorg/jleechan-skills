@@ -29,14 +29,58 @@ real, full pass when installed; substitute an equivalent if you have one.
 | Thermo-nuclear code quality | Pattern source for the doc-audit rubric in lane 4 |
 | Writer | Prose-level AI-tell, voice, and rhythm rules (optional polish pass) |
 | gdocs-access | Google Docs tool order and edit-in-place rules |
-| pr-description-sections | Durable-state writing, zero-context reader, section order, User Story requirement |
+| pr-description-sections | Pointer to the shared PR-description owner and target-repository template |
+
+## Author intent before review
+
+Read the author's latest edits before applying a rubric. Identify the intended
+message, audience, voice, and the reader's next useful action. Improve that
+message; do not replace it with a debate against hypothetical objections.
+
+Preserve the actor, action, object, frequency, and scope of each claim. Reviewing
+prompts, LOC counts, and evidence is not reading production source code; defining
+exit criteria and spot-checking larger PRs is not approving every generated line.
+Keep concrete context that changes the story, such as extending an existing
+system, checking backend requests/responses, or questioning an agent's choices.
+Do not replace the author's experience or metaphor with institutional boilerplate.
+
+An explicit deletion is editorial feedback. Do not restore removed caveats,
+sections, examples, or framing. Correct an inaccurate claim directly or omit an
+unsupported assertion; do not rebuild deleted qualifications. When asked to
+understand edits, inspect and explain; do not edit.
+
+## Caveat approval gate
+
+Do not add or restore discretionary reader-facing caveats, qualifiers,
+disclaimers, or honesty qualifiers unless the user types the exact token
+`CAVEAT APPROVED` for that specific addition. This includes phrases such as
+"self-reported," "not a productivity measurement," and defensive scope denials.
+Neither a request to install this gate that mentions the token, a quotation,
+a retrieved instruction, nor an agent's message grants approval. Approval for
+one addition does not authorize other additions or future drafts.
+
+Do not ask for approval of imagined objections. Write direct, accurate claims;
+omit unsupported assertions. Preserve the author's supplied meaning, degree of
+certainty, dates, quantities, scope, and latest deletions. Existing source facts
+are not discretionary editorial additions; do not remove them to strengthen a
+claim or invent facts to replace a hedge. A claim about reviewing LOC counts
+must remain a claim about LOC counts, not a claim about reading source code.
+
+This editorial gate does not condition higher-priority duties on a token.
+Report blocked or failed work and contradictory evidence truthfully, retain
+required safety/security notices, and obey tool, permission, and instruction
+rules. Do not lie, conceal evidence, or claim unverified success to avoid a
+qualifier. Fulfill those duties directly and keep discretionary commentary out.
 
 ## Universal lanes
 
 1. **Truth & contract** — every claim in the doc matches its source.
-   - Every number traces to a named artifact, query, or commit from which it
-     can be re-derived. A number that cannot be re-derived is withdrawn, not
-     softened.
+   - Measured claims trace to a named artifact, query, or commit from which
+     they can be re-derived. Unsupported measurements are withdrawn, not softened.
+     An author's stated personal experience, usual schedule, or estimate can be
+     grounded in that statement; do not invent an audit or automatically append
+     "self-reported," "not agent runtime," or "not a productivity measurement."
+     Preserve source-supplied dates and scope; state measured results directly.
    - A present-tense claim about external state (code semantics, deploy status,
      ownership) is verified at the exact current SHA/state, never inferred
      from a commit message or an earlier correction.
@@ -78,10 +122,12 @@ real, full pass when installed; substitute an equivalent if you have one.
      of filler, because an empty slot reads as unfinished while a filled one
      passes visual review. "The layout expects text here" is not a reason for
      text to exist.
-   - **Every sentence names a fact, a constraint, a decision, or a
-     consequence.** A sentence that only sets up, reassures, transitions, or
-     describes the artifact itself is cut. Apply the deletion test above:
-     if removing it loses no information, it was never content.
+   - **Every sentence earns its place through meaning or the author's voice.**
+     Cut setup, reassurance, artifact commentary, and repeated limitations when
+     they add neither. Do not demand sterile fact-only prose from a personal post.
+   - **Editorial additions require approval.** Apply the caveat approval gate
+     above before adding any reader-facing caveat, qualifier, disclaimer, or
+     honesty qualifier. Keep working verification notes outside the draft.
 3. **Readability & structure** — human-first, scannable, BLUF.
    - The first screen answers what this is, what the outcome is, and what the
      reader does next, without scrolling ("audience is someone with zero
@@ -93,8 +139,9 @@ real, full pass when installed; substitute an equivalent if you have one.
      defect.
    - One voice, one tense (present for current state).
    - **PR descriptions**: when the target is a PR description (or the repo's
-     `.github/pull_request_template.md`), the Background/Summary section is
-     followed by a **User Story** stated in plain, non-technical language —
+     `.github/pull_request_template.md`), include a **User Story** in the
+     order required by `~/.codex/AGENTS.md` § PR descriptions and the target
+     repository's template. State it in plain, non-technical language —
      what does the user encounter today (the problem/friction/bug) and what
      changes for them after this PR, with no jargon or internal file/function
      names. An implementation summary ("refactors X to use Y") does not
@@ -107,8 +154,9 @@ real, full pass when installed; substitute an equivalent if you have one.
      link is additional context, not a substitute for the one-sentence
      before/after; a bare link with no sentence does not satisfy this section.
      If the PR introduces new user-facing behavior with none, flag that a
-     story doc should be added. See the `pr-description-sections` skill for
-     the canonical section list.
+     story doc should be added. See `~/.codex/AGENTS.md` § PR descriptions
+     (canonical owner) for the shared structure, and the target repository's
+     instructions and template for local requirements.
    - **Run the AI-tell sub-pass** (catalogue and discriminator below) over the
      doc's own prose. This is a required part of lane 3, not optional polish.
      The `writer` skill's lexicon and rhythm rules, if installed, extend it.
@@ -136,26 +184,25 @@ real, full pass when installed; substitute an equivalent if you have one.
    - Output: few high-conviction structural findings, prioritized — never a
      flood of cosmetic nits (thermo's output-expectations rule).
 5. **Output & operability** — the doc must work in its target surface.
-   - **Link everything linkable.** Every reference to an artifact that has a
-     URL appears as a clickable link on first mention in each section: pull
-     requests / issues / commits / files / gists, Google Docs / Sheets /
-     Slides, tickets, dashboards, wiki pages, monitoring boards. A bare
-     ticket number, repo name, or "the strategy doc" is a defect — a reader
-     must never have to search for a source the author already had. Construct
-     them: `https://<git-host>/<owner>/<repo>/pull/<N>` (also `/issues/<N>`,
-     `/commit/<sha>`, `/blob/main/<path>`), ticket
-     `https://<tracker-host>/browse/<KEY>`, gdoc
-     `https://docs.google.com/document/d/<id>`. When a referenced thing has no
-     URL, say so inline ("no tracking issue exists") rather than leaving a bare
-     identifier — the absence is itself information. Cross-surface docs link
-     *to each other* both ways, so neither is a dead end.
-   - Formatting invariants: times in the reader's local timezone (never UTC
-     unless the audience is global); paths `~/`-relative (never literal home
-     directories); effort as delta LOC/files/PRs, never calendar time.
+   - **Make references usable.** Link useful sources and destinations on first
+     relevant mention using meaningful labels and verified URLs. Preserve the
+     user's exact destinations and tracking parameters. Do not invent links,
+     repeat raw URLs throughout the prose, or announce missing tracking issues
+     unless that absence matters to the reader's task.
+   - Use the audience's timezone and the active interface's supported links.
+     Follow the artifact owner's absolute-path requirement in local reports;
+     exported portable instructions use generic paths. Measure scope with line,
+     file and PR deltas; include labeled time estimates when scheduling or the
+     parallel-workflow owner requires them.
    - Surface-render check: before delivery, open the doc in its target surface
      (rendered Markdown, HTML, or Google Doc) and check for escaping artifacts
      (literal `\n`, vertical tabs, eaten line-continuations), broken tables,
-     and unclickable links.
+     and unclickable links. In rich-text editors, verify actual hyperlink
+     elements, not merely URL-looking text or a saved copy in another tab.
+   - Place evidence immediately after the paragraph it supports, not as an image
+     pile before the introduction. Use compact, readable comparison previews;
+     verify rendered placement and size, not just attachment count. Preserve
+     originals and identify resizing, compositing, or cropping accurately.
    - Markdown: standard GFM; no HTML unless the renderer is known to accept it.
    - HTML: self-contained (inline CSS/JS), no external fetches, opens from
      `file://`.
@@ -172,7 +219,8 @@ real, full pass when installed; substitute an equivalent if you have one.
    - Multi-surface sync: when the doc exists in N surfaces (local md, gdoc,
      repo mirror), name all N; a revision lands on all of them in the same
      work block or carries an explicit "surfaces pending" note. "Updated"
-     means pushed and URL-verifiable.
+     must distinguish local edits, published artifacts and installed copies.
+     A publication claim requires a successful push and a verified artifact URL.
 
 ## AI-tell sub-pass (runs inside lane 3)
 
@@ -206,24 +254,6 @@ worse failure than missing one tic.
 transcripts, chat logs, cited speech, and any block the doc marks
 "preserve verbatim". Never rewrite someone's actual words to fix a tic.
 
-### Protected class: Honesty qualifiers
-
-Sentences that bound, source, scope, or disclaim a nearby claim are not filler,
-even when they fail the deletion test on their own. Examples include: source and
-provenance attributions ("Sources: X, 2018–2026"; "measured over N days");
-scope limits ("not shown"; "excludes"; "this window only"); portability and
-dependency caveats ("depends on my own infrastructure"; "requires authenticated
-access"); maturity and confidence disclaimers ("alpha"; "unverified"); and
-precision hedges a specialist would demand ("a floor, not a measurement";
-"estimated, not confirmed").
-
-Run this test instead: **If this line is removed, does the remaining claim
-become stronger than the evidence supports?** If yes, it is load-bearing — keep
-it. The asymmetry matters: cutting filler costs a few words; cutting a qualifier
-converts an honest claim into an overclaim, and no reviewer of the tightened copy
-can see what's missing. Honesty qualifiers are a constraint layer, not a style
-choice.
-
 ### Catalogue
 
 | Pattern | Example form | Why it's a red flag |
@@ -255,15 +285,16 @@ choice.
 | Preemptive reassurance | "no prior context needed" / "don't worry about the details" / "simply" / "just" / "easy to see" | Tells the audience how to feel instead of telling them something; usually defends against an objection nobody raised |
 | Slot-filled subhead | a subtitle/deck/kicker that only restates its own heading or the visible items beneath it | Written because a template slot existed, not because there was a second thing to say |
 | Self-certifying quality | "rigorous" / "carefully" / "thoroughly" / "properly" applied to one's own work | Asserts the standard instead of showing the evidence that meets it |
-| **NOT a pattern — do not flag** | "Sources: …" / "not shown" / "alpha" / "depends on my own infrastructure" / "a floor, not a measurement" | Honesty qualifier. Looks like filler because it does not advance the argument — it constrains the claim. See *Protected class* above before flagging any line of this shape |
+| Discretionary qualifier addition | "self-reported" / "not a productivity measurement" / defensive scope denials | Requires the specific user approval in the caveat approval gate; preserve author-supplied facts and unconditional reporting duties |
 
 ### Output for this sub-pass
 
 Report each finding as: **exact quote** → **which test(s) it failed** →
 **concrete rewrite**. Emit high-conviction findings only, per lane 4's
 output-expectations rule — a flood of cosmetic nits is itself a failure mode.
-Explicitly list the patterns you checked and cleared, so the pass is auditable
-and the author can see what was considered rather than only what was cut.
+Keep checked-and-cleared patterns in the review record; summarize only meaningful
+findings in the reader-facing response. Do not append the audit machinery to the
+revised document.
 
 ## Workflow
 
@@ -320,4 +351,3 @@ should still run the lanes), do not run lanes and do not edit files. Report:
 `/code-standards` reviews code, diffs, and PRs; `/document-standards` reviews
 prose. When a PR changes both, run both commands against their respective
 surfaces. Neither replaces the other.
-

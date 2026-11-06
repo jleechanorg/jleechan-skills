@@ -1,5 +1,5 @@
 ---
-description: Token-efficient second opinion — fans out a concurrent Codex + Opus CLI primary pair plus /research and `/extended-library:secondo`. Use instead of advisor() which ships the full conversation uncached.
+description: Independent full-scope second opinion bound to an exact SHA or document bundle. Follow the canonical advice skill for lifecycle-dependent quorum, capability tiers, reviewer-class caps, deadlines and receipts; /research is nonvoting.
 aliases: [smart-advisor]
 type: skill
 execution_mode: immediate

@@ -1,4 +1,4 @@
-"""Tests for sparse history search across Claude, Codex, Hermes, agy, and Cursor."""
+"""Tests for sparse history search across Claude, Codex, Hermes, agy, Cursor, and Pi."""
 
 from __future__ import annotations
 
@@ -24,6 +24,7 @@ from scripts.history_search import (
     search_cursor,
     search_hermes,
     search_history,
+    search_pi,
 )
 
 
@@ -473,6 +474,240 @@ class TestHistorySearch(unittest.TestCase):
         self.assertEqual(len(chat_results), 1)
         self.assertIn("cursor-project", chat_results[0].snippet)
 
+    def test_search_pi_scopes_cwd_and_extracts_prompts(self) -> None:
+        sessions_base = self.temp_dir / "pi_sessions"
+        proj_dir = sessions_base / "--Users-test-myproject--"
+        proj_dir.mkdir(parents=True)
+        other_dir = sessions_base / "--Users-test-other--"
+        other_dir.mkdir(parents=True)
+
+        session_file = proj_dir / "2026-10-17T13-01-31-742Z_01a149f4.jsonl"
+        lines = [
+            json.dumps({
+                "type": "session", "version": 3, "id": "01a149f4",
+                "timestamp": "2026-10-17T13:01:31.742Z", "cwd": "/Users/test/myproject",
+            }),
+            json.dumps({
+                "type": "message", "id": "m1", "timestamp": "2026-10-17T13:02:00.000Z",
+                "message": {"role": "system", "content": "", "sections": {"preamble": "system prompt"}},
+            }),
+            "MALFORMED_JSON_LINE_{{{",
+            json.dumps({
+                "type": "message", "id": "m2", "timestamp": "2026-10-17T13:03:00.000Z",
+                "message": {"role": "user", "content": [
+                    {"type": "text", "text": "How do I add pi history to the sparse search?"}
+                ]},
+            }),
+            json.dumps({
+                "type": "message", "id": "m3", "timestamp": "2026-10-17T13:04:00.000Z",
+                "message": {
+                    "role": "assistant",
+                    "content": [{"type": "thinking", "thinking": "SECRET_THINKING"},
+                                {"type": "thinking", "content": "SECRET_THINKING_CONTENT"},
+                                {"type": "text", "text": "You extend the helper with a pi source."}],
+                    "model": "deepseek-4.1-flash",
+                },
+            }),
+            json.dumps({
+                "type": "message", "id": "m4", "timestamp": "2026-10-17T13:05:00.000Z",
+                "message": {"role": "toolResult", "toolName": "bash",
+                            "content": [{"type": "text", "text": "SECRET_TOOL_PAYLOAD"}]},
+            }),
+        ]
+        session_file.write_text("\n".join(lines), encoding="utf-8")
+
+        # cwd scoping: the other project must not be sampled first
+        results = search_pi(query="pi history", cwd="/Users/test/myproject", sessions_dir=sessions_base)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].source, "pi")
+        self.assertIn("pi history", results[0].snippet)
+        self.assertEqual(results[0].label, "/Users/test/myproject")
+        self.assertEqual(results[0].metadata.get("session_cwd"), "/Users/test/myproject")
+
+        # overview (no query) returns user prompts only, never assistant/tool payloads
+        overview = search_pi(cwd="/Users/test/myproject", sessions_dir=sessions_base)
+        self.assertEqual(len(overview), 1)
+        self.assertTrue(overview[0].metadata.get("is_user"))
+
+        # assistant matches are searchable, but thinking/tool payloads never leak
+        assistant_hits = search_pi(query="extend the helper", cwd="/Users/test/myproject", sessions_dir=sessions_base)
+        self.assertEqual(len(assistant_hits), 1)
+        self.assertEqual(assistant_hits[0].metadata.get("model"), "deepseek-4.1-flash")
+        self.assertEqual(search_pi(query="SECRET_THINKING", cwd="/Users/test/myproject", sessions_dir=sessions_base), [])
+        self.assertEqual(search_pi(query="SECRET_THINKING_CONTENT", cwd="/Users/test/myproject", sessions_dir=sessions_base), [])
+        self.assertEqual(search_pi(query="SECRET_TOOL_PAYLOAD", cwd="/Users/test/myproject", sessions_dir=sessions_base), [])
+
+    def test_search_pi_empty_and_absent_dir_are_graceful(self) -> None:
+        self.assertEqual(search_pi(query="x", sessions_dir=self.temp_dir / "absent_pi"), [])
+        empty = self.temp_dir / "empty_pi"
+        empty.mkdir()
+        self.assertEqual(search_pi(query="x", sessions_dir=empty), [])
+
+    def test_search_pi_keeps_cwd_priority_over_newer_unrelated_project(self) -> None:
+        import os as _os
+
+        base = self.temp_dir / "pi_priority"
+        requested = base / "--Users-test-myproject--"
+        unrelated = base / "--Users-test-unrelated--"
+        requested.mkdir(parents=True)
+        unrelated.mkdir(parents=True)
+
+        def write_session(path: Path, cwd: str, text: str, mtime: float) -> None:
+            path.write_text(
+                json.dumps({"type": "session", "cwd": cwd}) + "\n"
+                + json.dumps({"type": "message", "timestamp": "2026-10-17T13:03:00.000Z",
+                              "message": {"role": "user", "content": [{"type": "text", "text": text}]}}) + "\n",
+                encoding="utf-8",
+            )
+            _os.utime(path, (mtime, mtime))
+
+        # The unrelated project is newer, but the requested cwd must still win.
+        write_session(requested / "requested.jsonl", "/Users/test/myproject", "cwd-priority-needle", 1000.0)
+        write_session(unrelated / "unrelated.jsonl", "/Users/test/unrelated", "cwd-priority-needle", 9000.0)
+
+        results = search_pi(
+            query="cwd-priority-needle", cwd="/Users/test/myproject", limit=1, sessions_dir=base
+        )
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].metadata.get("session_cwd"), "/Users/test/myproject")
+
+    def test_search_pi_exact_cwd_match_rejects_prefix_sibling(self) -> None:
+        import os as _os
+
+        base = self.temp_dir / "pi_prefix"
+        requested = base / "--work-target--"
+        sibling = base / "--work-target-old--"
+        requested.mkdir(parents=True)
+        sibling.mkdir(parents=True)
+
+        def write_session(path: Path, cwd: str, text: str, mtime: float) -> None:
+            path.write_text(
+                json.dumps({"type": "session", "cwd": cwd}) + "\n"
+                + json.dumps({"type": "message", "timestamp": "2026-10-17T13:03:00.000Z",
+                              "message": {"role": "user", "content": [{"type": "text", "text": text}]}}) + "\n",
+                encoding="utf-8",
+            )
+            _os.utime(path, (mtime, mtime))
+
+        # `/work/target-old` must NOT be treated as `/work/target`.
+        write_session(requested / "requested.jsonl", "/work/target", "prefix-needle", 1000.0)
+        write_session(sibling / "sibling.jsonl", "/work/target-old", "prefix-needle", 9000.0)
+
+        results = search_pi(query="prefix-needle", cwd="/work/target", limit=1, sessions_dir=base)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].metadata.get("session_cwd"), "/work/target")
+
+    def test_search_pi_reads_flat_jsonl_session_directories(self) -> None:
+        flat = self.temp_dir / "pi_flat"
+        flat.mkdir()
+        (flat / "2026-10-17T13-01-31-742Z_flat.jsonl").write_text(
+            json.dumps({"type": "session", "cwd": "/Users/test/myproject"}) + "\n"
+            + json.dumps({"type": "message", "timestamp": "2026-10-17T13:03:00.000Z",
+                          "message": {"role": "user", "content": [{"type": "text", "text": "flat session dir needle"}]}}) + "\n",
+            encoding="utf-8",
+        )
+        results = search_pi(query="flat session dir", sessions_dir=flat)
+        self.assertEqual(len(results), 1)
+        self.assertIn("flat session dir needle", results[0].snippet)
+        self.assertEqual(results[0].label, "/Users/test/myproject")
+
+    def test_search_pi_flat_dir_prefers_recorded_cwd_over_newer_other(self) -> None:
+        import os as _os
+
+        flat = self.temp_dir / "pi_flat_shared"
+        flat.mkdir()
+
+        def write(path: Path, cwd: str, mtime: float) -> None:
+            path.write_text(
+                json.dumps({"type": "session", "cwd": cwd}) + "\n"
+                + json.dumps({"type": "message", "timestamp": "2026-10-17T13:03:00.000Z",
+                              "message": {"role": "user", "content": [{"type": "text", "text": "flat-cwd-needle"}]}}) + "\n",
+                encoding="utf-8",
+            )
+            _os.utime(path, (mtime, mtime))
+
+        # Shared flat dir: the requested cwd is older than an unrelated session.
+        write(flat / "target.jsonl", "/work/target", 1000.0)
+        write(flat / "other.jsonl", "/work/other", 9000.0)
+
+        results = search_pi(query="flat-cwd-needle", cwd="/work/target", limit=1, sessions_dir=flat)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].metadata.get("session_cwd"), "/work/target")
+
+    def test_search_pi_flat_dir_distinguishes_encoded_cwd_collision(self) -> None:
+        import os as _os
+
+        flat = self.temp_dir / "pi_flat_collision"
+        flat.mkdir()
+
+        def write(path: Path, cwd: str, mtime: float) -> None:
+            path.write_text(
+                json.dumps({"type": "session", "cwd": cwd}) + "\n"
+                + json.dumps({"type": "message", "timestamp": "2026-10-17T13:03:00.000Z",
+                              "message": {"role": "user", "content": [{"type": "text", "text": "collision-needle"}]}}) + "\n",
+                encoding="utf-8",
+            )
+            _os.utime(path, (mtime, mtime))
+
+        # `/work/a-b` and `/work/a/b` encode identically; the real recorded path
+        # must disambiguate them.
+        write(flat / "dash.jsonl", "/work/a-b", 1000.0)
+        write(flat / "slash.jsonl", "/work/a/b", 9000.0)
+
+        results = search_pi(query="collision-needle", cwd="/work/a-b", limit=1, sessions_dir=flat)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].metadata.get("session_cwd"), "/work/a-b")
+
+    def test_search_pi_normalizes_trailing_slash_cwd(self) -> None:
+        import os as _os
+
+        sessions_base = self.temp_dir / "pi_slash"
+        proj_dir = sessions_base / "--Users-test-myproject--"
+        unrelated = sessions_base / "--Users-test-other--"
+        proj_dir.mkdir(parents=True)
+        unrelated.mkdir(parents=True)
+
+        def write(path: Path, cwd: str, mtime: float) -> None:
+            path.write_text(
+                json.dumps({"type": "session", "cwd": cwd}) + "\n"
+                + json.dumps({"type": "message", "timestamp": "2026-10-17T13:03:00.000Z",
+                              "message": {"role": "user", "content": [{"type": "text", "text": "slash-needle"}]}}) + "\n",
+                encoding="utf-8",
+            )
+            _os.utime(path, (mtime, mtime))
+
+        write(proj_dir / "s.jsonl", "/Users/test/myproject", 1000.0)
+        write(unrelated / "u.jsonl", "/Users/test/other", 9000.0)
+
+        # A trailing slash must normalize to the real group name and keep priority.
+        results = search_pi(query="slash-needle", cwd="/Users/test/myproject/", limit=1, sessions_dir=sessions_base)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].metadata.get("session_cwd"), "/Users/test/myproject")
+
+    def test_search_pi_grouped_dir_distinguishes_encoded_cwd_collision(self) -> None:
+        import os as _os
+
+        base = self.temp_dir / "pi_group_collision"
+        group = base / "--work-a-b--"
+        group.mkdir(parents=True)
+
+        def write(path: Path, cwd: str, mtime: float) -> None:
+            path.write_text(
+                json.dumps({"type": "session", "cwd": cwd}) + "\n"
+                + json.dumps({"type": "message", "timestamp": "2026-10-17T13:03:00.000Z",
+                              "message": {"role": "user", "content": [{"type": "text", "text": "group-collision-needle"}]}}) + "\n",
+                encoding="utf-8",
+            )
+            _os.utime(path, (mtime, mtime))
+
+        # Same lossy group name for two real projects; recorded cwd must win.
+        write(group / "dash.jsonl", "/work/a-b", 1000.0)
+        write(group / "slash.jsonl", "/work/a/b", 9000.0)
+
+        results = search_pi(query="group-collision-needle", cwd="/work/a-b", limit=1, sessions_dir=base)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].metadata.get("session_cwd"), "/work/a-b")
+
     def test_graceful_handling_absent_databases_and_corrupt_files(self) -> None:
         # Nonexistent paths across all sources
         results = search_history(
@@ -486,6 +721,7 @@ class TestHistorySearch(unittest.TestCase):
             cursor_prompt_history_path=self.temp_dir / "absent_cursor.json",
             cursor_chats_dir=self.temp_dir / "absent_chats",
             cursor_projects_dir=self.temp_dir / "absent_projects",
+            pi_sessions_dir=self.temp_dir / "absent_pi",
         )
         self.assertEqual(set(results.keys()), set(ALL_SOURCES))
         for src in ALL_SOURCES:
@@ -502,6 +738,10 @@ class TestHistorySearch(unittest.TestCase):
         corrupt_db = self.temp_dir / "corrupt.db"
         corrupt_db.write_bytes(b"NOT_A_SQLITE_DATABASE_HEADER")
 
+        corrupt_pi = self.temp_dir / "corrupt_pi"
+        corrupt_pi.mkdir()
+        (corrupt_pi / "bad.jsonl").write_text("NOT_JSON_DATA_AT_ALL\n", encoding="utf-8")
+
         # Ensure no exception is raised
         corrupt_results = search_history(
             query="test",
@@ -510,8 +750,10 @@ class TestHistorySearch(unittest.TestCase):
             hermes_db_path=corrupt_db,
             agy_db_path=corrupt_db,
             cursor_prompt_history_path=corrupt_prompt,
+            pi_sessions_dir=corrupt_pi,
         )
         self.assertIsInstance(corrupt_results, dict)
+        self.assertEqual(corrupt_results["pi"], [])
 
     def test_ansify_and_formatting(self) -> None:
         colored = ansify("agy", "2026-08-01 | Test Title | my match snippet", query="match", use_color=True)
@@ -528,6 +770,7 @@ class TestHistorySearch(unittest.TestCase):
             "hermes": [HistoryEntry("hermes", "2026-08-01", "slack", "sample hermes")],
             "agy": [HistoryEntry("agy", "2026-08-01", "agy title", "sample agy")],
             "cursor": [HistoryEntry("cursor", "2026-08-01", "prompt_history", "sample cursor")],
+            "pi": [HistoryEntry("pi", "2026-08-01", "/Users/test/proj", "sample pi")],
         }
         output = format_results(dummy_results, query="sample", use_color=False)
         self.assertIn("📁 Claude Code (1 matches)", output)
@@ -535,6 +778,7 @@ class TestHistorySearch(unittest.TestCase):
         self.assertIn("⚡ Hermes (1 matches)", output)
         self.assertIn("🌐 agy CLI (1 matches)", output)
         self.assertIn("🖥️  Cursor (1 matches)", output)
+        self.assertIn("🧭 Pi (1 matches)", output)
 
     def test_codex_search_profile_isolation_and_sibling_inference(self) -> None:
         fake_home = self.temp_dir / "fake_home"

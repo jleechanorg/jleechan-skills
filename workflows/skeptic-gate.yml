@@ -1,349 +1,41 @@
 name: Skeptic Gate
 
-# Trigger-only + polling workflow. No LLM evaluation runs in GHA.
-# Flow: pre-check 6-green eligibility → post trigger comment →
-# lifecycle-manager runs ao skeptic verify via AO worker (Codex OAuth, no API keys) →
-# posts VERDICT comment → GHA polling step detects it and exits PASS/FAIL.
+# DEPRECATED / RETIRED — no-op stub.
 #
-# Gate 1-5 pre-check exits early for non-6-green PRs (cheap, no CLI needed).
+# The Skeptic merge gate (the former "Gate 7") is REMOVED/not used. `/green` is
+# exactly TWO gates, both verified at the PR's current HEAD SHA:
+#   1. CI green
+#   2. No merge conflicts
+# See .claude/skills/pr-green-definition/SKILL.md (canonical `/green`) and
+# .claude/skills/draft-first-pr/SKILL.md (full lifecycle).
+#
+# Skeptic: REMOVED/not used. CodeRabbit: optional advisory (never a gate).
+# Bugbot: optional advisory (never a gate).
+#
+# This stub is retained only so any existing "Skeptic Gate" status-check name
+# continues to report success instead of blocking PRs on a workflow that no
+# longer performs a merge gate.
+
 on:
   pull_request:
     types: [opened, synchronize, edited, reopened]
   workflow_dispatch:
     inputs:
       pr_number:
-        description: "PR number"
-        required: true
+        description: "PR number (ignored — deprecated)"
+        required: false
         type: string
       head_sha:
-        description: "PR head commit SHA"
-        required: true
+        description: "PR head commit SHA (ignored — deprecated)"
+        required: false
         type: string
-
-# Do NOT cancel in-progress runs — killing a polling step mid-loop discards its
-# loop state. A new concurrent run with the same SHA is harmless since the jq
-# timestamp filter rejects stale verdicts from cancelled runs.
-concurrency:
-  group: skeptic-gate-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: false
 
 jobs:
   skeptic_gate:
     name: Skeptic Gate
     runs-on: ubuntu-latest
-    # Must exceed the poll step timeout so the job is not killed mid-loop.
-    timeout-minutes: 60
-    permissions:
-      pull-requests: write
-      issues: write
-      contents: read
-      statuses: read
-      checks: read
-    outputs:
-      trigger_updated: ${{ steps.post_trigger.outputs.trigger_updated }}
-      trigger_sha: ${{ steps.post_trigger.outputs.trigger_sha }}
-      eligible: ${{ steps.check_6green.outputs.eligible }}
-      head_sha: ${{ steps.check_6green.outputs.head_sha }}
     steps:
-      # ----------------------------------------------------------------
-      # Pre-check: 6-green eligibility (gates 1-5).
-      # Exits fast for non-eligible PRs — avoids expensive CLI setup.
-      # ----------------------------------------------------------------
-      - name: Check 6-green eligibility (gates 1-5)
-        id: check_6green
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUM: ${{ github.event.inputs.pr_number || github.event.pull_request.number }}
+      - name: Deprecated no-op
         run: |
-          PR_NUM=$PR_NUM
-          ELIGIBLE=true
-
-          # Gate 1: CI green — only "success" passes
-          HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.head.sha' 2>/dev/null || echo "")
-          if [ -z "$HEAD_SHA" ]; then
-            echo "ERROR: could not fetch PR head SHA" >&2
-            ELIGIBLE=false
-          else
-            CI_STATUS=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/status \
-              --jq '.state' 2>/dev/null || echo "error")
-            if [ "$CI_STATUS" != "success" ]; then
-              echo "GATE-1 FAIL: CI=$CI_STATUS"
-              ELIGIBLE=false
-            else
-              echo "GATE-1 PASS: CI=success"
-            fi
-            # Export head_sha so subsequent steps reuse the freshly-fetched value
-            # instead of the caller-supplied workflow_dispatch input (which may be stale).
-            echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
-          fi
-
-          # Gate 2: No merge conflicts
-          PR_META=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" \
-            --jq '{mergeable: .mergeable, merged: .merged}' 2>/dev/null)
-          MERGEABLE=$(echo "$PR_META" | jq -r '.mergeable // "unknown"')
-          if [ "$MERGEABLE" != "true" ]; then
-            echo "GATE-2 FAIL: mergeable=$MERGEABLE"
-            ELIGIBLE=false
-          else
-            echo "GATE-2 PASS: no conflicts"
-          fi
-
-          # Gate 3: CR APPROVED — take the latest non-COMMENTED review from coderabbitai.
-          # Filtering to only APPROVED first would miss a later CHANGES_REQUESTED.
-          # COMMENTED reviews don't override approval in GitHub's effective review state.
-          LATEST_CR=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/reviews \
-            --jq '[.[] | select(.user.login == "coderabbitai[bot]" and .state != "COMMENTED")] | sort_by(.submitted_at) | last | .state // "none"' \
-            2>/dev/null || echo "none")
-          if [ "$LATEST_CR" != "APPROVED" ]; then
-            echo "GATE-3 FAIL: CR=$LATEST_CR"
-            ELIGIBLE=false
-          else
-            echo "GATE-3 PASS: CR=APPROVED"
-          fi
-
-          # Gate 4: Bugbot clean — use CI check-run conclusion, not inline comment count.
-          # Inline comment count is unreliable: stale comments from old commits persist and
-          # produce false positives. CI check-run conclusion is the authoritative signal.
-          # Fail-closed: only pass on success/neutral/skipped. Treat timed_out/cancelled/none
-          # the same as failure — Bugbot must have actually completed cleanly to pass.
-          BUGBOT_CONCLUSION=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/check-runs \
-            --paginate 2>/dev/null \
-            | jq -rs '[.[] | .check_runs[]?] | map(select(.name | test("Cursor Bugbot"; "i"))) | sort_by(.completed_at) | last | .conclusion // "none"' \
-            2>/dev/null || echo "error")
-          if [ "$BUGBOT_CONCLUSION" = "success" ] || [ "$BUGBOT_CONCLUSION" = "neutral" ] || [ "$BUGBOT_CONCLUSION" = "skipped" ]; then
-            echo "GATE-4 PASS: Bugbot=$BUGBOT_CONCLUSION (clean)"
-          else
-            echo "GATE-4 FAIL: Bugbot=$BUGBOT_CONCLUSION"
-            ELIGIBLE=false
-          fi
-
-          # Gate 5: Inline comments resolved (GraphQL — REST lacks isResolved)
-          PR_AUTHOR=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.user.login' 2>/dev/null || echo "")
-          REPO_NAME="${GITHUB_REPOSITORY#*/}"
-          # Fail closed on pagination truncation
-          GQL_RESULT=$(gh api graphql -f query='
-            query($owner: String!, $name: String!, $number: Int!) {
-              repository(owner: $owner, name: $name) {
-                pullRequest(number: $number) {
-                  reviewThreads(first: 100) {
-                    pageInfo { hasNextPage }
-                    nodes {
-                      isResolved
-                      comments(first: 50) {
-                        pageInfo { hasNextPage }
-                        nodes { author { login } body }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          ' -f owner='${{ github.repository_owner }}' -f name="$REPO_NAME" -F number="$PR_NUM" 2>/dev/null)
-          if [ -z "$GQL_RESULT" ]; then
-            UNRESOLVED="__GQL_ERROR__"
-          elif [ "$(echo "$GQL_RESULT" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage')" = "true" ] || [ "$(echo "$GQL_RESULT" | jq -r '[.data.repository.pullRequest.reviewThreads.nodes[].comments.pageInfo.hasNextPage | select(. == true)] | length')" -gt 0 ]; then
-            UNRESOLVED="__TRUNCATED__"
-          else
-            UNRESOLVED=$(echo "$GQL_RESULT" | jq -r "[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false) | .comments.nodes[] | select(.author.login != null and (.author.login | ascii_downcase) != (\"$PR_AUTHOR\" | ascii_downcase) and (.body | test(\"^\\\\s*(nit:|nitpick)\"; \"i\") | not))] | length")
-          fi
-          if [ "$UNRESOLVED" = "__GQL_ERROR__" ] || [ "$UNRESOLVED" = "__TRUNCATED__" ]; then
-            echo "GATE-5 FAIL: GraphQL error or pagination truncated"
-            ELIGIBLE=false
-          elif [ "${UNRESOLVED:-0}" -gt 0 ]; then
-            echo "GATE-5 FAIL: $UNRESOLVED unresolved comments"
-            ELIGIBLE=false
-          else
-            echo "GATE-5 PASS: all comments resolved"
-          fi
-
-          echo "6-green eligibility: $ELIGIBLE"
-          echo "eligible=$ELIGIBLE" >> "$GITHUB_OUTPUT"
-
-          if [ "$ELIGIBLE" != "true" ]; then
-            echo "SKIP: PR #$PR_NUM does not meet 6-green eligibility — exiting (not a failure)"
-            exit 0
-          fi
-
-      # ----------------------------------------------------------------
-      # Step 1: Post trigger comment and capture GitHub server timestamp.
-      # Lifecycle-manager picks up this comment and dispatches AO worker
-      # to run ao skeptic verify (Codex OAuth, no GHA API keys needed).
-      # ----------------------------------------------------------------
-      - name: Post skeptic trigger comment
-        id: post_trigger
-        if: steps.check_6green.outputs.eligible == 'true'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUM: ${{ github.event.inputs.pr_number || github.event.pull_request.number }}
-          HEAD_SHA: ${{ steps.check_6green.outputs.head_sha }}
-        run: |
-          PR_NUM=$PR_NUM
-          TRIGGER_SHA="$HEAD_SHA"
-          BODY=$(printf '%s\n%s' \
-            "SKEPTIC_GATE_TRIGGER" \
-            "<!-- skeptic-gate-trigger-${TRIGGER_SHA} -->")
-
-          # POST create comment — retry on installation REST rate limits (HTTP 403).
-          TRIGGER_UPDATED=""
-          for _attempt in 1 2 3 4 5; do
-            set +e
-            TRIGGER_UPDATED=$(gh api -X POST \
-              "repos/${GITHUB_REPOSITORY}/issues/${PR_NUM}/comments" \
-              -H "Accept: application/vnd.github+json" \
-              -f "body=${BODY}" \
-              --jq '.updated_at' 2>/dev/null)
-            _rc=$?
-            set -e
-            if [ "$_rc" -eq 0 ] && [ -n "$TRIGGER_UPDATED" ] && [ "$TRIGGER_UPDATED" != "null" ]; then
-              break
-            fi
-            echo "::warning::POST trigger comment failed (rc=${_rc}), attempt ${_attempt}/5 — sleeping 60s (rate limit backoff)"
-            sleep 60
-          done
-          if [ -z "$TRIGGER_UPDATED" ] || [ "$TRIGGER_UPDATED" = "null" ]; then
-            echo "ERROR: failed to post trigger comment after retries (check GitHub API rate limits)" >&2
-            exit 1
-          fi
-          echo "Trigger timestamp (GitHub server): $TRIGGER_UPDATED"
-          echo "trigger_updated=$TRIGGER_UPDATED" >> "$GITHUB_OUTPUT"
-          echo "trigger_sha=$TRIGGER_SHA" >> "$GITHUB_OUTPUT"
-
-      # ----------------------------------------------------------------
-      # Step 2: Poll for the VERDICT comment posted by the AO worker.
-      # The lifecycle-manager runs ao skeptic verify via AO worker
-      # (Codex OAuth — no API keys in GHA) and posts VERDICT: PASS/FAIL.
-      # ----------------------------------------------------------------
-      - name: Poll for skeptic VERDICT
-        if: steps.check_6green.outputs.eligible == 'true'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUM: ${{ github.event.inputs.pr_number || github.event.pull_request.number }}
-          HEAD_SHA: ${{ steps.check_6green.outputs.head_sha }}
-          TRIGGER_UPDATED: ${{ steps.post_trigger.outputs.trigger_updated }}
-          TRIGGER_SHA: ${{ steps.post_trigger.outputs.trigger_sha }}
-          # Default to github-actions[bot] — the lifecycle-manager AO worker posts
-          # via GITHUB_TOKEN (authenticates as github-actions[bot]).
-          SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'github-actions[bot]' }}
-        # 55×30s polling + API latency needs headroom; job timeout-minutes is 60.
-        timeout-minutes: 50
-        run: |
-          PR_NUM=$PR_NUM
-
-          # Do NOT use 'set -e' here — jq -e returns non-zero on empty/null (no match),
-          # which would cause premature script exit. Guards handle errors explicitly.
-          set +e
-
-          if [ -z "$TRIGGER_UPDATED" ] || [ "$TRIGGER_UPDATED" = "null" ]; then
-            echo "ERROR: trigger_updated not set — cannot poll for verdicts"
-            echo "verdict=ERROR" >> "$GITHUB_OUTPUT"
-            exit 1
-          fi
-          echo "Only accepting verdicts posted after trigger was updated: $TRIGGER_UPDATED"
-          echo "Also filtering by trigger SHA: ${TRIGGER_SHA:0:7}"
-
-          MAX_ATTEMPTS=55   # 55 * 30s = 27.5 min sleep; step timeout-minutes is 50
-          INTERVAL=30
-
-          echo "Polling for VERDICT on PR #$PR_NUM (commit ${HEAD_SHA:0:7})..."
-          echo "Max wait: $((MAX_ATTEMPTS * INTERVAL / 60)) minutes"
-
-          API_FAILURES=0
-          for i in $(seq 1 $MAX_ATTEMPTS); do
-            PR_STATE=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.state' 2>&1)
-            if echo "$PR_STATE" | grep -qi "error\|rate limit\|authentication\|not found\|server error"; then
-              API_FAILURES=$((API_FAILURES + 1))
-              echo "API warning: PR state lookup failed (attempt $((i))): ${PR_STATE:0:100}"
-              if [ "$API_FAILURES" -ge 3 ]; then
-                echo "ERROR: Too many consecutive API failures — exiting as ERROR"
-                echo "verdict=ERROR" >> "$GITHUB_OUTPUT"
-                exit 1
-              fi
-            else
-              API_FAILURES=0
-            fi
-
-            if [ "$PR_STATE" = "closed" ]; then
-              echo "PR closed — exiting"
-              echo "verdict=SKIPPED" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-
-            # Capture gh api exit code — use it (not body grep) to detect transport errors.
-            # Body content may legitimately contain words like "error" in VERDICT: FAIL.
-            # NOTE: --paginate and --jq are mutually exclusive in gh api; pipe to external jq.
-            # Using -s (slurp) to collect all pages, flatten to a single array, then filter.
-            # Do not merge gh stderr into JSON (2>&1) — breaks jq parsing.
-            VERDICT_RAW=$(
-              SKEPTIC_BOT_AUTHOR="$SKEPTIC_BOT_AUTHOR" \
-              TRIGGER_SHA="$TRIGGER_SHA" \
-              TRIGGER_UPDATED="$TRIGGER_UPDATED" \
-              gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
-                --paginate 2>/dev/null
-            )
-            GH_EXIT=$?
-            if [ "$GH_EXIT" -ne 0 ]; then
-              VERDICT_JSON=""
-            else
-              # Flatten pages with add; normalize subsecond Z timestamps before >= compare.
-              VERDICT_JSON=$(echo "$VERDICT_RAW" | jq -s --arg author "$SKEPTIC_BOT_AUTHOR" \
-                --arg tu "$TRIGGER_UPDATED" --arg ts "$TRIGGER_SHA" \
-                'add
-                | map(select(
-                    ((.user.login == $author) or (.user.login == "github-actions[bot]"))
-                    and (.body | test("VERDICT:"; "i"))
-                    and (((.updated_at // "") | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end)
-                         >= ($tu | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end))
-                    and (.body | test("skeptic-gate-trigger-" + $ts; "i"))
-                  ))
-                | last // empty' 2>/dev/null || echo "empty")
-            fi
-
-            if [ "$GH_EXIT" -ne 0 ]; then
-              API_FAILURES=$((API_FAILURES + 1))
-              echo "API warning: verdict comment lookup failed (exit=$GH_EXIT, attempt $((i))): ${VERDICT_JSON:0:200}"
-              if [ "$API_FAILURES" -ge 3 ]; then
-                echo "ERROR: Too many consecutive API failures — exiting as ERROR"
-                echo "verdict=ERROR" >> "$GITHUB_OUTPUT"
-                exit 1
-              fi
-              echo "Attempt $i/$MAX_ATTEMPTS — sleeping ${INTERVAL}s..."
-              sleep $INTERVAL
-              continue
-            fi
-
-            if ! echo "$VERDICT_JSON" | jq -e 'if . == null or (.body == null) then empty else .body end | length > 0' > /dev/null 2>&1; then
-              echo "Attempt $i/$MAX_ATTEMPTS — no fresh VERDICT yet, sleeping ${INTERVAL}s..."
-              sleep $INTERVAL
-              continue
-            fi
-
-            VERDICT_BODY=$(echo "$VERDICT_JSON" | jq -r '.body')
-            VERDICT_CREATED=$(echo "$VERDICT_JSON" | jq -r '.updated_at')
-            echo ""
-            echo "=== Found VERDICT (posted $VERDICT_CREATED) ==="
-            echo "$VERDICT_BODY"
-
-            if echo "$VERDICT_BODY" | grep -qi "VERDICT: PASS"; then
-              echo "verdict=PASS" >> "$GITHUB_OUTPUT"
-              echo "=== SKEPTIC GATE: PASS ==="
-              exit 0
-            elif echo "$VERDICT_BODY" | grep -qi "VERDICT: FAIL"; then
-              echo "verdict=FAIL" >> "$GITHUB_OUTPUT"
-              echo "=== SKEPTIC GATE: FAIL ==="
-              exit 1
-            elif echo "$VERDICT_BODY" | grep -qi "VERDICT: SKIPPED"; then
-              echo "verdict=SKIPPED" >> "$GITHUB_OUTPUT"
-              echo "=== SKEPTIC GATE: SKIPPED (infra issue — not blocking) ==="
-              exit 0
-            else
-              echo "WARNING: VERDICT body contains 'VERDICT:' but none of PASS/FAIL/SKIPPED — malformed verdict, sleeping ${INTERVAL}s before retry"
-              echo "verdict=UNKNOWN" >> "$GITHUB_OUTPUT"
-              sleep $INTERVAL
-              continue
-            fi
-          done
-
-          echo "TIMEOUT: No fresh VERDICT after $((MAX_ATTEMPTS * INTERVAL / 60)) minutes"
-          echo "verdict=TIMEOUT" >> "$GITHUB_OUTPUT"
-          echo "::warning::Skeptic Gate timed out waiting for VERDICT — external worker may be offline; merge is not blocked by timeout alone"
-          exit 0
+          echo "Skeptic Gate is retired. /green = CI green + no merge conflicts (2 gates)."
+          echo "Skeptic: REMOVED/not used; CodeRabbit and Bugbot: optional advisory reviewers."

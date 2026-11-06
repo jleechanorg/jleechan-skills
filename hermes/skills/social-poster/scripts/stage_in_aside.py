@@ -74,6 +74,7 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from platform_policy import parse_platforms, selected
 
 
 # Per-platform compose config.
@@ -592,7 +593,7 @@ def main():
     )
     ap.add_argument("--drafts", required=True, help="Draft dir (output of draft_social_post.py)")
     ap.add_argument("--close-tabs", action="store_true", help="Close tabs after screenshot")
-    ap.add_argument("--only", default="", help="Comma-separated platform allowlist (skip others)")
+    ap.add_argument("--only", default=None, help="Comma-separated platform allowlist (skip others)")
     args = ap.parse_args()
 
     drafts_dir = Path(args.drafts).expanduser().resolve()
@@ -608,7 +609,7 @@ def main():
     screenshots_dir = drafts_dir / "screenshots"
     screenshots_dir.mkdir(exist_ok=True)
 
-    only_set = set(p.strip() for p in args.only.split(",") if p.strip()) if args.only else None
+    only_set = parse_platforms(args.only)
 
     # Aside health check
     health = aside_repr("console.log('ASIDE_OK')", timeout=10)
@@ -623,7 +624,7 @@ def main():
         if key == "manifest":
             continue
 
-        if only_set and key not in only_set:
+        if not selected(key, only_set):
             continue
 
         shot_path = screenshots_dir / f"{key}.png"
