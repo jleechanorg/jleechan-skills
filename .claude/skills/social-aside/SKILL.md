@@ -36,7 +36,11 @@ not independent drafting.
    Use supplied source/PR images rather than a substitute or an old template.
 2. Read current destination rules, permitted format, promotion and AI-writing
    restrictions, required flair and account eligibility. Historical lists do not
-   establish eligibility. Where AI writing is prohibited, provide private factual
+   establish eligibility. Before recommending or drafting for a subreddit,
+   record the promotion-rule source/date and its allowed, conditional, prohibited
+   or unverified disposition. Ambiguous or inaccessible rules do not establish
+   permission to promote; do not publish promotion without established permission.
+   Where AI writing is prohibited, provide private factual
    planning notes only, not paste-ready copy or a way to evade the restriction.
    Verify the signed-in identity before staging or publishing.
 3. Draft for the selected audience. Verify public claims and linked sources,

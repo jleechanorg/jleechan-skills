@@ -11,10 +11,12 @@ publisher scripts. Preserve the non-Aside Claude/Hermes route. No runtime
 compliance claim follows from an instruction or installer check alone.
 
 ## Acceptance
-- Social and Social Aside packages match the Claude masters byte for byte.
+- The initial Social and Social Aside export matches the Claude masters byte
+  for byte at that recorded revision; later PR fixes retain their own reviewed
+  source identity and exact isolated installation readback.
 - Metadata, relative references and selected portability checks pass.
 - Aside discovery links to the Claude master; no independent copy or dispatch
-  loop is introduced. The old Aside reference is a thin compatibility pointer.
+  loop is introduced. The Aside reference is a thin compatibility pointer.
 - The source-owned caveat gate and required factual/safety/permission duties
   remain intact. No additional posting or deletion phrase is invented.
 - An isolated real installer copies the selected skills and dependencies with

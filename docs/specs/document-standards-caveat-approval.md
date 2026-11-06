@@ -22,6 +22,9 @@ No removal of author-supplied meaning or facts to create stronger claims.
 - Author intent, latest deletions, certainty, quantities, dates, scope, meaningful
   hyperlinks, and compact inline media are preserved.
 - Reviewing LOC counts remains distinct from reviewing source code.
+- Measured claims trace to evidence; an author’s stated personal experience,
+  usual schedule or estimate remains grounded in that statement without an
+  invented audit or automatic disclaimer.
 - Truthful blocked/failed status, contradictory evidence, required safety/security
   notices, and tool/permission compliance remain unconditional.
 - Concise-writing and humanizer point to the single Document Standards owner.
