@@ -34,8 +34,8 @@ has two subcommands:
   direction you name. **`--dry-run` previews the whole decision without writing
   anything**: per path it prints the exact source and destination absolutes,
   whether the destination would be `CREATE`d, `OVERWRITE`n, is already `SAME`,
-  or why it would `FAIL`, with full source and destination hashes
-  (dst=missing for creates) — and exits non-zero if any path would fail
+  or why it would `FAIL`, with full hashes when available (`dst=missing` for
+  creates) — and exits non-zero if any path would fail
   validation, so it doubles as a preflight. Reach for it before
   every `apply`, especially a multi-path one. It refuses `--remote` rather than
   silently previewing only the local half. No inference, no batch-wide default. Every path is
