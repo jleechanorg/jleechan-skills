@@ -474,7 +474,7 @@ def evidence_remote(root: Path, files: list[str], host: str) -> list[FileEvidenc
 
 
 def evidence_remote_live_only(root: Path, files: list[str], host: str, full: bool,
-                             exclude: set[str]) -> list[FileEvidence]:
+                             exclude: set[str], warnings: list[str] | None = None) -> list[FileEvidence]:
     """Files present on the REMOTE host but absent from the repo's tracked scope.
 
     `evidence_remote` only inspects the tracked file list, so a remote-side rename
@@ -485,7 +485,13 @@ def evidence_remote_live_only(root: Path, files: list[str], host: str, full: boo
 
     Symlinks are reported as `symlink` with all metadata withheld, matching the
     remote policy: an exact hash/size for a symlinked path is a confirmation
-    oracle for an arbitrary file elsewhere on the host.
+    oracle for an arbitrary file elsewhere on the host. That refusal covers a
+    symlinked root or ANY symlinked parent component too: `find` without -L
+    still follows a symlinked parent directory and would enumerate its target.
+
+    A `find` that fails partway through keeps the rows it already emitted and
+    appends an INCOMPLETE frame; the caller turns that frame into an explicit
+    warning, because an empty/partial result must never read as a clean scan.
     """
     remote_home = _remote_home(host)
     roots = scope_live_roots(files, full)
@@ -497,28 +503,54 @@ def evidence_remote_live_only(root: Path, files: list[str], host: str, full: boo
     quoted_roots = " ".join(shlex.quote(root) for root in roots)
     script = _SYMLINK_GUARD_FN + f"""set -e
 REMOTE_HOME={shlex.quote(remote_home)}
-# Record/field separator bytes must be declared in THIS script too: they live in
-# _REMOTE_BATCH_SCRIPT, which the live_only walk does not reuse. Omitting them
-# made every printf emit the literal text "$FS"/"$RS", so every record parsed as
-# one un-splittable blob and the scan silently reported zero drift.
+# Record/field/group separator bytes must be declared in THIS script too: they
+# live in _REMOTE_BATCH_SCRIPT, which the live_only walk does not reuse. Omitting
+# them made every printf emit the literal text "$FS"/"$RS", so every record
+# parsed as one un-splittable blob and the scan silently reported zero drift.
 RS=$'\\x1e'
 FS=$'\\x1f'
+GS=$'\\x1d'
 for rel in {quoted_roots}; do
+  rel=${{rel%/}}
   base="$REMOTE_HOME/$rel"
+  # Refuse a symlinked root or parent component BEFORE any traversal. A leaf-only
+  # `[ -L "$base" ]` check missed a symlinked parent (e.g. ~/.claude/skills ->
+  # /private/target), and `find` then happily enumerated the target's children.
+  if path_has_symlink_component "$REMOTE_HOME" "$base"; then
+    printf 'SYMLINK%s%s%s' "$FS" "$rel" "$RS"
+    continue
+  fi
   [ -d "$base" ] || continue
-  [ -L "$base" ] && {{ printf 'SYMLINK%s%s%s' "$FS" "$rel" "$RS"; continue; }}
   find "$base" -mindepth 1 ! -type d -print 2>/dev/null | while IFS= read -r path; do
     case "$path" in
       */__pycache__/*|*/.pytest_cache/*|*/.mypy_cache/*|*/.ruff_cache/*) continue ;;
       *.pyc|*.pyo) continue ;;
       */.DS_Store) continue ;;
     esac
+    live_rel=${{path#"$REMOTE_HOME"/}}
     if [ -L "$path" ]; then
-      printf 'SYMLINK%s%s%s' "$FS" "${{path#"$REMOTE_HOME"/}}" "$RS"
+      printf 'SYMLINK%s%s%s' "$FS" "$live_rel" "$RS"
     else
-      printf 'FILE%s%s%s' "$FS" "${{path#"$REMOTE_HOME"/}}" "$RS"
+      # Regular file: report the live file's own enclosing repo + last commit,
+      # same as evidence_remote does for tracked files (the sync-live-config
+      # skill needs that history to judge staleness of a live-only file).
+      dir=$(dirname "$path")
+      repo_root=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null || true)
+      commit=""
+      if [ -n "$repo_root" ]; then
+        commit=$(git -C "$dir" log -1 --format="%H${{GS}}%aI${{GS}}%an${{GS}}%s" -- "$path" 2>/dev/null || true)
+      fi
+      printf 'FILE%s%s%s%s%s%s%s' "$FS" "$live_rel" "$FS" "$repo_root" "$FS" "$commit" "$RS"
     fi
   done
+  # Keep the partial rows the walk already emitted, but never let a failed `find`
+  # read as a complete scan. PIPESTATUS[0] holds find's status (the while loop is
+  # the pipeline's last command); a blanket `set -o pipefail`/RuntimeError here
+  # would abort the script and silently discard every useful record.
+  find_status=${{PIPESTATUS[0]}}
+  if [ "$find_status" -ne 0 ]; then
+    printf 'INCOMPLETE%s%s%s%s' "$FS" "$rel" "$FS" "$find_status" "$RS"
+  fi
 done
 """
     proc = subprocess.run(
@@ -531,11 +563,34 @@ done
     for record in proc.stdout.split(RS):
         if not record.strip():
             continue
-        kind, _, live_rel = record.partition(FS)
+        fields = record.split(FS)
+        kind = fields[0]
+        if kind == "INCOMPLETE":
+            rel = fields[1] if len(fields) > 1 else "?"
+            detail = fields[2] if len(fields) > 2 else ""
+            if warnings is not None:
+                warnings.append(f"find exited {detail or 'non-zero'} under {rel}")
+            continue
+        if kind == "FILE":
+            if len(fields) != 4:
+                raise RuntimeError(f"malformed remote live_only FILE record on {host}: {len(fields)} fields, expected 4")
+            _, live_rel, remote_repo_root, commit_raw = fields
+        elif kind == "SYMLINK":
+            if len(fields) != 2:
+                raise RuntimeError(f"malformed remote live_only SYMLINK record on {host}: {len(fields)} fields, expected 2")
+            live_rel, remote_repo_root, commit_raw = fields[1], "", ""
+        else:
+            raise RuntimeError(f"unknown remote live_only record kind {kind!r} on {host}")
         if not live_rel or live_rel in exclude:
             continue
         status = "symlink" if kind == "SYMLINK" else "live_only"
-        out.append(FileEvidence(repo_rel="(not in repo)", live_rel=live_rel, status=status))
+        ev = FileEvidence(repo_rel="(not in repo)", live_rel=live_rel, status=status)
+        if remote_repo_root:
+            ev.live_repo_root = f"{host}:{remote_repo_root}"
+        if commit_raw:
+            sha, date, author, subject = (commit_raw.split(GS, 3) + ["", "", "", ""])[:4]
+            ev.live_last_commit = {"sha": sha[:12], "date": date, "author": author, "subject": subject}
+        out.append(ev)
     return out
 
 
@@ -558,14 +613,19 @@ def cmd_report(args: argparse.Namespace) -> int:
         # Tracked paths are already represented above; the walk adds only what the
         # tracked-file scan structurally cannot see (remote-side renames/deletes).
         already = {e.live_rel for e in remote_evs}
+        live_only_warnings: list[str] = []
         try:
             remote_evs = remote_evs + evidence_remote_live_only(
-                root, files, host, args.full, already
+                root, files, host, args.full, already, live_only_warnings
             )
         except (RuntimeError, subprocess.CalledProcessError) as exc:
             # A failed walk must not silently look like "no drift": say so, and keep
             # the tracked-file results that did succeed.
             print(f"warning: remote live_only scan incomplete on {host}: {exc}", file=sys.stderr)
+        for warning in live_only_warnings:
+            # A partially-completed walk keeps its rows but is still incomplete --
+            # it must never read as a clean scan.
+            print(f"warning: remote live_only scan incomplete on {host}: {warning}", file=sys.stderr)
         targets[f"remote:{host}"] = remote_evs
 
     if args.json:
