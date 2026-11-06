@@ -82,8 +82,13 @@ The permanent solution requires isolating background SCM operations from the loc
 
 1. **Give the worker its own credentials instead of the operator's keychain.**
    The durable fix is for the background process to authenticate with a credential it owns:
-   a service account, a token in the process environment, `gh auth login --with-token`, or
+   a service account, a token in the process environment, or
    `git config credential.helper` pointing at a store that is not the GUI login keychain.
+   For `gh`, use an already-provisioned `GH_TOKEN` or `GITHUB_TOKEN` in the worker's
+   process environment for headless use. Do not use `gh auth login --with-token` as a
+   workaround: `gh auth login` stores tokens in the system credential store by default,
+   which can trigger the same prompt. See the
+   [GitHub CLI authentication guidance](https://cli.github.com/manual/gh_auth_login).
    Then no `SecurityAgent` prompt is generated in the first place.
 
    > **Do not** create a password-less keychain and make it the default
