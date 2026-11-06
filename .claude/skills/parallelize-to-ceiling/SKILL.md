@@ -405,6 +405,9 @@ there to a pointer 2026-09-06; this section is the full policy).
   tests, monitoring, and mechanical follow-through when it costs less than
   keeping that work in the parent session. Give each lane an explicit output
   and completion condition, and let it run asynchronously when supported.
+  In each execution handoff, require the worker to retain a yielded session
+  handle and resume that same operation to an exit receipt; an empty or partial
+  output is not permission to launch a second copy.
 - A worker owns its assigned checks through completion and reports when done,
   blocked, or awaiting a material decision. The parent should not duplicate
   the worker's execution or repeatedly poll while it is progressing; use
