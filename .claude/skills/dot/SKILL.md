@@ -311,6 +311,26 @@ the request to another host or reuse its signed-in session.
 
 Accounts, target dot URLs, and preferred backends can be declared per-machine in `~/.config/dot/config.json` without hardcoding personal data into the repository:
 
+Optionally designate a primary dot and miscellaneous dots using the existing account
+keys: set `default_account` to the primary and list only accounts eligible for
+automatic fallback in `rotation`, in preference order. Select a miscellaneous dot
+explicitly with `--account` when appropriate. Names and roles are local choices;
+without such preferences, existing selection and rotation behavior is unchanged.
+If `rotation` is omitted, the transport falls back to all configured accounts, so
+set it explicitly when any account must be excluded from automatic fallback.
+
+A user may keep optional per-account work restrictions in a machine-local
+`~/.config/dot/account-policy.md`, keyed by account name or alias. Before routing
+new work, read that file if present and honor its applicable restrictions for the
+resolved account, including on explicit `--account` selection and blocked-composer
+fallback. For example, a user may reserve one account for human-requested work and
+instruct it to decline new AI-originated requests and refer the requester to another
+dot. Exclude such an account from `rotation` unless all automatic fallback work is
+permitted there. These restrictions apply only to accounts the user names, not to
+existing work or other accounts. The policy is agent guidance, not a transport
+enforcement mechanism; the scripts do not read this file. Preserve fixed-target
+coordinator rules and all existing authorization and capacity constraints.
+
 ```json
 {
   "default_account": "primary",
