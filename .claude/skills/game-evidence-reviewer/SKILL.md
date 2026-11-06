@@ -12,8 +12,9 @@ reference; it does not define automatic thresholds or approval.
 ## References
 
 - [[Ragnarok Quality Game Demo Criteria|sources/ragnarok-quality-game-demo-criteria]]
-- [Visual Verification](~/.claude/skills/visual-verification/SKILL.md) owns
-  media identity, full-frame coverage, visual inspection, and reporting limits.
+- [Visual Verification](../visual-verification/SKILL.md) owns the currently
+  available visual-inspection tools and their limitations. This guide owns the
+  game-media identity and frame-coverage protocol below.
 - [Design Fidelity Diff](~/.claude/skills/design-fidelity-diff/SKILL.md) owns
   comparison against an approved design artifact.
 - Scratch allocation follows
@@ -36,8 +37,9 @@ Or invoke when validating game demo evidence.
 2. Record the media identity and mechanical properties: source SHA-256,
    duration, decoded frame count, frame rate, dimensions, codec, and
    decode/integrity result. Keep temporary outputs in Scratch.
-3. Follow Visual Verification to inspect every decoded frame in chronological
-   order, maintain a coverage manifest, and disclose any gaps or limitations.
+3. Inspect every decoded frame in chronological order, maintain a coverage
+   manifest, and disclose any gaps or limitations. Use Visual Verification to
+   select a currently available inspection tool and report its limitations.
    Do not use a sample, contact sheet, frame count, or pixel-difference score as
    a substitute for required visual inspection.
 4. Assess the visible result against the approved direction. Describe what the
@@ -123,9 +125,9 @@ approval. A passing media-integrity check is not product acceptance.
 
 ## Critical Rules
 
-1. Follow Visual Verification for full-frame inspection, coverage manifests,
-   and honest limitations. Never waive required coverage because sampling is
-   convenient.
+1. Inspect every required frame and report the coverage manifest and any gaps.
+   Use Visual Verification for available inspection tools and their limits;
+   never waive required coverage because sampling is convenient.
 2. Use an image-capable route to assess visual claims; numerical pixel or color
    analysis cannot stand in for seeing the frames.
 3. Report mechanical media facts separately from visual findings and product
