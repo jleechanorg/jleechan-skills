@@ -447,6 +447,11 @@ A finished lane is not a delivered lane. Direct result delivery to the parent
 can fail silently: `ListAgents` shows `idle` (its turn ended) and no report
 ever arrives. **`idle` means "finished", not "reported".**
 
+Before dispatching a fan-out, resolve each intended recipient and confirm its
+task prompt and required inputs are present. A successful dispatch call with no
+valid targets or missing task inputs launches no useful work; correct that
+before scaling the fan-out.
+
 The inverse trap is just as real: `running` means "active", not "progressing".
 A lane producing frequent transcript updates, tool calls, or status pings is
 not evidence of progress by itself — only a promised artifact, test result,
@@ -460,8 +465,14 @@ changing what it's being asked to do.
 
 Before re-doing any lane's work yourself:
 
-1. **Ask the lane.** `SendMessage` to it by name re-enters its transcript and it
-   can resend. This is cheap and usually works.
+1. **Check the lane's state and use the current runtime's supported controls.**
+   First inspect the lane and any existing artifact. A message to a running
+   lane can steer it; a message to an idle lane may only queue or deliver text
+   and may not start a new turn. When the lane is idle and the result is still
+   needed, use that runtime's documented start, resume, or follow-up operation
+   to trigger work. Do not assume a message call starts execution. Distinguish
+   a queued or delivered prompt, an acknowledged or started turn, and a
+   completed artifact; tool-call success alone proves only the call succeeded.
 2. **Check the side channels it was told to write.** If lanes were instructed to
    post to beads (`br comments add`), write files, or comment on a PR, read
    those. A lane whose direct message vanished has usually still written its
