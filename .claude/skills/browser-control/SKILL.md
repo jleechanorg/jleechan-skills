@@ -5,30 +5,36 @@ description: Control real websites and authenticated browser sessions, inspect p
 
 # Browser control
 
-## Personal browser isolation — required for every route
+## Browser context isolation — required for every route
 
-Personal desktop browser windows, tabs, profiles, cookies, and login state are
-off-limits to automation. No browser task or visible-browser request authorizes
-their use. Use an isolated agent-owned context; the only cookie exception is an
-explicitly authorized transfer from exactly one named agent-owned profile below.
+Personal/default desktop Chrome and other non-agent desktop-browser windows,
+tabs, profiles, cookies, and login state are off-limits to automation. A request
+to use a browser never authorizes attaching to those personal browser contexts.
+Use the agent automation browser or a separate isolated context.
 
-- Use an agent-owned browser and profile. Prefer bundled Playwright Chromium for
-  headless launches; a separate profile alone does not prevent macOS launch/window
-  interference when launching the installed Google Chrome application.
-- Before attaching through CDP, an extension, or a runtime browser API, verify the
-  target browser, process/profile, and task-owned tabs. Never auto-discover or
-  auto-connect to desktop Chrome, including agent-browser `--auto-connect`.
-- Never select, copy, decrypt, or import the personal Chrome profile or its cookies,
-  including agent-browser `--profile Default`. Cookie-transfer recipes below apply
-  only to an explicitly authorized agent-owned source profile.
-- Aside runs in background mode by default on an agent-owned profile: start it only
-  without activation per [aside-browser-default § Background mode](../aside-browser-default/SKILL.md#background-mode)
-  and verify the frontmost app is unchanged. Metadata probes do not prove navigation
-  is background-safe. Otherwise use isolated headless Chromium.
+- **Aside is the agent automation browser, separate from the user's main browser.**
+  Treat its connected profiles, including `u0`, as agent-owned contexts even when
+  a profile is signed into the user's service account or has unrelated tabs. Use
+  the task-specified Aside account/profile directly for authenticated tasks; do
+  not reject it as personal Chrome based on account identity or tab contents.
+- In Aside, inspect only tabs relevant to the requested task. Do not read, print,
+  or interact with unrelated tabs. Use Aside in background mode per
+  [aside-browser-default § Background mode](../aside-browser-default/SKILL.md#background-mode)
+  and verify the frontmost app is unchanged.
+- For other browser runtimes, verify the target browser, process/profile, and
+  task-owned context before attaching. Never auto-discover or auto-connect to
+  personal/default desktop Chrome, including agent-browser `--auto-connect`.
+- Never select, copy, decrypt, or import a personal desktop-browser profile or
+  its cookies. Cookie-transfer recipes below apply only to an explicitly
+  authorized transfer from one named agent-owned source profile.
+- Prefer bundled Playwright Chromium for headless launches; a separate profile
+  alone does not prevent macOS launch/window interference when launching the
+  installed Google Chrome application. If Aside cannot run in the background,
+  use isolated headless Chromium.
 - Keep Chromium headless by default. A current-thread explicit request for visible
   automation permits a headed window only in a separate, verified task-owned
-  browser process/profile/context. Never use a personal or default profile, a bare
-  system/default-browser launch, `open -a "Google Chrome"`, or AppleScript
+  browser process/profile/context. Never use a personal/default desktop-browser
+  profile, a bare system/default-browser launch, `open -a "Google Chrome"`, or AppleScript
   activation/quit. Do not bring a desktop browser to the foreground as
   recovery (Aside background mode is the only launch exception), change default-browser registration, or enable a continuous relaunch
   service.
