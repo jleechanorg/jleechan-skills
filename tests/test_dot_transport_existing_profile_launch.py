@@ -75,6 +75,9 @@ exports.chromium = {
             encoding="utf-8",
         )
         self.env = dict(os.environ)
+        self.env.pop("BASH_ENV", None)
+        self.env.pop("ENV", None)
+        self.env["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
         self.env.update(
             {
                 "HOME": str(self.home),
@@ -105,9 +108,13 @@ exports.chromium = {
         )
 
     def _run_dot_sh(self, env=None):
+        command_env = dict(env or self.env)
+        command_env.pop("BASH_ENV", None)
+        command_env.pop("ENV", None)
+        command_env["PATH"] = self.env["PATH"]
         return subprocess.run(
             [str(DOT_SH), "existing-profile-only"],
-            env=env or self.env,
+            env=command_env,
             capture_output=True,
             text=True,
             timeout=40,
@@ -535,7 +542,16 @@ process.stdout.write = (chunk, ...args) => {
         )
 
     def test_dot_sh_exposes_redacted_local_mode_without_fallback_banner(self):
-        proc = self._run_dot_sh()
+        startup_script = self.root / "benign-startup-env.sh"
+        startup_script.write_text(
+            "DOT_ACCOUNT=contaminated\nexport DOT_ACCOUNT\n",
+            encoding="utf-8",
+        )
+        env = dict(self.env)
+        env["BASH_ENV"] = str(startup_script)
+        env["ENV"] = str(startup_script)
+
+        proc = self._run_dot_sh(env=env)
 
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIsNotNone(self._result(proc.stdout))
