@@ -106,6 +106,18 @@ The [compact risk-based route](../pr-lifecycle/SKILL.md#compact-risk-based-route
 
 At start, after each push and on a new failure, refresh the head, applicable checks and findings. Record the requested endpoint, changed claims, authorized acceptance environment, non-goals, actual blockers (required gates/P0 versus nonblocking findings), executing owner, next action and clearance evidence in the existing PR/task record. This caller-order guidance applies the lifecycle route; it does not select or add review obligations.
 
+For wrong, stale or inconsistent reviewer data, verify the premise against the
+authoritative current source and artifact/head, pin counterevidence, and ask the
+original reviewer to correct it or confirm withdrawal before dependent code
+changes; do not silently discard a disproven finding. Clarify materially
+ambiguous feedback with the reviewer before dependent edits. If a supported
+finding requires code changes, return the affected work to coding and collect
+fresh focused proof for affected claims; preserve understood independent work
+and still-valid proof. Follow the lifecycle's
+[change-impact review and test depth](../pr-lifecycle/SKILL.md#change-impact-review-and-test-depth)
+and [SHA-binding rule](../pr-lifecycle/SKILL.md#sha-binding-rule-critical--applies-to-every-gate-in-this-chain)
+rather than repeating their procedures.
+
 Before expensive work, assess existing results against their recorded SHAs and clear cheap relevant failures. Pin the measured merge-base/head scope, target-tip conflict status, selected lifecycle route, prior-proof applicability and producer gaps. Start required source review as soon as its pinned source inputs and scope are ready; it need not wait for a separate evidence producer to finish. Start evidence review only when the route-required proof is complete, readable and hash-bound. A source approval may therefore arrive before evidence production finishes, but it never makes the PR ready while required proof is missing. Reuse votes whose claim coverage and SHA applicability still hold; phase change alone does not require a duplicate review. Changed claims or an affected obligation do require the lifecycle's delta assessment and any review that assessment identifies.
 
 For evidence generation on a remote or native lane, follow the existing `parallelize-to-ceiling` and `linux-mirror` / `mac-mirror` owners to confirm an actual supported start or resumable job; queued composer input alone is not execution. Optional evidence packaging does not block independent required work. Resolve review templates by the owner's named access mode, not file position: validate the rendered prompt as data, correct it to that mode, reject unresolved placeholders, and do not switch modes or export merely to satisfy a template error. Select an eligible available model and coverage; count a vote only when the actual model, complete coverage and receipt SHA match. New conditions must trace to the user/intake contract; identify new scope instead of silently gating readiness on it.
