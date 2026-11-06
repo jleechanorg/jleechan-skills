@@ -5,6 +5,7 @@ substring over-match), plus core evidence/mapping logic."""
 import shlex
 import subprocess
 import sys
+import tarfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -15,6 +16,7 @@ from scripts.sync_live_config import (
     RS,
     FileEvidence,
     _SYMLINK_GUARD_FN,
+    _apply_remote_repo_to_live,
     _validate_host,
     evidence_remote,
     find_command_files_for_skill,
@@ -462,6 +464,69 @@ class ApplyDryRunOutputTest(unittest.TestCase):
                 (sha256_of(overwrite_dest), overwrite_dest.stat().st_mtime_ns),
                 overwrite_before,
             )
+
+
+class RemoteApplyArchiveTest(unittest.TestCase):
+    def test_archives_tracked_hermes_link_contents_under_requested_path(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as root_dir:
+            root = Path(root_dir)
+            repo_rel = "hermes/skills/foo/SKILL.md"
+            target = root / ".claude" / "skills" / "foo" / "SKILL.md"
+            target.parent.mkdir(parents=True)
+            payload = b"canonical skill fixture\n"
+            target.write_bytes(payload)
+            link = root / repo_rel
+            link.parent.mkdir(parents=True)
+            link.symlink_to(target)
+            subprocess.run(["git", "init"], cwd=root, capture_output=True, check=True)
+            subprocess.run(["git", "config", "user.name", "Probe"], cwd=root, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "probe@example.invalid"],
+                cwd=root,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "add", "--", repo_rel, ".claude/skills/foo/SKILL.md"],
+                cwd=root,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "commit", "-m", "remote tar fixture"],
+                cwd=root,
+                capture_output=True,
+                check=True,
+            )
+            captured = {}
+            real_run = subprocess.run
+
+            def fake_run(cmd, *args, **kwargs):
+                if cmd[0] == "scp":
+                    with tarfile.open(cmd[3], "r:gz") as archive:
+                        member = archive.getmember(repo_rel)
+                        captured["regular_file"] = member.isfile()
+                        stream = archive.extractfile(member) if member.isfile() else None
+                        captured["payload"] = stream.read() if stream is not None else None
+                    return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+                if cmd[0] == "ssh":
+                    return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+                return real_run(cmd, *args, **kwargs)
+
+            with (
+                patch(
+                    "scripts.sync_live_config._remote_home",
+                    return_value="/remote/home",
+                ),
+                patch(
+                    "scripts.sync_live_config.subprocess.run",
+                    side_effect=fake_run,
+                ),
+            ):
+                _apply_remote_repo_to_live(root, [repo_rel], "fixture-host")
+
+            self.assertTrue(captured["regular_file"])
+            self.assertEqual(captured["payload"], payload)
 
 
 class EvidenceRemoteTest(unittest.TestCase):

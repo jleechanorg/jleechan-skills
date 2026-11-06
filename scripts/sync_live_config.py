@@ -833,7 +833,10 @@ def _apply_remote_repo_to_live(root: Path, paths: list[str], host: str) -> None:
     try:
         with tarfile.open(tar_path, "w:gz") as tar:
             for p in paths:
-                tar.add(repo_abs_for(root, p), arcname=p)
+                source = repo_abs_for(root, p)
+                if source.is_symlink():
+                    source = source.resolve()
+                tar.add(source, arcname=p)
         subprocess.run(["scp", "-o", "ConnectTimeout=10", tar_path, f"{host}:{remote_tar}"], check=True)
         # Destinations are fully resolved here (Python-side), never left for the
         # remote shell to expand — that literal-$HOME expansion bug is what this fixes.
