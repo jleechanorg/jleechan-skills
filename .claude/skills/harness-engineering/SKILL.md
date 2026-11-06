@@ -112,23 +112,13 @@ Key questions to drive this:
 For each failure class, check which harness layers are missing or insufficient:
 
 1. **Read existing instructions** — `~/.claude/CLAUDE.md`, repo `CLAUDE.md`, `~/.codex/AGENTS.md`
-   - Is the rule already documented? If yes → verify adherence and fix the violating caller or conflicting workflow; reuse the canonical owner before adding any instruction.
-   - If no → add the rule
-2. **Check for existing skills** — `~/.claude/skills/`, `~/.claude/commands/`
-   - Is there a skill that should have caught this? If yes → update it
-   - If no and the pattern is repeatable → create a skill
-3. **Check memory** — `~/.claude/projects/*/memory/`
-   - Was this corrected before? If yes → the memory wasn't sufficient; strengthen it
-   - If no → save feedback memory
-4. **Check tests** — are there tests that would catch this regression?
-   - If no → propose an integration test
-5. **Check CI** — would CI have caught this before merge?
-   - If no → propose a CI gate or pre-commit hook
+   - Is the applicable rule already present? Verify the failure against it, then fix the violating caller or conflicting workflow at its owner. Stop layer escalation unless the evidence shows a separate harness gap.
+   - If the rule is missing or insufficient, find the smallest existing canonical owner and make the minimal repair there. Check related skills, memory, tests, or CI only when needed to identify that owner or verify the cause; do not add layers by default.
 
 **Critical check — harness layer present but broken:**
-For each harness layer that exists, verify it **actually works**, not just that it exists. Check the functional
-boundary named by the claim and the source/active copy that supplies it; installed or automated presence is not
-proof. A broken guardrail is as bad as a missing one and is harder to detect.
+For any layer relied on to explain or prevent the failure, verify it **actually works**, not just that it exists.
+Check the functional boundary named by the claim and the source/active copy that supplies it; installed or
+automated presence is not proof. A broken guardrail is as bad as a missing one and is harder to detect.
 
 ### Step 5: Propose the fix
 
