@@ -30,7 +30,10 @@ When a mistake or failure pattern is identified, analyze whether the root cause 
 
 ## Analysis Protocol
 
-When invoked, execute this sequence **in full, every time**:
+When invoked, execute this sequence **in full, every time**, within the user's
+authorized scope. Every outcome reaches the single closure in Step 7, including
+audit, optimization, no-change, blocked and partial outcomes. An explicit STOP
+or write prohibition takes precedence; report what was skipped without doing it.
 
 ### Step 1: Identify the failure class
 
@@ -154,9 +157,56 @@ VERIFICATION: <how to confirm the fix prevents recurrence>
 ### Step 6: Implement
 
 After user approval (or if invoked with `--fix`):
-- Apply all harness fixes
+- Apply the authorized harness fixes
 - Run verification
 - Report what was changed
+
+Without that authority, report the proposed fixes and continue to Step 7;
+closure is not permission to edit harness source.
+
+### Step 7: Close once with lean `/nextsteps`, then continue
+
+Every `/harness` invocation runs the default, lean mode of
+[nextsteps](../nextsteps/SKILL.md) exactly once after its analysis and any
+authorized implementation. Read that skill and reuse the findings, dual 5 Whys,
+source reads, verification and existing artifact pointers from this invocation.
+Gather only missing context and refresh mutable facts when needed for current
+claims; do not rerun completed discovery, analysis or checks merely for closure.
+
+- **Flags select work, not extra closures.** Default, `--fix`, `--audit` and
+  `--optimize` all use this same closure. `--next` remains a compatibility alias
+  for the default closure, not a second `/nextsteps` call. If composed work already
+  ran `/nextsteps` for this invocation's outcome, reuse that closure and update
+  its existing entry only for a later material delta; do not append a duplicate
+  or start another closure pass.
+- **Lean artifacts use the canonical nextsteps workflow.** Reconcile Beads
+  (`br`), write/update the standalone roadmap nextsteps document, append the
+  daily `roadmap/activity/YYYY-MM-DD.md` entry (README date link only when new),
+  and append monthly `~/roadmap/learnings-YYYY-MM.md`. Follow its discovery and
+  update-over-create rules, without inventing work or duplicate Beads to fill a
+  checklist. Record no-change, blocked and partial outcomes as such.
+- **No implicit full sync.** Default closure does not write Claude auto-memory,
+  mem0 or GitHub Issues. Only an explicit `--full` request selects nextsteps'
+  full mode for this one closure, and only within the user's existing authority.
+  `--next`, `--fix`, audit or optimization alone never opt into those sinks.
+- **Respect write scope and report real results.** Honor explicit no-write
+  instructions, STOPs and the actual protected scope of read-only requests per
+  [readonly-scope](../readonly-scope/SKILL.md); read-only is not automatically a
+  ban on authorized closure sinks. Source ownership and approval boundaries
+  still apply. Do not attempt prohibited writes or evade their scope. For an allowed sink that fails, retain the exact attempted operation,
+  target and error; mark it blocked, not written. Finish the other permitted
+  artifacts and distinguish verified writes, unchanged/not-needed, skipped by
+  instruction, and unavailable results. Never fabricate a path, Bead ID or
+  completion checkmark. With no writes allowed, give the closure summary in the
+  response only, if permitted, and state that persistence was skipped.
+- **A checkpoint is not a workflow stop.** Report this invocation's outcome,
+  artifact results, remaining blocker/decision and next safe action, then return
+  to the caller and continue already-authorized work, including the next PR
+  lifecycle action. Do not ask for renewed approval solely because closure
+  finished. A real unmet permission, ownership, approval or information boundary
+  still stops the affected action; name it and the resumption trigger while
+  continuing independent authorized work. Never resume work under an explicit
+  STOP or invent new execution authority from the closure.
 
 ## Decision Rules
 
@@ -246,9 +296,10 @@ A weekly job may automate this mode. Keep it thin:
 - otherwise publish the ideas or an explicit `no change` result;
 - deliver the report and PR links through the already configured weekly
   Slack/email notification path;
-- never make direct user-scope edits from the scheduled run;
-- never require beads, `/nextsteps`, a frozen evaluation corpus, AO workers, or
-  unrelated process changes as prerequisites.
+- never make direct user-scope harness-source edits from the scheduled run;
+- never require a frozen evaluation corpus, AO workers, or unrelated process
+  changes as prerequisites. Step 7 is the same scoped closure after the work,
+  not a prerequisite to inspection or permission for additional source edits.
 
 The scheduler and delivery mechanism belong to the owning repository. They are
 implementation details of this one weekly job, not a new harness workflow.
@@ -268,8 +319,9 @@ Return:
 3. validation evidence for any implemented change;
 4. PR URLs when the weekly job opened any, or `no change`.
 
-Unless invoked with `--fix`, do not edit the harness. Audit, create the durable
-recommendation, and stop.
+Unless invoked with `--fix` or separately authorized by the user, do not edit
+the harness. Report the recommendation or `no change`, then complete Step 7 and
+return to any already-authorized caller workflow.
 
 ## Anti-patterns
 
