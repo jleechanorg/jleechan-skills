@@ -2,6 +2,13 @@ name: tests
 
 on:
   pull_request:
+    # Draft-first is this repo's default flow, so a PR can sit as a draft and
+    # then be undrafted. Without ready_for_review here, GitHub's default set
+    # (opened, synchronize, reopened) means undrafting fires NO run at all, and
+    # a draft that is only ever promoted silently reaches "mergeable" with no
+    # contract-test result. Observed 2026-11-01 on 14 draft PRs, none of which
+    # triggered a run when undrafted.
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - ".github/workflows/tests.yml"
       - "tests/**"
@@ -49,12 +56,47 @@ jobs:
           tar --extract --gzip --file "$archive" --directory "$install_dir" --no-same-owner br
           test "$("$install_dir/br" --version)" = "br 0.7.4"
           echo "$install_dir" >> "$GITHUB_PATH"
-      - name: Run repo contract tests
-        run: python3 -m unittest discover -s tests -p "test_*.py" -v
-      - name: Run agy-dot-coordinator compliance, timeout, and LOC guardrails
+      - name: Detect Dot transport changes
+        id: dot
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          python3 .claude/skills/agy-dot-coordinator/tests/test_reminder_compliance.py
-          python3 .claude/skills/agy-dot-coordinator/tests/test_ping_dots_timeout.py
+          set -euo pipefail
+          # The Dot transport suites (~75s, real Node subprocesses) only exercise
+          # .claude/skills/dot/. Skip them on PRs that do not touch Dot code; push
+          # to main always runs everything.
+          # Fail closed: any doubt (non-PR event, missing base, git error) keeps run=true.
+          run=true
+          if [ "$EVENT" = "pull_request" ] && [ -n "$BASE_SHA" ]; then
+            changed=$(git diff --name-only "$BASE_SHA"...HEAD)
+            if ! grep -qE '^(\.claude/skills/dot/|tests/test_dot_transport_|tests/subprocess_environment\.py$|\.github/workflows/tests\.yml$)' <<<"$changed"; then
+              run=false
+            fi
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          echo "Dot transport suites: run=$run"
+      - name: Run repo contract tests
+        if: steps.dot.outputs.run == 'true'
+        run: python3 -m unittest discover -s tests -p "test_*.py" -v
+      - name: Run repo contract tests (Dot transport suites skipped; no Dot changes)
+        if: steps.dot.outputs.run != 'true'
+        run: |
+          python3 - <<'EOF'
+          import sys, unittest
+          def flat(s):
+              for t in s:
+                  yield from flat(t) if isinstance(t, unittest.TestSuite) else (t,)
+          suite = unittest.TestLoader().discover("tests", "test_*.py")
+          kept = [t for t in flat(suite) if not type(t).__module__.startswith("test_dot_transport_")]
+          result = unittest.TextTestRunner(verbosity=2).run(unittest.TestSuite(kept))
+          sys.exit(0 if result.wasSuccessful() else 1)
+          EOF
+      - name: Run dot-coordinator compliance, timeout, and LOC guardrails
+        run: |
+          python3 .claude/skills/dot-coordinator/tests/test_reminder_compliance.py
+          python3 .claude/skills/dot-coordinator/tests/test_ping_dots_timeout.py
       - name: Timeline skill rendering contracts
         run: python3 .claude/skills/timeline/scripts/test_build.py
       - name: Dot skill LOC guardrail + transport tests

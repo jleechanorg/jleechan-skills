@@ -8,7 +8,7 @@ When this command is invoked, execute the repro-copy workflow immediately.
 
 ## Required workflow
 
-1. Read `.claude/skills/repro-copy.md`. For shared env (WORLDAI_DEV_MODE, credentials) see **`.claude/skills/repro-twin-clone-evidence/SKILL.md`** §1; the optional five-class harness is §5 in that file only.
+1. Read `.claude/skills/repro-copy/SKILL.md`. For shared env (WORLDAI_DEV_MODE, credentials) see **`.claude/skills/repro-twin-clone-evidence/SKILL.md`** §1; the optional five-class harness is §5 in that file only.
 2. Resolve the source campaign ID and the issue description from `$ARGUMENTS`.
 3. Prefer:
 

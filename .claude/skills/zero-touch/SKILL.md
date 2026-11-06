@@ -13,9 +13,11 @@ The shared catalog preserves host-installed `/advice` and `/web-advice` integrat
 ## Definition
 
 A PR is **zero-touch** when AO (Agent Orchestrator) produced a PR that completed
-the draft-first quality sequence and reached `/green` without manual
-intervention from a Claude Code terminal session or human operator. Canonical
-definitions live in `draft-first-pr` and `pr-green-definition`.
+the applicable draft-first quality sequence and reached current-head `/green`
+without human or terminal intervention. The audit window runs from the AO
+spawn through the point immediately before the merge action; read-only status
+checks are observation, not intervention. Canonical definitions live in
+`pr-lifecycle` and `pr-green-definition`.
 
 This repo requires explicit human `MERGE APPROVED` authorization before any
 merge (see this repo's merge-safety policy) — that authorization step, and the
@@ -29,12 +31,12 @@ rather than left permanently unsatisfiable.)
 
 Specifically:
 1. AO spawned the worker session autonomously (via `ao spawn`, lifecycle-worker, or poller)
-2. The worker completed `/es`, `/er`, and `/advice`, then reached `/green`, without external nudges
-3. No human/terminal session pushed commits, resolved comments, fixed CI, or posted reviews on the PR branch before it reached that state
+2. The worker completed the applicable draft gates per `pr-lifecycle`, then reached `/green`, without external nudges
+3. No human/terminal session pushed commits, changed PR content, resolved comments, fixed CI, or posted reviews on the PR branch before the authorized merge action. The required `MERGE APPROVED` authorization and merge action itself are excluded.
 
 ## Quality-complete criteria
 
-Use `~/.claude/skills/draft-first-pr/SKILL.md` for the draft-phase sequence and
+Use `~/.claude/skills/pr-lifecycle/SKILL.md` for the draft-phase sequence and
 `~/.claude/skills/pr-green-definition/SKILL.md` for the two `/green` gates.
 CodeRabbit and Bugbot are advisory and do not determine zero-touch status.
 Repo evidence exceptions still apply where the evidence standards permit them.
@@ -53,25 +55,25 @@ this regardless of how autonomously it was produced.
 
 ## What does NOT break zero-touch
 
-- Jeffrey asking questions about the PR in Slack (observation, not intervention)
+- The operator asking questions about the PR in Slack (observation, not intervention)
 - Bot-to-bot interactions (CR, Bugbot, Skeptic, evidence-review-bot)
-- AO workers posting `@coderabbitai approve` or `@coderabbitai all good?` (worker doing its job)
 - Jeffrey approving the AO spawn itself (dispatch is expected; execution must be autonomous)
 
 ## Measurement — GitHub actor audit
 
-A PR is zero-touch if, **up to the point of the merge action**, the only GitHub
-actors (commits, reviews, comments) are:
+A PR is zero-touch if, **from AO spawn until immediately before the merge
+action**, the only GitHub actors (commits, reviews, comments) are:
 - `jleechan2015` (AO agent GitHub identity)
 - `github-actions[bot]` (CI)
 - `coderabbitai[bot]` (code review)
 - `cursor[bot]` (Bugbot)
 
-**The merge action itself is excluded from this audit.** Since PR #8217 removed
-the auto-merge mechanism, every merge in this repo is executed by a human-facing
-session under explicit `MERGE APPROVED` authorization — the merge event is not a
-zero-touch signal one way or the other. Only audit actions that happened *before*
-the merge command.
+**The required `MERGE APPROVED` authorization and merge action are excluded
+from this audit.** Since PR #8217 removed the auto-merge mechanism, every merge
+in this repo is executed by a human-facing session under explicit authorization.
+Only actions before the merge command are audited. A human fix or review after
+the PR first reaches `/green` still makes it operator-assisted; the current
+merge candidate must remain green at its live head.
 
 If `$USER` (Jeffrey's personal account) or any other human/terminal identity
 appears as a commit author, reviewer, or commenter before the merge, it's

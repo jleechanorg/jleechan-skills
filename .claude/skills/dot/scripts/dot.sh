@@ -91,12 +91,8 @@ run_chrome() {
     CHROME_OUT="DOT_CHROME_UNAVAILABLE: refusing non-system Chrome binary '${DOT_CHROME_BIN:-}' (foreign binaries evict Keychain-encrypted session cookies; set DOT_ALLOW_FOREIGN_BINARY=1 only to override deliberately)"
     return 10
   fi
-  if ! acquire_profile_lock "${DOT_CHROME_USER_DATA:-}" "${DOT_LOCK_WAIT_SECS:-90}"; then
-    CHROME_OUT="DOT_CHROME_UNAVAILABLE: DOT_PROFILE_LOCKED (another dot.sh instance or an open login window owns this profile)"
-    return 10
-  fi
   if ! profile_disk_ok "${DOT_CHROME_USER_DATA:-}"; then
-    release_profile_lock; CHROME_OUT="DOT_CHROME_UNAVAILABLE: low disk"; return 10
+    CHROME_OUT="DOT_CHROME_UNAVAILABLE: low disk"; return 10
   fi
   local rc=0 runner=()
   if [[ "$(uname -s)" == "Linux" ]]; then
@@ -134,7 +130,6 @@ run_chrome() {
   local timed_out=0
   [[ -e "$timed_out_file" ]] && timed_out=1
   rm -f "$out_file" "$timed_out_file"
-  release_profile_lock
   [[ "$timed_out" -eq 1 ]] && return 124
   return "$rc"
 }
@@ -163,82 +158,9 @@ rotate_account_if_needed() {
     next_acc="$(get_next_account "$ACCOUNT")"
     if [[ -n "$next_acc" && "$next_acc" != "$ACCOUNT" ]] && ! echo ",$rotated," | grep -q ",$next_acc,"; then
       echo "dot.sh: account '$ACCOUNT' hit usage limit; rotating to '$next_acc'..." >&2
-      release_profile_lock
       exec env -u DOT_CHROME_USER_DATA -u DOT_URL -u DOT_PROFILE_DIRECTORY DOT_ROTATED_ACCOUNTS="${rotated:+$rotated,}$ACCOUNT" DOT_ACCOUNT="$next_acc" "$BASH" "${BASH_SOURCE[0]}" "$action" "$@"
     fi
   fi
-}
-
-DOT_STOP_CREATED=0
-DOT_STOP_MARKER_PATH="${DOT_STOP_MARKER_PATH:-$HOME/.local/state/ai.gemini.agy-dot-coordinator/STOP}"
-
-profile_lock_path() {
-  local dir="$1" digest
-  digest="$(printf '%s' "$dir" | shasum -a 256 2>/dev/null | cut -c1-16)"
-  [[ -n "$digest" ]] || digest="$(printf '%s' "$dir" | cksum 2>/dev/null | tr -d ' ' | cut -c1-16)"
-  echo "${DOT_LOCK_BASE:-${TMPDIR:-/tmp}}/dot-profile-locks/${digest:-profile}.lock"
-}
-
-release_profile_lock() {
-  if [[ -n "${DOT_LOCK_HOLDER_PID:-}" ]]; then
-    local pid="${DOT_LOCK_HOLDER_PID}"
-    DOT_LOCK_HOLDER_PID=""
-    kill "$pid" 2>/dev/null || true
-    wait "$pid" 2>/dev/null || true
-    rm -f "${DOT_LOCK_READY:-}" 2>/dev/null || true
-    DOT_LOCK_READY=""
-  fi
-  return 0
-}
-
-login_stop_cleanup() {
-  [[ "${DOT_STOP_CREATED:-0}" == "1" && -f "${DOT_STOP_MARKER_PATH:-}" ]] && rm -f "${DOT_STOP_MARKER_PATH}" 2>/dev/null || true
-  DOT_STOP_CREATED=0
-}
-
-acquire_profile_lock() {
-  local dir="$1" wait_secs="${2:-${DOT_LOCK_WAIT_SECS:-90}}"
-  [[ -z "$dir" ]] && return 0
-  if ! mkdir -p "$dir" 2>/dev/null && [[ ! -d "$dir" ]]; then
-    echo "DOT_PROFILE_LOCKED: cannot access or create $dir" >&2; return 1
-  fi
-  local lockfile ready
-  lockfile="$(profile_lock_path "$dir")"
-  mkdir -p "$(dirname "$lockfile")" 2>/dev/null || true
-  ready="$(mktemp "${lockfile}.ready.XXXXXX" 2>/dev/null)" || {
-    echo "DOT_PROFILE_LOCKED: cannot create a unique lock handshake for $dir" >&2; return 1
-  }
-  rm -f "$ready" 2>/dev/null || true
-  python3 - "$lockfile" "$ready" <<'PYHOLDER' &
-import fcntl, os, sys, time
-lock_path, ready_path = sys.argv[1], sys.argv[2]
-ppid = os.getppid()
-if ppid == 1 or os.getppid() != ppid:
-    sys.exit(0)
-fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
-fcntl.flock(fd, fcntl.LOCK_EX)
-if os.getppid() != ppid:
-    sys.exit(0)
-with open(ready_path, "w") as f:
-    f.write(str(os.getpid()))
-while os.getppid() == ppid:
-    time.sleep(1)
-PYHOLDER
-  local holder=$! deadline=$((SECONDS + wait_secs))
-  while (( SECONDS < deadline )); do
-    if [[ -f "$ready" ]]; then
-      DOT_LOCK_HOLDER_PID="$holder"
-      DOT_LOCK_READY="$ready"
-      return 0
-    fi
-    kill -0 "$holder" 2>/dev/null || break
-    sleep 0.25
-  done
-  kill "$holder" 2>/dev/null || true
-  wait "$holder" 2>/dev/null
-  rm -f "$ready" 2>/dev/null || true
-  echo "DOT_PROFILE_LOCKED: another dot.sh instance holds the profile lock for $dir" >&2
-  return 1
 }
 
 profile_disk_ok() {
@@ -331,9 +253,6 @@ cmd_send_once() {
       echo "DOT_CHROME_UNAVAILABLE: refusing non-system Chrome binary '${DOT_CHROME_BIN:-}' (foreign binaries evict Keychain-encrypted session cookies; set DOT_ALLOW_FOREIGN_BINARY=1 only to override deliberately)" >&2
       exit 10
     fi
-    acquire_profile_lock "${DOT_CHROME_USER_DATA:-}" "${DOT_LOCK_WAIT_SECS:-90}" || {
-      echo "DOT_CHROME_UNAVAILABLE: DOT_PROFILE_LOCKED (another dot.sh instance owns this profile)" >&2; exit 2
-    }
     profile_disk_ok "${DOT_CHROME_USER_DATA:-}" || exit 2
     DOT_ACCOUNT="$ACCOUNT" DOT_URL="$DOT_URL" DOT_CHROME_USER_DATA="${DOT_CHROME_USER_DATA:-}" DOT_CLEAR_DRAFT="${DOT_CLEAR_DRAFT:-}" DOT_PREPARED="1" DOT_NO_REMOTE="1" NODE_PATH="$EXTRA_NODE_PATH" \
       "$NODE" "$HERE/dot_chrome.mjs" send-prepared "$file"
@@ -400,21 +319,13 @@ cmd_login() {
     exit 2
   fi
   profile_disk_ok "$dir" || exit 2
-  acquire_profile_lock "$dir" "${DOT_LOGIN_LOCK_WAIT_SECS:-15}" || {
-    echo "dot.sh: another dot.sh instance or login window holds this profile; close it and retry" >&2; exit 2
-  }
-  if [[ -d "$(dirname "${DOT_STOP_MARKER_PATH:-}")" && ! -f "${DOT_STOP_MARKER_PATH:-}" ]]; then
-    touch "${DOT_STOP_MARKER_PATH:-}" 2>/dev/null && DOT_STOP_CREATED=1
-  fi
   if ! validate_login_profile "$dir" "$PROFILE_DIRECTORY"; then
-    login_stop_cleanup; release_profile_lock; exit 2
+    exit 2
   fi
   local profile_args=() store_args=("--password-store=gnome-libsecret") chrome_rc=0
   [[ -n "$PROFILE_DIRECTORY" ]] && profile_args+=("--profile-directory=$PROFILE_DIRECTORY")
   [[ "$(uname -s)" == "Darwin" ]] && store_args=("--password-store=keychain")
   "$chrome_bin" --user-data-dir="$dir" --no-first-run "${profile_args[@]}" "${store_args[@]}" --no-default-browser-check "$target_url" || chrome_rc=$?
-  login_stop_cleanup
-  release_profile_lock
   exit "$chrome_rc"
 }
 
@@ -440,29 +351,49 @@ cmd_probe() {
   printf '%s\n' "$CHROME_OUT"
 }
 
+profile_is_idle() {
+  local dir="$1"
+  [[ -e "$dir/SingletonLock" ]] && return 1
+  ! pgrep -f "user-data-dir=$dir" >/dev/null 2>&1
+}
+
 cmd_restore_session() {
   local dir="${DOT_CHROME_USER_DATA:-}"
   [[ -z "$dir" ]] && { echo "dot.sh: profile directory not resolved" >&2; exit 2; }
   local prof="${PROFILE_DIRECTORY:-Default}"
   local db="$dir/$prof/Cookies" snap="$dir/$prof/Cookies.snapshot"
   [[ -f "$snap" ]] || { echo "dot.sh: no session snapshot for this profile. Canonical recovery: dot.sh --account $ACCOUNT login" >&2; exit 2; }
-  pgrep -f "user-data-dir=$dir" >/dev/null 2>&1 && { echo "dot.sh: a Chrome process is using this profile; close it before restoring" >&2; exit 2; }
-  acquire_profile_lock "$dir" "${DOT_LOCK_WAIT_SECS:-90}" || { echo "dot.sh: another dot.sh instance holds this profile; close it and retry" >&2; exit 2; }
+  profile_is_idle "$dir" || { echo "dot.sh: a Chrome process or its SingletonLock owns this profile; close it before restoring" >&2; exit 2; }
+  local ts tmp
+  ts="$(date +%Y%m%d%H%M%S)"
+  tmp="$db.restore-tmp.$$"
+  cp "$snap" "$tmp" || { echo "dot.sh: could not stage the snapshot; nothing changed" >&2; exit 2; }
+  chmod 600 "$tmp"
+  # Re-check immediately before mutating: a launch during staging aborts with
+  # nothing changed, so this path does not need the removed profile lock.
+  profile_is_idle "$dir" || { rm -f "$tmp"; echo "dot.sh: a Chrome launch started during restore; aborted with nothing changed" >&2; exit 2; }
   if [[ -f "$db" ]]; then
-    cp "$db" "$db.pre-restore" || { release_profile_lock; echo "dot.sh: could not keep a pre-restore copy; aborting" >&2; exit 2; }
+    cp "$db" "$db.pre-restore" || { rm -f "$tmp"; echo "dot.sh: could not keep a pre-restore copy; nothing changed" >&2; exit 2; }
   fi
-  if cp "$snap" "$db"; then
-    rm -f "$db-journal" "$db-wal" "$db-shm"
-    chmod 600 "$db"
-  else
-    release_profile_lock; echo "dot.sh: restore copy failed" >&2; exit 2
+  # Move the old journal files aside rather than deleting them: a concurrent
+  # reader keeps its own inode, and no stale journal is left at the path the
+  # restored store is opened from.
+  local ext failed=0
+  for ext in journal wal shm; do
+    if [[ -e "$db-$ext" ]]; then mv -f "$db-$ext" "$db-$ext.pre-restore-$ts" || failed=1; fi
+  done
+  if [[ "$failed" -eq 1 ]]; then
+    rm -f "$tmp"
+    echo "dot.sh: could not move a sidecar journal aside; aborted before touching the store (nothing changed)" >&2
+    exit 2
   fi
-  echo "dot.sh: session snapshot restored (pre-restore copy kept at $db.pre-restore). Verify with 'dot.sh --account $ACCOUNT read'; if not signed in, recover with 'dot.sh --account $ACCOUNT login' (never resync from another profile)." >&2
-  release_profile_lock
+  mv -f "$tmp" "$db" || { rm -f "$tmp"; echo "dot.sh: atomic swap failed; the previous store and $db.pre-restore are unchanged" >&2; exit 2; }
+  chmod 600 "$db"
+  profile_is_idle "$dir" || echo "dot.sh: WARNING a Chrome launch raced this restore, so it is not verified. Close Chrome and re-run, or use 'dot.sh --account $ACCOUNT login'." >&2
+  echo "dot.sh: session snapshot restored atomically (pre-restore copy kept at $db.pre-restore). Verify with 'dot.sh --account $ACCOUNT read'; if not signed in, recover with 'dot.sh --account $ACCOUNT login' (never resync from another profile)." >&2
 }
 
 if [[ "${DOT_SKIP_DISPATCH:-0}" != "1" ]]; then
-  trap 'release_profile_lock; login_stop_cleanup' EXIT
   case "${1:-}" in
     read) shift; cmd_read "$@" ;;
     submit-draft) shift; cmd_simple submit-draft ;;

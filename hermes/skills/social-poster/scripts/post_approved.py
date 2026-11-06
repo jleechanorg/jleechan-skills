@@ -15,7 +15,7 @@ Usage:
   # Actually post
   python3 post_approved.py --drafts /tmp/drafts/social-2026-07-06/ \\
       --approval-token "POST APPROVED" \\
-      [--platforms linkedin,hackernews]
+      --publish-request --platforms reddit,twitter
 """
 import argparse
 import json
@@ -24,6 +24,7 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from platform_policy import intersect_platforms, parse_platforms, selected
 
 
 def check_approval(token: str | None) -> None:
@@ -34,9 +35,9 @@ def check_approval(token: str | None) -> None:
     if not token:
         print("=" * 60)
         print("BLOCKED — no POST APPROVED token.")
-        print("This script ONLY posts after the user types 'POST APPROVED'.")
+        print("This script requires verified user authorization and an internal approval token.")
         print("Add --approval-token 'POST APPROVED' to actually post.")
-        print("Without it, this is a dry-run that lists staged tabs.")
+        print("Without it, publishing is blocked.")
         print("=" * 60)
         raise SystemExit(2)
     if token.strip().lower() != "post approved":
@@ -50,8 +51,6 @@ def parse_approval_platforms(token: str) -> tuple[str, list[str] | None]:
     Returns ('POST APPROVED', platforms_list_or_None).
     """
     parts = token.strip().split(maxsplit=2)
-    if len(parts) == 1:
-        return ("POST APPROVED", None)
     if len(parts) >= 2 and parts[0].lower() == "post" and parts[1].lower() == "approved":
         # 3rd field is comma-separated platforms
         if len(parts) == 3:
@@ -108,22 +107,36 @@ def main():
     ap = argparse.ArgumentParser(description="Gated publisher — requires POST APPROVED token")
     ap.add_argument("--drafts", required=True, help="Draft directory")
     ap.add_argument("--approval-token", default="", help="Must be 'POST APPROVED' or 'POST APPROVED platform1,platform2'")
-    ap.add_argument("--platforms", default="", help="Comma-separated platform allowlist (overrides token allowlist)")
+    ap.add_argument("--publish-request", action="store_true",
+                    help="Operator attests latest user request explicitly authorizes publishing reviewed content")
+    ap.add_argument("--platforms", default=None, help="Comma-separated platform allowlist (narrows token allowlist; default reddit,twitter)")
     args = ap.parse_args()
 
     # Hard gate
-    check_approval(args.approval_token)
+    normalized, token_plats = parse_approval_platforms(args.approval_token)
+    check_approval(normalized if args.approval_token else "")
 
-    # Parse platforms from approval token OR from --platforms flag
-    _, token_plats = parse_approval_platforms(args.approval_token)
-    flag_plats = [p.strip() for p in args.platforms.split(",") if p.strip()]
-    allow = flag_plats or token_plats  # --platforms wins if both provided
+    # Intersect both directions: reddit ∩ reddit_example is reddit_example.
+    # An explicitly empty token scope must not fall back to default permission.
+    try:
+        allow = parse_platforms(args.platforms if args.platforms is not None
+                                else (",".join(token_plats) if token_plats is not None else None))
+        if token_plats is not None:
+            allow = intersect_platforms(allow, parse_platforms(",".join(token_plats)))
+        if not allow:
+            raise ValueError("Token and flag platform selections have no destinations in common")
+    except ValueError as exc:
+        ap.error(str(exc))
 
     drafts_dir = Path(args.drafts).expanduser().resolve()
     manifest_path = drafts_dir / "manifest.json"
     if not manifest_path.exists():
         print(f"ERROR: manifest.json not found in {drafts_dir}")
         return 1
+
+    if not args.publish_request:
+        print("BLOCKED — latest request must explicitly authorize publishing; draft/stage is not approval")
+        return 2
 
     manifest = json.loads(manifest_path.read_text())
     posted_path = drafts_dir / "posted.json"
@@ -144,6 +157,8 @@ def main():
     posted = {"posted_at": datetime.now(timezone.utc).isoformat(),
               "approval_token": args.approval_token, "platforms": [], "results": {}}
 
+    previous = json.loads(posted_path.read_text()) if posted_path.exists() else {}
+    posted["results"].update(previous.get("results", {}))
     files = manifest.get("files", {})
     for key, path in files.items():
         # Reddit keys are "reddit_<sub>", not "reddit"
@@ -159,8 +174,13 @@ def main():
             if not compose_url:
                 continue
 
-        if allow and platform_key not in allow:
-            posted["results"][platform_key] = {"status": "skipped", "reason": "not in allowlist"}
+        if not selected(platform_key, allow):
+            posted["results"].setdefault(platform_key, {"status": "skipped", "reason": "not in allowlist"})
+            continue
+
+        prior = posted["results"].get(platform_key, {})
+        if prior.get("status") in {"posted", "existing", "unknown", "timeout", "submitting"}:
+            print(f"Skipping {platform_key}: existing or uncertain submission; inspect history before retry")
             continue
 
         if platform_key == "instagram":
@@ -171,6 +191,8 @@ def main():
             continue
 
         print(f"\n→ Posting {platform_key} ({compose_url})...")
+        posted["results"][platform_key] = {"status": "submitting"}
+        posted_path.write_text(json.dumps(posted, indent=2))
         result = click_submit_via_aside(platform_key, compose_url)
         posted["results"][platform_key] = result
         posted["platforms"].append(platform_key)

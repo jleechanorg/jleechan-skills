@@ -1,20 +1,14 @@
 ---
 name: pr-description-sections
-description: "Use when writing PR descriptions. Enforces 6 sections in order: Background, Goals, Tenets, High-level description, Testing, Low-level details."
+description: "Use when writing PR descriptions; follow the shared PR-description owner and the target repository's template."
 ---
 
-# PR description — required sections (canonical)
+# PR description guidance
 
+The shared required structure and ordering are owned by `~/.codex/AGENTS.md` § PR descriptions (canonical owner).
+Read that section before writing or revising a PR description. This skill is a discovery pointer, not a second
+section contract.
 
-The PR description must use the following sections, in this order:
-
-1. **Background** — context, problem, link to the driving issue/bead.
-2. **Goals** — concrete outcomes this PR delivers (bullet list).
-3. **Tenets** — the rules/principles/constraints this PR respects or introduces; flag any new tenets explicitly.
-4. **High-level description of changes** — file/path-level summary grouped by area (backend, frontend, tests, docs).
-5. **Testing** — what was tested, what was not tested, and the evidence path (commands, logs, screenshots, video).
-6. **Low-level details** — non-obvious decisions, schema/prompt deltas, gotchas, follow-ups.
-
-This is the source of truth for the `your-project.com` `.github/pull_request_template.md` and any new agent-led PR. Reviewers read the PR description as the canonical review context; consistency with this section list is required.
-
-**Design-doc gate (CI):** the `design-doc-gate.yml` Gate 0 regex accepts `## Design Decision`, `## Governing Design Doc & Tracking`, **or** `## Tenets` as the design-doc/artifact-link header. If you rename or restructure that header in the future, update the regex in the same PR — otherwise production PRs >50 lines will fail CI even when the design-doc and bead links are present under the new name.
+Also read the target repository's `AGENTS.md`/`CLAUDE.md` and `.github/pull_request_template.md` for local
+required fields, CI markers, evidence records, and domain-specific content. Preserve those requirements while
+applying the shared structure. Do not replace a repository template or local gate with this pointer.

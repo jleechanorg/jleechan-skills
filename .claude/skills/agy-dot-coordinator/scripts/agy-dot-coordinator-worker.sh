@@ -736,12 +736,14 @@ $DIRECTIVE
     echo "Account [$acc]: send result (rc=$send_rc):"
     echo "$send_out"
 
-    # Only an exact transport receipt plus clean exit counts as success.
-    # Nonzero/empty-composer results remain unverified; do not advance delivery state.
-    if [[ "$send_rc" -eq 0 ]] && echo "$send_out" | grep -qx "DOT_SENT_VERIFIED"; then
+    # The browser receipt is only a UI observation. It does not prove server
+    # acceptance or durable delivery, so retain the pre-send hold and never
+    # replay an ambiguous message. A distinct authoritative receipt is
+    # required before advancing cooldown or the delivered-change ledger.
+    if [[ "$send_rc" -eq 0 ]] && echo "$send_out" | grep -qx "DOT_SERVER_ACCEPTED"; then
       # Persist receipt before polling: termination during polling cannot replay it.
-      write_state "$acc" "$NOW" "SUCCESS" "Verified direct transport receipt"
-      echo "Account [$acc]: Successfully delivered and verified reminder."
+      write_state "$acc" "$NOW" "SUCCESS" "Authoritative server acceptance receipt"
+      echo "Account [$acc]: Successfully delivered and server-accepted reminder."
 
       if [[ "$POLL_REPLY" -eq 1 ]]; then
         echo "Account [$acc]: Polling for dot reply (every ${POLL_INTERVAL_SECS}s, up to ${MAX_POLLS} cycles)..."
@@ -759,9 +761,14 @@ $DIRECTIVE
         done
       fi
 
+    elif [[ "$send_rc" -eq 0 ]] && echo "$send_out" | grep -qx "DOT_SENT_VERIFIED"; then
+      write_state "$acc" "$last_sent" "UNVERIFIED_SEND_UI_OBSERVED" \
+        "UI observed the message, but server acceptance and durable delivery remain unverified"
+      echo "Account [$acc]: UI observed the message; server acceptance is unverified, so delivery is held and no retry will be attempted."
+
     elif [[ "$send_rc" -eq 3 ]] &&
          echo "$send_out" | grep -q "DOT_DRAFT_PRESENT" &&
-         ! echo "$send_out" | grep -qE "DOT_SENT_VERIFIED|DOT_SEND_UNVERIFIED"; then
+         ! echo "$send_out" | grep -qE "DOT_SERVER_ACCEPTED|DOT_SENT_VERIFIED|DOT_SEND_UNVERIFIED"; then
       echo "Account [$acc]: Dot composer busy with peer draft; gracefully skipping this tick."
       write_state "$acc" "$last_sent" "SKIPPED_COMPOSER_BUSY" "Peer draft in composer"
     elif echo "$send_out" | grep -qi "DOT_CHROME_UNAVAILABLE"; then

@@ -2,12 +2,11 @@
 name: social-poster
 version: 0.1.0
 description: |
-  Draft social-media posts for LinkedIn, Hacker News, Twitter/X, Reddit, Threads,
-  Facebook, Instagram, Mastodon, Bluesky, and Dev.to. Each draft is staged in an
-  Aside browser tab (signed-in persistent session), screenshotted, and surfaced
-  for human review. Posts ONLY go live after the user types "POST APPROVED"
-  (per-platform allowed: "POST APPROVED linkedin,hackernews"). Pure draft mode by
-  default — no LLM augmentation, no auto-post, no exceptions.
+  Discover relevant Reddit communities and existing Reddit/X discussions for
+  each source post; draft standalone posts or tailored replies. Reddit and X
+  are the default destinations. Other supported platforms are explicit opt-ins.
+  Draft requests never auto-stage or publish. Publication requires explicit
+  authorization for reviewed content, account, and destinations.
 when_to_use: |
   Use when the user asks to draft a post for any social platform, share a project
   on LinkedIn/HN/Twitter, post to Reddit, prepare a Show HN, draft an Instagram
@@ -44,6 +43,116 @@ context: inline
 ---
 
 # Social Poster — Draft-Only, POST APPROVED Gated
+
+## Request scope and supported access (takes precedence over legacy recipes)
+
+Default research, drafting, staging, and publishing destination allowlist:
+`reddit,twitter` (`x` is an alias for `twitter`). LinkedIn, Instagram, Facebook,
+and **Meta Threads** are excluded unless explicitly selected in the current
+request. “X threads” means discussions on Twitter/X, never Meta Threads.
+Other supported platforms remain explicit opt-ins. A supplied source URL may
+be read as source evidence without opting its platform into destination research.
+
+Pass the same resolved allowlist to the drafter's `--platforms`, stagers'
+`--only`, and publisher's `--platforms`. Omitted script flags default to
+Reddit/X, even if a directory contains old excluded-platform drafts. Never
+infer opt-in from stale files, manifest history, or enabled cross-share toggles.
+For Instagram, keep Threads/Facebook cross-share disabled unless each is
+explicitly selected; stop if that cannot be verified. Selection does not grant
+publication permission.
+
+`reddit` selects the Reddit family; `reddit_example` selects only r/example.
+The drafter accepts either form. `--reddit-subs` narrows the Reddit targets;
+without it, scoped selections name their own targets and a bare `reddit` creates
+an untargeted local draft. For example, `--platforms reddit_example
+--reddit-subs example,sibling` produces only `reddit_example.md`. Disjoint
+subreddit selections and empty/invalid allowlists are errors, not successful
+empty draft runs. The publisher intersects token and flag scopes symmetrically:
+`POST APPROVED reddit_example` plus `--platforms reddit` still authorizes only
+`reddit_example`, never sibling communities. An empty intersection exits with
+an error before submission; it cannot fall back to default permission.
+
+The latest request controls the action: **draft/research means discovery and
+local drafts only**, with no auto-staging, scheduling, or publishing. Stage only
+when requested. Publish only reviewed content to the verified account and
+selected destinations after explicit authorization; preserve any independently
+required tool confirmation. A prior approval does not override a later draft
+request. No magic user phrase is required; legacy tokens are internal bookkeeping.
+
+Use supported read-only search, authorized connectors, or the normal browser
+session. Stop and report access limits rather than extracting cookies/tokens,
+copying credentials, decrypting browser stores, or using hidden API fallbacks.
+Do not run `cookie_inject_and_stage.py` or legacy credential/fallback recipes.
+These rules apply to every platform and all referenced historical notes.
+
+## Phase 0 — Per-source discovery (agent workflow, not a crawler)
+
+For **each input source URL**, independently:
+
+1. Inspect the original post, author, full text, linked context, and original
+   photo/video. Record what was actually visible and any inaccessible media;
+   search snippets are leads, not proof the full source was read. Do not invent
+   details or reuse the announcement template for unrelated commentary.
+2. Find relevant Reddit communities **and specific existing Reddit/X threads**.
+   Search by the source's topic, claims, terminology, and canonical links.
+   Open candidate discussions, verify their original and latest activity dates,
+   and read enough context to explain relevance. Prefer active discussions;
+   label older threads, locked/archived threads, and any uncertainty.
+3. **Mandatory Reddit promotion-rule gate:** before recommending a destination or drafting for it,
+   verify current subreddit-specific rules and pinned guidance for promotion eligibility,
+   affiliation disclosure, required flair, frequency/duplicate limits,
+   AI/bot restrictions, account eligibility (such as age, karma, or prior
+   participation), and link policies. Record each rule source URL and check date,
+   relevant restrictions, and a disposition: `allowed`, `conditional`,
+   `prohibited`, or `unverified`. For `conditional`, identify the conditions and
+   verify that the proposed content and intended account satisfy them before
+   recommending or drafting. If rules or account eligibility are inaccessible or ambiguous,
+   do not assume promotion is allowed: mark the destination `unverified` and
+   withhold a destination-specific promotional draft, or choose a verified alternative.
+   Skip prohibited promotion even if the community was explicitly requested.
+   Historical rule tables are leads only, never current verification. Passing
+   this gate does not grant publication permission.
+4. Inspect the intended user's prior posts **and replies** for matching source
+   links, text/media, or the same topic in each candidate community/thread.
+   Record existing permalinks and the history window searched. If identity or
+   history access is missing, mark duplicate checking incomplete, do not claim
+   no duplicates, and do not publish until the uncertainty is resolved.
+5. Choose a new **standalone post**, a useful **tailored reply**, or **skip** for
+   each target. Replies must answer the actual discussion and add value; avoid
+   promotional link drops or repeating the user's existing contribution.
+   Return an existing matching permalink instead of another copy, even if
+   publishing was approved. Recheck live history immediately before any
+   authorized submission and after uncertain outcomes before retrying.
+6. Hand-author source-faithful drafts for the chosen targets. Use separate local
+   directories per source if invoking the single-source template CLI. The CLI
+   does not search, inspect media, verify rules/dates, or check account history;
+   its manifest explicitly reports `discovery_status: not_performed`.
+
+### Per-source discovery output contract
+
+Return a separate section keyed by **every input source URL**, including sources
+that are blocked or have no suitable targets. Do not pool multiple source posts
+into a single unmapped recommendation. Each section must include:
+
+- Source URL, verified source summary, original media inspection and access limits.
+- For each target: platform, exact community URL and exact existing thread URL
+  (for replies), discussion date/latest activity, relevance, current rules URL
+  and checked-at date, flair/link constraints, and prior-user-post/reply evidence.
+  For Reddit, include the promotion disposition (`allowed`, `conditional`,
+  `prohibited`, or `unverified`) and evidence for any eligibility conditions.
+- Decision: `standalone`, `reply`, `existing`, or `skip`, with rationale. Include
+  the exact existing permalink when found; no duplicate draft for that target.
+- The complete tailored draft (Reddit title/body for standalone; reply text for
+  replies), explicitly mapped to its target URL and source URL. Standalone
+  targets use the community URL, not an invented future post permalink.
+- Coverage limits: searches and history window actually checked, inaccessible
+  sources/media/rules/history, unverified dates, and platforms excluded by scope.
+  If no suitable target exists, say so; never fabricate links or search receipts.
+- State: `draft only`, `staged` only with verified requested staging evidence,
+  or `published` only with an authorized, verified final permalink.
+
+This is a procedural output contract. Offline instruction tests can check that
+it is present; they cannot establish that a real discovery run occurred.
 
 ## Twitter/X browser workflow
 
@@ -94,13 +203,13 @@ and staging alone do not authorize posting, and no future posts are approved.
 
 ## Contract
 
-1. **Draft, never post** — default mode produces text files + browser-staged tabs + screenshots. No network mutation without explicit `POST APPROVED`.
-2. **Persistent browser session** — uses `aside` CLI (signed into $USER@gmail.com) to keep one session across multiple platform tabs; never spawns a fresh Playwright Chromium per platform.
+1. **Draft only by default** — produce discovery results and local drafts. No browser staging without a stage request and no publishing without explicit authorization.
+2. **Supported browser session** — reuse the intended signed-in account and verify identity; do not copy credentials between browsers.
 3. **Per-platform conformance** — character limits, title rules, hashtag placement, threading, self-promo ratios checked at draft time (no "fix it after posting").
-4. **Reddit 10/90 + per-sub rules** — every Reddit draft is checked against the live-verified rules in `references/subreddit-rules.md` (r/LocalLLaMA, r/Rag, r/OpenAI verified via Aside probe 2026-07-05).
+4. **Current community rules** — verify live rules during Phase 0; `references/subreddit-rules.md` is historical guidance only.
 5. **POST APPROVED token** — `scripts/post_approved.py` checks for literal `POST APPROVED` (or per-platform like `POST APPROVED linkedin,hackernews`) before clicking any submit button. Without the token, exits code 2 with "BLOCKED — no POST APPROVED token".
-6. **No LLM augmentation by default** — pure templating. To enable LLM refinement, pass `--use-llm` (which routes through your existing `~/.hermes/config.yaml` auxiliary provider; never hardcodes API keys).
-7. **Auto-stage on /social** — when invoked as `/social <intent>`, run Phase 1 + Phase 2 back-to-back without asking. The user invoked the command → staging is implied. (Jeffrey preference, 2026-07-17: "stage it and next time stage without asking".) Skip staging ONLY if Aside extension bridge is down or all drafts are intentionally login-wall / load_only / no_recipe.
+6. **No provider calls in the template CLI** — deterministic local text only. Discovery and tailored drafting are agent instructions, not an implemented search or LLM backend.
+7. **No auto-stage on /social** — follow the latest request. Discovery/drafting stops before Phase 2 unless staging is requested.
 
 ## Supported Platforms
 
@@ -128,7 +237,7 @@ python3 "$PY" \
   --intent "announce jleechanclaw open-source release" \
   --key-points "AI agent orchestration, hermes deploy pipeline, skill framework" \
   --link "https://github.com/jleechanorg/jleechanclaw" \
-  --platforms linkedin,hackernews,twitter,reddit,threads,facebook,instagram,mastodon,devto \
+  --platforms reddit,twitter \
   --reddit-subs "LocalLLaMA,Rag,OpenAI" \
   --image "" \
   --out /tmp/drafts/social-2026-07-06/
@@ -181,18 +290,19 @@ The script will NOT claim a platform is "ready" unless the draft text was verifi
 
 ### Phase 3 — Surface to user
 
-Print all draft file paths + screenshot paths. Attach screenshots via Slack `MEDIA:/path` (per `evidence-attach-to-slack` skill). Ask: *"POST APPROVED?"*
+Return the per-source discovery output contract above, plus draft paths. Include screenshots only for requested, verified staging. Deliver in the current conversation unless another destination was explicitly requested.
 
 ### Phase 4 — Post (gated)
 
-ONLY after the user types `POST APPROVED` (literal, case-insensitive, optionally with comma-separated platform allowlist), run:
+Only after the latest user request explicitly authorizes publishing the reviewed content, verified account, and selected destinations, complete the live duplicate check and tool confirmations, then run:
 
 ```bash
 PY=$HOME/.hermes/skills/social-poster/scripts/post_approved.py
 python3 "$PY" \
   --drafts /tmp/drafts/social-2026-07-06/ \
   --approval-token "POST APPROVED" \
-  [--platforms linkedin,hackernews]  # if omitted, posts all staged
+  --publish-request \
+  --platforms reddit,twitter  # always pass the current request allowlist
 ```
 
 Behavior per platform:
@@ -200,16 +310,21 @@ Behavior per platform:
 - Instagram → surface draft caption as text + print mobile instructions (no web compose). Manual copy-paste from phone.
 
 Posting log written to `--drafts/posted.json` with timestamps + captured URLs.
+Completed, existing, and uncertain submissions in that directory are not retried.
+For a live-discovered duplicate, record `{"status": "existing", "url": "<permalink>"}`
+under its platform key in `posted.json` → `results` and return the permalink.
+This local retry guard is not a live history search; Phase 0 and the pre-submit
+live check remain required. Keep each source in its own draft directory.
 
 ## Safety Gates
 
 1. **`POST APPROVED` required** — see `scripts/post_approved.py` `check_approval()` function. Hard exit 2 if missing.
-2. **`--dry-run`** — default behavior of `post_approved.py` if invoked without an approval token. Prints staged tabs and exits.
-3. **Per-platform allowlist** — `POST APPROVED linkedin` only posts LinkedIn. Comma-separated = OR. Default = all staged platforms.
+2. **Current publish request** — `--publish-request` is an operator attestation of the latest explicit authorization, never supplied for draft/stage requests. Without it, existing drafts cannot be published even with a stale approval token.
+3. **Per-platform allowlist** — `POST APPROVED linkedin` only posts LinkedIn. Comma-separated = OR. Default = Reddit/X only; flags cannot broaden a token allowlist.
 4. **No silent failures** — any platform that fails to post writes to `posted.json` with `{"status": "failed", "error": "..."}`. User is notified.
 5. **Audit log** — every draft run writes `--out/manifest.json` with timestamp, intent, platforms, character counts, spam-rule warnings.
 
-## Subreddit Selection (verified 2026-07-05)
+## Historical subreddit leads (reverify current rules and relevance)
 
 | Content type | Primary | Secondary | Tertiary |
 |---|---|---|---|
@@ -251,82 +366,52 @@ If any of these are visible AND the email shown matches `$USER@your-project.com`
 
 If NO unblock signal is visible (just an empty password field), the session is fully expired and the user must type their password.
 
-## Output Format
-
-After Phase 3, the skill reply includes:
-
-```
-## social-poster draft ready
-
-- Drafted: 9 platforms (linkedin, hackernews, twitter, reddit x3, threads, facebook, instagram, mastodon, devto)
-- Staged: 9 Aside tabs open (URLs: …)
-- Screenshots: /tmp/drafts/social-2026-07-06/screenshots/ (9 PNGs)
-- Manifest: /tmp/drafts/social-2026-07-06/manifest.json
-
-**To post:** reply with `POST APPROVED` (all) or `POST APPROVED <platforms>`.
-**To revise:** tell me what to change and I'll re-draft + re-stage.
-```
-
-Screenshots attached via `MEDIA:/path/to/png` for inline Slack preview.
-
 ## Trigger → Action Map
 
 | User says | Action |
 |-----------|--------|
-| `draft a post about X` | Phase 1 only |
-| `draft + stage a post about X` | Phase 1 + Phase 2 |
-| `POST APPROVED` | Phase 4 (all staged) |
-| `POST APPROVED linkedin,twitter` | Phase 4 (only those two) |
-| `revise the linkedin draft` | Re-run Phase 1 + Phase 2 for that platform only |
-| `cancel drafts` | Close Aside tabs, keep files |
-| `draft posts for <LinkedIn/Twitter URL>` | **Commentary-source path:** extract source body via `curl + og:description regex` (NOT `web_extract`), hand-author drafts (template misfires on commentary), see `references/fable-2d-game-2026-07-11.md` |
+| `/social <intent>` or `draft posts for <URLs>` | Phase 0 per source + Phase 1, then return the discovery output contract |
+| `draft + stage a post` | Phase 0 + Phase 1 + Phase 2 for selected targets |
+| Explicit publish/crosspost request | Verify approval, account/content/destinations, live duplicates and any tool confirmation before Phase 4 |
+| `revise the draft` | Revise local text only unless staging is requested |
 
-## Phase 3.5 — Posting the user-facing summary (Slack/Discord), MCP-down aware
+For replies, use the exact reviewed thread/comment composer when staging is
+requested. The legacy scripts open standalone composers; they do not support
+reply targeting. Use a supported browser workflow or return manual-use drafts,
+never stage a reply as a standalone post by accident.
 
-The draft summary message to the user can land on Slack/Discord/chat. When the messaging MCP is available, use it. **When `mcp__slack__conversations_add_message` returns `not_in_channel` or the server reports "unreachable after N consecutive failures", fall back to the user's XOX-P (user token) via curl** (per SOUL.md `slack-cross-workspace-fallback-xoxp`):
+## Summary delivery
 
-```bash
-TOKEN="$SLACK_USER_TOKEN"
-curl -fsS -X POST "https://slack.com/api/chat.postMessage" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json; charset=utf-8" \
-  --data-binary @<(jq -n --arg txt "$BODY" \
-    '{channel: "<chan>", thread_ts: "<ts>", text: $txt}')
-```
-
-The XOX-P fallback posts as the user (not the Hermes bot identity). **Say so in the body if it might confuse the user.** Do NOT stall with "iteration budget exhausted" — the post still goes through. After the fallback, continue with the standard "POST APPROVED?" prompt.
-
-For non-Slack chat (Discord/Telegram/Discord DM/etc.) the same fallback pattern applies: `curl` to the platform's REST endpoint with the user token rather than waiting for the MCP to recover.
+Return results in the current conversation. If explicitly asked to send elsewhere,
+use the supported connector and its permissions. On denied/unavailable access,
+report the blocker; do not switch identity or use a hidden token/API fallback.
 
 ## Files
 
 - `scripts/draft_social_post.py` — deterministic drafter
 - `scripts/stage_in_aside.py` — opens Aside tabs + screenshots (legacy `aside repl` path — silent paste failure mode)
 - `scripts/stage_in_aside_mcp.py` — **preferred**: opens Aside tabs + pastes via HTTP MCP at 127.0.0.1:8013/mcp. One MCP call per platform bundles open + paste + verify + screenshot on a single `page` object (avoiding the "fresh tab = lost paste" failure). Verified selectors for HN, Twitter, Mastodon, Reddit ×3, Dev.to, LinkedIn, Facebook, Threads (2026-07-17).
-- `scripts/cookie_inject_and_stage.py` — uses `browserclaw cookies decrypt` + Playwright Chrome with injected cookies to stage + paste drafts (for platforms where Aside is not signed in)
+- `scripts/cookie_inject_and_stage.py` — legacy, prohibited in this workflow; do not execute.
 - `scripts/post_approved.py` — gated publisher
 - `templates/*.md` — 9 platform templates
 - `references/subreddit-rules.md` — live-verified per-sub rules
 - `references/platform-character-limits.md` — hard limits + soft guidance
 - `references/aside-recipes.md` — `aside repl` snippets per platform
-- `references/platform-session-status.md` — per-platform cookie injection + anti-bot results (verified 2026-07-05). **Playwright Chrome only — see `aside-repl-session-state.md` for `aside repl`-based staging.**
+- `references/platform-session-status.md` — per-platform cookie injection + anti-bot results (verified 2026-07-05). Historical evidence only; do not execute cookie-injection recipes.
 - `references/blog-post-to-gdoc.md` — recipe for "draft a blog post in Google Docs" (canonical `gws docs` path + local-markdown fallback when gws OAuth is unauthenticated).
 - `references/aside-repl-session-state.md` — verified auth state per platform for `aside repl` workflows (2026-07-06). Includes the `listBrowserTabs()` live-tab probe recipe, the `document` scope-doesn't-persist-across-REPL-calls pitfall, and per-platform paste workarounds for LinkedIn contentEditable / Facebook click-first / Twitter thread pagination.
 - `references/aside-repl-playwright-pattern.md` — verified `openTab()` returns a Playwright `Page` object with `screenshot()` (Buffer→base64), `evaluate()`, `locator()`, `frameLocator()`. Includes 6 working paste/click/inspect idioms. Source of truth for the 2026-07-06 staging rewrite.
 - `references/fable-2d-game-2026-07-11.md` — worked example for commentary/opinion drafts (NOT project announcements). Documents the Fable 2D-game run, the templater failure mode, the vision-verify matrix, and the recommended workflow for future commentary runs.
-- `references/fable-quota-skill-2026-07-15.md` — worked example for **commentary/opinion about a third-party capability + a personal artifact (gist/skills)**. Documents lessons 15 (`require('fs')` is not in the REPL; capture screenshots via base64 stdout redirect), 16 (Mastodon URLs: `/compose` is 404, use `/publish`), and 17 (LinkedIn share-box trigger has obfuscated classes; programmatic click fails). Also documents the Phase 3.5 MCP-down fallback for posting the summary via XOX-P curl when `mcp__slack__conversations_add_message` is unreachable.
+- `references/fable-quota-skill-2026-07-15.md` — worked example for **commentary/opinion about a third-party capability + a personal artifact (gist/skills)**. Documents lessons 15 (`require('fs')` is not in the REPL; capture screenshots via base64 stdout redirect), 16 (Mastodon URLs: `/compose` is 404, use `/publish`), and 17 (LinkedIn share-box trigger has obfuscated classes; programmatic click fails). Its historical token fallback is prohibited by the supported-access rules above.
 - `tests/test_*.py` — unit + integration tests
 - `references/staged-vs-pasted-verification.md` — **CRITICAL**: how to verify drafts actually got pasted into compose forms (vs. just having the page loaded). Use the explicit "what text is in the field?" vision prompt + the verification snippet. The stage script's `staged: True` is not enough.
 - `references/aside-mcp-cli-gmail-profile.md` — Aside automation via HTTP MCP at 127.0.0.1:8013/mcp with `mcp-session-id` header flow + gmail (u0) profile. Reusable Python client snippet. The most reliable automation path when the Chrome extension bridge is alive. **Includes the verified openTab + locator.fill() + screenshot pipeline, per-platform selector table for HN / Twitter / Mastodon / Reddit / Dev.to / LinkedIn / Facebook / Threads, and 7 stage pitfalls (MCP degradation, Reddit fragility, login walls, subprocess.run vs Popen) verified 2026-07-17.**
 
-## Operator preferences (captured 2026-07-11)
+## Operator rules
 
-Jeffrey's standing directives for this skill — embed these in any automation flow:
-
-1. **Headless only.** Never open a visible browser window. Use `browserclaw cookies inject --headless` or headless Playwright (`p.chromium.launch(headless=True)`). If a step would spawn a GUI window (e.g. `open -a "Aside"` or `aside "Open X"` without headless mode), prefer the headless equivalent or surface the limitation rather than opening the GUI.
-2. **Use `/browserclaw` to copy Chrome cookies as needed.** Cookies are the persistent auth substrate; decrypt them from the local Chrome / Aside cookie DB rather than asking the user to log in or paste tokens. If `browserclaw` CLI is broken (see browserclaw SKILL.md broken-editable-install pitfall), fall back to hand-loading the Playwright `storage_state` JSON written by a previous successful decrypt.
-3. **`POST APPROVED` gating is mandatory.** No auto-post, no scheduled post, no background post. The literal token `POST APPROVED` (optionally `POST APPROVED <platforms>`) must appear in the current session before any submit/click-post action.
-4. **Vision-verify, don't DOM-detect.** The script's DOM verdict and the actual field contents can disagree — programmatic paste via React setter / contentEditable frequently fails silently. After every staging run, vision-verify at least one screenshot per platform with the explicit question "What text is currently inside the compose field?" before claiming the platform is "ready".
+Use the supported session; report unavailable staging without blocking drafts.
+Verify actual visible text, account, media, and selected destinations before
+claiming staging succeeded. Do not run historical credential-copy recipes.
 
 ## Critical lessons (from real sessions, not theoretical)
 
@@ -340,9 +425,9 @@ Jeffrey's standing directives for this skill — embed these in any automation f
 
 2. **`document` scope does NOT persist across `aside repl` calls.** Each call gets a fresh JS context. Multi-step workflows (open → click → paste → verify) must be bundled in ONE async IIFE in a single call. Screenshot via `annotatedScreenshot(pageObj)` returned from `openTab()`, not `annotatedScreenshot(null)`.
 
-3. **Programmatic paste into LinkedIn/Twitter/Facebook compose modals is unreliable.** Twitter's textarea + React setter trick works in a single bundled call. LinkedIn's contentEditable div + `el.innerHTML = text` works but React state may not sync (manual paste is more reliable). Facebook requires click-first on "What's on your mind, [Name]?" before the modal opens. **Default workflow: stage + screenshot the empty compose area, let the user paste manually.** This avoids the React control gymnastics entirely and the user still gets visual proof the compose UI is loaded.
+3. **Programmatic paste into LinkedIn/Twitter/Facebook compose modals is unreliable.** Twitter's textarea + React setter trick works in a single bundled call. LinkedIn's contentEditable div + `el.innerHTML = text` works but React state may not sync (manual paste is more reliable). Facebook requires click-first on "What's on your mind, [Name]?" before the modal opens. **When staging is requested and paste fails: report the empty composer honestly and return manual-use drafts.** This avoids the React control gymnastics entirely and the user still gets visual proof the compose UI is loaded.
 
-4. **`POST APPROVED` is mandatory for any submit/click-post action.** Drafts may be staged freely. Posting requires the literal `POST APPROVED` string (optionally with comma-separated platform allowlist). No exceptions, no "looks approved" heuristics. See `scripts/post_approved.py` `check_approval()` for the gate logic.
+4. Publishing requires explicit current authorization; the script token is internal bookkeeping, not a magic user phrase.
 
 5. **`aside session` ≠ `account list` ≠ Chrome cookie DB.** The source of truth is `listBrowserTabs()`. If the user says "I'm signed in to LinkedIn", verify with that probe before declaring a platform unreachable.
 
@@ -362,7 +447,7 @@ Jeffrey's standing directives for this skill — embed these in any automation f
 
 13. **Aside MCP `repl` tool: SKIP `notifications/initialized` (verified 2026-07-11).** The MCP initialize handshake works, but if you send `notifications/initialized` after the initialize, subsequent `tools/call` requests return `Bad Request: No valid session ID provided` even though the session-id header is correctly attached. **The working pattern:** init → read `mcp-session-id` from response header → call `tools/call` immediately, skip `notifications/initialized`. Also: use top-level `await` directly in REPL code (the REPL is in module mode) — DO NOT wrap in `(async () => { ... })();` IIFEs because the IIFE swallows `console.log` output via the SSE stream. Top-level `console.log('HELLO')` works synchronously; `await fetch('https://api.ipify.org')` then `console.log(await r.text())` works async.
 
-14. **`browserclaw` CLI broken if its editable worktree is deleted (verified 2026-07-11).** Symptom: `browserclaw --help` returns empty; running any `browserclaw cookies ...` command returns `ModuleNotFoundError: No module named 'browserclaw.cli'`. Diagnosis: `pip show browserclaw` shows `Editable project location: $HOME/.worktrees/browserclaw-cookies`; if that path no longer exists, the editable install in `.local/orch-venv/lib/python3.13/site-packages/_editable_impl_browserclaw.pth` points to a nonexistent directory and the module fails to import. Fix options: (a) `pip install -e /path/to/browserclaw/repo --force-reinstall --no-deps` to repoint the .pth, (b) `pip uninstall browserclaw && pip install browserclaw` to drop the editable install, (c) recreate the worktree at the original path. The Playwright + cookie inject pattern still works without browserclaw — see `headless_stage_paste.py` for a self-contained alternative.
+14. Legacy cookie-injection recovery is prohibited. Use normal supported login or return drafts with the access limitation.
 
 15. **`require('fs')` is NOT available in the Aside REPL (verified 2026-07-15).** Trying `require('fs').writeFileSync(...)` inside `aside repl` returns `Error: External modules are not available in the REPL.` The screenshot Buffer from `p.screenshot()` cannot be saved directly from inside the REPL. **The verified pattern** — capture the base64 via `console.log` then grep+decode in the parent shell:
 
@@ -390,7 +475,7 @@ This works because top-level `await` is allowed directly in the REPL (no IIFE wr
 
 21. **Reddit's old.reddit.com form is fragile — fill sometimes hangs Chrome entirely (verified 2026-07-17).** Symptom: `locator.fill()` for `textarea[name='text']` on `/r/X/submit?selftext=true` triggers an indefinite Chrome hang (no MCP response after 60s+). The same code works for HN (`textarea[name='text']`) and Mastodon (`<textarea>`) — the difference is old.reddit's anti-spam heuristics. Workaround: run each Reddit subreddit in its own fresh MCP session, fill title first, then body in a separate call. If the body fill still hangs, surface the draft `.md` file to the user for manual paste.
 
-22. **Login walls silently reappeared for LinkedIn / Facebook / Threads / Dev.to with Chrome profile u0 = $USER@gmail.com (verified 2026-07-17).** Earlier sessions (2026-07-11) reported these platforms as "signed in for the session via fresh `openTab`"; the cookies appear to have rotated or expired between sessions. Symptom: `openTab` on the compose URL redirects to the platform's sign-in form (Dev.to shows `input#user_email` + `input#user_password`; LinkedIn shows "Welcome back" page). Fix: one-time manual login in the Aside GUI, then re-run staging — u0 cookies refresh for the next 24-72h. Or fall back to headless Playwright + `browserclaw cookies inject` per `references/platform-session-status.md`.
+22. **Login walls silently reappeared for LinkedIn / Facebook / Threads / Dev.to with Chrome profile u0 = $USER@gmail.com (verified 2026-07-17).** Earlier sessions (2026-07-11) reported these platforms as "signed in for the session via fresh `openTab`"; the cookies appear to have rotated or expired between sessions. Symptom: `openTab` on the compose URL redirects to the platform's sign-in form (Dev.to shows `input#user_email` + `input#user_password`; LinkedIn shows "Welcome back" page). Fix: one-time manual login in the Aside GUI, then re-run staging — u0 cookies refresh for the next 24-72h. If login is unavailable, return local drafts and report the blocker.
 
 23. **Use `subprocess.Popen + .communicate(timeout=...)`, NOT `subprocess.run(timeout=...)` for MCP `curl` calls (verified 2026-07-17).** `subprocess.run(..., timeout=180)` silently drops output if the curl process writes its SSE bytes between Python's timeout firing and the process exiting cleanly. `Popen` + `communicate(timeout=180)` captures the same data. Indistinguishable on a happy path; visible failure mode is `len(out) == 0` after a "successful" call.
 

@@ -202,6 +202,7 @@ def capture_fleet(
     max_words: int = DEFAULT_MAX_WORDS,
     scrollback_lines: int = SCROLLBACK_LINES,
     with_gh: bool = False,
+    readonly: bool = False,
     home_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Capture 10k-word scrollback files and write `manifest.json`."""
@@ -224,6 +225,11 @@ def capture_fleet(
     )
     (out_dir / "top_flat.tsv").write_text(top_proc.stdout or "", encoding="utf-8")
     cpu_by_surface = parse_top_cpu_by_surface(top_proc.stdout or "")
+    # An all-zero or empty capture is a broken measurement, not proof that every
+    # lane is idle. Record it so consumers can treat cpu_percent as unverified.
+    cpu_source = (
+        "top-flat" if any(v > 0.0 for v in cpu_by_surface.values()) else "unavailable"
+    )
 
     surfaces_manifest: list[dict[str, Any]] = []
     for item in list_terminal_surfaces(tree_data):
@@ -295,7 +301,10 @@ def capture_fleet(
                 "surface": sf_ref,
                 "surface_ref": sf_ref,
                 "surface_title": item["surface_title"],
-                "cpu_percent": cpu_by_surface.get(sf_ref, 0.0),
+                # Missing from the capture means UNKNOWN, not 0%.
+                # Defaulting to 0.0 made an absent surface indistinguishable from an
+                # idle one, so a degraded `top` capture read as "every lane idle".
+                "cpu_percent": cpu_by_surface.get(sf_ref),
                 "file_10k": str(file_10k.resolve()),
                 "pi_session_jsonl": pi_session_jsonl,
                 "total_words": total_words,
@@ -330,9 +339,11 @@ def capture_fleet(
 
     manifest: dict[str, Any] = {
         "out_dir": str(out_dir.resolve()),
+        "mode": "readonly" if readonly else "steer-capable",
         "scrollback_lines": scrollback_lines,
         "max_words": max_words,
         "surface_count": len(surfaces_manifest),
+        "cpu_source": cpu_source,
         "gh_prs_file": gh_prs_file,
         "surfaces": surfaces_manifest,
     }
@@ -374,6 +385,15 @@ def main() -> int:
         help="Also capture open GitHub PR metadata to <out-dir>/gh_prs.json.",
     )
     parser.add_argument(
+        "--readonly",
+        action="store_true",
+        help=(
+            "Record a read-only audit sweep in manifest.json ('mode': 'readonly'). "
+            "The collector never mutates a surface; this flag is the provenance marker "
+            "for runs that must not steer (see SKILL.md § Read-only mode)."
+        ),
+    )
+    parser.add_argument(
         "--json",
         action="store_true",
         help="Print full manifest JSON to stdout.",
@@ -386,6 +406,7 @@ def main() -> int:
         max_words=args.max_words,
         scrollback_lines=args.scrollback_lines,
         with_gh=args.with_gh,
+        readonly=args.readonly,
     )
 
     if args.json:
@@ -393,15 +414,20 @@ def main() -> int:
         return 0
 
     print(
-        f"out_dir={manifest['out_dir']} terminals={manifest['surface_count']} "
+        f"out_dir={manifest['out_dir']} mode={manifest['mode']} terminals={manifest['surface_count']} "
         f"manifest={Path(manifest['out_dir']) / 'manifest.json'}"
     )
     for row in manifest["surfaces"]:
         last_line = row["tail_lines"][-1][:90] if row["tail_lines"] else "<empty>"
+        # cpu_percent is None when the surface was absent from the capture;
+        # format that as n/a rather than crashing on a float format spec.
+        cpu_display = (
+            "n/a" if row["cpu_percent"] is None else f"{row['cpu_percent']:.1f}%"
+        )
         print(
             f"  [{row['workspace']} | {row['workspace_ref']} / {row['surface_ref']}] "
             f"words={row['captured_words']}/{row['total_words']} "
-            f"lines={row['lines_read']} cpu={row['cpu_percent']:.1f}% "
+            f"lines={row['lines_read']} cpu={cpu_display} "
             f"file={row['file_10k']} | tail={last_line}"
         )
     return 0

@@ -31,8 +31,7 @@ COMMANDS_DIR = REPO_ROOT / ".claude" / "commands"
 
 # Fixture A (TRUE POSITIVE), real content of .claude/commands/advice.md line 2:
 #   description: Token-efficient second opinion — fans out a concurrent Codex
-#   + Opus CLI primary pair plus /research, /extended-library:secondo, and
-#   /web-advice. ...
+#   + Opus CLI primary pair plus /research. ...
 # Prose delegation, and .claude/commands/research.md exists. Both /advice and
 # /research are in the Active Core set, so neither is reachable only through
 # .claude/commands/extended-library/, which the closure scanner does not scan.
@@ -84,13 +83,12 @@ class CommandClosureTest(unittest.TestCase):
             f"/{GENUINE_SEED} genuinely delegates to `/{GENUINE_TARGET}` "
             f"(.claude/commands/{GENUINE_SEED}.md), so closure must include it",
         )
-        self.assertIn(NAMESPACED_TARGET, closure)
-        self.assertNotIn("secondo", result["rejected"])
+        self.assertNotIn(NAMESPACED_TARGET, closure)
         self.assertTrue(
             (COMMANDS_DIR / "extended-library" / "secondo.md").is_file()
         )
 
-    def test_advice_direct_references_all_resolve_and_secondo_stays_namespaced(self):
+    def test_advice_direct_references_all_resolve_and_exclude_secondo(self):
         references = extract_references_from_text(self.seed_text[GENUINE_SEED])
         unresolved = []
         for name in sorted(references):
@@ -102,7 +100,8 @@ class CommandClosureTest(unittest.TestCase):
                 unresolved.append(name)
 
         self.assertFalse(unresolved)
-        self.assertIn(NAMESPACED_TARGET, references)
+        self.assertNotIn(NAMESPACED_TARGET, references)
+        self.assertNotIn("secondo", references)
         self.assertFalse((COMMANDS_DIR / "secondo.md").exists())
 
     def test_false_positive_tokens_are_not_pulled_into_closure(self):

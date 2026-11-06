@@ -15,14 +15,10 @@ execution_mode: immediate
 **Action Steps:**
 🚨 **MANDATORY**: Use `/commentfetch` for comprehensive comment data instead of duplicating API calls:
 
-```bash
-
 ### Phase 2: Step 2: Individual Comment Threading Verification (JSON-BASED)
 
 **Action Steps:**
 🚨 **MANDATORY**: Use commentfetch JSON data for threading analysis instead of duplicate API calls:
-
-```bash
 
 ### Phase 3: Step 3: Quality Assessment & Fake Comment Detection (JSON-BASED)
 
@@ -31,6 +27,7 @@ execution_mode: immediate
 
 ```bash
 echo "=== QUALITY ASSESSMENT & FAKE COMMENT DETECTION (JSON-BASED) ==="
+```
 
 ### Phase 4: Step 4: Final Coverage Report (COMPREHENSIVE)
 
@@ -41,6 +38,7 @@ echo "=== QUALITY ASSESSMENT & FAKE COMMENT DETECTION (JSON-BASED) ==="
 echo "=================================================================="
 echo "🚨 COMPREHENSIVE COMMENT COVERAGE REPORT (COMMENTFETCH-BASED)"
 echo "=================================================================="
+```
 
 ### Phase 5: Integration with Workflow
 
@@ -53,8 +51,8 @@ echo "=================================================================="
 If `/commentcheck` finds issues:
 1. **Report specific problems** - List missing/poor responses
 2. **Suggest fixes** - Indicate what needs improvement
-3. **Prevent completion** - Workflow should not proceed until fixed
-4. **Re-run commentreply** - Address missing/poor responses
+3. If the current request explicitly asks for replies or complete response coverage, continue the requested `/commentreply` work for in-scope comments and report any exact blocker; task-specific reply coverage is complete only when addressed or explicitly blocked.
+4. Do not turn unanswered advisory bot comments into a push, readiness, or merge gate. The explicit reply task's completion scope is separate from PR lifecycle eligibility.
 
 ## 📋 REFERENCE DOCUMENTATION
 
@@ -62,14 +60,9 @@ If `/commentcheck` finds issues:
 
 **Usage**: `/commentcheck [PR_NUMBER] [--verify-urls]`
 
-🚨 **CRITICAL PURPOSE**: Verify 100% comment coverage and response quality after comment reply process. Count ALL comments requiring response (everything except '[AI responder]' comments).
+Report comment coverage and response quality after review. Do not make zero unanswered comments a push, readiness, or merge gate.
 
-🚨 **CRITICAL CLARIFICATION - Bot Comments Must Be Addressed**:
-- ✅ **"ALL comments" explicitly INCLUDES bot comments**: CodeRabbit, GitHub Copilot, automated reviewers
-- ✅ **"ALL comments" explicitly INCLUDES human comments**: Team members, manual reviewers
-- ❌ **ONLY EXCEPTION**: Comments starting with "[AI responder]" (our own AI-generated responses)
-- 🚨 **MANDATORY**: Bot code review comments MUST have responses - either fixes or "NOT DONE: [reason]"
-- 🚨 **ZERO SKIP TOLERANCE**: 100% reply rate means bot AND human comments must be addressed
+Automated reviewer comments are advisory. Report human feedback according to the current PR lifecycle. An unanswered comment alone does not create a gate.
 
 🔒 **Security**: Uses safe jq --arg parameter passing to prevent command injection vulnerabilities and explicit variable validation.
 
@@ -79,54 +72,53 @@ If `/commentcheck` finds issues:
 
 ## 🎯 INDIVIDUAL COMMENT VERIFICATION MANDATE
 
-**MANDATORY**: This command MUST count ALL comments requiring response:
-- **Zero tolerance policy** - Every comment needs response except '[AI responder]' comments
-  - 🚨 **Bot comments (CodeRabbit, GitHub Copilot, automated reviewers) = MUST respond**
-  - 🚨 **Human comments = MUST respond**
-  - ❌ **[AI responder] comments = Skip (our own responses)**
+Review comments against the PR lifecycle and current task scope:
+- Human feedback should be recorded and handled when it is required for the requested outcome.
+- CodeRabbit, Bugbot, and other automated reviewer comments are advisory, not merge or push gates.
+- Our own `[AI responder]` comments are not new findings.
 - **Simple counting** - Count comments NOT starting with '[AI responder]'
-- **Warning system** - Clear alerts when unaddressed comments > 0
+- **Warning system** - Report unanswered comments without inferring a gate
 - **No complex classification** - No bot detection
 - **Evidence requirement** - List any comments needing response by ID
-- **Simple principle** - Address everything (human AND bot) except our own '[AI responder]' responses
-- **Direct reply verification** - Every non-AI-responder comment (including bot comments) must have response
+- **No zero-comment gate** - An unanswered comment alone does not block push or merge eligibility.
+- **Direct reply verification** - Verify a reply only when the current user request explicitly asks to send one.
 
 ## Description
 
-Pure markdown command (no Python executable) that systematically verifies all PR comments have been properly addressed with appropriate responses. **ORCHESTRATES /commentfetch for data source** instead of duplicating GitHub API calls. This command runs AFTER `/commentreply` to ensure nothing was missed.
+Pure markdown command (no Python executable) that reports PR comment and response coverage. When the current request explicitly asks for reply processing, it verifies that task's requested scope after `/commentreply`; it does not require responses to every comment or create a PR lifecycle gate. **ORCHESTRATES /commentfetch for data source** instead of duplicating GitHub API calls.
 
-## 🚨 COPILOT INTEGRATION REQUIREMENTS
+## COPILOT INTEGRATION
 
-### FAILURE ESCALATION (MANDATORY EXIT CODES):
+### Reporting (no new lifecycle gate):
 
-- **EXIT CODE 1**: Unresponded comments detected - HALT copilot execution immediately
-- **EXIT CODE 2**: GitHub API failures - HALT with diagnostic information
-- **EXIT CODE 0**: Only when 100% coverage verified - ALLOW copilot to continue
+- **EXIT CODE 1**: Reserved for a required lifecycle gate only when the authoritative owner defines one
+- **EXIT CODE 2**: Comment data unavailable; report the failure. This status alone does not create a push or merge gate.
+- **EXIT CODE 0**: Comment count alone is not a failure
 
 ### COPILOT INTEGRATION PROTOCOL:
 
-- **PRE-PUSH GATE**: Must run before any push operations in copilot workflow
-- **HARD STOP ENFORCEMENT**: Non-zero exit codes must halt copilot execution
-- **NO BYPASS ALLOWED**: Cannot be skipped or ignored in copilot automation
-- **COVERAGE THRESHOLD**: Exactly 0 unaddressed comments (excluding '[AI responder]') required for success
+- **PRE-PUSH GATE**: This command is advisory triage; it does not create a new push gate.
+- **HARD STOP ENFORCEMENT**: Stop only for a required lifecycle gate, never solely for optional bot feedback.
+- **COVERAGE THRESHOLD**: Do not require zero unaddressed comments; report their source and lifecycle status.
 
 ## What It Does
 
 1. **Orchestrates /commentfetch** for comprehensive comment data (eliminates duplicate API calls)
 2. **Analyzes JSON output** from commentfetch for coverage verification
 3. **Cross-references** original comments with posted responses using structured data
-4. **Verifies coverage** - ensures every comment has a corresponding response
+4. **Reports coverage** - identifies which comments have responses; complete response coverage is required only when explicitly requested for the current task
 5. **Quality check** - confirms responses are substantial, not generic
 6. **Reports status** with detailed breakdown using commentfetch metadata
 
 ## Individual Comment Verification Process (ORCHESTRATED)
 
+```bash
 # 1. Get PR number and validate
 
 PR_NUMBER=${1:-$(gh pr view --json number --jq .number)}
 if [ -z "$PR_NUMBER" ]; then
-  echo "❌ ERROR: Could not determine PR number. Please specify PR number or run from PR branch."
-  echo "EXIT CODE: 2 (API_FAILURE - Copilot execution must halt)"
+  echo "ℹ️ COMMENT DATA UNAVAILABLE: Could not determine PR number."
+  echo "EXIT CODE: 2 (UNAVAILABLE - consult canonical lifecycle gates separately)"
   exit 2
 fi
 
@@ -154,10 +146,9 @@ COMMENTS_FILE="$COPILOT_DIR/comments.json"
 RESPONSES_FILE="$COPILOT_DIR/responses.json"
 
 if [ ! -f "$COMMENTS_FILE" ]; then
-  echo "🚨 CRITICAL: COPILOT EXECUTION HALTED" >&2
-  echo "🚨 REASON: commentfetch failed to provide structured data at $COMMENTS_FILE" >&2
+  echo "ℹ️ COMMENT DATA UNAVAILABLE: commentfetch did not provide structured data at $COMMENTS_FILE" >&2
   echo "This indicates commentfetch execution failure or missing output file." >&2
-  echo "EXIT CODE: 2 (API_FAILURE - Copilot execution must halt)" >&2
+  echo "EXIT CODE: 2 (UNAVAILABLE - consult canonical lifecycle gates separately)" >&2
   exit 2
 fi
 
@@ -210,20 +201,20 @@ if [ "$TOTAL_COMMENTS" -eq 0 ]; then
 fi
 
 echo "🎯 COMMENTFETCH ORCHESTRATION: Successfully loaded $TOTAL_COMMENTS comments"
-echo "📈 UNRESPONDED ANALYSIS: $UNRESPONDED_COUNT comments require attention"
+echo "📈 UNRESPONDED ANALYSIS: $UNRESPONDED_COUNT comments have no recorded reply in commentfetch data"
 ```
 
 # Enhanced threading verification using commentfetch structured data
 
+```bash
 echo "=== THREADING VERIFICATION ANALYSIS (JSON-BASED) ==="
 
 # Use commentfetch JSON output instead of making new API calls
 
 ALL_COMMENTS=$(jq '.comments' "$COMMENTS_FILE" 2>/dev/null || echo '[]')
 if [ "$(echo "$ALL_COMMENTS" | jq length)" -eq 0 ]; then
-  echo "🚨 CRITICAL: COPILOT EXECUTION HALTED" >&2
-  echo "🚨 REASON: No comment data available from commentfetch JSON" >&2
-  echo "EXIT CODE: 2 (API_FAILURE - Copilot execution must halt)" >&2
+  echo "ℹ️ COMMENT DATA UNAVAILABLE: No comments were returned by commentfetch" >&2
+  echo "EXIT CODE: 2 (UNAVAILABLE - consult canonical lifecycle gates separately)" >&2
   exit 2
 fi
 
@@ -237,41 +228,46 @@ echo "$ALL_COMMENTS" | jq -r '.[] | "ID: \(.id) | Author: \(.author) | Type: \(.
 # Step 2B: Count threading success rates (using commentfetch metadata)
 
 TOTAL_COMMENTS=$(echo "$ALL_COMMENTS" | jq length)
-ALREADY_REPLIED=$(echo "$ALL_COMMENTS" | jq '[.[] | select(.already_replied == true)] | length')
-REQUIRES_RESPONSE=$(echo "$ALL_COMMENTS" | jq '[.[] | select(.requires_response == true)] | length')
+FETCHER_FLAGGED_COUNT=$(echo "$ALL_COMMENTS" | jq '[.[] | select(.requires_response == true)] | length')
+REPLIED_FETCHER_FLAGGED_COUNT=$(echo "$ALL_COMMENTS" | jq '[.[] | select(.requires_response == true and .already_replied == true)] | length')
+OUTSTANDING_FETCHER_FLAGGED_COUNT=$(echo "$ALL_COMMENTS" | jq '[.[] | select(.requires_response == true and .already_replied != true)] | length')
 
 echo ""
 echo "📈 THREADING STATISTICS (from commentfetch):"
 echo "   Total comments: $TOTAL_COMMENTS"
-echo "   Already replied: $ALREADY_REPLIED"
-echo "   Requires response: $REQUIRES_RESPONSE"
+echo "   Comments flagged by commentfetch as requiring a response: $FETCHER_FLAGGED_COUNT"
+echo "   Already replied among flagged comments: $REPLIED_FETCHER_FLAGGED_COUNT"
+echo "   Unanswered among flagged comments: $OUTSTANDING_FETCHER_FLAGGED_COUNT"
 
-if [ "$TOTAL_COMMENTS" -gt 0 ]; then
-  RESPONSE_PERCENTAGE=$(( (ALREADY_REPLIED * 100) / TOTAL_COMMENTS ))
-  echo "   Response rate: $RESPONSE_PERCENTAGE%"
+if [ "$FETCHER_FLAGGED_COUNT" -gt 0 ]; then
+  RESPONSE_PERCENTAGE=$(( (REPLIED_FETCHER_FLAGGED_COUNT * 100) / FETCHER_FLAGGED_COUNT ))
+  echo "   Reply rate among fetcher-flagged comments: $RESPONSE_PERCENTAGE%"
+else
+  echo "   Reply rate among fetcher-flagged comments: N/A (no comments were flagged)"
 fi
 
-# Step 2C: Simple comment classification (AI responder vs needs response)
+# Step 2C: Report commentfetch metadata without inferring the current task's reply scope
 
 echo ""
-echo "🔍 SIMPLE CLASSIFICATION (AI responder detection only):"
+echo "🔍 COMMENTFETCH RESPONSE FLAGS:"
 AI_RESPONDER_COMMENTS=$(echo "$ALL_COMMENTS" | jq '[.[] | select(.body | startswith("[AI responder]"))]')
 AI_COUNT=$(echo "$AI_RESPONDER_COMMENTS" | jq length)
-NEEDS_RESPONSE_COMMENTS=$(echo "$ALL_COMMENTS" | jq '[.[] | select(.body | startswith("[AI responder]") | not)]')
-NEEDS_RESPONSE_COUNT=$(echo "$NEEDS_RESPONSE_COMMENTS" | jq length)
+UNANSWERED_FETCHER_FLAGGED_COMMENTS=$(echo "$ALL_COMMENTS" | jq '[.[] | select(.requires_response == true and .already_replied != true)]')
+UNANSWERED_FETCHER_FLAGGED_COUNT=$(echo "$UNANSWERED_FETCHER_FLAGGED_COMMENTS" | jq length)
 
 echo "   AI responder comments: $AI_COUNT"
-echo "   Comments needing response: $NEEDS_RESPONSE_COUNT"
+echo "   Unanswered comments flagged by commentfetch: $UNANSWERED_FETCHER_FLAGGED_COUNT"
 
-# Step 2D: List comments needing response (simple logic)
+# Step 2D: List comments flagged by commentfetch as unanswered
 
 echo ""
-echo "❌ COMMENTS NEEDING RESPONSE (simple logic):"
-echo "$NEEDS_RESPONSE_COMMENTS" | jq -r '.[] | "❌ Comment #\(.id) (\(.author)): \(.body[0:80])..."'
+echo "📌 UNANSWERED COMMENTFETCH-FLAGGED COMMENTS:"
+echo "$UNANSWERED_FETCHER_FLAGGED_COMMENTS" | jq -r '.[] | "• Comment #\(.id) (\(.author)): \(.body[0:80])..."'
 ```
 
 # Use simple AI responder detection for quality analysis
 
+```bash
 AI_RESPONDER_RESPONSES=$(echo "$ALL_COMMENTS" | jq '[.[] | select(.body | startswith("[AI responder]"))]')
 AI_RESPONSE_COUNT=$(echo "$AI_RESPONDER_RESPONSES" | jq length)
 
@@ -302,13 +298,11 @@ echo "   CodeRabbit-specific templates: $CODERABBIT_COUNT"
 
 # Simple quality assessment - just check for basic response coverage
 
-if [ "$AI_RESPONSE_COUNT" -eq 0 ] && [ "$NEEDS_RESPONSE_COUNT" -gt 0 ]; then
-  echo "🚨 CRITICAL: COPILOT EXECUTION HALTED"
-  echo "🚨 REASON: No AI responder comments found but comments need responses"
-  echo "🚨 REQUIRED ACTION: Run /commentreply to generate responses"
+if [ "$AI_RESPONSE_COUNT" -eq 0 ] && [ "$UNANSWERED_FETCHER_FLAGGED_COUNT" -gt 0 ]; then
+  echo "ℹ️ No AI-responder replies were found among comments flagged by commentfetch; this count alone is not a lifecycle gate."
   echo ""
-  echo "EXIT CODE: 1 (FAILURE - No responses provided)"
-  exit 1
+  echo "EXIT CODE: 0 (report only)"
+  exit 0
 else
   echo "✅ BASIC QUALITY CHECK PASSED: AI responses detected"
 fi
@@ -316,93 +310,62 @@ fi
 
 # Use simple direct comment counting
 
+```bash
 TOTAL_COMMENTS=$(jq '.comments | length' "$COMMENTS_FILE" 2>/dev/null || echo "0")
 AI_RESPONDER_COMMENTS=$(jq '[.comments[] | select(.body | startswith("[AI responder]"))] | length' "$COMMENTS_FILE" 2>/dev/null || echo "0")
-NEEDS_RESPONSE_COUNT=$((TOTAL_COMMENTS - AI_RESPONDER_COMMENTS))
+UNANSWERED_FETCHER_FLAGGED_COUNT=$(jq '[.comments[] | select(.requires_response == true and .already_replied != true)] | length' "$COMMENTS_FILE" 2>/dev/null || echo "0")
 
-if [ "$NEEDS_RESPONSE_COUNT" -eq 0 ]; then
-    echo "✅ **ZERO TOLERANCE POLICY: PASSED**"
-    echo "🎉 **SUCCESS**: All comments addressed (only AI responder comments remain)"
-    echo "📈 **COVERAGE SCORE**: 100% ✅ PASSED"
+if [ "$UNANSWERED_FETCHER_FLAGGED_COUNT" -eq 0 ]; then
+    echo "✅ **COMMENT REPORT**: No outstanding comments marked as requiring a response"
     echo ""
     echo "📊 **SIMPLE STATISTICS:**"
     echo "   - Total comments: $TOTAL_COMMENTS"
     echo "   - AI responder comments: $AI_RESPONDER_COMMENTS"
-    echo "   - Comments needing response: $NEEDS_RESPONSE_COUNT"
-    echo "   - All non-AI comments addressed: ✅"
+    echo "   - Unanswered comments flagged by commentfetch: $UNANSWERED_FETCHER_FLAGGED_COUNT"
     echo ""
-    echo "🎯 **SIMPLE COVERAGE SUCCESS**: Zero tolerance policy satisfied"
-    echo "✅ COPILOT CLEARED: All comments processed successfully"
-    echo "✅ PROCEEDING: Copilot execution may continue"
+    echo "🎯 **COMMENT REPORT**: No comments are currently flagged as unanswered by commentfetch"
     echo ""
-    echo "EXIT CODE: 0 (SUCCESS - Copilot may proceed)"
+    echo "EXIT CODE: 0 (report only)"
     exit 0
 else
-    echo "🚨 **ZERO TOLERANCE POLICY: FAILED**"
-    echo "❌ **FAILURE**: $NEEDS_RESPONSE_COUNT comments need responses"
-    echo "📈 **COVERAGE SCORE**: $(( AI_RESPONDER_COMMENTS * 100 / TOTAL_COMMENTS ))% ❌ FAILED"
+    echo "ℹ️ $UNANSWERED_FETCHER_FLAGGED_COUNT comments flagged by commentfetch remain unanswered; this count alone is not a lifecycle gate."
     echo ""
-    echo "🚨 **COMMENTS REQUIRING IMMEDIATE ATTENTION**:"
+    echo "📌 **UNANSWERED COMMENTFETCH-FLAGGED COMMENTS**:"
 
     # List comments needing response (simple logic)
-    NEEDS_RESPONSE_LIST=$(jq -r '.comments[] | select(.body | startswith("[AI responder]") | not) | "❌ Comment #\(.id) (\(.author)): \(.body[0:80])..."' "$COMMENTS_FILE" 2>/dev/null)
-    echo "$NEEDS_RESPONSE_LIST"
+    UNANSWERED_FETCHER_FLAGGED_LIST=$(jq -r '.comments[] | select(.requires_response == true and .already_replied != true) | "• Comment #\(.id) (\(.author)): \(.body[0:80])..."' "$COMMENTS_FILE" 2>/dev/null)
+    echo "$UNANSWERED_FETCHER_FLAGGED_LIST"
 
     echo ""
-    echo "🚨 CRITICAL: COPILOT EXECUTION HALTED"
-    echo "🚨 REASON: $NEEDS_RESPONSE_COUNT unresponded comments detected"
-    echo "🚨 REQUIRED ACTION: Address ALL unresponded comments before copilot can continue"
+    echo "ℹ️ Review the requested task scope and authoritative lifecycle requirements. Unanswered advisory bot comments alone do not block readiness or merge."
     echo ""
-    echo "🔧 **REQUIRED ACTION**: Run /commentreply to address unresponded comments"
-    echo "⚠️ **WORKFLOW HALT**: Cannot proceed until all comments addressed"
-    echo "📊 **COMMENTFETCH DATA**: $TOTAL_COMMENTS total, $NEEDS_RESPONSE_COUNT unresponded"
+    echo "📊 **COMMENTFETCH DATA**: $TOTAL_COMMENTS total, $UNANSWERED_FETCHER_FLAGGED_COUNT flagged and unanswered"
     echo ""
-    echo "EXIT CODE: 1 (FAILURE - Copilot execution must halt)"
-    exit 1
+    echo "EXIT CODE: 0 (report only; no gate inferred from comment count)"
+    exit 0
 fi
 ```
 
-## Individual Comment Success Criteria (ZERO TOLERANCE)
+## Comment Coverage Report
 
-🚨 **✅ PASS REQUIREMENTS**: ZERO unresponded comments with quality responses
-- **ZERO unresponded comments detected** (explicit count must be 0)
-- **Clear warning system shows no alerts** (unresponded count = 0)
-- **Every bot comment (CodeRabbit, GitHub Copilot, automated reviewers) has a response** (bot feedback is NOT optional)
-- **Every human reviewer comment has a response** (team feedback must be addressed)
-- 🚨 **CRITICAL**: Bot comments are NOT skippable - they need 100% reply rate like human comments
-- **All responses address specific technical content** (not generic acknowledgments)
-- **Appropriate ✅ DONE/❌ NOT DONE status** (clear resolution indication)
-- **Professional and substantial replies** (meaningful engagement with feedback)
-
-🚨 **❌ FAIL CONDITIONS**: ANY unresponded comments detected
-- **ANY unresponded comment count > 0** (immediate failure with clear warning)
-- **Warning system alerts triggered** (explicit alerts when unresponded comments found)
-- **Generic/template responses** ("Thanks!" or "Will consider" are insufficient)
-- **Bot comment coverage failure** (skipping any Copilot/CodeRabbit/automated reviewer feedback violates 100% reply requirement)
-- **Responses don't address technical content** (must engage with specific suggestions from bots or humans)
-- **Unprofessional or inadequate replies** (maintain PR review standards for all comment sources)
-
-### 🎯 SPECIFIC FAIL TRIGGERS (UNRESPONDED COMMENT FOCUS)
-
-- **Unresponded comment count > 0** (explicit count detection and warning)
-- **Zero individual responses** (like PR #864 - complete failure with 11 unresponded)
-- **Skipped bot comment detected** (any Copilot/CodeRabbit/automated reviewer comment without reply = failure)
-- **Warning system triggered** (any alerts about unresponded comments)
-- **Template responses only** (generic acknowledgments without substance)
-- **Ignored technical suggestions** (failing to address specific code feedback from bots or humans)
+Report unanswered comments by source and lifecycle status. Automated reviewer
+comments remain advisory. An unanswered comment alone does not block push,
+readiness, or merge eligibility. Verify replies only when the live user request
+explicitly asks to send them. Escalate only an unmet gate specified by the
+current PR lifecycle owner.
 
 ### When to Run
 
 - **After** `/commentreply` completes
-- **Before** final `/pushl` in copilot workflow
-- **Verify** comment coverage is complete
+- **Before** final `/pushl` when useful for advisory triage
+- **Report** comment coverage; defer push/merge gates to their canonical owners
 
 ## Command Flow Integration
 
 ```
-/commentfetch → /fixpr → /pushl → /commentreply → /commentcheck → /pushl (final)
+/commentfetch → /fixpr → /commentreply → /commentcheck (advisory) → /pushl (per canonical lifecycle)
                                                         ↓
-                                               [100% coverage verified]
+                                               [comment coverage reported]
 ```
 
 ## Architectural Benefits

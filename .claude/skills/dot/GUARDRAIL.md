@@ -9,8 +9,8 @@ how to coordinate) lives in `SKILL.md` and the calling agent, never in code.
 
 | Surface | Current | Budget (hard cap) |
 |---|---|---|
-| `agy-dot-coordinator/scripts/ping-dots.py` (coordinator script — prompts live in `SKILL.md`) | 282 LOC | **≤ 300** |
-| `agy-dot-coordinator/SKILL.md` (coordinator prompts & policy) | 141 LOC | **≤ 400** |
+| `dot-coordinator/scripts/ping-dots.py` + `dot-coordinator-wrapper.sh` + `pi-lunaroute-adapter.sh` (canonical launcher plus temporary legacy wrapper/adapter/launcher forwarding files, combined) | 150 LOC | **≤ 150** |
+| `dot-coordinator/SKILL.md` (coordinator prompts & policy) | candidate | **≤ 400** |
 | `scripts/dot.sh` | 479 LOC | **≤ 520** |
 | `scripts/dot_chrome.mjs` | 843 LOC | **≤ 900** |
 | Transport scripts combined (`dot.sh` + `dot_chrome.mjs`) | 1322 LOC | **≤ 1400** |
@@ -22,8 +22,10 @@ how to coordinate) lives in `SKILL.md` and the calling agent, never in code.
 1. **New behavior goes in `SKILL.md` first.** If a change adds judgment,
    decision logic, or policy to `dot.sh`/`dot_chrome.mjs`, it is in the wrong
    place — rewrite it as an agent instruction here or in `SKILL.md`.
-2. **New script code must be mechanical**: a transport primitive any agent can
-   call without embedded policy. Additions must stay within the caps above.
+2. **New script code must be mechanical**: launcher validation and process
+   lifecycle only. Agent judgment belongs in the coordinator skill. Combined
+   launcher glue must stay within 150 physical lines; do not hide code in a
+   generated file or compress statements to evade the count.
 3. **Raising a cap requires the operator** (`jleechan`). Any PR that exceeds a
    cap fails CI; fixing it means either shrinking the scripts or getting the
    operator to bump the cap in this file with a stated reason.
@@ -40,4 +42,3 @@ how to coordinate) lives in `SKILL.md` and the calling agent, never in code.
    (45+ min stuck draft); policy moved from a code default (auto-clear) to SKILL.md
    (check back ≤5 min, then submit sensible drafts / clear half-typed junk) with
    `submit-draft`/`clear-draft` as thin primitives.
-

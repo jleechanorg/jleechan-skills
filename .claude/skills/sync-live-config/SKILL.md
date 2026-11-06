@@ -90,8 +90,11 @@ has two subcommands:
      either side: a remote target's per-component symlink walk, or local
      evidence when a repo-tracked file's live-side path resolves outside its
      mapped root (e.g. a command symlinked in from an unrelated project
-     repo). Never guess a direction for it; tell the user it needs manual
-     investigation on that host before it can be judged.
+     repo). Resolve the symlink and inspect its target owner, current bytes and
+     source history read-only on that host. Keep the automatic apply refusal;
+     use the verified canonical target only after a separate diff-first decision.
+     Escalate only a specific access or ownership decision that available tools
+     cannot resolve, with the attempted routes and exact remaining boundary.
 
 3. **`hermes/skills/` and `.claude/skills_archive/` are known inversion
    risks** (confirmed 2026-09-06: this repo's `hermes/skills/` snapshot

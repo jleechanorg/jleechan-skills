@@ -350,9 +350,9 @@ def make_fake_dot(workdir, tail_text):
         'if [[ "$1" == "--account" ]]; then shift 2; fi\n'
         'case "$1" in\n'
         '  read) printf "%s" "$FAKE_TAIL" ;;\n'
-        '  send-once) cp "$2" "$FAKE_ESCALATION_CAPTURE"; echo DOT_SENT_VERIFIED ;;\n'
+        '  send-once) cp "$2" "$FAKE_ESCALATION_CAPTURE"; [[ -z "${FAKE_STATE_SNAPSHOT:-}" ]] || cp "${FAKE_STATE_FILE:?}" "$FAKE_STATE_SNAPSHOT"; echo "${FAKE_ESCALATION_RECEIPT:-DOT_SENT_VERIFIED}"; [[ -z "${FAKE_ESCALATION_CALLS:-}" ]] || echo send >> "$FAKE_ESCALATION_CALLS" ;;\n'
         'esac\n'
-        'exit 0\n'
+        'exit "${FAKE_SEND_RC:-0}"\n'
     )
     path.chmod(path.stat().st_mode | stat.S_IEXEC)
     return path
@@ -366,7 +366,7 @@ with tempfile.TemporaryDirectory() as workdir:
         state_file.write_text(json.dumps({'consecutive_classification_failures': 2}))
         capture = Path(workdir) / 'escalation.txt'
         env = dict(os.environ, FAKE_TAIL=reminder + '\n\U0001f440',
-                   FAKE_ESCALATION_CAPTURE=str(capture))
+                   FAKE_ESCALATION_CAPTURE=str(capture), FAKE_ESCALATION_RECEIPT='DOT_SERVER_ACCEPTED')
         verdict = m.verify_and_escalate(make_fake_dot(workdir, ''), 'test', env, 'luna',
                                         state_file, wait_secs=0, recheck_secs=0)
         recorded = json.loads(state_file.read_text())
@@ -380,6 +380,24 @@ with tempfile.TemporaryDirectory() as workdir:
               and recorded.get('consecutive_noncompliance') == 1
               and recorded.get('consecutive_classification_failures') == 0)
 
+        state_peer = Path(workdir) / 'state_peer_draft.json'
+        state_peer.write_text(json.dumps({'consecutive_noncompliance': 0}))
+        peer_capture = Path(workdir) / 'escalation_peer_draft.txt'
+        env_peer = dict(os.environ, FAKE_TAIL=reminder + '\n\U0001f440',
+                        FAKE_ESCALATION_CAPTURE=str(peer_capture),
+                        FAKE_ESCALATION_RECEIPT='DOT_DRAFT_PRESENT: peer draft remains in composer',
+                        FAKE_SEND_RC='3')
+        m.generate = lambda provider, prompt=None: '{"verdict": "reaction_only"}'
+        verdict_peer = m.verify_and_escalate(make_fake_dot(workdir, ''), 'test', env_peer, 'luna',
+                                             state_peer, wait_secs=0, recheck_secs=0)
+        recorded_peer = json.loads(state_peer.read_text())
+        check("escalation draft diagnostic releases the no-dispatch hold",
+              verdict_peer == 'reaction_only'
+              and recorded_peer.get('last_status') == 'SKIPPED_COMPOSER_BUSY'
+              and recorded_peer.get('delivery_unverified') is False
+              and recorded_peer.get('escalation_sent_epoch', 0) == 0
+              and not state_peer.with_name(state_peer.name + '.hold').exists())
+
         # 2. idle_refusal reply escalates and increments consecutive_noncompliance
         m.generate = lambda provider, prompt=None: '{"verdict": "idle_refusal"}'
         state_refusal = Path(workdir) / 'state_refusal.json'
@@ -387,7 +405,8 @@ with tempfile.TemporaryDirectory() as workdir:
         capture_refusal = Path(workdir) / 'escalation_refusal.txt'
         env_refusal = dict(os.environ,
                            FAKE_TAIL=reminder + '\nSTATUS: idle\nACTIONS + PROOF: none\nBLOCKERS: need user\nNEXT: none',
-                           FAKE_ESCALATION_CAPTURE=str(capture_refusal))
+                           FAKE_ESCALATION_CAPTURE=str(capture_refusal),
+                           FAKE_ESCALATION_RECEIPT='DOT_SERVER_ACCEPTED')
         verdict_ref = m.verify_and_escalate(make_fake_dot(workdir, ''), 'test', env_refusal, 'luna',
                                             state_refusal, wait_secs=0, recheck_secs=0)
         recorded_ref = json.loads(state_refusal.read_text())
@@ -397,13 +416,202 @@ with tempfile.TemporaryDirectory() as workdir:
               and recorded_ref.get('consecutive_noncompliance') == 2
               and recorded_ref.get('consecutive_classification_failures') == 0)
 
+        # The escalation hold must be durable before the transport can report
+        # any receipt, so a process interruption cannot cause a duplicate send.
+        state_hold = Path(workdir) / 'state_hold.json'
+        state_hold.write_text(json.dumps({'consecutive_noncompliance': 0}))
+        hold_capture = Path(workdir) / 'escalation_hold.txt'
+        hold_snapshot = Path(workdir) / 'escalation_hold.state'
+        env_hold = dict(os.environ, FAKE_TAIL=reminder + '\n\U0001f440',
+                        FAKE_ESCALATION_CAPTURE=str(hold_capture),
+                        FAKE_STATE_FILE=str(state_hold),
+                        FAKE_STATE_SNAPSHOT=str(hold_snapshot),
+                        FAKE_ESCALATION_RECEIPT='DOT_SERVER_ACCEPTED')
+        m.generate = lambda provider, prompt=None: '{"verdict": "reaction_only"}'
+        verdict_hold = m.verify_and_escalate(make_fake_dot(workdir, ''), 'test', env_hold, 'luna',
+                                             state_hold, wait_secs=0, recheck_secs=0)
+        snapshot_hold = json.loads(hold_snapshot.read_text())
+        check("escalation transport sees a durable pre-dispatch hold",
+              verdict_hold == 'reaction_only'
+              and snapshot_hold.get('escalation_unverified') is True
+              and snapshot_hold.get('delivery_unverified') is True
+              and snapshot_hold.get('last_status') == 'UNVERIFIED_SEND_ESCALATION_PENDING'
+              and json.loads(state_hold.read_text()).get('escalation_verified') is True
+              and not state_hold.with_name(state_hold.name + '.hold').exists())
+
+        # A failed directory fsync leaves the hold write unusable and must
+        # prevent the escalation transport from being invoked.
+        state_dirsync = Path(workdir) / 'state_dirsync.json'
+        state_dirsync.write_text(json.dumps({'consecutive_noncompliance': 0}))
+        dirsync_calls = Path(workdir) / 'escalation_dirsync.calls'
+        dirsync_capture = Path(workdir) / 'escalation_dirsync.txt'
+        env_dirsync = dict(os.environ, FAKE_TAIL=reminder + '\n\U0001f440',
+                           FAKE_ESCALATION_CAPTURE=str(dirsync_capture),
+                           FAKE_ESCALATION_CALLS=str(dirsync_calls))
+        original_fsync = m.os.fsync
+
+        def fail_directory_fsync(fd):
+            if stat.S_ISDIR(os.fstat(fd).st_mode):
+                raise OSError('simulated directory fsync failure')
+            return original_fsync(fd)
+
+        m.os.fsync = fail_directory_fsync
+        dirsync_failed = False
+        try:
+            m.verify_and_escalate(make_fake_dot(workdir, ''), 'test', env_dirsync, 'luna',
+                                  state_dirsync, wait_secs=0, recheck_secs=0)
+        except OSError:
+            dirsync_failed = True
+        finally:
+            m.os.fsync = original_fsync
+        check("directory fsync failure prevents escalation dispatch",
+              dirsync_failed and not dirsync_calls.exists() and not dirsync_capture.exists())
+
+        # An ambiguous transport result leaves the hold in place and prevents
+        # a later check from sending the same escalation again.
+        state_ambiguous = Path(workdir) / 'state_ambiguous.json'
+        state_ambiguous.write_text(json.dumps({'consecutive_noncompliance': 0}))
+        ambiguous_calls = Path(workdir) / 'escalation_ambiguous.calls'
+        env_ambiguous = dict(os.environ, FAKE_TAIL=reminder + '\n\U0001f440',
+                             FAKE_ESCALATION_CAPTURE=str(Path(workdir) / 'escalation_ambiguous.txt'),
+                             FAKE_ESCALATION_CALLS=str(ambiguous_calls),
+                             FAKE_ESCALATION_RECEIPT='DOT_SEND_UNVERIFIED', FAKE_SEND_RC='4')
+        first_ambiguous = m.verify_and_escalate(make_fake_dot(workdir, ''), 'test', env_ambiguous, 'luna',
+                                                state_ambiguous, wait_secs=0, recheck_secs=0)
+        second_ambiguous = m.verify_and_escalate(make_fake_dot(workdir, ''), 'test', env_ambiguous, 'luna',
+                                                 state_ambiguous, wait_secs=0, recheck_secs=0)
+        ambiguous_record = json.loads(state_ambiguous.read_text())
+        check("ambiguous escalation result is held without a resend",
+              first_ambiguous == 'reaction_only' and second_ambiguous == 'reaction_only'
+              and ambiguous_record.get('escalation_unverified') is True
+              and ambiguous_record.get('delivery_unverified') is True
+              and ambiguous_calls.read_text().splitlines() == ['send'])
+
+        # Model a crash after the transport side effect but before the final
+        # receipt write. The pre-dispatch hold must still suppress recovery.
+        state_interrupted = Path(workdir) / 'state_interrupted.json'
+        state_interrupted.write_text(json.dumps({'consecutive_noncompliance': 0}))
+        interrupted_calls = Path(workdir) / 'escalation_interrupted.calls'
+        env_interrupted = dict(os.environ, FAKE_TAIL=reminder + '\n\U0001f440',
+                               FAKE_ESCALATION_CAPTURE=str(Path(workdir) / 'escalation_interrupted.txt'),
+                               FAKE_ESCALATION_CALLS=str(interrupted_calls))
+        original_bounded_run = m.bounded_run
+
+        def interrupt_after_send(command, *args, **kwargs):
+            result = original_bounded_run(command, *args, **kwargs)
+            if 'send-once' in command:
+                raise KeyboardInterrupt('simulated interruption after transport side effect')
+            return result
+
+        m.bounded_run = interrupt_after_send
+        interrupted = False
+        try:
+            m.verify_and_escalate(make_fake_dot(workdir, ''), 'test', env_interrupted, 'luna',
+                                  state_interrupted, wait_secs=0, recheck_secs=0)
+        except KeyboardInterrupt:
+            interrupted = True
+        finally:
+            m.bounded_run = original_bounded_run
+        m.verify_and_escalate(make_fake_dot(workdir, ''), 'test', env_interrupted, 'luna',
+                              state_interrupted, wait_secs=0, recheck_secs=0)
+        interrupted_record = json.loads(state_interrupted.read_text())
+        check("interrupted escalation remains held without a resend",
+              interrupted and interrupted_record.get('escalation_unverified') is True
+              and interrupted_record.get('delivery_unverified') is True
+              and interrupted_calls.read_text().splitlines() == ['send'])
+
+        # Invalid state is fail-closed: classification may run, but transport
+        # must never be invoked when the durable record cannot be parsed.
+        state_malformed = Path(workdir) / 'state_malformed.json'
+        state_malformed.write_text('{not-json')
+        malformed_calls = Path(workdir) / 'escalation_malformed.calls'
+        env_malformed = dict(os.environ, FAKE_TAIL=reminder + '\n\U0001f440',
+                             FAKE_ESCALATION_CAPTURE=str(Path(workdir) / 'escalation_malformed.txt'),
+                             FAKE_ESCALATION_CALLS=str(malformed_calls))
+        malformed = False
+        try:
+            m.verify_and_escalate(make_fake_dot(workdir, ''), 'test', env_malformed, 'luna',
+                                  state_malformed, wait_secs=0, recheck_secs=0)
+        except ValueError:
+            malformed = True
+        check("malformed escalation state fails closed before dispatch",
+              malformed and not malformed_calls.exists()
+              and not Path(env_malformed['FAKE_ESCALATION_CAPTURE']).exists())
+
+        # A browser DOM receipt is not durable acceptance and must hold the
+        # escalation against a duplicate retry on the next check.
+        state_ui = Path(workdir) / 'state_ui.json'
+        state_ui.write_text(json.dumps({'consecutive_noncompliance': 0}))
+        capture_ui = Path(workdir) / 'escalation_ui.txt'
+        calls_ui = Path(workdir) / 'escalation_ui.calls'
+        env_ui = dict(os.environ, FAKE_TAIL=reminder + '\n\U0001f440',
+                      FAKE_ESCALATION_CAPTURE=str(capture_ui),
+                      FAKE_ESCALATION_CALLS=str(calls_ui),
+                      FAKE_ESCALATION_RECEIPT='DOT_SENT_VERIFIED')
+        m.generate = lambda provider, prompt=None: '{"verdict": "reaction_only"}'
+        verdict_ui = m.verify_and_escalate(make_fake_dot(workdir, ''), 'test', env_ui, 'luna',
+                                           state_ui, wait_secs=0, recheck_secs=0)
+        first_ui = json.loads(state_ui.read_text())
+        m.verify_and_escalate(make_fake_dot(workdir, ''), 'test', env_ui, 'luna',
+                              state_ui, wait_secs=0, recheck_secs=0)
+        check("DOM-only escalation receipt remains unverified and is not retried",
+              verdict_ui == 'reaction_only'
+              and first_ui.get('escalation_verified') is False
+              and first_ui.get('escalation_unverified') is True
+              and calls_ui.read_text().splitlines() == ['send'])
+
+        # The scheduled initial reminder follows the same durable hold path:
+        # its next invocation must stop before generation or transport.
+        ping_state = Path(workdir) / 'ping-state'
+        ping_config = Path(workdir) / 'ping-config.json'
+        ping_config.write_text(json.dumps({'rotation': ['alpha', 'beta', 'gamma']}))
+        ping_calls = Path(workdir) / 'ping.calls'
+        ping_dot = make_fake_dot(workdir, '')
+        saved_env, saved_argv = dict(os.environ), list(sys.argv)
+        original_generate_message = m.generate_message
+        try:
+            m.generate_message = lambda providers: ('codex', m.REMINDER_BODY)
+            os.environ.update(
+                DOT_CONFIG_FILE=str(ping_config), COORDINATOR_STATE_DIR=str(ping_state),
+                COORDINATOR_LOCK_FILE=str(ping_state / 'lock'), COORDINATOR_DOT_SCRIPT=str(ping_dot),
+                COORDINATOR_VERIFY_RESPONSE='0', FAKE_ESCALATION_CAPTURE=str(Path(workdir) / 'ping.txt'),
+                FAKE_ESCALATION_CALLS=str(ping_calls), FAKE_ESCALATION_RECEIPT='DOT_SENT_VERIFIED', FAKE_SEND_RC='0')
+            sys.argv[:] = [str(SCRIPT), '--account', 'alpha', '--generator', 'codex']
+            first_ping = m.main()
+            ping_record = json.loads((ping_state / 'state_alpha.json').read_text())
+            second_ping = m.main()
+            check("scheduled DOM-only send records a hold and blocks the next tick",
+                  first_ping == 0 and second_ping == 0
+                  and ping_record.get('last_status') == 'UNVERIFIED_SEND_UI_OBSERVED'
+                  and ping_record.get('delivery_unverified') is True
+                  and ping_record.get('last_sent_epoch') == 0
+                  and ping_calls.read_text().splitlines() == ['send'])
+
+            pending_state = Path(workdir) / 'ping-pending-state'
+            pending_calls = Path(workdir) / 'ping-pending.calls'
+            os.environ.update(COORDINATOR_STATE_DIR=str(pending_state), FAKE_ESCALATION_CALLS=str(pending_calls),
+                              FAKE_ESCALATION_RECEIPT='DOT_SEND_UNVERIFIED', FAKE_SEND_RC='4')
+            first_pending = m.main()
+            pending_record = json.loads((pending_state / 'state_alpha.json').read_text())
+            second_pending = m.main()
+            check("scheduled ambiguous send keeps the pre-dispatch hold and does not resend",
+                  first_pending == 1 and second_pending == 0
+                  and pending_record.get('last_status') == 'UNVERIFIED_SEND_PENDING'
+                  and pending_record.get('delivery_unverified') is True
+                  and pending_calls.read_text().splitlines() == ['send'])
+        finally:
+            m.generate_message = original_generate_message
+            os.environ.clear(); os.environ.update(saved_env)
+            sys.argv[:] = saved_argv
+
         # 2b. unstructured_text and no_response also escalate and reset consecutive_classification_failures
         m.generate = lambda provider, prompt=None: '{"verdict": "unstructured_text"}'
         state_unstruct = Path(workdir) / 'state_unstruct.json'
         state_unstruct.write_text(json.dumps({'consecutive_noncompliance': 2, 'consecutive_classification_failures': 1}))
         capture_unstruct = Path(workdir) / 'escalation_unstruct.txt'
         env_unstruct = dict(os.environ, FAKE_TAIL=reminder + '\njust some unstructured chat prose',
-                            FAKE_ESCALATION_CAPTURE=str(capture_unstruct))
+                            FAKE_ESCALATION_CAPTURE=str(capture_unstruct),
+                            FAKE_ESCALATION_RECEIPT='DOT_SERVER_ACCEPTED')
         verdict_unstruct = m.verify_and_escalate(make_fake_dot(workdir, ''), 'test', env_unstruct, 'luna',
                                                  state_unstruct, wait_secs=0, recheck_secs=0)
         recorded_unstruct = json.loads(state_unstruct.read_text())
@@ -417,7 +625,8 @@ with tempfile.TemporaryDirectory() as workdir:
         state_noresp.write_text(json.dumps({'consecutive_noncompliance': 3, 'consecutive_classification_failures': 1}))
         capture_noresp = Path(workdir) / 'escalation_noresp.txt'
         env_noresp = dict(os.environ, FAKE_TAIL=reminder,
-                          FAKE_ESCALATION_CAPTURE=str(capture_noresp))
+                          FAKE_ESCALATION_CAPTURE=str(capture_noresp),
+                          FAKE_ESCALATION_RECEIPT='DOT_SERVER_ACCEPTED')
         verdict_noresp = m.verify_and_escalate(make_fake_dot(workdir, ''), 'test', env_noresp, 'luna',
                                                state_noresp, wait_secs=0, recheck_secs=0)
         recorded_noresp = json.loads(state_noresp.read_text())

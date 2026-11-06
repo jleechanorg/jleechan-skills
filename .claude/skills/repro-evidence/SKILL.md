@@ -7,6 +7,25 @@ description: Generic, domain-agnostic /repro workflow for isolated state reprodu
 
 This `.claude` skill is the canonical source of truth for reproduction workflows across projects in this repository. It defines the discipline for reproducing bugs against isolated, real environments with verifiable evidence before attempting any fix.
 
+## Repo-level skill first — always
+
+Before anything else, look in the active repository for its own repro workflow: `.claude/commands/repro.md`, `.claude/skills/repro*/SKILL.md`, `.claude/skills/repro*.md`, and any repro entry in its `AGENTS.md`/`CLAUDE.md`. If one exists, read it and follow it; it wins on every difference within the repository's own scope, subject to the user's explicit instructions and the active permission boundaries, which take precedence over both. This skill applies only where the repository is silent. A repository that routes `/repro` to its own twin-clone or provider-specific evidence workflow owns that workflow.
+
+## Default comparison: original / control / candidate
+
+Unless the repository skill or the user says otherwise, report every repro as three arms on the **same inputs**:
+
+| Arm | What it is | Source |
+|---|---|---|
+| **Original** | What the real system actually did when the bug happened | Read-only lookup of the real record (production data, logs, saved state); never re-run |
+| **Control** | A fresh replay on the code without the fix (base / pre-fix SHA) | Same isolated starting state and input as the candidate |
+| **Candidate** | The same replay on the fix | Same isolated starting state and input as the control |
+
+- Original proves the bug was real; control proves the replay reproduces it today; candidate proves the fix. Control alone is not the original: an earlier fix already on the branch can make control look better than what users saw.
+- Use the same starting state, input, provider and model for control and candidate, run them interleaved, with enough trials per input to beat noise (n>=5 per arm for stochastic systems). That count is a floor, not proof: n>=5 bounds obvious noise, it does not establish a reliable effect size. Say how many trials you ran and what spread you saw rather than presenting a single run as decisive.
+- Report one plain table per input: the user-visible outcome for each arm, then counts across trials. Lead with the outcome the user cares about most, in their words.
+- **Reproducing before a fix exists is normal.** Report original and control, and record the candidate arm as `not yet available`; filing the issue first is the point of `/repro`. Fill the candidate column once there is a fix to replay, and never invent one.
+
 ## 0. Routing & When to Use
 
 | User intent | Run |
@@ -113,21 +132,25 @@ When the initial state must remain pristine for comparative verification or mult
 
 ## 6. Save evidence after repro
 
-Export the post-replay state and execution artifacts to a discoverable local directory using a standardized path convention:
+Export the post-replay state and execution artifacts to a discoverable local directory on the dedicated Scratch volume resolved dynamically via the canonical scratch skill [`~/.claude/skills/scratch-space/SKILL.md`](../scratch-space/SKILL.md):
 
 ```bash
 # Recommended evidence directory convention:
-# /tmp/<project-name>/repro-exports/<slug-or-timestamp>/
+# Resolve dynamically via ~/.claude/skills/scratch-space/SKILL.md:
+# Option A (managed lease via diskm):
+#   EVIDENCE_DIR="$(diskm scratch-new <repo-path> repro-export --kind evidence)"
+# Option B (canonical scratch resolver script):
+#   EVIDENCE_DIR="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh "<project>/repro-exports/<slug>")"
 
-mkdir -p /tmp/<project>/repro-exports/<slug>
+EVIDENCE_DIR="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh "<project>/repro-exports/<slug>")"
 
 # Example export commands depending on the stack:
 # 1. Database dump / query output:
-# pg_dump -d <test_db> -t <table_name> > /tmp/<project>/repro-exports/<slug>/post_state.sql
+# pg_dump -d <test_db> -t <table_name> > "$EVIDENCE_DIR/post_state.sql"
 # 2. Raw API / HTTP responses:
-# curl -s -D /tmp/<project>/repro-exports/<slug>/headers.txt -o /tmp/<project>/repro-exports/<slug>/response.json ...
+# curl -s -D "$EVIDENCE_DIR/headers.txt" -o "$EVIDENCE_DIR/response.json" ...
 # 3. Log captures:
-# cp /path/to/test-service.log /tmp/<project>/repro-exports/<slug>/execution.log
+# cp /path/to/test-service.log "$EVIDENCE_DIR/execution.log"
 ```
 
 Ensure all relevant evidence files (raw request/response payloads, logs, state diffs, error traces) are saved and referenced in the final verdict table.

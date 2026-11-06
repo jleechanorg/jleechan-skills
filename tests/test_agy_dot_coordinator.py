@@ -7,7 +7,7 @@ class CoordinatorTests(unittest.TestCase):
   self.tmp=tempfile.TemporaryDirectory(prefix='coordinator-test-',dir='/tmp');self.p=Path(self.tmp.name);self.state=self.p/'state';self.state.mkdir();self.log=self.p/'calls';self.msg=self.p/'message'
   self.fake=self.p/'fake-dot';self.fake.write_text('#!/bin/bash\nset -eu\nprintf "%s\\n" "$3" >> "$CALLS"\nif [[ "$3" == read ]]; then echo "$READ_TEXT"; exit 0; fi\ncp "$4" "$MESSAGE"\nprintf "%s\\n" "$RECEIPT"\nexit "$SEND_RC"\n');self.fake.chmod(0o755)
   self.cfg=self.p/'config.json';self.cfg.write_text(json.dumps({'rotation':['alpha','beta']}));self.priorities=self.p/'priorities';self.priorities.write_text('Example workstream first, subject to latest user instruction.')
-  self.env=os.environ.copy();self.env.update(COORDINATOR_STATE_DIR=str(self.state),COORDINATOR_LOCK_FILE=str(self.p/'lock'),COORDINATOR_DOT_SCRIPT=str(self.fake),COORDINATOR_PRIORITIES_FILE=str(self.priorities),DOT_CONFIG_FILE=str(self.cfg),CALLS=str(self.log),MESSAGE=str(self.msg),READ_TEXT='Idle',RECEIPT='DOT_SENT_VERIFIED',SEND_RC='0',COORDINATOR_CHANGE_ID='',COORDINATOR_CHANGE_SUMMARY='',COORDINATOR_URGENT='0',COORDINATOR_FULL_ROLLUP='0')
+  self.env=os.environ.copy();self.env.update(COORDINATOR_STATE_DIR=str(self.state),COORDINATOR_LOCK_FILE=str(self.p/'lock'),COORDINATOR_DOT_SCRIPT=str(self.fake),COORDINATOR_PRIORITIES_FILE=str(self.priorities),DOT_CONFIG_FILE=str(self.cfg),CALLS=str(self.log),MESSAGE=str(self.msg),READ_TEXT='Idle',RECEIPT='DOT_SERVER_ACCEPTED',SEND_RC='0',COORDINATOR_CHANGE_ID='',COORDINATOR_CHANGE_SUMMARY='',COORDINATOR_URGENT='0')
  def tearDown(self):self.tmp.cleanup()
  def run_worker(self,*args):
   r=subprocess.run(['/bin/bash',str(WORKER),'--no-poll',*args],env=self.env,cwd=self.p,capture_output=True,text=True,timeout=8);self.last=r;return r
@@ -46,6 +46,15 @@ class CoordinatorTests(unittest.TestCase):
  def test_receipt_substring_is_unverified(self):
   self.event()
   self.env['RECEIPT']='prefix DOT_SENT_VERIFIED';self.run_worker('--account','alpha');self.assertTrue(self.saved()['delivery_unverified'])
+ def test_dom_only_receipt_keeps_unverified_hold_without_retry(self):
+  self.event();self.env['RECEIPT']='DOT_SENT_VERIFIED'
+  result=self.run_worker('--account','alpha')
+  self.assertEqual(result.returncode,0)
+  self.assertIn('UI observed the message; server acceptance is unverified',result.stdout)
+  self.assertEqual(self.saved()['last_status'],'UNVERIFIED_SEND_UI_OBSERVED')
+  self.assertTrue(self.saved()['delivery_unverified'])
+  self.assertEqual(self.saved()['last_sent_epoch'],0)
+  before=self.calls();self.run_worker('--account','alpha','--force');self.assertEqual(self.calls(),before)
  def test_draft_hold_does_not_count_delivery(self):
   self.event()
   self.env.update(RECEIPT='DOT_DRAFT_PRESENT',SEND_RC='3');self.run_worker('--account','alpha');self.assertEqual(self.saved()['last_status'],'SKIPPED_COMPOSER_BUSY');self.assertEqual(self.saved()['last_sent_epoch'],0)

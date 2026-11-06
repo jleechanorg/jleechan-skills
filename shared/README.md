@@ -6,6 +6,10 @@ in `portable/skills` remain distribution inputs, without overriding same-name li
 Claude packages. Thin aliases
 provide `browser`, `mac`, `linux`, and `playwright` without duplicating workflows.
 
+`install-profiles.json` defines the curated profiles that
+`install-claude-commands.sh` installs by default, and the `closure_excluded`
+skills its dependency closure never adds.
+
 `install_shared_catalog.py` manages active canonical packages plus portable
 variants and aliases. `retain-local.json` identifies operational packages that
 must remain owned by their local integration. Other host-only names, archived

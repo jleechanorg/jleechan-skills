@@ -4,11 +4,12 @@ _Last updated: 2026-04-26_
 
 **Repo mirror (WorldArchitect):** [docs/evidence-standards/bundle-anatomy.md](https://github.com/$GITHUB_REPOSITORY/blob/main/docs/evidence-standards/bundle-anatomy.md) on `main` (or the branch that introduced it) — keep in sync when editing either copy.
 
-This describes artifacts produced under a typical path:
+This describes artifacts produced under a typical path on the dedicated Scratch volume resolved dynamically via `~/.claude/skills/scratch-space/SKILL.md` (`diskm scratch-new <repo-path> <purpose> --kind evidence` or `$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh "<repo>/evidence/<date>-<slug>")`):
 
-`/tmp/your-project.com/<branch-alias>/<test_name>/iteration_NNN/`
+`<scratch-root>/your-project.com/<branch-alias>/<test_name>/iteration_NNN/`
+(resolved dynamically via `diskm scratch-new` or `~/.claude/skills/scratch-space/scripts/scratch-dir.sh`)
 
-and the [`latest`](https://github.com/$GITHUB_REPOSITORY/blob/main/testing_mcp/lib/evidence_utils.py#L1878) symlink (points at the newest `iteration_*`; see [`create_evidence_bundle()`](https://github.com/$GITHUB_REPOSITORY/blob/main/testing_mcp/lib/evidence_utils.py#L1833)). **Normative process rules** (video, hosted URLs, mock vs real) live in [SKILL.md](./SKILL.md) in this directory; this doc is **structural**.
+and the [`latest`](https://github.com/$GITHUB_REPOSITORY/blob/main/testing_mcp/lib/evidence_utils.py#L1878) symlink (points at the newest `iteration_*`; see [`create_evidence_bundle()`](https://github.com/$GITHUB_REPOSITORY/blob/main/testing_mcp/lib/evidence_utils.py#L1833)). **Normative process rules** (proof layers, video, hosted URLs, mock vs real, provenance and SHA applicability) live in [SKILL.md](./SKILL.md) and the canonical lifecycle; this doc is **structural**. Apply this bundle, manifest and media contract when claiming actual test, runtime or artifact proof. Source-only skill guidance follows the lifecycle's Markdown instruction-only route and does not automatically require a separate bundle or campaign.
 
 ## Core documentation
 
@@ -16,7 +17,7 @@ and the [`latest`](https://github.com/$GITHUB_REPOSITORY/blob/main/testing_mcp/l
 |------|---------|
 | **README.md** | Package manifest: test name, run id, how to interpret the bundle. |
 | **methodology.md** | How the run was executed (env, commands, pass criteria). |
-| **evidence.md** | Human summary + **Claim → Artifact Map** (required by standards). |
+| **evidence.md** | Human summary + **Claim → Artifact Map** and **What This Evidence Does NOT Prove** section (required by standards). |
 | **notes.md** | Follow-ups, warnings, optional narrative. |
 
 ## Machine-readable results
@@ -74,7 +75,24 @@ Exported campaign story + game state JSON (when local export runs). Supports per
 
 ## Integrity
 
-Every substantive file should have a sibling **`.sha256`** whose line uses the **local basename** (`sha256sum -c` from the iteration directory).
+Use either a complete aggregate **`checksums.sha256`** manifest OR per-file
+**`.sha256`** siblings, not both as a universal requirement. Cover every
+substantive artifact, including every artifact referenced by the claim map.
+Aggregate entries resolve relative to the bundle root; sibling entries use the
+**local basename** and are checked from that sibling's directory.
+
+A canonical producer's different manifest filename is valid when explicitly
+mapped to this same aggregate coverage contract under [SKILL.md](./SKILL.md).
+Reconcile the actual artifact inventory against coverage and recompute every
+digest. Any mismatch, missing listed file, or uncovered substantive/claim-map
+artifact is an integrity failure under `/er`; absent checksums leave integrity
+unverified and approval withheld. A successful check of listed entries alone
+does not establish complete coverage. Checksum manifests do not hash themselves.
+
+Keep the producer's actual inventory and command evidence in its existing
+artifacts, with explicit path/field mapping; do not reconstruct stdout or invent
+extra sidecars. This changes packaging equivalence only: all required raw proof,
+provenance and applicable owner requirements remain binding.
 
 ## Mental model
 

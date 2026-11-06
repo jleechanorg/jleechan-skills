@@ -88,7 +88,7 @@ If a new file is justified, place it correctly:
 
 | Code Type | Location |
 |-----------|----------|
-| Python module | `$PROJECT_ROOT/` or appropriate submodule |
+| Python module | Appropriate existing package or submodule |
 | Scripts | `scripts/` |
 | Tests | `$PROJECT_ROOT/tests/` |
 | Commands | `.claude/commands/` |

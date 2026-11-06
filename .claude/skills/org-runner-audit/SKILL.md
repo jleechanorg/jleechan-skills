@@ -63,5 +63,5 @@ Offline runners (org-runner-3, org-runner-4 = X64) need investigation.
 
 ## Files Referenced
 
-- `.claude/skills/org-runner-audit.md` (this file)
+- `.claude/skills/org-runner-audit/SKILL.md` (this file)
 - `memory/MEMORY.md` — prior incidents of org-runner visibility failures (mem IDs: 0.73, 0.77, 0.78)

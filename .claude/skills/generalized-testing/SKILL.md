@@ -27,7 +27,7 @@ Generate comprehensive test suites for any system component by systematically an
 
 ### 2. Test Architecture Planning
 
-**Ask these questions one at a time:**
+Use the recommendations below as defaults. Ask only about a material decision the available context and project rules cannot resolve; batch remaining questions instead of asking sequentially.
 
 1. **Test Organization**: Single file, modular by concern, or hybrid with base class?
    - Recommend: Hybrid (base class + specialized files) for code reuse

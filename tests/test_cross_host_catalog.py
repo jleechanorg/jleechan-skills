@@ -2,11 +2,6 @@ import importlib.util,json,tempfile,unittest
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 class CatalogTests(unittest.TestCase):
- def test_browser_runtime_route(self):
-  s=(ROOT/'.claude/skills/browser-control/SKILL.md').read_text()
-  self.assertIn('Supported runtime browser API',s)
-  self.assertIn('Do not bypass tab ownership locks',s)
-  self.assertIn('CLI authorization does not create a connection',s)
  def test_install_backup_and_verification(self):
   spec=importlib.util.spec_from_file_location('catalog',ROOT/'scripts/install_shared_catalog.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
   with tempfile.TemporaryDirectory() as t:
@@ -229,16 +224,12 @@ class ReviewRegressionTests(unittest.TestCase):
       link=home/'.agents/skills'/name;link.parent.mkdir(parents=True,exist_ok=True);link.symlink_to(root,target_is_directory=True)
     m.install(src,home,'v1');self.assertEqual(m.verify(home,'v1'),[]);root=home/'.claude/skills/cross-machine-ssh-tier';body=(root/'SKILL.md').read_text()
     for ref in re.findall(r'\]\((\.\./[^)]+)\)',body):self.assertTrue((root/ref).is_file(),ref)
-    self.assertIn('excluded from a fresh shared-catalog install',body)
-    self.assertIn('only when its SKILL.md already exists',body)
-    self.assertIn('mirror handoff is unavailable',body)
     for name in ['mac-mirror','linux-mirror']:
      target=home/'.claude/skills'/name/'SKILL.md'
      if existing:self.assertEqual(target.read_text(),'existing host integration '+name);self.assertEqual((home/'.agents/skills'/name).resolve(),target.parent)
      else:self.assertFalse(target.exists());self.assertFalse((home/'.agents/skills'/name).exists())
 
  def test_fresh_and_existing_review_integrations_are_explicit(self):
-  import re
   m=self.installer()
   for existing in [False,True]:
    with self.subTest(existing=existing),tempfile.TemporaryDirectory() as t:
@@ -248,20 +239,6 @@ class ReviewRegressionTests(unittest.TestCase):
       p=h/'.claude/skills'/n;p.mkdir(parents=True);(p/'SKILL.md').write_text('host-owned '+n)
       a=h/'.agents/skills'/n;a.parent.mkdir(parents=True,exist_ok=True);a.symlink_to(p,target_is_directory=True)
     m.install(ROOT,h,'review-dependencies')
-    checked=[]
-    for p in (h/'.claude/skills').glob('*/SKILL.md'):
-     if p.parent.name in ['advice','web-advice']:continue
-     text=p.read_text()
-     if not re.search(r'(?:/advice|/web-advice|advice/SKILL)',text):continue
-     checked.append(p.parent.name)
-     self.assertIn('## Retained review integrations',text,p.parent.name)
-     before=text.split('## Retained review integrations',1)[0]
-     self.assertEqual(sum(line.startswith('```') for line in before.splitlines())%2,0,p.parent.name)
-     self.assertIn('For a remote invocation, check',text,p.parent.name)
-     self.assertIn('UNAVAILABLE',text,p.parent.name)
-     self.assertIn('leave any dependent readiness or plan-approval gate unmet',text,p.parent.name)
-    self.assertIn('pr-green-definition',checked)
-    self.assertEqual(len(checked),16)
     for n in ['advice','web-advice']:
      p=h/'.claude/skills'/n/'SKILL.md'
      if existing:

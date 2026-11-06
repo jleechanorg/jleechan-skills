@@ -325,7 +325,7 @@ done
 # ── Rsync root-level directories ─────────────────────────────────────────────
 echo "▶ Syncing root directories..."
 # shellcheck disable=SC2046
-for dir in "${ROOT_DIRS[@]}"; do
+for dir in ${ROOT_DIRS[@]+"${ROOT_DIRS[@]}"}; do
   src="$PROJECT_ROOT/$dir/"
   dst="./$dir/"
   if [[ ! -d "$src" ]]; then
@@ -371,7 +371,7 @@ for shared_skill in code-review tdd; do
   done
 done
 # shellcheck disable=SC2046
-for dir in "${HERMES_DIRS[@]}"; do
+for dir in ${HERMES_DIRS[@]+"${HERMES_DIRS[@]}"}; do  # bash 3.2: empty array is unbound under set -u
   src="$HERMES_HOME/$dir/"
   dst="./hermes/$dir/"
   if [[ ! -d "$src" ]]; then
@@ -381,7 +381,7 @@ for dir in "${HERMES_DIRS[@]}"; do
   mkdir -p "$dst"
   hermes_excludes=("${COMMON_RSYNC_EXCLUDES[@]}" "${HERMES_RSYNC_EXTRAS[@]}")
   if [[ "$dir" == "skills" ]]; then
-    for shared_skill in "${shared_hermes_skills[@]}"; do
+    for shared_skill in ${shared_hermes_skills[@]+"${shared_hermes_skills[@]}"}; do
       hermes_excludes+=("/$shared_skill/")
     done
   fi
@@ -392,7 +392,7 @@ for dir in "${HERMES_DIRS[@]}"; do
 done
 
 # Materialize file links so normal SKILL.md discovery sees both distributions.
-for shared_skill in "${shared_hermes_skills[@]}"; do
+for shared_skill in ${shared_hermes_skills[@]+"${shared_hermes_skills[@]}"}; do
   canonical=".claude/skills/$shared_skill"
   projection="hermes/skills/$shared_skill"
   if [[ -L "$projection" ]]; then

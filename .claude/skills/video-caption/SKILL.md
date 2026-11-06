@@ -35,11 +35,24 @@ Note: track whether audio exists — it affects the final ffmpeg command.
 ### 2. Extract frames for analysis
 
 ```bash
-mkdir -p /tmp/video_frames
-ffmpeg -i "video.mov" -vf "fps=1/10,scale=1280:-1" -q:v 3 /tmp/video_frames/frame_%03d.jpg -y
+# Resolve scratch directory via ~/.claude/skills/scratch-space/SKILL.md
+scratch_tmp="$("${CLAUDE_HOME:-$HOME/.claude}/skills/scratch-space/scripts/scratch-dir.sh" tmp)" || {
+    echo "Scratch resolver unavailable; refusing frame allocation" >&2
+    exit 75
+}
+if [ -z "$scratch_tmp" ]; then
+    echo "Scratch resolver returned an empty path; refusing frame allocation" >&2
+    exit 75
+fi
+frames_dir="$(mktemp -d "$scratch_tmp/video-frames.XXXXXX")" || {
+    echo "Scratch frame allocation failed" >&2
+    exit 75
+}
+ffmpeg -i "video.mov" -vf "fps=1/10,scale=1280:-1" -q:v 3 "$frames_dir/frame_%03d.jpg"
 ```
 
-One frame per 10 seconds is sufficient. Adjust `fps=1/N` for longer videos.
+Use the interval as an initial overview only. Add frames around each claimed
+action, transition and transient state; a ten-second interval can miss them.
 
 ### 3. Read and analyze frames
 
@@ -54,8 +67,13 @@ Use the `Read` tool on each frame image — Claude can view them directly. Read 
 ### 4. Render caption PNGs with PIL
 
 ```python
+from pathlib import Path
+import os
+import subprocess
+import tempfile
+import textwrap
+
 from PIL import Image, ImageDraw, ImageFont
-import textwrap, os
 
 VIDEO_W = 3354   # match your video width
 FONT_SIZE = 62
@@ -69,7 +87,18 @@ captions = [
 ]
 
 font = ImageFont.truetype(FONT, FONT_SIZE)
-os.makedirs('/tmp/caps', exist_ok=True)
+# Resolve scratch directory via ~/.claude/skills/scratch-space/SKILL.md.
+try:
+    scratch_tmp = subprocess.check_output(
+        [os.path.expanduser("~/.claude/skills/scratch-space/scripts/scratch-dir.sh"), "tmp"],
+        text=True,
+        stderr=subprocess.PIPE,
+    ).strip()
+except (OSError, subprocess.CalledProcessError) as exc:
+    raise SystemExit(f"Scratch resolver unavailable; refusing caption allocation: {exc}")
+if not scratch_tmp:
+    raise SystemExit("Scratch resolver returned an empty path; refusing caption allocation")
+caption_dir = Path(tempfile.mkdtemp(prefix="video-captions-", dir=scratch_tmp))
 
 for i, (start, end, text) in enumerate(captions):
     avg_char_w = FONT_SIZE * 0.55
@@ -85,7 +114,7 @@ for i, (start, end, text) in enumerate(captions):
         draw.text((PADDING, y), line, font=font, fill=(255, 255, 255, 255))
         y += line_h
 
-    img.save(f'/tmp/caps/cap_{i:02d}_{start}_{end}.png')
+    img.save(caption_dir / f'cap_{i:02d}_{start}_{end}.png')
 ```
 
 ### 5. Burn captions with ffmpeg overlay
@@ -95,8 +124,8 @@ import subprocess
 
 # Build inputs and filtergraph
 cmd = ['ffmpeg', '-i', 'video.mov']
-for start, end, path in [(s, e, f'/tmp/caps/cap_{i:02d}_{s}_{e}.png') for i, (s, e, _) in enumerate(captions)]:
-    cmd += ['-i', path]
+for start, end, path in [(s, e, caption_dir / f'cap_{i:02d}_{s}_{e}.png') for i, (s, e, _) in enumerate(captions)]:
+    cmd += ['-i', str(path)]
 
 n = len(captions)
 prev = '0:v'
@@ -112,7 +141,7 @@ cmd += ['-filter_complex', ';'.join(parts), '-map', '[vout]']
 if has_audio:
     cmd += ['-map', '0:a', '-c:a', 'copy']
 
-cmd += ['-c:v', 'libx264', '-crf', '18', '-preset', 'fast', 'output captioned.mov', '-y']
+cmd += ['-c:v', 'libx264', '-crf', '18', '-preset', 'fast', str(caption_dir / 'captioned.mov')]
 subprocess.run(cmd, check=True, timeout=600)
 ```
 
@@ -121,7 +150,7 @@ subprocess.run(cmd, check=True, timeout=600)
 | Step | Tool | Key detail |
 |---|---|---|
 | Inspect | `ffprobe` | Get duration, resolution, audio presence |
-| Extract frames | `ffmpeg fps=1/10` | 1 frame/10s is enough |
+| Extract frames | `ffmpeg fps=1/10` | Overview; add frames for each claimed event |
 | Analyze | `Read` tool | Read 4 frames in parallel |
 | Render captions | PIL `Image.new('RGBA')` | Semi-transparent: alpha=170 |
 | Burn in | ffmpeg `overlay` + `enable='between(t,s,e)'` | Chain all overlays in one filtergraph |
