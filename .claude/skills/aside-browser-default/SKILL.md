@@ -12,7 +12,7 @@ context: hermes
 
 Aside is a real GUI browser, not headless (it has no headless flag). Run it in background mode by default (§ Background mode): any Aside profile, started and driven without taking focus, frontmost app verified unchanged. If background mode cannot be verified, use isolated headless Chromium.
 
-Apply [browser-control's personal browser isolation contract](../browser-control/SKILL.md#personal-browser-isolation--required-for-every-route) first. Aside is primary whenever it can operate in the background; otherwise use isolated headless Playwright Chromium. Never attach to, focus, or import cookies from the personal **desktop Chrome** browser.
+Apply [browser-control's browser-context isolation contract](../browser-control/SKILL.md#browser-context-isolation--required-for-every-route) first. Aside is primary whenever it can operate in the background; otherwise use isolated headless Playwright Chromium. Never attach to, focus, or import cookies from the personal **desktop Chrome** browser.
 
 **Default: Aside in background mode** for live websites and authenticated sessions, reusing whichever Aside profile is already signed in. Isolated headless Chromium is the default for CI, Linux, deterministic local-app tests, and whenever background mode is unavailable or unverified. No user request to show or use a browser authorizes use of a personal **desktop Chrome** window/profile.
 
@@ -41,14 +41,13 @@ Aside has no headless flag; background mode is the supported no-focus-steal equi
    - This skill governs Aside only. **Desktop Chrome's profiles and cookies remain off-limits** under
      browser-control's isolation contract; an Aside profile is never a licence to touch Chrome.
 2. **Drive tabs only through** `aside repl --account <agent-account>` or `aside-mcp` (`openTab`, `snapshot`, `closeTab`).
-3. **Verify no focus was stolen (warning, not a halt):** record the frontmost app
+3. **Verify no focus was stolen:** record the frontmost app
    (`osascript -e 'tell application "System Events" to get name of first process whose frontmost is true'`)
-   before starting Aside and again after the first action.
-   - **Unchanged** → background mode is proven. Continue.
-   - **Changed** → report the change and the two app names in the final evidence, then continue: a
-     focus change is a nuisance to the operator, not a reason to abandon a working headless route.
-     Only fall back to isolated headless Chromium when Aside genuinely cannot be driven
-     (`profile ... is not connected to the daemon`, or the CLI/MCP transport fails).
+   before starting Aside and again after the first action. Unchanged → background mode is proven;
+   continue. Changed → background mode is unverified: stop driving Aside for the task and use isolated
+   headless Chromium (or browser-control's one-line blocker on a fingerprint-sensitive site), reporting
+   both app names. A transport failure is the same availability fallback, not a permission denial —
+   report the layer per § Phase 1.5.
 
 ## Why Aside
 
