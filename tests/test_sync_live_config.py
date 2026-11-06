@@ -364,10 +364,17 @@ class PrimeLastCommitCacheTest(unittest.TestCase):
             ).stdout.strip()
             sha, date, author, subject = expected_raw.split("\x1f", 3)
 
-            prime_last_commit_cache(root, ["tracked.md"])
+            with patch(
+                "scripts.sync_live_config.subprocess.run",
+                wraps=subprocess.run,
+            ) as run:
+                prime_last_commit_cache(root, ["tracked.md"])
+                actual = last_commit(root, "tracked.md")
 
+            self.assertEqual(run.call_count, 1)
+            self.assertEqual(run.call_args.args[0][-2:], ["--", "tracked.md"])
             self.assertEqual(
-                last_commit(root, "tracked.md"),
+                actual,
                 {
                     "sha": sha[:12],
                     "date": date,

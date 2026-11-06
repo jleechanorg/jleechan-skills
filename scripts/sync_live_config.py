@@ -307,18 +307,25 @@ def prime_last_commit_cache(cwd: Path, rel_paths: list[str]) -> None:
     if not rel_paths:
         return
     wanted = {f"{cwd}\x00{r}" for r in rel_paths}
+    pathspecs = set()
+    for rel_path in rel_paths:
+        parts = PurePosixPath(rel_path).parts
+        pathspecs.add(
+            PurePosixPath(*parts[:2]).as_posix() if len(parts) > 2 else rel_path
+        )
     key_prefix = str(cwd)
     fmt = "%H%x1f%aI%x1f%an%x1f%s"
     try:
         out = subprocess.run(
             [
                 "git",
+                "--literal-pathspecs",
                 "log",
                 "--format=@@" + fmt,
                 "--name-only",
                 "--no-renames",
                 "--",
-                ".",
+                *sorted(pathspecs),
             ],
             cwd=cwd,
             capture_output=True,
