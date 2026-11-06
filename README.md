@@ -73,17 +73,17 @@ command aliases for the named skills (with any helper file they run; an alias
 is a command named after the skill, described as an alias, or at most 15
 lines long), and the
 agents and scripts those files use. Every profile installs its named set plus
-linked dependencies; the counts below were measured from a scratch install.
+linked dependencies.
 Named profiles select other sets:
 
-| Flag | Named set (plus linked dependencies) | Measured skills / commands / agents |
-|---|---|---|
-| *(none)* or `--profile highlights` | `highlights`: the six highlighted skills above (6 named) | 21 / 11 / 1 |
-| `--profile highlights-prw` | `highlights` plus `prw` | 31 / 18 / 1 |
-| `--profile prw` | the PR workflow set: `prw`, `pr-workflow`, `pr-workflow-manager`, `draft-first-pr`, `pr-lifecycle`, `pr-green-definition`, `ready`, `advice`, `evidence-standards`, `evidence-review`, `testing-layers`, `code-standards` (12 named), and `/es`, `/er`, `/green`, `/cs` | 25 / 11 / 1 |
-| `--profile web` | opt-in browser review: `advice`, `web-advice`, `browser-control`, `aside-browser-default`, `browser-testing` (5 named) | 20 / 5 / 1 |
-| `--with SKILL` | adds one named skill, its dependencies and aliases to the chosen profile (repeatable) | varies |
-| `--all` | the full library, which was the installer's previous default | 278 / 249 / 45 |
+| Flag | Named set (plus linked dependencies) |
+|---|---|
+| *(none)* or `--profile highlights` | `highlights`: the six highlighted skills above (6 named) |
+| `--profile highlights-prw` | `highlights` plus `prw` |
+| `--profile prw` | the PR workflow set: `prw`, `pr-workflow`, `pr-workflow-manager`, `draft-first-pr`, `pr-lifecycle`, `pr-green-definition`, `ready`, `advice`, `evidence-standards`, `evidence-review`, `testing-layers`, `code-standards` (12 named), and `/es`, `/er`, `/green`, `/cs` |
+| `--profile web` | opt-in browser review: `advice`, `web-advice`, `browser-control`, `aside-browser-default`, `browser-testing` (5 named) |
+| `--with SKILL` | adds one named skill, its dependencies and aliases to the chosen profile (repeatable) |
+| `--all` | the full library, which was the installer's previous default |
 
 Dependency closure never adds browser, cookie or personal-infrastructure
 skills (`dot`, `web-advice`, `browser-control`, `browser-testing`, `slack-media-upload`, and the
@@ -175,6 +175,7 @@ pointers and are intentionally not the documentation target.
 | `/4layer` | [`4layer`](.claude/skills/4layer/SKILL.md) | Use to locate a PR blocker with the smallest credible reproduction. Give the bug and target repo; it discovers the project’s runner, tries unit → end-to-end → API → browser, and stops at the first conclusive layer. |
 | `/redgreen` (`/rg`) | [`redgreen`](.claude/skills/redgreen/SKILL.md) | Use to repair one known defect test-first. Provide the current symptom; it requires a fresh failing reproduction, a minimal fix, a passing rerun, and evidence that the full RED → CODE → GREEN flow actually happened. |
 | `/parallel` | [`parallelize-to-ceiling`](.claude/skills/parallelize-to-ceiling/SKILL.md) | Use whenever work has independent files, tests, rows, jobs, or agent lanes. List the work and constraints; it identifies the real CPU, I/O, network, or shared-state limit and proposes safe shards instead of an arbitrary worker count. |
+| `/wish` (`/w`, `/wq`) | [`wish`](.claude/skills/wish/SKILL.md) | Use when you have an idea and want it shipped. It sizes the task, brainstorms, writes a no-code spec (with UI mocks for anything user-facing), plans, builds test-first, and lands every PR through `/prw`; multi-day work adds `/ironclad`, `/cmux-goal`, and `/plan-micro`. `/wq` asks no questions. |
 | `/superpowers-quick` | [`superpowers-quick`](.claude/skills/superpowers-quick/SKILL.md) | Use when you want the normal Superpowers design process to select its recommended defaults autonomously. Give it the idea or requested change; it writes a self-reviewed design specification and implementation plan without pausing for preference or approval questions. |
 | `/history` | [`conversation-history-sparse`](.claude/skills/conversation-history-sparse/SKILL.md) | Use for fast orientation on what the current repo or branch has been doing. Ask a focused question; it samples high-signal Claude, Codex, Hermes, agy, Cursor, and Pi history without loading full transcripts; add `--deep` only when the sparse pass is insufficient. |
 | `/sidekick` | [`sidekick`](.claude/skills/sidekick/SKILL.md) | Use for one long-running mission that must survive a session crash. Give a named outcome and success criteria; it assigns a persistent teammate and checkpoints durable state plus a resumption Bead. |
@@ -311,6 +312,14 @@ One law: for independent work, the speed ceiling is the real per-item resource b
 
 ```bash
 /extended-library:parallel "run these 12 independent lint fixes"
+```
+
+### [`wish`](.claude/skills/wish/SKILL.md) — `/wish`, aliases `/w`, `/wq`
+
+Idea to shipped PRs, with ceremony scaled to the task. It first resumes any earlier work on the same wish, then sizes it (S: a few hours, one PR; M: about a day; L: days). Every tier gets a Superpowers brainstorm and a no-code spec; user-facing changes also get UI mocks before code. M adds an `/ironclad` contract and a written plan; L adds `/cmux-goal`, a `/plan-micro` bead plan, `/timeline`, and parallel lanes. Every PR goes through `/prw`, with checkpoint pushes so a lost session does not lose work. `/wish` asks at most one batched round of questions; `/wq` asks none.
+
+```bash
+/wq "add a dark-mode toggle to settings"
 ```
 
 ### [`superpowers-quick`](.claude/skills/superpowers-quick/SKILL.md) — `/superpowers-quick`

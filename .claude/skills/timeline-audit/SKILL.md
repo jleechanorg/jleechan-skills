@@ -42,7 +42,7 @@ Compare with a contemporaneous forecast only if one exists. Label a newly propos
 
 Save the Markdown audit and self-contained HTML in the existing durable report location (normally `~/roadmap`). Include the full slot table, source coverage and links between artifacts.
 
-Reuse [timeline](../timeline/SKILL.md)'s retrospective renderer where available. Label audit-window bars as **coverage windows, not measured occupancy**; show actual job durations separately only when evidenced. For that renderer, round the axis span up to integer minutes while retaining exact window boundaries and partial-slot durations. Inspect the rendered output and report rendering gaps.
+Reuse [timeline](../timeline/SKILL.md)'s retrospective renderer where available. Give it an explicit durable HTML output path and pass `--no-publish` unless publication is requested; its default output path is temporary, and it otherwise publishes a gist and creates or updates a bead. Label audit-window bars as **coverage windows, not measured occupancy**; show actual job durations separately only when evidenced. For that renderer, round the axis span up to integer minutes while retaining exact window boundaries and partial-slot durations. Inspect the rendered output and report rendering gaps.
 
 Keep history-derived artifacts local by default. Do not inherit automatic gist publication, scheduled refreshes or new tracker requirements from a renderer. Publish or open a browser only within the user's requested scope.
 

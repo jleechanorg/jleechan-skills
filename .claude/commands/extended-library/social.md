@@ -6,7 +6,7 @@ execution_mode: deferred
 
 # /social — Draft, Stage, or Approved Publish
 
-Loads `~/.claude/skills/social-poster/SKILL.md` first, which routes to the canonical Hermes social-poster skill. `/social` is cross-platform: it applies only to the sites selected by `--platforms`, with platform-specific checks layered on top.
+Loads `~/.claude/skills/social-poster/SKILL.md` first, which applies the common editorial policy and selects the active runtime route. `/social` is cross-platform: it applies only to the sites selected by `--platforms`, with platform-specific checks layered on top.
 
 ## Usage
 
@@ -25,7 +25,7 @@ Loads `~/.claude/skills/social-poster/SKILL.md` first, which routes to the canon
 ## Behavior
 
 1. Read and execute `~/.claude/skills/social-poster/SKILL.md`.
-2. That skill should resolve to `~/.hermes/skills/social-poster/SKILL.md` as the canonical workflow.
+2. Follow its runtime routing: Aside uses Social Aside with supplied browser/tools; other supported runtimes retain `~/.hermes/skills/social-poster/SKILL.md` as the canonical workflow.
 3. Default to discovery + drafting for Reddit and Twitter/X. Exclude LinkedIn, Instagram, Facebook, and Meta Threads unless explicitly selected for this request. X threads are Twitter/X discussions, not Meta Threads. Stage only when requested; a draft request never auto-stages. For requested staging, verify actual field contents, carry the approved source/media assets, and use the site’s real compose controls rather than generic page controls.
 4. Draft/stage requests never publish. For an explicit publish/crosspost request, verify the reviewed content, intended account, and selected platform allowlist. Do not demand a magic phrase; preserve any independently required tool/policy confirmation.
 5. Verify staged fields and capture evidence. For draft-only requests, return draft files for review. For authorized publishing, verify the final permalink and visible content after the gated action.

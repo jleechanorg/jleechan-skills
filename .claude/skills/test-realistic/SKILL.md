@@ -36,7 +36,9 @@ Required fields (fails loud with `ConfigError` if any is missing):
 
 Optional fields (see `scripts/config.py` for full validation and defaults):
 `backend_url`, `personas` (defaults to 5 generic QA archetypes), `actor_fixtures`
-(your project's equivalent of selectable player characters, if any),
+(your project's equivalent of selectable player characters, if any; when
+configured, existing 1:1 pairing uses the shortest configured sequence because
+this generalized contract does not synthesize unmatched actors or personas),
 `capture_glob` (default `agent-*/capture.jsonl`), `output_root_default`,
 `doc_target_patterns` + `doc_dispatch_command` (if your project has its own
 docs-to-invariants-style generator for a documentation-driven target class),
@@ -49,30 +51,37 @@ dispatch exit under conditions YOUR project defines -- see
 
 Your dispatcher is responsible for ALL of the app-specific plumbing: booting
 or connecting to your real local server, driving a REAL browser (Playwright,
-Aside, or your own), making REAL LLM calls to decide what a player-persona
+Aside, or your own) or a project-configured REAL native app client, making
+REAL LLM calls to decide what a player-persona
 does at each turn, and writing one capture file per agent under
 `--output-root` matching `config.capture_glob` (default
 `agent-*/capture.jsonl`), one JSON turn-record per line, each line a JSON
 object (no required key names -- `feature_coverage_judge.py` accepts any
 dict shape). This skill never inspects HOW you did that -- only that
-captures exist afterward. No mocks anywhere in this chain: a capture file
-produced without a real browser and a real model call is not evidence, it's
+captures exist afterward and each matched capture contains at least one
+non-empty JSON object. No mocks anywhere in this chain: a capture file
+produced without a real browser or native client and a real model call is not evidence, it's
 theater, and the coverage judge downstream will have nothing real to grade.
+Native adapters must label Simulator versus physical-device evidence and
+separately record runtime/build evidence from driver-source evidence. Browser
+emulation must not be presented as native, and offline or synthetic state is
+not primary evidence. This shared skill does not implement native clients.
 
 ### Onboarding a new project: verify your adapter first
 
 Before your first real scenario run, sanity-check that `dispatch_command`
-actually satisfies the contract above -- no real model call, just "argv in,
-capture.jsonl out":
+actually satisfies the contract above:
 ```bash
 python3 "${CLAUDE_HOME:-$HOME/.claude}/skills/test-realistic/scripts/verify_adapter.py" --config <path/to/.test-realistic.toml>
 ```
-This dispatches your real command against a trivial fixture pool/scenario
-and checks: at least one file matches `capture_glob`, every line parses as
-JSON, every parsed line is a non-empty object. It never calls
-`feature_coverage_judge`, so it's a fast, cheap way to catch a broken
-adapter (wrong output path, empty captures, malformed JSON) before spending
-a real coverage-judge model call diagnosing the same problem indirectly.
+This dispatches your configured command against a trivial fixture pool/scenario
+and checks: the dispatch exits zero, at least one file matches
+`capture_glob`, every non-blank line parses as a JSON object, and every
+matched capture contains at least one non-empty object. The configured command
+may hit the project's real services, browser, and model; this check itself never calls
+`feature_coverage_judge`. It catches a broken adapter (non-zero dispatch,
+wrong output path, empty captures, malformed JSON) before spending a real
+coverage-judge model call diagnosing the same problem indirectly.
 
 ## Who does what (model vs. code) -- unchanged from the source design
 
@@ -82,7 +91,7 @@ a real coverage-judge model call diagnosing the same problem indirectly.
 | Target-type disambiguation among PR # / commit SHA / freeform prompt | **MODEL** (call #1, `classify_and_summarize`) | Genuinely ambiguous judgment -- a bare number could be a PR # or an unrelated mention. |
 | Fetching raw context (`gh pr view`, `git show --stat`) | **CODE** | Shape/existence checks select WHICH fetcher to try -- mechanics, not meaning classification. Works against any `gh`/`git`-hosted repo, unchanged. |
 | Scenario step authoring (3-5 `user_action`/`expected_render` beats) | **MODEL** (call #2, `author_scenario_steps`) | Must be grounded in the raw diff/prompt text just fetched. |
-| `feature_summary` derivation | **MODEL**, its own call, NEVER supplied via `--from-json` | Must be independent of any later self-grading -- the coverage judge compares captured turns against this exact string. |
+| `feature_summary` derivation | **MODEL**, returned by the classification+summary call, NEVER supplied via `--from-json` | Must be independent of any later self-grading -- the coverage judge compares captured turns against this exact string. |
 | Predicate reuse-vs-author decision | **MODEL**, recorded on the generated scenario's `PREDICATE_DECISION` | Correctness signal; non-blocking in v1 (matches source design). |
 | Schema/structural validation of authored JSON | **CODE** | Pure shape conformance. |
 | `relevant_surfaces` membership check | **CODE**, against `config.feature_surface_vocabulary` | Set-membership, enforced both in the JSON-schema `enum` and an explicit check. |
@@ -100,7 +109,7 @@ The model seam (`llm_callable`) is stubbed in every unit test. This proves
 the harness's own mechanics (batching, retry, validation, verdict
 aggregation) without spending a real model call.
 
-### Step 2: Generate (model-delegated, three real model calls)
+### Step 2: Generate (model-delegated, two real model calls; one with --from-json)
 ```bash
 python3 "${CLAUDE_HOME:-$HOME/.claude}/skills/test-realistic/scripts/scenario_generator.py" "<TARGET>" --output-dir <path> [--config <path/to/.test-realistic.toml>]
 ```
@@ -121,7 +130,9 @@ python3 scenario_generator.py "<TARGET>" --from-json <payload.json> --output-dir
 ```
 This performs zero subprocess calls for step authoring, but STILL makes one
 fresh model call to derive `feature_summary` -- any `feature_summary` key in
-the payload is discarded. This anti-self-grading exemption exists so the
+the payload is discarded. Normal generation makes two calls total
+(classification+summary, then steps); `--from-json` makes one
+(classification+summary). This anti-self-grading exemption exists so the
 downstream coverage judge is never compared against the same session's own
 paraphrase of what it did.
 
@@ -137,6 +148,7 @@ python3 target_scoped_run.py \
 Refuses to run over a reused `--output-root` that already has captures or a
 prior verdict in it (never grades a stale run's leftovers). Dispatches
 `config.dispatch_command`, collects every `config.capture_glob` match,
+rejects a missing or empty-only actor capture before judging,
 judges coverage with a real model call
 (`feature_coverage_judge.judge_feature_exercised` -- batches turns by prompt
 size, labels every turn with its true GLOBAL capture index so a model can
@@ -164,8 +176,9 @@ subprocess also exited 0 (or was explicitly excused via
 5. `CoverageJudgeUnavailableError` and `ScenarioGenerationError` are hard,
    non-zero-exit failures. No caller in this skill may catch either to
    fabricate a verdict or fall back to a keyword/token heuristic.
-6. A capture produced without a real browser and a real model call is not
-   valid evidence for this pipeline -- there is no mock mode.
+6. Valid captures require a real browser or configured native client, plus a
+   real model call. Offline or synthetic captures are not evidence for this
+   pipeline; there is no mock mode.
 7. `target_pass` proves the feature was exercised, not that it behaved
    correctly. A forbidden-state requirement (e.g. no request while consent is
    off) needs an explicit predicate or an independent check of the raw request
@@ -186,7 +199,7 @@ ${CLAUDE_HOME:-$HOME/.claude}/skills/test-realistic/
     aggregate.py                # target-scoped verdict aggregation
     scenario_generator.py      # model-delegated scenario generation
     target_scoped_run.py       # dispatch + judge + report orchestrator
-    verify_adapter.py          # onboarding conformance self-test (no model call)
+    verify_adapter.py          # onboarding conformance self-test (no coverage-judge call)
   tests/                       # fast, stubbed-model unit tests (pytest)
   examples/
     test-realistic.example.toml  # fully-annotated EXAMPLE config

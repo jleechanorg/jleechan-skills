@@ -40,6 +40,24 @@ normal implementation policy for work that is not assigned to Dot.
 
 - **Active work check first (mandatory):** before declining an authorized task, ask the Dot to inventory current work in progress and count only distinct tasks demonstrably executing now. Require a receipt for each claimed active task: item/goal, owner, live run/session or worktree/PR, the exact action happening now, and a fresh artifact or command result. Assignment, rank, "busy", or start time alone is not proof. Idle, stalled, finished, queued, and waiting-for-review tasks are not active. Capacity is a valid refusal only with evidence for at least six distinct active tasks, each showing its exact present action and fresh receipt; include those receipts in the reply. Do not gate acceptance on rank or ask the user to prioritize the task. If fewer than six active tasks are proven, take the authorized task and fill open capacity with safe work. Keep genuine permission/approval holds and measured resource limits separate from a full-capacity refusal: state the evidence and exact blocked action, preserve the approval boundary, and continue work that remains feasible. If the composer stays blocked or the account is limited, send the same request to the next account in `rotation` with `--account <next>`.
 
+### Deliver review material to Dot
+
+For visual or document review, attach the actual requested material in the
+intended Dot conversation before asking for judgment. Verify every expected
+filename after upload completes, then verify each name again on the submitted
+message. A local path, URL, upload response, or
+acknowledgement alone does not prove Dot can access the material.
+
+Use a linked bundle only after Dot confirms it can open the bundle and read
+every required document and image. Have Dot identify the documents/images and
+relevant content it actually reviewed; acknowledgement is not review coverage.
+If access fails, retry through an
+authorized attachment route already available to the agent. If no supported
+route works, report that delivery gap once. Do not ask the operator to upload
+material the agent holds, repeat an inaccessible link, or claim a review
+without recipient-side access and coverage evidence. Keep the task moving while
+resolving a nonblocking delivery gap.
+
 ### Never stall (mandatory)
 
 Automated coordinator reminders arrive labelled `[Agent ask]`. Treat them as an agent's request, not as the operator
@@ -160,9 +178,7 @@ channels only when that channel and recipient are authorized for the task.
 - `restore-session` — restore this profile's last own-session snapshot (Chrome must be stopped; verify with read/probe afterward). This is opportunistic recovery; token rotation can invalidate the snapshot.
 
 - Read: `dot.sh [--account <name>] [--url <url>] read [chars]` prints the tail of the page text (default 5000). While the dot is working the tail ends with `dot` / `Thinking` / `Working`.
-- Probe: `dot.sh [--account <name>] probe <expected-email-sha256>` checks the current session with the existing profile and returns a typed `DOT_SESSION_PROBE` JSON result. Pass the frozen expected email's SHA-256 digest of its exact UTF-8 bytes, encoded as lowercase hex; do not trim or change the email's case before hashing. The output includes identity match, endpoint status, probe status, composer availability, an opaque profile slot, probe ID, and timestamp; it never includes the raw email or digest.
-  The probe uses the existing-profile-only launch with the normal Chrome options plus a Playwright launch timeout. It awaits launch before starting the probe-local deadline, so a timed-out body/evaluate returns `unknown` without abandoning a pending launch. The installed SDK consumes that launch timeout and its startup-failure path performs bounded graceful-close/kill cleanup; a launch failure reports `cleanup_state: unresolved` because no context handle is returned for disconnect verification. Cleanup first awaits `context.close()`; if that hangs or fails, it uses the owned public `context.browser().close()` when available and verifies the public disconnected state/event. `cleanup_state` reports `not_started`, `context_closed`, `browser_disconnected`, or `unresolved`; unresolved cleanup is `unavailable`. This reports Playwright API lifecycle evidence and does not claim an OS-level no-residual-process audit. The probe does not scan desktop Chrome `Local State`, seed profiles, read or copy cookies, remove locks, inspect or change composer text, or send messages. A visible composer is reported separately and does not imply logout.
-  `logged_out` requires a valid HTTP 200 JSON session with no user and no composer; a 403 or Cloudflare challenge title is `challenge`; indeterminate responses are `unknown`; launch/profile failures are `unavailable`.
+- Probe: `dot.sh [--account <name>] probe <expected-email-sha256>` checks the existing profile against the frozen account identity and returns a typed `DOT_SESSION_PROBE` result. Hash the exact UTF-8 email bytes with lowercase SHA-256 hex; do not normalize the address. The result includes identity/endpoint/probe status, composer availability, opaque profile slot, probe ID, timestamp, and cleanup state, never the email or digest. It uses the existing profile only, does not inspect or change composer text, send messages, read/copy cookies, or remove locks. Cleanup state is Playwright lifecycle evidence, not an OS-level no-residual-process audit; see `scripts/dot_chrome.mjs` for exact lifecycle fields. `logged_out` requires HTTP 200 JSON with no user and no composer; 403/challenge is `challenge`, indeterminate is `unknown`, and launch/profile failure is `unavailable`.
 - Send: write the message to a `mktemp` file, then `dot.sh [--account <name>] [--url <url>] send <file>`. Prefix every message with the sender identity, e.g. `From Claude (<model>, <worktree>): ...`. Never interpolate raw text into JS; the script JSON-encodes the file.
   - **Mandatory after any send that hands off or asks for work:** in the same turn, without asking, harden the wait condition with `/ironclad` (binary, verified at the source; use the coordinator recovery checkback condition when applicable, otherwise the generic 4-hour cap), then set it via `/cmux-goal` (or native `/goal` when cmux is unavailable) using the condition in "Default: delegate, then monitor". Run `send` in the background, since it can wait up to 30 min on a busy composer; it posts once and never resends. A send without a goal is an unfinished step.
 - Single send attempt: `dot.sh [--account <name>] [--url <url>] send-once <file>`.
@@ -172,7 +188,7 @@ channels only when that channel and recipient are authorized for the task.
 ### Peer-draft policy (decision lives HERE, not in code)
 
 Other agent sessions share this composer; ChatGPT restores a saved draft lazily on focus, so `send` focuses first, then inspects. When `send`/`send-once` reports `DOT_DRAFT_PRESENT` (exit 3), do NOT immediately clear or keep blind-retrying:
-1. **Wait 30 seconds, then submit if unchanged.** Sleep up to 30s and re-read the composer. If the draft text is **identical after 30s** (nobody is actively typing), just submit it: `dot.sh submit-draft` (prints `DOT_DRAFT_SUBMITTED`). Do not wait 5 minutes; do not clear a stable draft. Then send your own message.
+1. **Wait 30 seconds, then submit if unchanged.** Sleep up to 30s and re-read the composer. Ignore an appended read-receipt timestamp when comparing text. If the draft text is **otherwise identical after 30s** (nobody is actively typing), just submit it: `dot.sh submit-draft` (prints `DOT_DRAFT_SUBMITTED`). Do not wait 5 minutes; do not clear a stable draft. Then send your own message.
 2. **If the text is still changing** (a peer is provably actively typing between reads), do not submit or clear yet — wait one more 30s cycle, or route your message to the next account in `rotation`.
 3. **Clear only genuine garbage** (mid-word cutoffs, command fragments, pasted junk) with `dot.sh clear-draft` (prints `DOT_DRAFT_CLEARED`), then send your own message.
 4. `DOT_CLEAR_DRAFT=1` on `send` remains the forced-clear escape hatch; own-leftover and already-sent drafts are always safe-cleared automatically.
@@ -229,7 +245,7 @@ If an account returns `DOT_CHROME_UNAVAILABLE: not signed in`:
 ## Concurrency & Safety Rules
 
 - **MANDATORY: every dot profile owns an INDEPENDENT session.** For session creation and recovery, follow [Interactive Login & Session Recovery](#interactive-login--session-recovery); its restore-first sequence and visible-login gate are authoritative.
-- **BANNED: cookie-store resync from desktop/other profiles** (copying `Cookies` from a desktop Chrome profile into a dot profile, in either direction). A session shared between two live browsers is a rotation race: ChatGPT rotates the session token on activity, the rotation supersedes the old token server-side, and the browser that did not rotate renders logged out. On 2026-10-11 this logged the user's personal Chrome out of their own account after a resync-based restore. If recovery is needed, follow the sequence above.
+- **BANNED: cookie-store resync from desktop/other profiles**, in either direction. A session shared between live browsers can be invalidated by server-side token rotation. If recovery is needed, follow the sequence above.
 - **Never launch a browser other than system Google Chrome against a live Dot
   profile.** Use `dot.sh` for profile operations; it selects the host-specific
   password store: macOS `--password-store=keychain`; Linux uses
@@ -238,7 +254,7 @@ If an account returns `DOT_CHROME_UNAVAILABLE: not signed in`:
 - **To check login/session status, use `dot.sh --account <name> read` or `dot.sh --account <name> probe`** — they launch the correct binary with the correct flags. Never open the profile with a foreign browser; if a custom script must inspect the profile internals, copy the profile directory first (e.g. `cp -R ~/.config/dot-headless-chrome-X /tmp/probe-copy`) and run against the copy, or use read-only SQLite (`sqlite3 "file:.../Cookies?mode=ro"`, or `sqlite3 <db> ".backup /tmp/c.sqlite"` for a live store) without launching any browser. **Never `immutable=1` on a database Chrome may be writing** — it ignores the WAL and can mislead on a live store.
 - **Session-loss forensics (read-only, before any recovery):** a wiped profile shows a rebuilt anonymous cookie store (fresh `oai-did`/csrf cookies, zero `session-token` rows) while the account itself is fine server-side. `dot.sh` now classifies this automatically: a not-signed-in read/send also emits `DOT_STORE_REBUILD: ...` when the store shows the rebuild signature. After diagnosis, follow [Interactive Login & Session Recovery](#interactive-login--session-recovery); visible login remains subject to its step 3. Never treat profile logout as an account logout.
 - **Machine checks now built into dot.sh (do not weaken them):** disk-space floor (`DOT_MIN_FREE_MB`, default 512 — a full disk corrupts the SQLite cookie store); OPT-IN foreign-binary enforcement (`DOT_ENFORCE_SYSTEM_CHROME=1`, honoured on login, headless and send-prepared): refuses a non-system binary unless `DOT_ALLOW_FOREIGN_BINARY=1`, because `DOT_CHROME_BIN` is a supported override for tests and alternate Chrome channels — the real 2026-10-11 wipe came from an ad-hoc script that bypassed `dot.sh` entirely; login launches with the same `--password-store` flags as headless; process-group teardown even when the node wrapper exits before the browser. The per-profile kernel flock and the coordinator STOP marker were deleted on 2026-10-20 at the operator's request: dot.sh no longer serializes concurrent invocations on one profile and `DOT_PROFILE_LOCKED` no longer exists, so concurrent launches against the same profile are the caller's own risk.
-- **Session snapshots (own-profile, no coupling):** every authenticated read/send/probe keeps `Cookies.snapshot` next to the live store (SQLite online backup; `DOT_SNAPSHOT=0` disables). `dot.sh restore-session` restores it — only with Chrome fully stopped, keeping a `.pre-restore` copy. Restoration is opportunistic: server-side token rotation may make a snapshot stale, in which case the probe reports logged out and the recovery sequence above applies; any visible login remains subject to its step 3. Never resync cookies from another browser profile.
+- **Session snapshots (own-profile, no coupling):** authenticated read/send/probe keeps `Cookies.snapshot` beside the live store (`DOT_SNAPSHOT=0` disables); `restore-session` requires Chrome fully stopped and keeps a `.pre-restore` copy. A snapshot can be stale after token rotation; verify with the recovery sequence above.
 - **Login-window hygiene:** there is no per-profile flock or coordinator STOP marker any more (removed 2026-10-20), so
   concurrent launches against the same profile remain the caller's own risk; `.dot-profile.lock.ready.*` files are
   legacy scratch and carry no authority.
@@ -273,13 +289,12 @@ Always rotate across configured accounts when hitting a rate limit, usage limit,
 
 ## Backend & Persistent Profiles
 
-- **Headless Chrome (`scripts/dot_chrome.mjs`):** The only supported backend.
-  - Resolves one persistent profile per account from `user_data_dir` in `~/.config/dot/config.json` or `~/.config/dot-headless-chrome-<account_slug>`.
-  - Creates a blank profile; each host and account signs in on its own with `dot.sh --account <name> login`.
-  - Rejects profile paths that overlap the system Google Chrome profile, including symlink aliases.
-  - Safely handles `SingletonLock`: verifies lock holder PID liveness, waiting politely if held by an active Chrome process, clearing only genuinely dead locks without killing peer processes.
-  - Tolerates appended read-receipt timestamps (`Read 1:15 AM`) to prevent false draft conflicts.
-- **Local execution:** If Chrome is unavailable on a host, Dot reports that local prerequisite failure. It does not forward the request to another host, because doing so would reuse that host's signed-in session.
+Headless system Chrome is the only supported backend. Resolve the account's
+dedicated profile using the Machine Configuration reference below; never share
+it with another tool or host. Login and recovery follow Interactive Login &
+Session Recovery above.
+If Chrome is unavailable locally, report that prerequisite gap; do not forward
+the request to another host or reuse its signed-in session.
 
 ## Configuration & Environment Variables
 

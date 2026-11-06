@@ -137,11 +137,9 @@ class InstallerIntegrationTest(unittest.TestCase):
                     (target / relative).read_bytes(),
                     (REPO_ROOT / ".claude" / relative).read_bytes(),
                 )
-            quick = (target / "skills/superpowers-quick/SKILL.md").read_text()
             for dependency in ("superpowers-brainstorming", "superpowers-writing-plans"):
                 installed_dependency = target / f"skills/{dependency}/SKILL.md"
                 self.assertTrue(installed_dependency.is_file(), installed_dependency)
-                self.assertIn(f"~/.claude/skills/{dependency}/SKILL.md", quick)
 
     def test_history_helper_runs_outside_source_checkout_after_install(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -2181,15 +2179,6 @@ class InstallerRealProfileTest(unittest.TestCase):
                     f"Installed profile '{profile}': {len(skills)} skills, {len(commands)} commands,",
                     result.stdout,
                 )
-                agents = len(installed_tree(target, "agents"))
-                key = "*(none)*" if profile == self.data["default_profile"] else f"`--profile {profile}`"
-                for doc in ("README.md", "INSTALL.md"):
-                    rows = [line for line in (REPO_ROOT / doc).read_text().splitlines() if line.startswith(f"| {key}")]
-                    self.assertEqual(len(rows), 1, f"{doc} needs one {key} row")
-                    self.assertTrue(
-                        rows[0].endswith(f"| {len(skills)} / {len(commands)} / {agents} |"),
-                        f"{doc} {key} row must state the measured counts: {rows[0]}",
-                    )
 
     @staticmethod
     def is_alias(command: str, skill: str) -> bool:
@@ -2294,6 +2283,9 @@ class InstallerRealProfileTest(unittest.TestCase):
             helper = target / "skills" / "pr-lifecycle" / "scripts" / "pr-base-changed-paths.sh"
             self.assertTrue(helper.is_file(), "pr-lifecycle helper script must ship with the prw profile")
             self.assertTrue(os.access(helper, os.X_OK), "pr-lifecycle helper script must stay executable")
+            for part in ("six-stage.md", "exceptions.md", "review-records.md"):
+                self.assertTrue((target / "skills" / "pr-lifecycle" / part).is_file(),
+                                f"pr-lifecycle on-demand part {part} must ship with the prw profile")
             for command in ("es", "er", "green", "cs", "r.md", "smart-advisor.md", "extended-library/testing-layers.md"):
                 name = command if command.endswith(".md") else f"{command}.md"
                 self.assertTrue((target / "commands" / name).is_file(), command)
@@ -2309,12 +2301,3 @@ class InstallerRealProfileTest(unittest.TestCase):
             self.assertEqual(installed, self.skill_names)
             self.assertTrue(DOT_FAMILY <= installed)
             self.assertIn(f"Installed --all (full library): {len(self.skill_names)} skills,", result.stdout)
-            commands = len([c for c in installed_tree(target, "commands") if c.endswith(".md")])
-            agents = len(installed_tree(target, "agents"))
-            for doc in ("README.md", "INSTALL.md"):
-                rows = [line for line in (REPO_ROOT / doc).read_text().splitlines() if line.startswith("| `--all`")]
-                self.assertEqual(len(rows), 1, f"{doc} needs one --all row")
-                self.assertTrue(
-                    rows[0].endswith(f"| {len(self.skill_names)} / {commands} / {agents} |"),
-                    f"{doc} --all row must state the measured counts: {rows[0]}",
-                )

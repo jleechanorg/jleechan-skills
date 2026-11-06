@@ -10,7 +10,89 @@ This page explains the technique for other developers. It is a case-study guide,
 
 The [Develop with idea velocity presentation](https://docs.google.com/presentation/d/1qLdMzZaIuP9IdpTBomuOGJTAspCEJo6Esu10zWFrhm4/edit?slide=id.iosNov2026#slide=id.iosNov2026) gives the broader iOS development context.
 
+## Start with a difference you can see immediately
+
+**Mobile web, not native iOS:** [merged frontend PR #459](https://github.com/jleechanorg/worldai_frontend/pull/459) changes the artwork in the invitation to install the iOS app. This is the clearest matched pair: the same signed-out page, invitation, text and buttons stay visible while the header changes.
+
+| Before: tightly cropped character portrait | After: twin dragons and a central figure |
+| --- | --- |
+| ![Mobile-web iOS invitation before: a tightly cropped blond face fills the header](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/ios-pr459-route-marker-corrective-2026-11-02/baseline-main/mobile-screen.png) | ![Mobile-web iOS invitation after: two dragons flank a central figure above the same controls](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/ios-pr459-route-marker-corrective-2026-11-02/candidate-e5/mobile-screen.png) |
+
+The change is obvious without reading the diff, and the unchanged controls give the reviewer a useful comparison. The gold dragon's head is still partly cropped: the screenshot reveals that limitation instead of hiding it. These stills demonstrate the artwork and layout, not that Install, Continue or Open app works.
+
+Both captures used signed-out Chromium with an iPhone user agent at 390 × 844 CSS pixels, the same committed capture driver and a real development backend. Captured baseline: `1fcd6ba3bf035547875f8325d81dafed6bea706c`; candidate: `e5f1459f49fe50faaf95e59e7bad3a13f7d6f24d`. The [original reproduction record](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/ios-pr459-route-marker-corrective-2026-11-02/REPRODUCE.md) retains the source, route and process context; this is not Safari, native-app or production-deployment proof.
+
+Both original PNGs were downloaded and visually inspected, and their hashes matched the [published manifest](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/ios-pr459-route-marker-corrective-2026-11-02/DELIVERY-SHA256SUMS). Before SHA256: `1db5131dba850389b4be4f2a3906e306a494d9e47c05a92cbd3ceafb2fa94ebe`. After SHA256: `ed066536188eae901962911da46247ef9cbe2c8d4a9284f11bbdd5674322ba06`.
+
+## Show a readability bug, not just a new design
+
+**Mobile web, not native iOS:** [merged frontend PR #483](https://github.com/jleechanorg/worldai_frontend/pull/483) fixes a visibly broken God Mode response. The same stored paragraph appears in both screenshots; this is the existing dark interface, not the paper/Journal redesign.
+
+| Before: monospace text and overlapping inline-code boxes | After: proportional text and a clean tinted identifier |
+| --- | --- |
+| ![God Mode before: monospace paragraph with overlapping outlined boxes around a wrapped identifier](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr674-docs-godmode-pr483-20261104/godmode-web-before-real-wrapped.png) | ![God Mode after: the same paragraph in proportional text with a wrapped tinted identifier and no overlapping border](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr674-docs-godmode-pr483-20261104/godmode-web-after-real-wrapped.png) |
+
+Look at the wrapped identifier in **Current Status & Pending Inquiries**. Before, its borders overlap nearby lines; after, the tinted text stays within its lines. The proportional font also changes wrapping, so the crops contain different amounts of surrounding text. They show the same response section, not a pixel-aligned screen or a newly generated answer.
+
+The original PR records Chromium mobile emulation at 393 × 852 CSS pixels and 2× scale. These 786 × 1120 PNGs are chat-column crops. Baseline was deployed development source `2751ef25`; the after still was captured at `ddbbfbae`. The PR separately records web-runtime applicability to merged head `00eda31b85f002534f3f31ab4885a1308724d8a2`; that is not a fresh capture at the merged head. The [sanitized run receipt](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr674-docs-godmode-pr483-20261104/real-run-receipt-sanitized.json) records genuine app sign-in and the real development backend. The viewed response was already stored; no gameplay turn or LLM call was made for this comparison.
+
+Both originals were downloaded, visually inspected and matched to the [published checksums](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr674-docs-godmode-pr483-20261104/checksums.sha256). Before SHA256: `7f9cbaf019061566709fc21d6b06ff7ef4c8687c9d27274d9fa3be50ccd5cbff`. After SHA256: `b7a72e31cf4b49694a9f1bd72373ec90c7e55c2e2f894baa634354f5ab9e2e88`. This proves the observed completed-response layout, not streaming, native iOS, unbreakable strings, fenced code blocks or production deployment.
+
+## Compare the whole avatar screen
+
+**Mobile web, not native iOS:** [merged frontend PR #295](https://github.com/jleechanorg/worldai_frontend/pull/295) removes an extra confirmation for a free initial portrait that replaces no player choice. The wizard viewport makes the consequence visible beside the launch action.
+
+| Before: preview waits for Use | After: portrait attached, with Remove near launch |
+| --- | --- |
+| ![Avatar wizard before: generated preview with a green Use this portrait button](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr295-current-612-20261026/baseline-preview.png) | ![Avatar wizard after: Portrait attached and Remove avatar directly beneath Enter the World](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr295-current-612-20261026/portrait-attached-undo.png) |
+
+This is a workflow change, not a wholesale visual redesign: the surrounding dark wizard stays familiar. The baseline Use button was already visible. The after still shows the attached state and visible Remove affordance described by the PR's automatic-attachment flow, not a completed removal, persistence after launch, or recovery from every failure.
+
+The captures use the same 393 × 852 CSS viewport, but the original before PNG is 786 × 1704 and the after PNG is 393 × 852. Their generated faces and description text differ; do not attribute those content differences or image density to the UI fix. Both show the completed portrait-generation stage of the Custom wizard, rather than identical generated content.
+
+Baseline source is `36ec31987e851327bf5df9659d6ef86210a97b26`; after capture is `612b6e58ac88bf8f1813031038c66ec7bbdf8b4f`. The PR records source applicability to merged head `19b2063c287f4ed8e8c54fa62f9ac1fe4178500b`: the intervening changes do not alter portrait runtime. This is historical capture applicability, not a fresh merged-head run. The [runtime receipt](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr295-current-612-20261026/runtime-receipt.json) and [manifest](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr295-current-612-20261026/manifest.json) document real Firebase SDK sign-in and a real local development backend. The broader video includes a labelled injected suggestion-transport failure; these two stills show the successful preview/attached states. Native behavior and larger text remain outside this proof.
+
+Both original images were visually inspected and matched the [published checksums](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr295-current-612-20261026/checksums.sha256). Before SHA256: `ec78d09b3fe619c03ae14ff07ca955fef98ebc0bb49d4e06008541e9579db78f`. After SHA256: `914fae4efe51887df51942ca0fad33cfcaf51eff03de5c245e097794a27fbce8`.
+
+## Make text-generation waiting visible
+
+**Mobile web, not native iOS:** [merged frontend PR #189](https://github.com/jleechanorg/worldai_frontend/pull/189) shows the portrait editor while it is generating a suggested character description, before portrait-image generation.
+
+| Before: loading status below the controls | After: progress beside the description field |
+| --- | --- |
+| ![Portrait editor before: Writing description indicator and Loading suggested description status below Generate portrait](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr189-mobile-web-71b8a44b/packaged/01-baseline-pending.png) | ![Portrait editor after: Writing description indicator plus Preparing suggested description above the editable text field](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr189-mobile-web-71b8a44b/packaged/02-candidate-pending.png) |
+
+Both screenshots retain the central loading indicator and **Writing description…** label. The change is not the introduction of that indicator: the candidate puts **Preparing suggested description…** next to the text field and allows typing while the request is pending. A still shows the waiting state, not spinner motion or editability by itself; the [original 19.6-second comparison](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr189-mobile-web-71b8a44b/packaged/07-pr189-mobile-web-comparison.mp4) and [candidate run record](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr189-mobile-web-71b8a44b/candidate/result.json) carry the interaction evidence.
+
+Baseline source: `5fdbd38cb09a6a80bff0d2ed8f73e7a61899a4ea`; candidate and merged PR head: `71b8a44b505b3ad38b870756969dfdb6ebb11afd`. Both used a 393 × 852 mobile-web viewport, real backend and genuine Firebase SDK sign-in. These are natural pending requests, not mocked or intercepted responses. The baseline ends while pending; the candidate record separately shows a typed edit surviving the real response. No portrait-image generation request occurred. This example proves neither native behavior nor image generation, save, persistence or model quality.
+
+The original captioned PNGs are 393 × 968, including their evidence bands; some long caption text is clipped. Both were downloaded and visually inspected against [published checksums](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr189-mobile-web-71b8a44b/SHA256SUMS). Before SHA256: `1f46e33c1ad9b9f35672d2e4d2157effbce6f8d07ad9471fa6708efa9cb87e1b`. After SHA256: `d958b6ef7e6f8540a04d59ca45f6342d176df008da3a2861f5c9a1e4001f739f`. [Bundle provenance](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr189-mobile-web-71b8a44b/bundle-manifest.json) preserves the original capture records. No new capture was made for this guide.
+
+## Show a substantial panel reorganization
+
+**Mobile web, not native iOS:** [merged frontend PR #281](https://github.com/jleechanorg/worldai_frontend/pull/281) turns the Equipment panel's dense bullet summary into structured rows with slot labels, prominent item names, subdued attributes and dividers.
+
+| Before: dense equipment bullets | After: structured equipment rows |
+| --- | --- |
+| ![Equipment before: armor, weapons and tools in a dense bullet summary](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr281/ebc636a1-20261028T1610Z/canonical-v3/normal/before-equipment-still.png) | ![Equipment after: item rows with Main Hand, Off Hand, Armor and other slot labels](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr281/ebc636a1-20261028T1610Z/canonical-v3/normal/after-equipment-still.png) |
+
+The same campaign and equipment-response hash anchor the comparison. This is a real layout change, not different fixture content dressed up as a before/after. The taller structured presentation requires scrolling; the after still does not show the entire inventory. The original annotated stills retain large source/redaction overlays above the panel rather than presenting a cleaned-up mockup.
+
+Captured baseline: `740d2a1b3a0839b4ecc7dc18a0aa7f1955fd26a7`; after: `ebc636a15d45a4ff695f09340c01b47ccedf2d06`, the final PR head. The baseline is the recorded comparison source, not a claim that it equals the merge base. The [evidence index](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr281/ebc636a1-20261028T1610Z/canonical-v3/manifest.json) records Chromium mobile web at 393 × 852, genuine SDK sign-in, authenticated panel reads, unchanged backend and matching response hashes. The published annotated PNGs are 786 × 1930. They do not establish native scrolling, Dynamic Type, lifecycle, physical-device behavior or deployment.
+
+Both originals were downloaded and visually inspected against their published hashes. Before SHA256: `03b35e5b1b9ed2e8b83e7a55593bb4005bf0210630952203b65de286bfe9b0eb`. After SHA256: `e03bdbcbfbf37fbaac2973eff550d1d57df067a51878fdb05953efe4fda3dc2a`. No new capture or image alteration was made for either added example.
+
 ## Watch a real captioned comparison
+
+**Shared mobile web, not native iOS:** two separately captioned videos from [merged frontend PR #257](https://github.com/jleechanorg/worldai_frontend/pull/257) make the problem and repair easier to inspect:
+
+| Before: the page enlarges, then the viewer closes | After: inspect the scene inside the open viewer |
+| --- | --- |
+| [Watch the before video on YouTube (12.88 seconds)](https://youtu.be/da13c8Ea1T8) | [Watch the after video on YouTube (25.52 seconds)](https://youtu.be/PUxGRv_5jdE) |
+
+These unlisted videos are captioned derivatives of the [original before clip](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr257-mobile-zoomin-cde4015-20261024-v4/media/baseline-full.mp4) (1.72 seconds) and [original after clip](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr257-mobile-zoomin-cde4015-20261024-v4/media/candidate-full.mp4) (4.88 seconds). Every original app frame remains in order, played at explicitly labelled **0.25× speed (4× slower)** using repeated frames, not motion interpolation. Each derivative adds a two-second first-frame hold and a four-second final-frame hold labelled **PAUSED**. Only the existing 72-pixel editorial band is removed; the remaining 392 × 780 app region stays at its original size beside readable captions on a 1280 × 960 landscape canvas. The holds are presentation pauses, not additional observed runtime. The original dark imagery and abrupt baseline failure remain visible; this improves pacing and caption layout, not source-image quality. Watch fullscreen to inspect the phone view. No new app capture or generated scene was used.
+
+The uploaded before file's SHA256 is `39e7befa81f296772d9b70f0384ea6cbdf8f1aedfa2c0556193d3fd844e3b575`; the after file's is `e0d53d6efd6679dd520c01d3541ec82c249c83b40dfcc5b8cb7f37f4ef8f843c`. These identify the uploaded files, not YouTube's transcoded streams. The source revisions and proof limits below apply to both.
 
 **Shared mobile-web example, not native iOS:** [watch the 6.6-second image-zoom comparison](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr257-mobile-zoomin-cde4015-20261024-v4/media/comparison-baseline-then-green.mp4).
 

@@ -127,6 +127,7 @@ PROMPT_EOF
 #     echo "PROMPT_FILE=$PROMPT_FILE"
 #   Bash call 2 (run_in_background: true, paste the echoed literals):
 #     agy --dangerously-skip-permissions \
+#         --model gemini-3.8-flash-high \
 #         --new-project \
 #         --print-timeout 20m \
 #         --print "$(cat /tmp/agy_prompt.XyZ123.md)" \
@@ -137,6 +138,7 @@ PROMPT_EOF
 AGY_OUT="$(mktemp -t agy_coder_out.XXXXXX)"
 
 agy --dangerously-skip-permissions \
+    --model gemini-3.8-flash-high \
     --new-project \
     --print-timeout 20m \
     --print "$(cat "$PROMPT_FILE")" > "$AGY_OUT" 2>&1
@@ -149,9 +151,9 @@ when the task notification fires. Never block the agent's only thread on it.)
 
 **Flag reference (agy 1.1.1):**
 - `--dangerously-skip-permissions` — auto-approve all tool permission requests (full execution mode)
+- `--model gemini-3.8-flash-high` — REQUIRED default model (`gemini-3.8-flash-high` or `gemini-3.8-flash-medium` per `agy models`; never use Gemini 3.1 Pro or older Pro models)
 - `--print` / `--prompt` — single non-interactive prompt, prints response
 - `--print-timeout 20m` — REQUIRED for real coding tasks (default 5m kills long runs)
-- `--model <m>` — model override (`agy models` to list)
 - `--add-dir <path>` — add extra workspace directories (repeatable)
 - `--new-project` — fresh project context (use for isolated one-off tasks)
 - Do NOT use `--sandbox` for repo implementation work — it enables terminal restrictions.

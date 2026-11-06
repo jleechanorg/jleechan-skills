@@ -11,6 +11,8 @@ Handle visual verification with a currently available image-capable tool. Check
 the active runtime's tool catalog and the current image's accessible path before
 choosing a route; platform and tool availability can change.
 
+Before capture or reviewer dispatch, apply [Reuse and scoped follow-up](#reuse-and-scoped-follow-up).
+
 ## The Problem
 
 Some runtime Read tools may not render PNG/JPG files on some Linux versions.
@@ -33,6 +35,44 @@ directory allocated through the canonical [Scratch Space skill](../scratch-space
 1. Extract frames with ffmpeg into a directory allocated through the canonical
    [Scratch Space skill](../scratch-space/SKILL.md).
 2. Inspect the frames with an available image-capable tool.
+
+## Reuse and scoped follow-up
+
+Before dispatch, apply [pr-lifecycle's SHA-binding rule](../pr-lifecycle/SKILL.md#sha-binding-rule-critical--applies-to-every-gate-in-this-chain)
+to existing independent visual verdicts and artifact receipts. Keep original
+reviewer, verdict, reviewed SHA, artifact hashes, observed ranges and limitations;
+record applicability in the existing review record, not a new ledger.
+
+- **Unchanged clip and claims:** when the complete delta and provenance show the
+  prior coverage still applies, reuse it with zero reviewer redispatch. A new
+  phase, receipt location or candidate hash alone does not require another viewing.
+- **Ending-only change:** after verifying the earlier footage and its claims are
+  unchanged, retain their valid coverage and request independent inspection only
+  of the changed ending and enough preceding context to judge the transition and
+  resulting state. Record exact source/output ranges and the retained receipt.
+  If the change affects earlier meaning, timing, continuity or provenance, expand
+  review to every affected range; uncertain applicability is not unchanged proof.
+- **New or rejected footage:** new captures, changed cast/characters, changed
+  behavior or unresolved rejection findings need affected independent review.
+  Inspect new footage in full for its declared claims; an ending sample cannot
+  approve a new capture. Preserve [continuous-source integrity](../evidence-standards/SKILL.md#continuous-video-only--slideshows-are-forbidden)
+  and any stricter domain or repository proof.
+
+Before each necessary visual dispatch, assign the artifact, claim, exact time/frame
+ranges (all new frames and boundary overlap), required before/after context and output
+fields: observed content, claim verdict, limitations and artifact/range references.
+Ranges scope visual follow-up, not source approval: never combine partial source
+readers into a full-scope vote. Existing lifecycle seat eligibility, independence,
+quorum and authority remain unchanged.
+
+The coordinator computes and fills mechanical receipt fields from retained primary
+artifacts: hashes, frame indices and presentation timestamps (PTS), source/output
+mapping and links. Attribute these as coordinator measurements, not reviewer
+observations. Repair missing bookkeeping without redispatch when existing evidence
+establishes the facts; retain the original verdict and clocks. Missing visual
+judgment, ambiguous provenance or an unmet eligibility/deadline requirement is not
+bookkeeping and cannot be repaired into approval by the coordinator. Request only
+the missing or affected independent judgment through the governing review route.
 
 ## Verification Rule — FAIL LOUDLY
 

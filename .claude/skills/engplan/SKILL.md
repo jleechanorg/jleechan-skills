@@ -132,11 +132,12 @@ Keep commits coherent and reviewable. Honor explicit size limits in the current
 user request or accepted plan; do not impose a 100-line minimum, pad a small fix,
 or remove needed behavior to meet an inherited line-count target.
 
-### Rule 4: PR size
+### Rule 4: PR size and stage-PR count ceiling
 
 Choose commit and PR boundaries from dependencies, risk, and the delivery goal.
+**Hard stage-PR cap**: Group target work into **1 unified PR by default, or at most 2–5 coarse vertical stage-PRs; never exceed 5 PRs for one feature** (see `pr-quantity-control`).
 A small coherent fix may be one commit. Preserve explicit user-requested staging
-or count limits, but do not invent a minimum number of commits or PRs.
+or count limits, but do not invent a minimum number of commits or PRs, and never split tests into a standalone PR separate from the production code they verify.
 
 ### Rule 5: /4layer test coverage per stage-PR
 Select sufficient checks using the repository's testing and evidence owners.
@@ -185,8 +186,8 @@ Plan writes:
 3. Inspect files touched by multiple PRs and assign coordination or sequencing for actual conflicts.
 
 ### Phase 2: Stage decomposition
-1. Group target work into the smallest coherent set of stage-PRs that fits the accepted plan.
-2. Assign each file to exactly one stage-PR.
+1. Group target work into **1 unified PR by default, or at most 2–5 coarse vertical stage-PRs; never exceed 5 PRs for one feature** (see `pr-quantity-control`).
+2. Assign each file (and its corresponding tests) to its owning vertical stage-PR.
 3. Verify no file is in two stage-PRs.
 4. Choose sequencing: parallel-eligible vs serial-required.
 
@@ -220,10 +221,10 @@ Add entry to `~/.claude/projects/<project>/memory/` describing the plan and add 
 
 ## Anti-Patterns to Avoid
 
-- **PR proliferation**: opening a new PR for each small fix when an existing PR in scope could absorb it
+- **PR proliferation**: opening a new PR for each small fix when an existing PR in scope could absorb it, or splitting a feature into >5 micro-PRs
 - **File contention**: two PRs editing the same file simultaneously → rebase churn, stale CR
 - **Missing RED proof**: a combined test/fix commit still needs evidence that the check failed before the behavior fix
-- **Unreviewable changes**: split incoherent changes by dependency or risk; a line count alone is not a split requirement
+- **Unreviewable changes**: split incoherent changes by dependency or risk into at most 2–5 coarse vertical subsystem PRs (see `pr-quantity-control`); a line count alone is not a split requirement
 - **Bead-after-the-fact**: creating a bead AFTER the PR opens — defeats tracking
 - **Roadmap-drift**: failing to create or update the canonical `~/roadmap/` plan; link it from repository materials instead of creating a duplicate copy
 - **Generic plans**: "fix bugs", "improve performance" — must have concrete file ownership
@@ -233,16 +234,15 @@ Add entry to `~/.claude/projects/<project>/memory/` describing the plan and add 
 ## Template Sections (copy into each plan)
 
 ### Goal (template)
-> Close out <scope> work with N stage-PRs sequenced so no two open PRs modify
+> Close out <scope> work with N stage-PRs (1 unified PR by default, or 2–5 coarse vertical stage-PRs maximum) sequenced so no two open PRs modify
 > the same file at the same time. Existing M small open PRs remain open but
 > are handled later — they do not gate this plan.
 
 ### File-Exclusive Ownership Map (template)
-| Stage-PR | Owns (exclusive) | May read | Closes |
+| Stage-PR | Owns (exclusive, including tests) | May read | Closes |
 |---|---|---|---|
-| **PR-A: <name>** | `path/a.py`, `path/b.py` | `path/c.py` | <bug class / bead> |
-| **PR-B: <name>** | `path/d.py` | `path/a.py` (read) | <bug class / bead> |
-| **PR-C: Evidence** | `tests/test_*.py` | none modify | Gate-6 evidence |
+| **PR-A: <subsystem A>** | `path/a.py`, `path/b.py`, `tests/test_a.py` | `path/c.py` | <bug class / bead> |
+| **PR-B: <subsystem B>** | `path/d.py`, `tests/test_d.py` | `path/a.py` (read) | <bug class / bead> |
 
 ### Per-PR Commit Plan (template)
 Illustrative activities, not a commit or line-count quota. Select the rows and
