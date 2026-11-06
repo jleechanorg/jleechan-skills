@@ -52,9 +52,11 @@ the selected provider's permission profile and the repository's test-account rul
 Before an authorized paid request, preflight the actual launched server process,
 not just its parent shell or health endpoint: verify the effective credential
 selection after wrapper/venv activation, the required authenticated test
-identity, selected provider and required credential availability, and a nonbillable
-permission/read check for the service the claim depends on. Never print secret
-values. If activation replaced a required path, correct the task-scoped launch
+identity, selected provider and required credential availability. Check each
+required operation’s permission nonbillably; a successful read does not prove
+write access. If a safe authorized check is unavailable, report it unverified.
+Never print secret values. If activation replaced a required path, correct the
+task-scoped launch
 without changing persistent defaults or other services, then recheck. Health or
 a terminal frame alone is not evidence of a successful provider turn or event.
 Inspect the runner and server for retries; keep them within the user-approved
