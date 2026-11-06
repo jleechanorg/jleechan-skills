@@ -4,6 +4,7 @@ substring over-match), plus core evidence/mapping logic."""
 
 import shlex
 import subprocess
+import sys
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -242,6 +243,23 @@ class ContainmentTest(unittest.TestCase):
                 repo_abs_for(root, ".claude/commands/target.py")
 
 
+    def test_repo_abs_for_rejects_untracked_hermes_parent_link(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as root_dir:
+            root = Path(root_dir)
+            target = root / ".claude" / "skills" / "foo" / "SKILL.md"
+            target.parent.mkdir(parents=True)
+            target.write_text("canonical skill fixture")
+            link = root / "hermes" / "skills" / "foo"
+            link.parent.mkdir(parents=True)
+            link.symlink_to(target.parent, target_is_directory=True)
+            self._commit_paths(root, ".claude/skills/foo/SKILL.md")
+
+            with self.assertRaises(ValueError):
+                repo_abs_for(root, "hermes/skills/foo/SKILL.md")
+
+
 class FindCommandFilesForSkillTest(unittest.TestCase):
     """Regression test for the reviewer-found bug: a bare `name in text`
     substring match made `advice` false-match inside `web-advice`."""
@@ -371,6 +389,79 @@ class FileEvidenceStatusTest(unittest.TestCase):
     def test_status_values_are_the_documented_set(self):
         ev = FileEvidence(repo_rel="x", live_rel="y", status="live_only")
         self.assertIn(ev.status, ("new", "modified", "ok", "live_only"))
+
+
+class ApplyDryRunOutputTest(unittest.TestCase):
+    def test_reports_full_hashes_and_preserves_fixture_targets(self):
+        import tempfile
+
+        root = Path(__file__).resolve().parents[1]
+        script = root / "scripts" / "sync_live_config.py"
+        create_path = ".claude/commands/.ruff.toml"
+        same_path = ".claude/skills/sync-live-config/SKILL.md"
+        overwrite_path = ".claude/commands/advice.md"
+
+        with tempfile.TemporaryDirectory() as home_dir:
+            home = Path(home_dir)
+            create_dest = home / create_path
+            same_dest = home / same_path
+            overwrite_dest = home / overwrite_path
+            same_dest.parent.mkdir(parents=True)
+            overwrite_dest.parent.mkdir(parents=True)
+            same_source = root / same_path
+            same_dest.write_bytes(same_source.read_bytes())
+            overwrite_dest.write_text("old fixture", encoding="utf-8")
+            same_before = (sha256_of(same_dest), same_dest.stat().st_mtime_ns)
+            overwrite_before = (
+                sha256_of(overwrite_dest),
+                overwrite_dest.stat().st_mtime_ns,
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "apply",
+                    "--direction",
+                    "repo-to-live",
+                    "--paths",
+                    create_path,
+                    same_path,
+                    overwrite_path,
+                    "--dry-run",
+                    "--home",
+                    str(home),
+                ],
+                cwd=root,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(f"CREATE {create_path}", result.stdout)
+            self.assertIn(
+                f"src={sha256_of(root / create_path)} dst=missing",
+                result.stdout,
+            )
+            self.assertIn(f"SAME   {same_path}", result.stdout)
+            same_hash = sha256_of(same_source)
+            self.assertIn(f"src={same_hash} dst={same_hash}", result.stdout)
+            self.assertIn(f"OVERWRITE {overwrite_path}", result.stdout)
+            self.assertIn(
+                f"src={sha256_of(root / overwrite_path)} "
+                f"dst={overwrite_before[0]}",
+                result.stdout,
+            )
+            self.assertFalse(create_dest.exists())
+            self.assertEqual(
+                (sha256_of(same_dest), same_dest.stat().st_mtime_ns),
+                same_before,
+            )
+            self.assertEqual(
+                (sha256_of(overwrite_dest), overwrite_dest.stat().st_mtime_ns),
+                overwrite_before,
+            )
 
 
 class EvidenceRemoteTest(unittest.TestCase):

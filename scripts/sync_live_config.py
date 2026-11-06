@@ -165,6 +165,20 @@ def repo_abs_for(root: Path, repo_rel: str) -> Path:
             prefix == "hermes/skills/"
             and resolved == (claude_skills_root / repo_rel[len(prefix):]).resolve()
         )
+        if is_hermes_skill_link:
+            parts = PurePosixPath(repo_rel).parts
+            current = root
+            symlink_count = 0
+            for index, part in enumerate(parts):
+                current = current / part
+                if not current.is_symlink():
+                    continue
+                link_rel = PurePosixPath(*parts[: index + 1]).as_posix()
+                if not _is_git_tracked(root, link_rel):
+                    is_hermes_skill_link = False
+                    break
+                symlink_count += 1
+            is_hermes_skill_link = is_hermes_skill_link and symlink_count > 0
         if not is_hermes_skill_link:
             raise ValueError(
                 f"resolved repo path escapes its allowed root {allowed_root}: {resolved}"
@@ -719,16 +733,25 @@ def _dry_run_local(root: Path, home: Path, paths: list[str], direction: str) -> 
             continue
         src_hash = sha256_of(src)
         if not dst.exists():
-            print(f"  CREATE {p}\n         {src} -> {dst}\n         destination did not exist")
+            print(
+                f"  CREATE {p}\n"
+                f"         {src} -> {dst}\n"
+                f"         destination did not exist\n"
+                f"         src={src_hash} dst=missing"
+            )
             would_change += 1
             continue
         dst_hash = sha256_of(dst)
         if src_hash == dst_hash:
-            print(f"  SAME   {p}\n         already identical, no change")
+            print(
+                f"  SAME   {p}\n"
+                f"         already identical, no change\n"
+                f"         src={src_hash} dst={dst_hash}"
+            )
             continue
         print(
             f"  OVERWRITE {p}\n         {src}\n      -> {dst}\n"
-            f"         src={src_hash[:12]} dst={dst_hash[:12] if dst_hash else 'unreadable'}"
+            f"         src={src_hash} dst={dst_hash if dst_hash else 'unreadable'}"
         )
         would_change += 1
     print(f"\nsummary: {len(paths)} path(s), {would_change} would change, {failing} would fail")
