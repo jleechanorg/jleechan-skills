@@ -161,9 +161,13 @@ def repo_abs_for(root: Path, repo_rel: str) -> Path:
 
     resolved = candidate.resolve()
     if not resolved.is_relative_to(allowed_root):
+        canonical_skill = (
+            claude_skills_root / repo_rel[len(prefix):]
+        ).resolve()
         is_hermes_skill_link = (
             prefix == "hermes/skills/"
-            and resolved == (claude_skills_root / repo_rel[len(prefix):]).resolve()
+            and canonical_skill.is_relative_to(claude_skills_root)
+            and resolved == canonical_skill
         )
         if is_hermes_skill_link:
             parts = PurePosixPath(repo_rel).parts

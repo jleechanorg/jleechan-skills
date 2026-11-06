@@ -262,6 +262,46 @@ class ContainmentTest(unittest.TestCase):
                 repo_abs_for(root, "hermes/skills/foo/SKILL.md")
 
 
+    def test_repo_abs_for_rejects_tracked_hermes_alias_to_external_canonical_target(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as root_dir, tempfile.TemporaryDirectory() as outside_dir:
+            root = Path(root_dir)
+            outside = Path(outside_dir) / "outside.md"
+            outside.write_text("owned external fixture")
+            canonical = root / ".claude" / "skills" / "foo" / "SKILL.md"
+            canonical.parent.mkdir(parents=True)
+            canonical.symlink_to(outside)
+            alias = root / "hermes" / "skills" / "foo" / "SKILL.md"
+            alias.parent.mkdir(parents=True)
+            alias.symlink_to("../../../.claude/skills/foo/SKILL.md")
+            self._commit_paths(
+                root,
+                ".claude/skills/foo/SKILL.md",
+                "hermes/skills/foo/SKILL.md",
+            )
+
+            staged = subprocess.run(
+                [
+                    "git",
+                    "ls-files",
+                    "--stage",
+                    "--",
+                    ".claude/skills/foo/SKILL.md",
+                    "hermes/skills/foo/SKILL.md",
+                ],
+                cwd=root,
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.splitlines()
+            self.assertEqual(len(staged), 2)
+            self.assertTrue(all(line.startswith("120000 ") for line in staged))
+
+            with self.assertRaises(ValueError):
+                repo_abs_for(root, "hermes/skills/foo/SKILL.md")
+
+
 class FindCommandFilesForSkillTest(unittest.TestCase):
     """Regression test for the reviewer-found bug: a bare `name in text`
     substring match made `advice` false-match inside `web-advice`."""
