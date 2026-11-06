@@ -164,14 +164,30 @@ Different problem: the process is gone, so there is nothing to ctrl-c. Recreate 
    `You've hit your usage limit ... try again at <date>` while working perfectly. Never accept the banner,
    and never accept the *date in the banner*, as the fleet's quota state: on 2026-11-04 six panes still read
    "try again Nov 9th / Nov 10th" while quota had already reset.
-   **Decide quota from the account, not from the pane.** Run three cheap non-interactive probes and count
-   successes; a single failure is not a wall (it can be a transient):
+   **Decide quota from the account, not from the pane.** Run three cheap non-interactive probes, recording each
+   command's exit status and exact final reply in its own temporary file:
    ```bash
-   for i in 1 2 3; do codex exec --skip-git-repo-check "reply P$i" 2>&1 | grep -oE "P$i|usage limit|try again at.*"; done
+   for i in 1 2 3; do
+     reply_file=$(mktemp) || exit 1
+     if codex exec --skip-git-repo-check --output-last-message "$reply_file" "reply P$i"; then
+       status=0
+     else
+       status=$?
+     fi
+     printf 'P%s exit=%s final reply:\n' "$i" "$status"
+     cat "$reply_file"
+     printf '\n'
+     if [ "$status" -eq 0 ] && cmp -s "$reply_file" <(printf %s "P$i"); then
+       printf 'P%s: clean\n' "$i"
+     fi
+     rm -f -- "$reply_file"
+   done
    ```
-   Three clean replies ⇒ quota is available ⇒ every banner naming a future date is stale, and the lanes are
-   **recoverable** — proceed with the restart. Three failures carrying a limit message ⇒ a genuine
-   account-level wall; a restart only re-hits it, so stop and report the reset time instead.
+   Count a probe clean only when its exit status is 0 and its exact final reply is `P1`, `P2`, or `P3` as
+   requested. Count a failure toward a genuine wall only when its nonzero exit and saved final reply confirm an
+   account usage limit; other failures or missing replies are inconclusive. Three clean replies mean quota is
+   available and future-dated pane banners are stale. Three confirmed limit failures mean a genuine account
+   wall; stop and report the reset time. Any other result is inconclusive, so do not infer quota state from it.
    Do not dispatch one `codex exec` fan-out per lane to test this; one probe answers it fleet-wide.
 3. **CSI-u garbage.** See step 3. Symptom: `bash: 9: command not found`, `bash: 5ucodexc: command not
    found`. The cause is the terminal still encoding keys as `ESC [ code ; mods u`; `ctrl+c` on the
@@ -231,10 +247,11 @@ once for the fleet and verify each resumed session from its transcript, not a sc
 1. **Settle quota first** (trap 2): three probes. Do not touch 14 lanes on a wall a restart cannot clear.
 2. **Enumerate generations fresh** (trap 12) and identify each lane by its own full capture and process/session
    evidence. Do not use a tail, grep, footer, or banner alone to select a lane; if activity is ambiguous, leave it.
-3. **Per lane, in worktree order:** capture the pre-restart process/session identity; `ctrl+c` x2; read that pane's
-   own `codex resume <uuid>` hint; dispatch that exact id (never `codexc`, trap 11), checking both `cmux send`
-   and Enter exit codes. Before sending `continue` or accepting a goal dialog, verify a new PID and the same
-   session id. On a failed, missing, or mismatched check, send nothing further and report unverified.
+3. **Per lane, in worktree order:** capture the pre-restart process/session identity; `ctrl+c` x2; confirm the
+   shell prompt; cancel any CSI-u residue with `ctrl+c` and confirm a clean prompt before typing. Read that pane's
+   own `codex resume <uuid>` hint; dispatch that exact id (never `codexc`), checking both `cmux send` and Enter
+   exit codes. Before sending `continue` or accepting a goal dialog, verify a new PID and the same session id.
+   On a failed, missing, or mismatched check, send nothing further and report unverified.
 4. After sending `continue`, require a new non-timer transcript/session event to report progress. Take the
    two-sample full-buffer captures required by `cmux-steer`; a changed screen alone is not proof of recovery.
 5. Report each lane's UUID, process/session verification, transcript progress evidence, and any remaining wall
