@@ -385,7 +385,9 @@ Origin: `${CLAUDE_HOME:-$HOME/.claude}/CLAUDE.md` § Parallel subagents and mode
 there to a pointer 2026-09-06; this section is the full policy).
 
 - Route every independent unit to the **cheapest capable tier** — never
-  silently inherit an expensive session model for delegated work.
+  silently inherit an expensive session model for delegated work. Prefer fast,
+  low-cost subagents for bounded tasks; escalate when capability or a required
+  independent review justifies it.
 - For every lane, name the model explicitly and verify the model that actually
   ran from launch or runtime metadata before relying on its result. If the
   cheapest capable tier cannot do the bounded task, state the concrete failure
