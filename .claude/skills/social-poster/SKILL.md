@@ -9,6 +9,10 @@ summary: Local shim for the canonical Hermes social-poster skill.
 
 ## Runtime routing
 
+Apply [Social common editorial policy](../social/SKILL.md#common-editorial-policy)
+before selecting either runtime route; read that section without re-entering
+Social's dispatcher.
+
 - **Inside Aside with runtime-provided browser/tools:** follow [Social Aside](../social-aside/SKILL.md), applying [Social common policy](../social/SKILL.md#common-editorial-policy). Do not enter the Claude/Hermes route below.
 - **Other supported runtimes:** retain the existing Claude/Hermes workflow below.
 

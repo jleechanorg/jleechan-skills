@@ -25,6 +25,8 @@ No removal of author-supplied meaning or facts to create stronger claims.
 - Truthful blocked/failed status, contradictory evidence, required safety/security
   notices, and tool/permission compliance remain unconditional.
 - Concise-writing and humanizer point to the single Document Standards owner.
+- Every native-model scenario in the proof plan passes, with its pass/fail result
+  recorded, before this specification is treated as verified.
 
 ## User stories
 

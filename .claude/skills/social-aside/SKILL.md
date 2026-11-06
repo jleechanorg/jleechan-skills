@@ -50,7 +50,12 @@ not independent drafting.
    account/destination, revision, media paths/provenance, composer URL and status.
    Keep full original media and exact staged composites there, or reference
    existing durable copies. Do not store credentials. Read saved files back.
-5. Stage only when requested. Verify actual visible field values, hyperlink
+5. For Instagram media posts, keep “Share to Threads” and “Share to Facebook”
+   disabled unless each destination is explicitly selected for this request.
+   Verify and report both controls before staging or publishing; selection
+   alone is not publication approval. If their state cannot be verified, stop
+   the dependent staging or publication.
+   Stage only when requested. Verify actual visible field values, hyperlink
    elements and media positions. For Reddit read
    [Reddit editing](../social/references/reddit-editing.md) before mutation.
    Compare substantive paragraphs and links with the pre-edit backup; preserve

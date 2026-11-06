@@ -238,6 +238,8 @@ Keep all Beads mutations via `br`, never `bd`; follow `~/.claude/skills/beads-is
 
 Do the agreed work or say `blocked because X`; never silently drop or replace it. Before side work, ask whether the originally requested deliverable is complete. A subagent's `task_complete` covers only its lane; the primary agent must integrate delegated findings and independently verify the end state; re-audit the overall acceptance criteria before finalizing. Documenting a problem is not fixing it. Do not fabricate a daemon or hedge ungated work with "say the word" or "let me know." A stand-down or no-touch commitment that must be enforced mechanically needs the commitment hook, not prose alone: `~/.claude/hooks/set-method-commitment.sh`.
 
+When the user explicitly corrects the result or says to focus on a deliverable, reprioritize the active work: complete that deliverable before optional coordination, reporting, or adjacent work. Continue already-authorized parallel work only when it does not delay or displace the corrected deliverable, and preserve any real approval or safety boundary.
+
 ## Autonomy time-box
 
 Long-running autonomous flows stop at 8 hours (28,800 seconds) per session or worker unless the user explicitly authorizes more time. Each new live human user message automatically renews the active flow or session for eight hours from that message's receipt; record the receipt as the approval time and set `approved_until` to receipt + 28,800 seconds. Persist `approved_until` and `approved_for_started_at` bound to the original current flow start; preserve `original_started_at` on renewals and retries. A bot message, tool result, transcript, summary, or agent report does not renew a deadline. A live human stop instruction or an explicit shorter limit overrides this automatic renewal. This changes only time-extension authorization, not separate merge or destructive-action gates. Track the start time and `approved_until` in the session's own state (a checkout note, a bead, or the flow's checkpoint); no scripted checker is required. This is best-effort guidance the agent follows, not a mechanically enforced gate.
@@ -425,8 +427,12 @@ Resolve skills through the active catalog and inspect the selected definition. `
 Never write skill content into a projection root, and never let a generator drop a `SKILL.md` inside another skill's package: discovery is recursive, so a nested `SKILL.md` silently registers as a second, unreviewed top-level skill.
 
 **Skill sync is diff-first.** Before copying a skill between the catalog and a live root, diff all copies
-(repo-wide `git status --porcelain`, repo-vs-Mac, repo-vs-`ssh jeff-ubuntu cat … | diff -`). Never absorb a change
-you did not make. Stage skill files by explicit path, never a directory glob.
+(repo-wide `git status --porcelain`, repo-vs-Mac, and any authorized remote-peer
+comparison selected by the existing sync owner). Never absorb a change you did
+not make. Stage skill files by explicit path, never a directory glob.
+
+For the cross-session skill source and scoped host-propagation contract, follow
+[`/up`'s reusable skill source and scoped host sync section](../.claude/skills/up/SKILL.md#reusable-skill-source-and-scoped-host-sync).
 
 - When the user invokes a slash command, resolve its real definition from `~/.claude/commands/<name>.md` and load any referenced canonical skill under `~/.claude/skills/`, then execute the complete workflow; never substitute the apparent plain-language action (for example, `/ready` is not merely `gh pr ready`). Do not use `~/.codex/commands` as a command catalog; it is not a canonical Codex discovery surface. Treat command availability as cross-directory behavior, and do not infer model unavailability from a missing path in one directory.
 

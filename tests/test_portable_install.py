@@ -67,6 +67,19 @@ class PortableInstallTests(unittest.TestCase):
         self.assertNotEqual(self.install(target=linked).returncode, 0)
         self.assertNotEqual(self.install(target=self.root / ".agents").returncode, 0)
 
+    def test_rejected_backup_target_stages_nothing_in_working_directory(self):
+        self.target.mkdir()
+        (self.target / "unrelated.txt").write_text("keep")
+        cwd = self.root / "cwd"
+        cwd.mkdir()
+        result = subprocess.run(
+            ["bash", str(REPO / "install-claude-commands.sh"), "--portable", "--backup"],
+            env=dict(os.environ, PORTABLE_HOME=str(self.target)), cwd=cwd,
+            capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(list(cwd.iterdir()), [])
+        self.assertEqual(list(self.root.glob("package.staging.*")), [])
+
     def test_corrupt_or_extra_package_files_fail_verification(self):
         copied = self.root / "copy"
         shutil.copytree(SOURCE, copied)

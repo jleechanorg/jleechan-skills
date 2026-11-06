@@ -54,6 +54,38 @@ every session, or when the operator passes `--global`.
    machine's home; if a rule is non-machine-specific, sync the same
    ownership structure through `/mac` or `/linux`. Report unreachable hosts.
 
+## Reusable skill source and scoped host sync
+
+For every skill change in the shared catalog, make the change in
+the `jleechanorg/jleechan-skills` repository and publish it through an
+independent PR. Include skill files, their helpers, and dispatchers governed by
+the skill. Do not treat a live `~/.claude/skills/` edit as the final source.
+When a task explicitly requires host propagation, use the canonical
+`sync-live-config` workflow on the currently authorized peer, resolved through
+the existing sync owner; do not encode a personal hostname or assume a
+particular host. The PR does not need to be merged before this explicitly
+requested host sync.
+
+On a Mac, continue source, review, and local checks there. If the authorized
+Linux peer is off-limits or unavailable, stop at that host boundary and report
+the exact handoff for the authorized host operator; this applicability note
+does not authorize initiating remote Linux work from the Mac.
+
+Run `sync-live-config`'s read-only report first and inspect repo-wide working
+tree state plus per-file repo/live diffs for every destination. Use
+`report --full --remote <resolved-authorized-peer>` when changed files fall
+outside the default highlighted-skill scope, or gather equivalent scoped
+evidence with the owner's report functions. Apply only the
+reviewed paths with the workflow's per-path `apply` command. Preserve unrelated
+dirty files and live-only changes; if a scoped file has substantive divergent
+edits, leave that path untouched and report the conflict. Verify the resulting
+bytes on the target host. If the host or a scoped path is unavailable, report
+the exact failed route and leave the PR intact.
+
+Only mapped paths go through `sync-live-config apply`. Shared-policy exports
+such as `md_files/AGENTS.shared.md` use their declared canonical projection
+owner; apply the scoped policy change there without replacing unrelated rules.
+
 ## Repo-Markdown catalog (default surfaces)
 
 | Repo surface | When |
