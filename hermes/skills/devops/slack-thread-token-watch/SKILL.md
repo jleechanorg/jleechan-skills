@@ -7,13 +7,11 @@ description: |
   or a custom approval token) and executes a pre-known callback (delete
   script, merge, deploy, etc.) on first match. Otherwise silent (one
   heartbeat per cadence). Self-cancels on match or after a configurable
-  timeout. Sibling to the babysit-ao-pr-loop skill; that one is for
-  AO-worker PR babysits, while THIS one is for non-PR, no-AO-worker
-  approval-gate loops.
+  timeout. Use it for non-PR, no-AO-worker approval-gate loops.
 
   Bug-ref 2026-07-14, thread C0AJQ5M0A0Y/1784070882.257369. The disk-
   pressure babysit 18bd680865d9 was a literal-token watch loop but auto-
-  loaded babysit-ao-pr-loop, which silently self-cancelled because there
+  loaded a PR-babysit skill, which silently self-cancelled because there
   was no PR and no AO worker to track. That false assurance (babysit
   armed) is what this skill prevents.
 trigger:
@@ -23,7 +21,7 @@ trigger:
   - approval-token gate cron
   - fire X when user types Y in this thread
 changelog:
-  - '0.1.0 (2026-07-14): Initial authoring. Triggered by the 2026-07-14 babysit-ao-pr-loop v1.9.1 carve-out. Every prior literal-token watch loop was wired through babysit-ao-pr-loop, which assumes a PR + AO worker pair and exits immediately when neither exists. Drafted directly from the di[REDACTED_OPENAI_KEY] babysit prompt body (job 18bd680865d9), which is the reference implementation. Verified contract: tick equals conversations.replies substring scan + optional destructive callback + hermes cron remove on terminal state.'
+  - '0.1.0 (2026-07-14): Initial authoring. Triggered by the 2026-07-14 PR-babysit carve-out. Every prior literal-token watch loop was wired through the PR-babysit skill, which assumes a PR + AO worker pair and exits immediately when neither exists. Drafted directly from the di[REDACTED_OPENAI_KEY] babysit prompt body (job 18bd680865d9), which is the reference implementation. Verified contract: tick equals conversations.replies substring scan + optional destructive callback + hermes cron remove on terminal state.'
 ---
 
 # slack-thread-token-watch
@@ -36,7 +34,7 @@ A scheduled cron job ticks every N minutes on a single Slack thread. Each tick s
 - A user asks you to watch this thread for XYZ and run script.sh when it appears, gate the delete on my approval, stand by for APPROVE keyword, or approval-token cron.
 - You are inheriting an existing literal-token cron mid-life and need to keep its cadence without re-creating its contract.
 
-Do NOT load babysit-ao-pr-loop for literal-token watch loops. That skill is for AO-worker PR babysits and silently self-cancels when no PR + worker pair exists (see bug-ref in babysit-ao-pr-loop v1.9.1 changelog). If --skill babysit-ao-pr-loop is the only --skill you reach for, you are in the wrong skill.
+Do NOT drive a literal-token watch loop with a PR-babysit pattern. PR babysits assume a PR + AO worker pair and self-cancel on the first tick when neither exists (see `references/bug-ref-2026-07-14.md`).
 
 Do NOT load for one-shot approval flows (use the inline session directly), PR bring-to-green interactive loops (use drive-pr-to-green or finish-the-job), or any callback that is NOT a literal-substring scan of a known Slack thread.
 
@@ -180,8 +178,6 @@ The prompt body MUST include:
 6. Explicit "do NOT post multi-option menus" guardrail.
 7. Explicit "do NOT spawn new cron jobs from inside this babysit" guardrail.
 
-Do NOT pass --skill babysit-ao-pr-loop. That is the wrong skill for this task and the babysit will silently self-cancel on first tick (see bug-ref in v1.9.1 changelog).
-
 ## Guardrails (NEVER VIOLATE)
 
 - NEVER fire the callback without exact substring match (case-sensitive) on a row whose user is a real human (U-prefix, bot_id null).
@@ -189,7 +185,6 @@ Do NOT pass --skill babysit-ao-pr-loop. That is the wrong skill for this task an
 - NEVER rm -rf without trying trash <path> first (Finder recoverable).
 - NEVER post a multi-option menu (A/B/C/D forks).
 - NEVER spawn new cron jobs from inside this cron (avoid recursive-cron leak).
-- NEVER pre-load babysit-ao-pr-loop. That is the wrong skill.
 - Pre-send gate: every Slack message must avoid MEDIA:/path text tokens (use the 3-stage files.completeUploadExternal API for any binary evidence; see evidence-attach-to-slack skill).
 
 ## Termination rules
@@ -206,7 +201,7 @@ On termination: self-cancel via hermes cron remove "$CRON_JOB_ID" and post the a
 
 ## Anti-patterns (do NOT do)
 
-- Auto-loading babysit-ao-pr-loop because the prompt mentions watch, babysit, or tick. That skill assumes a PR + AO worker pair and exits after one tick when neither exists. The false assurance (watch loop armed) is the failure mode this skill exists to prevent.
+- Reaching for a PR-babysit pattern because the prompt mentions watch, babysit, or tick. PR babysits assume a PR + AO worker pair and exits after one tick when neither exists. The false assurance (watch loop armed) is the failure mode this skill exists to prevent.
 - Posting the callback result on every tick after the work is done. One tick owns the close; later ticks own silence.
 - Posting to Slack when nothing changed and the playbook says [SILENT]. Noise is worse than silence; the human inbox is the precious resource.
 - Re-implementing the path whitelist inline as a bash regex. Use Python startswith() on each whitelist tuple; bash globbing silently misses edge cases.
@@ -220,7 +215,7 @@ On termination: self-cancel via hermes cron remove "$CRON_JOB_ID" and post the a
 - Use mcp__slack__conversations_replies for the canonical scan (preferred over curl; gets paginated thread properly).
 - Fall back to XOX-P curl chat.postMessage when the MCP bot returns not_in_channel or missing_scope (per SOUL.md slack-cross-workspace-fallback-xoxp).
 - Use hermes cron list for the self-cancel CLI + audit recipe.
-- Use python3 -c "import json; ..." for eligibility filtering. Never inline shell JSON parsing on multi-line fields (it breaks on body field LF bytes; see babysit-ao-pr-loop v1.6.0 changelog).
+- Use python3 -c "import json; ..." for eligibility filtering. Never inline shell JSON parsing on multi-line fields (it breaks on body field LF bytes).
 
 ## Verification
 

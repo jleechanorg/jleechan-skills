@@ -32,13 +32,6 @@ class ThinCommandDispatchersTest(unittest.TestCase):
             with self.subTest(arguments=supplied):
                 self.assertEqual(expected, render_arguments("$ARGUMENTS", supplied))
 
-    def test_factory_is_a_thin_local_dispatcher(self):
-        command = (COMMANDS / "factory.md").read_text(encoding="utf-8")
-        self.assertEqual(1, command.count("/skills/dark-factory/SKILL.md"))
-        self.assertTrue((SKILLS / "dark-factory" / "SKILL.md").is_file())
-        self.assertLessEqual(len(command.splitlines()), 15)
-        self.assertIn("$ARGUMENTS", command)
-
     def test_ablation_and_alias_are_thin_local_dispatchers(self):
         for name in ("ablation.md", "abal.md"):
             with self.subTest(command=name):
@@ -52,7 +45,6 @@ class ThinCommandDispatchersTest(unittest.TestCase):
         aliases = {
             "smart-advisor": ("advice.md", "advice", "aliases: [smart-advisor]"),
             "webadvice": ("web-advice.md", "web-advice", "aliases: [webadvice]"),
-            "df": ("factory.md", "dark-factory", "aliases: [f, df]"),
             "abal": ("ablation.md", "ablation", "aliases: [abal]"),
         }
         for alias, (command_name, skill_name, declaration) in aliases.items():
@@ -72,13 +64,13 @@ class ThinCommandDispatchersTest(unittest.TestCase):
         with TemporaryDirectory() as temp:
             root = Path(temp)
             commands = root / "commands"
-            skills = root / "skills" / "dark-factory"
+            skills = root / "skills" / "example"
             commands.mkdir()
             skills.mkdir(parents=True)
             (skills / "SKILL.md").write_text("skill\n", encoding="utf-8")
             (commands / "valid.md").write_text(
                 "---\ndescription: valid\n---\n"
-                "Read ~/.claude/skills/dark-factory/SKILL.md with $ARGUMENTS.\n",
+                "Read ~/.claude/skills/example/SKILL.md with $ARGUMENTS.\n",
                 encoding="utf-8",
             )
             (commands / "invalid.md").write_text(
@@ -90,7 +82,7 @@ class ThinCommandDispatchersTest(unittest.TestCase):
         self.assertEqual((2, 1, 2), (result.command_count, result.dispatcher_count, len(result.errors)))
 
     def test_top_level_aliases_have_native_command_files(self):
-        for alias in ("smart-advisor", "webadvice", "df", "f", "sq", "ms", "p", "r", "abal"):
+        for alias in ("smart-advisor", "webadvice", "sq", "ms", "p", "r", "abal"):
             with self.subTest(alias=alias):
                 command = COMMANDS / f"{alias}.md"
                 self.assertTrue(command.is_file(), f"missing alias command file: {command}")

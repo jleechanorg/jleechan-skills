@@ -49,7 +49,7 @@ Use `claude-code-claudem` (this skill) when:
 Use the bundled `claude-code` skill (NOT this one) when:
 
 - You need Anthropic first-party routing (real Claude Opus/Sonnet) and have OAuth or a separate `ANTHROPIC_API_KEY` you want to honour.
-- The task is in a your-project.com PR review context where dark-factory `/er` / `/advice` comments must come from the real Anthropic identity (see `wa-green-gate-pr-shape/SKILL.md`).
+- The task is in a your-project.com PR review context where `/er` / `/advice` comments must come from the real Anthropic identity (see `wa-green-gate-pr-shape/SKILL.md`).
 - The user explicitly says "use Anthropic" / "real Claude" / "not the wrapper" / "not claudem".
 
 ## What `claudem` is

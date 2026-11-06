@@ -38,7 +38,7 @@ def build_audit_fixture(
             {"command": "README", "base_name": "README", "path": str(tmp_path / "README.md"), "callable": False, "exclusion_reason": "directory documentation"},
         ]
         # Create dummy command files with realistic pointers
-        (tmp_path / "f.md").write_text("---\ndescription: /f\n---\n# /f\nRead `.claude/skills/dark-factory/SKILL.md`\n")
+        (tmp_path / "f.md").write_text("---\ndescription: /f\n---\n# /f\nRead `.claude/skills/example-pipeline/SKILL.md`\n")
         (tmp_path / "af.md").write_text("---\ndescription: Alias for /f\n---\n# /af\nShortcut alias for `/f`.\n")
         (tmp_path / "browserclaw.md").write_text("# /browserclaw\nRead `skills/browserclaw/SKILL.md`\n")
         (tmp_path / "repro.md").write_text("---\ndescription: /repro\n---\n# /repro\nRead `.claude/skills/repro-evidence/SKILL.md`\n")
@@ -50,8 +50,8 @@ def build_audit_fixture(
 
     if skills is None:
         skills = [
-            {"skill": "dark-factory", "path": str(tmp_path / "skills" / "dark-factory" / "SKILL.md")},
-            {"skill": "auto-factory", "path": str(tmp_path / "skills" / "auto-factory" / "SKILL.md")},
+            {"skill": "example-pipeline", "path": str(tmp_path / "skills" / "example-pipeline" / "SKILL.md")},
+            {"skill": "example-auto", "path": str(tmp_path / "skills" / "example-auto" / "SKILL.md")},
             {"skill": "browserclaw", "path": str(tmp_path / "skills" / "browserclaw" / "SKILL.md")},
             {"skill": "repro-evidence", "path": str(tmp_path / "skills" / "repro-evidence" / "SKILL.md")},
             {"skill": "backend-first", "path": str(tmp_path / "skills" / "backend-first" / "SKILL.md")},
@@ -144,8 +144,8 @@ class CommandSkillUsageAuditTest(unittest.TestCase):
         skills_map = {r["skill"]: r for r in skills_res["skills"]}
 
         # Verify command-to-skill reachability links
-        self.assertIn("dark-factory", skills_map)
-        self.assertIn("f", skills_map["dark-factory"]["reachable_from_commands"])
+        self.assertIn("example-pipeline", skills_map)
+        self.assertIn("f", skills_map["example-pipeline"]["reachable_from_commands"])
 
         self.assertIn("4layer", skills_map)
         self.assertIn("extended-library:4layer", skills_map["4layer"]["reachable_from_commands"])

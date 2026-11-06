@@ -5,9 +5,8 @@ name: bead-pr-lint
 # - `Beads: none` is an explicit opt-out.
 # - The line just needs to contain at least one valid bead ID; trailing prose is OK.
 #
-# This is the worldai half of the bead-PR bridge (the dark-factory half is the
-# auto-factory daemon spec 3.1 normalizer). Beads live in `.beads/issues.jsonl`
-# (REV-* prefix) but were previously invisible in PRs.
+# Beads live in `.beads/issues.jsonl` (REV-* prefix) but were previously
+# invisible in PRs.
 
 on:
   pull_request:

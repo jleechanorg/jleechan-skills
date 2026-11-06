@@ -9,7 +9,7 @@ description: Use when the user invokes /ironclad, asks for ironclad exit criteri
 
 The shared catalog preserves host-installed `/advice` and `/web-advice` integrations instead of installing them. Before invoking either, resolve its `../advice/SKILL.md` or `../web-advice/SKILL.md` relative to this package and read the existing skill. For a remote invocation, check the corresponding skill on the target host. If absent, report that integration as `UNAVAILABLE` and identify the missing package; do not invent a replacement runner, claim an approval, or treat a required gate as passed. Continue independent authorized work, but leave any dependent readiness or plan-approval gate unmet. Existing review quorum, external-disclosure authorization, and optional-review rules still apply.
 
-**Provenance** (/ms + /history, 2026-07-05..12): user asks for criteria *"better than what i asked for"*, then run (the `~/.claude/hooks/goal-exit-criteria.sh` UserPromptSubmit hook), and to *"iterate until the game truly working"*; the dark-factory `cutover-exit-criteria.md` charter (R1–R6 + X1–X10, adopted by spec-design-docs) — implementer-authored artifacts corroborate but never suffice. The DK2D mission (2026-07-12) validated iterate-until and independent verification.
+**Provenance** (/ms + /history, 2026-07-05..12): user asks for criteria *"better than what i asked for"*, then run (the `~/.claude/hooks/goal-exit-criteria.sh` UserPromptSubmit hook), and to *"iterate until the game truly working"*; the exit-criteria charter (R1–R6 + X1–X10, adopted by spec-design-docs) — implementer-authored artifacts corroborate but never suffice. The DK2D mission (2026-07-12) validated iterate-until and independent verification.
 
 ## Scope and process ceiling
 

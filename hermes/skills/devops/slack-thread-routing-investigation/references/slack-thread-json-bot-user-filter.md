@@ -76,7 +76,7 @@ def user_approved(msgs, token):
 
 ## Where this gets used
 
-- `babysit-ao-pr-loop` Phase 0 — "did anything change since last tick" → "did a human reply with `MERGE APPROVED` / `WORKTREE APPROVED` / etc.". The substring-only scan is the trap; the combined predicate is the durable recipe.
+- PR babysit crons — "did anything change since last tick" → "did a human reply with `MERGE APPROVED` / `WORKTREE APPROVED` / etc.". The substring-only scan is the trap; the combined predicate is the durable recipe.
 - `dropped-messages` skill — same substring gate, same author-discriminator needed.
 - Any cron whose prompt contains "if the user replies with X, then Y" — every such prompt should gate Y on `is_real_user_post(m) AND token in m['text']`, not on substring alone.
 - Direct `mcp__slack__conversations_replies` invocations — same JSON shape (CSV-flavored, but the fields are the same) — apply the same Python filter.

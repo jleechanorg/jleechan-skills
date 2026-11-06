@@ -96,7 +96,7 @@ done
 
 The audit recipe above is the **manual fallback** for the babysit-stale-watchdog launchd job. If the watchdog isn't installed (it requires an operator-side `launchctl load` because it SIGTERMs the gateway if loaded in-session), the audit can be run by hand or via a one-time cron with `--delete-after-run`.
 
-The in-script Phase 0.5 self-cancel (in `babysit-ao-pr-loop/SKILL.md`)
+The in-script self-cancel (`ao-babysit/scripts/babysit.py --cron-job-id`)
 is the **fast path** — fires on the next tick after the PR reaches
 terminal state, no human involvement needed. The watchdog is the
 **medium path** — fires every 30 min via launchd. The audit recipe

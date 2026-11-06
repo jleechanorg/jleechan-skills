@@ -374,11 +374,11 @@ class TestHistorySearch(unittest.TestCase):
         con.execute("""
             INSERT INTO conversation_summaries VALUES (
                 'conv-123',
-                'Fix PR review issues in dark factory',
+                'Fix PR review issues in example repo',
                 'Updated daemon watchdog timeout and repaired harness retry gate',
                 42,
                 '2026-08-31T14:30:00Z',
-                '/Users/test/dark-factory',
+                '/Users/test/example-repo',
                 'agy',
                 0
             )

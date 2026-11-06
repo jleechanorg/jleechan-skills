@@ -137,7 +137,7 @@ When the AO daemon is healthy (`healthz` + `readyz` pass) but `POST /sessions` c
 5. **Sync evidence gist** via `sync-evidence-metadata.sh` (use the multi-file recipe in `evidence-gate-multi-metadata-filename-trap-2026-07-14.md`).
 6. **`git push --force-with-lease origin <branch>`** — the standard green-Gate-trigger path. ALWAYS use `--force-with-lease`, not `--force`.
 7. **`gh workflow run <GREEN-GATE-WF> --repo <OWNER>/<REPO> --ref <branch> -f pr_number=<N> -f head_sha=<NEW-SHA>`** + **`gh workflow run <EVIDENCE-GATE-WF> -f pr_sha=<NEW-SHA>`**.
-8. **Arm babysit cron** per `devops/babysit-ao-pr-loop/SKILL.md` — every 5m for 30 ticks is the canonical cadence.
+8. **Arm babysit cron** with `ao-babysit/scripts/babysit.py --cron-job-id <id>` — every 5m for 30 ticks is the canonical cadence.
 
 This inline path takes 5-15 min of agent time for the merge + tests + push + trigger sequence; AO spawn + babysit would otherwise take the same wall-clock via the worker.
 
@@ -152,5 +152,5 @@ This inline path takes 5-15 min of agent time for the merge + tests + push + tri
 
 - `references/ao-spawn-cap-zombie-recovery.md` — Round-7 sibling: cap-rejection zombie cleanup. The two failure modes are different but the verification recipes overlap.
 - `references/evidence-gate-multi-metadata-filename-trap-2026-07-14.md` — Round-8 sibling: evidence gist filename trap. Pair this with the multi-file sync recipe when the inline pivot path lands a /green dispatch.
-- `~/.hermes/skills/devops/babysit-ao-pr-loop/SKILL.md` — the post-spawn observe-only loop. The inline pivot path's step 8 (arm babysit) is the same regardless of whether the worker was an AO session or the inline session.
+- `~/.hermes/skills/ao-babysit/scripts/babysit.py` — the post-spawn observe-only loop. The inline pivot path's step 8 (arm babysit) is the same regardless of whether the worker was an AO session or the inline session.
 - PR #8290 thread C0AH3RY3DK6/1784030452.318509 — originating incident. Four zombie worldarchitect-4{1,2,3,4} slots persisted; pivot-to-inline landed merge commit `aff95f87e3` directly from the gateway session.

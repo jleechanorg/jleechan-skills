@@ -386,7 +386,7 @@ moved correctly.
 
 ### P9 — Two-tier "delete X gate" distinction (workflow gate vs pipeline node type)
 
-When the user says "delete the X gate" in a dark-factory / agent-orchestrator
+When the user says "delete the X gate" in an agent-orchestrator-style
 project, distinguish TWO unrelated layers:
 
 - **Workflow-level gate**: `.github/workflows/X-gate*.yml` files. These

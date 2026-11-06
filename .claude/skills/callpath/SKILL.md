@@ -15,7 +15,7 @@ callpath list
 callpath run <profile> [args...]
 ```
 
-Profiles automate recurring multi-hop checks (`dark-factory`, future `hermes-request`, etc.). Run the profile, interpret stdout, extend only if gaps remain.
+Profiles automate recurring multi-hop checks for a known system (for example a future `hermes-request`). Run the profile, interpret stdout, extend only if gaps remain.
 
 ### B) No profile → **fresh LLM investigation** (required)
 
@@ -42,12 +42,10 @@ That command **records** hops you already validated — it does **not** replace 
 
 ## Profiles
 
-`profiles/<name>/profile.yaml` + `run.sh`. Copy `profiles/_template/` for new systems.
-
-**dark-factory** (one profile among many):
+`profiles/<name>/profile.yaml` + `run.sh`. Copy `profiles/_template/` for new systems, then run it:
 
 ```bash
-callpath run dark-factory --prs 8058,8060
+callpath run <profile> --prs 1234,1235
 ```
 
 ## Output format (agent reply)
@@ -66,5 +64,5 @@ next: <one concrete read-only or operator step>
 ## NEVER
 
 - Mutate state during `/callpath`
-- Treat dark-factory as the only callpath
+- Treat any single profile as the only callpath
 - **No-profile path:** fabricate hops, skip live probes, or paraphrase old session results as evidence

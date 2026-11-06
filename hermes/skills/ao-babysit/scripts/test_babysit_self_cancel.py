@@ -2,7 +2,7 @@
 """
 test_babysit_self_cancel.py — regression contract for babysit.py self-cancel.
 
-Bug-ref (2026-07-05): The babysit-ao-pr-loop skill documented self-cancel via
+Bug-ref (2026-07-05): The PR-babysit cron instructions documented self-cancel via
 `cronjob action=remove job_id=$CRON_JOB_ID`, but babysit.py had no
 `--cron-job-id` parameter and no way to invoke the cronjob CLI. Every cron
 prompt that said "issue cronjob action=remove on terminal PR" was therefore

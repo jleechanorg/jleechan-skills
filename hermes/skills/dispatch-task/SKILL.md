@@ -90,7 +90,7 @@ The user can reply `MERGE 8389 INSTEAD` to drive the closer-to-green sibling; th
 grep -E '^diff --git' /path/to/patch.patch | head -5
 
 # 2. cd into the repo root that actually contains the patch's target tree
-REPO=$HOME/repos/jleechanorg/dark-factory   # adjust per step 1
+REPO=$HOME/repos/<owner>/<repo>   # adjust per step 1
 
 # 3. The `--check` exit code is the only authoritative signal
 cd "$REPO" && git apply --check /path/to/patch.patch
@@ -439,7 +439,7 @@ Reusable details: `references/rest-pr-create-rate-limit-fallback.md`.
 
 **If both buckets are at 0**: post the issue body to the originating Slack thread as a temporary record with `[ISSUE_BODY_DRAFT — both GitHub buckets rate-limited, will file manually once quota resets]` prefix. Do NOT skip the gate silently — record the draft so the bug has provenance.
 
-## When to skip AO and implement inline (verified 2026-07-09, dark-factory /af wiring PR)
+## When to skip AO and implement inline (verified 2026-07-09)
 
 **Inline implementation is the right choice for small daemon PRs.** AO is the canonical path for orchestration-heavy work (multi-PR fanout, CI/CR iteration loops, bring-to-green on existing PRs, multi-file refactors > ~500 LOC, multi-day work). It is the **wrong** tool for a single-file or two-file daemon edit of ≤ ~200 LOC where you already know the answer.
 
@@ -996,7 +996,7 @@ gh issue view <N> --repo <ORIGIN_ISSUE_REPO> --json title,body \
 |---|---|
 | "extract X out of Y" + "into the Z repository" | dispatch on **Z** (NOT Y, NOT X's source repo) |
 | "move X from Y to Z" | dispatch on **Z** |
-| "X belongs in the product layer / orchestration layer / infra layer" | map layer → registered AO project (`worldarchitect` = product, `agent-orchestrator` = orchestration, `dark-factory` = infra) |
+| "X belongs in the product layer / orchestration layer / infra layer" | map layer → registered AO project (`worldarchitect` = product, `agent-orchestrator` = orchestration); if no registered project owns the layer, ask |
 | No destination named | dispatch on the SOURCE repo (Y) for an in-place fix; if the user wanted relocation they should have named it |
 
 **Cross-check via `sqlite3 ~/.ao/data/ao.db`** (per the CRITICAL section above) — list the registered projects and confirm the destination is one of them before spawn. If the destination repo isn't registered, register it first via `ao project add --path <repo>`.
