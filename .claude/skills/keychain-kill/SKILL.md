@@ -22,19 +22,46 @@ That is why this step is no longer "run it first".
 Diagnose before killing, then terminate only what this session caused:
 
 ```bash
-# 1. Who is asking? List the agent plus its parent chain.
+# 1. Who is asking? List candidate authentication agents; Step 2 checks lineage.
 ps -Ao pid,ppid,stat,etime,args | grep -i '[S]ecurityAgent'
 
-# 2. Only proceed if a SecurityAgent's parent chain descends from THIS session
-#    (the tmux/launchd/agent process you are working on). Replace <session-pid>.
-ps -Ao pid,ppid,args | awk -v root="<session-pid>" '
-  { ppid[$1]=$2; cmd[$1]=$3 }
+# 2. Only proceed if an authentication agent's parent chain descends from THIS
+#    session (the tmux/launchd/agent process you are working on). Replace
+#    <session-pid>. This prints only matching executable names, with PID, PPID,
+#    and the full command line from the same process snapshot.
+ps -Ao pid=,ppid=,comm=,args= | awk -v root="<session-pid>" '
+  { ppid[$1]=$2; executable[$1]=$3; line[$1]=$0 }
   END { for (p in ppid) { q=p; n=0
-          while (q!="" && q!=0 && n<40) { if (q==root) { print p, cmd[p]; break } q=ppid[q]; n++ } } }'
+          while (q!="" && q!=0 && n<40) {
+            if (q==root) {
+              if (p!=root && executable[p] ~ /(^|\/)(SecurityAgent|universalAccessAuthWarn)$/) {
+                print line[p]
+              }
+              break
+            }
+            q=ppid[q]; n++
+          }
+        }
+  }'
 
-# 3. Kill ONLY the confirmed PIDs, never a pattern.
-kill -TERM <pid>     # graceful first: the prompt usually clears
-kill -9 <pid>        # only if TERM was refused and you confirmed the parent chain
+# 3. For a candidate PID, record its start time, PPID, executable, and full
+#    command line. Immediately before signaling, re-read those fields and
+#    re-trace its current parent chain to this session. If any identity field
+#    differs from the recorded candidate, or its lineage no longer reaches this
+#    session, stop. Send TERM only to that confirmed PID.
+ps -p <pid> -o pid= -o ppid= -o lstart= -o comm= -o args=
+kill -TERM <pid>
+
+# 4. Wait briefly, then read the same identity fields again. If that exact
+#    process has exited, stop. If the PID is absent or now identifies another
+#    process, stop. A successful TERM command only means the signal was sent.
+sleep 1
+ps -p <pid> -o pid= -o ppid= -o lstart= -o comm= -o args=
+
+# 5. Only if the same process still exists, revalidate its identity and current
+#    parent chain immediately before signaling. Then use KILL on that PID.
+ps -p <pid> -o pid= -o ppid= -o lstart= -o comm= -o args=
+kill -KILL <pid>
 ```
 
 `universalAccessAuthWarn` follows the same rule: identify, confirm, then kill the specific PIDs.
