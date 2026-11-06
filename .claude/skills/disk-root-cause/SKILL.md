@@ -5,7 +5,7 @@ description: Use when a user asks why a disk is filling, what uses its capacity,
 
 # disk-root-cause — forensic attribution skill
 
-When a user asks **why the disk filled up**, **what grew over a window**, or **where a specific bucket came from**, this skill is the entry point. A quick capacity check, or a reclaim question that needs no attribution, is not a root-cause investigation — route it to the zero-du triage in `../disk-audit/SKILL.md` so one request cannot select both procedures. It never assumes an answer; it pulls facts from this machine's snapshot history (`~/.disk_magician_backup`), never deletes anything without an explicit human OK, and prefers parallel-subagent fan-out to keep wall-clock bounded.
+When a user asks **why the disk filled up**, **what grew over a window**, or **where a specific bucket came from**, this skill is the entry point. A quick capacity check, or a reclaim question that needs no attribution, is not a root-cause investigation — route it to the zero-du triage in `../disk-audit/SKILL.md` so one request cannot select both procedures. It never assumes an answer; it pulls facts from the state repository reported by `diskm state status`, never deletes anything without an explicit human OK, and prefers parallel-subagent fan-out to keep wall-clock bounded.
 
 ## Default first-use workflow
 
@@ -57,18 +57,19 @@ Do **not** use this skill for one-off size queries — `du -sh <path>` answers t
 
 ```bash
 # The full diskm audit runs in the default first-use workflow above.
-# Confirm host capacity and read the current snapshot source.
+# Use the resolver-backed full audit above to locate the current snapshot.
 df -h
-SNAP=~/.disk_magician_backup/snapshots/disk_snapshot.json
-git -C ~/.disk_magician_backup log --oneline -1 -- snapshots/disk_snapshot.json 2>/dev/null
-python3 -c "import json,sys; d=json.load(open('$SNAP')); print('schema_version:', d.get('schema_version'), 'coverage:', d.get('snapshot_coverage_pct'))"
+STATE_REPO="$(diskm state status | sed -n 's/^\[state_repo\] state repo: //p')"
+SNAP="<Source path from the completed full audit above>"
+git -C "$STATE_REPO" log --oneline -1 -- 'backup/*/disk_snapshot.json' snapshots/disk_snapshot.json 2>/dev/null
+python3 -c 'import json,sys; from pathlib import Path; d=json.loads(Path(sys.argv[1]).expanduser().read_text()); print("schema_version:", d.get("schema_version"), "coverage:", d.get("snapshot_coverage_pct"))' "$SNAP"
 ```
 
 If `schema_version != 2`, the snapshot is pre-v2 (coverage inflates by parent/child double-count). Use `coverage_pct_raw_v1` from `snapshot_metadata` for trend continuity and note the inflation.
 
 ## Phase 1 — floor + deltas (snapshot history)
 
-`~/.disk_magician_backup` is a git repo. Snapshot history may use both layouts: older commits store `backup/<host>/disk_snapshot.json`; current commits use `snapshots/disk_snapshot.json`. Search both paths when selecting floors with `git log --all -- 'backup/*/disk_snapshot.json' snapshots/disk_snapshot.json`, including commits recovered by the existing reflog procedure. Read the path present in each selected commit with `git show <sha>:<path>`; the current-layout path may be absent from older commits. If both files exist in one commit, compare their embedded timestamps and select the capture for the requested window without counting a duplicate twice.
+The Git root is the state repository reported by `diskm state status`; do not assume it is `~/.disk_magician_backup`. Snapshot history may use both layouts: older commits store `backup/<host>/disk_snapshot.json`; current commits use `snapshots/disk_snapshot.json`. Search both paths when selecting floors with `git -C "$STATE_REPO" log --all -- 'backup/*/disk_snapshot.json' snapshots/disk_snapshot.json`, including commits recovered by the existing reflog procedure. Read the path present in each selected commit with `git -C "$STATE_REPO" show <sha>:<path>`; the current-layout path may be absent from older commits. If both files exist in one commit, compare their embedded timestamps and select the capture for the requested window without counting a duplicate twice.
 
 Three deltas, always reported:
 
@@ -96,7 +97,7 @@ Single-pass `du` answers questions fast (<2 min). When the attribution crosses t
 | Lane | Fan-out scope | Sample prompt shape |
 |---|---|---|
 | **lane-audit** | Safe-safe-reclaim inventory across dev caches, worktrees, AO sessions, /tmp, ~/Library/Caches | "Estimate safe-delete inventory from <scope>. Run each cleanup in DRY-RUN. NEVER delete. Hand-rm forbidden. NEVER touch never-delete list." |
-| **lane-history** | Snapshot-history growth attribution | "From git history `~/.disk_magician_backup`, identify top growers between <floor-sha> and HEAD; cross-check with live `du`. Cite commit SHAs." |
+| **lane-history** | Snapshot-history growth attribution | "From the state repository reported by `diskm state status`, identify top growers between <floor-sha> and HEAD; cross-check with live `du`. Cite commit SHAs." |
 | **lane-tmp** | /private/tmp live holders vs orphan candidates | "du + lsof, list per-entry: size, mtime, tmux-holder-PID, safe-to-drop?" |
 | **lane-colima** | Colima sparse-disk inflation + recovery sequence | "Baseline du ~/.colima; fstrim; measure delta. Stop sequence optional. NEVER docker prune -af." |
 | **lane-frontier** | Run `disk_frontier_scan.py --granularity-gib 5 --output-default` (900s cap) | One-pass GNU du inventory when available; named frontier fallback otherwise |
@@ -145,7 +146,7 @@ Fan-out rule: **single-writer per file**, `grep -n "agent(" <swarm-script>` cost
 3. **`cleanup_tmp.sh` defaults to DRY-RUN despite header claiming otherwise** — header was fixed in v0.2.0 (commit `5341a6f`); callers still must pass `--clean`.
 4. **Colima wedges with I/O errors when host disk hits 100%** — fstrim can't run; **must** `colima stop && colima start` first. 49.6→6.8 GB recovery verified live.
 5. **No `ez-mac-runner` launchd job exists** — confirms via `launchctl list | grep ez` before any VACATE-style directive. (bead `feedback_2026-07-12_no_ez_mac_runner_launchd_job`)
-6. **Legacy snapshot path:** `backup/<host>/` is frozen. Current snapshots use `snapshots/disk_snapshot.json`.
+6. **Legacy snapshot path:** The installed resolver prefers `snapshots/disk_snapshot.json` and uses `backup/<host>/disk_snapshot.json` only as a fallback when the new-layout file is absent. Use `diskm state status` for the state repo root and both paths for historical commits.
 
 ## Anti-patterns to flag in code review
 
