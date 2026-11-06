@@ -69,7 +69,9 @@ Nothing is lost and nothing starts over. Verified on 9 Codex lanes at once: each
    survived is **not** a restart, and `bash: 5ucodexc: command not found` leaves exactly that
    situation (the old TUI still running while your command never ran). Check the `send` and `Enter`
    exit codes too; a swallowed send failure must not be reported as success.
-   Then confirm the *session* is live: its transcript file mtime should be seconds old, not hours.
+   Then confirm the *session* is live from its transcript or session record. A fresh mtime alone, a timer, spinner,
+   banner, or changed screen does not prove progress; require a new non-timer transcript/session event. If that
+   evidence is unavailable, report the resume as unverified.
    Codex: newest `~/.codex/sessions/**/rollout-*<uuid>*.jsonl`. pi: `~/.pi/agent/sessions/*/*.jsonl`.
 
 ## What a restart does NOT fix
@@ -88,7 +90,7 @@ Report these instead of restarting, because a restart only re-hits the same wall
 
 A restart re-hits the Codex wall, so continue the work on Claude instead. Per surface:
 
-0. **Confirm the wall is current before touching the lane.** Read the full scrollback and take two captures 20-30 s apart (cmux-steer rule): the limit text must still be the last event, with no live spinner or subagent growth. A stale wall above active work means the lane is working: leave it. Note the Codex session id (`codex resume` lists it) so the lane can return to Codex after the reset.
+0. **Confirm the wall is current before touching the lane.** Follow `cmux-steer`'s full-buffer rule and use independent process/session evidence; never decide from a tail or grep. If the lane shows active work, a dialog, or the evidence is inconclusive, leave it. Record the Codex session id so the lane can return to Codex after the reset.
 1. `ctrl+c` twice (`--force` if a dialog is open); capture and require a shell prompt (`[$%] ?$`). If not at a shell, stop and report.
 2. `cmux send ... "ANTHROPIC_MODEL=claude-sonnet-5-5 claude --permission-mode bypassPermissions"` then `send-key enter` (match the old lane's mode: that flag is for a lane that ran full-permission, e.g. `--yolo`; if the Codex lane was approval-gated, launch `claude` with no permission flag).
 3. Poll `capture-pane` until `bypass permissions` or `? for shortcuts` appears (≤36 s); a folder-trust prompt means stop and report.
@@ -104,7 +106,7 @@ a restart re-hits the same account-level wall. Gemini is a different provider an
 currently offers `gemini-4-argon-*` and `gemini-3.8-flash-*`; use only `gemini-3.8-flash-high` (or `-medium`) per the Gemini model invariant, and never fall back to Gemini 3.1 Pro
 or older Pro models. Per surface:
 
-0. **Confirm the wall is current before touching the lane.** Read the full scrollback and take two captures 20-30 s apart (cmux-steer rule): the limit text must still be the last event, with no `esc to cancel` spinner or live subagent growth. A stale wall above active work means the lane is working: leave it.
+0. **Confirm the wall is current before touching the lane.** Follow `cmux-steer`'s full-buffer rule and use independent process/session evidence; never decide from a tail or grep. If the lane shows active work, a dialog, or the evidence is inconclusive, leave it.
 1. **`escape` first — always.** A walled lane re-arms itself (`Continuing automatically at 4:20pm · esc to
    cancel`). Until that wait is cancelled, `/exit` is swallowed and the lane looks unexitable. Require the
    confirmation `Automatic continue cancelled`.
@@ -151,10 +153,8 @@ Different problem: the process is gone, so there is nothing to ctrl-c. Recreate 
 
 ## Traps that have burned this exact procedure
 
-0. **A stale footer is the worst liar in this file.** `⏵⏵ bypass permissions on · ← 2 agents` keeps rendering
-   under a pane that is walled on `Usage limit reached · Continuing automatically at 4:20pm`. Bucketing lanes on
-   that footer produced a "10 stalled" list when the true number was **15** (2026-10-27, operator caught the
-   miss). Classify on the limit text and on `esc to cancel` versus a bare `? for shortcuts`, never on the footer.
+0. **A stale footer is not lane state.** Follow `cmux-steer`'s full-buffer rule and confirm current activity from
+   independent process/session evidence. Never classify a lane from its footer, tail, or grep result.
 1. **An open Codex dialog swallows everything.** If the surface rests on a Codex menu
    (`Press enter to confirm or esc to cancel`, `Enter to select`), plain keystrokes are dropped and
    `cmux send` refuses without `--force` — so your exit *and* your `codexc` both vanish with no error.
@@ -177,7 +177,8 @@ Different problem: the process is gone, so there is nothing to ctrl-c. Recreate 
    found`. The cause is the terminal still encoding keys as `ESC [ code ; mods u`; `ctrl+c` on the
    shell line is the cheap fix, `printf '\x1b[<u'` pops the mode, and `reset` is the sledgehammer.
 4. **A live step timer is not progress.** `(1h 38m • esc to interrupt)` can mean "waiting on a
-   background terminal that no longer exists". Check the session-file mtime.
+   background terminal that no longer exists". Confirm progress from a new non-timer event in the session
+   transcript/record; an mtime change alone is insufficient.
 5. **Do not restart a lane that is waiting on a human.** `Goal remains blocked pending human merge
    approval` is not a wedged CLI.
 6. **One lane, one writer.** Never restart a lane mid-push, and never restart two surfaces that share
@@ -190,9 +191,8 @@ Different problem: the process is gone, so there is nothing to ctrl-c. Recreate 
    on its splash), bash answers `syntax error near unexpected token '('` — the tell that your text never reached
    the agent. Send a paren-free brief, only after the composer appears, and read that error as "check the CLI is
    up", not "the shell is broken".
-10. **Delegation is invisible from the footer line.** `? for shortcuts · 1 subagent(s)`, or a
-    `● Agent(self: …) Generating · 19m7s` line, means the lane IS working while its composer sits empty. Grep for
-    `subagent(s)` and `● Agent(` before labelling a quiet pane idle.
+10. **Delegation may be invisible from a short capture.** Follow `cmux-steer`'s full-buffer rule before assessing
+    a lane; a footer or grep result cannot establish that it is idle.
 11. **`codexc` / `claudec` are shell ALIASES, not executables — they do not exist in a script.** Both are
     defined in `~/.bashrc` (`alias codexc='codex resume --last'`), so a Bash tool call, a cron job, or any
     non-interactive shell reports "command not found" (or silently does nothing). Inside `cmux send` the target
@@ -202,7 +202,7 @@ Different problem: the process is gone, so there is nothing to ctrl-c. Recreate 
     directory.
 12. **Enumerate workspaces fresh every session; do not reuse refs.** cmux workspace and surface refs are
     session-scoped and are **re-numbered** on restart. After one restart the same lane moved from
-    `workspace:1000250001` to `workspace:1000260001`. Re-run `cmux list-workspaces` and `cmux list-panels` and
+    `workspace:1000250001` to `workspace:1000260001`. Re-run `cmux list-workspaces` and `cmux tree --all` and
     re-derive the surface list, or a steer lands on an unrelated lane. Record the batch in a scratch dir so the
     capture, the decision and the verification all reference the same generation.
 
@@ -225,18 +225,20 @@ verifies the restart at the process level before reporting success.
 
 ### Fleet recovery (many wedged lanes at once) — measured on 14 lanes, 2026-11-04
 
-Recovering a fleet is the same steps per lane, run in parallel, with two fleet-level additions:
-**settle quota once, and verify with a diff rather than a timer.**
+Recover lanes on distinct worktrees in parallel; serialize lanes that share a worktree (trap 6). Settle quota
+once for the fleet and verify each resumed session from its transcript, not a screen diff or timer.
 
 1. **Settle quota first** (trap 2): three probes. Do not touch 14 lanes on a wall a restart cannot clear.
-2. **Enumerate generations fresh** (trap 12), capture every surface's CLI from its own pane, and select only
-   lanes that actually carry the limit text. Classification must come from the capture, never the footer.
-3. **Per lane:** `ctrl+c` x2 -> read that pane's own `codex resume <uuid>` hint -> dispatch `codex resume <uuid>`
-   explicitly (never the `codexc` alias, trap 11) -> wait for the TUI -> send `continue`.
-4. **Verify with a two-sample capture 20-30 s apart.** A resumed lane may still print the old wall banner, so
-   the timer or banner is not the verdict - a **changed screen** is. On the 2026-11-04 run all 14 changed and 0
-   showed wall text in the current tail; that pair of facts is the proof.
-5. Report per lane: resumed UUID, busy state, and whether wall text survives in the *current* tail.
+2. **Enumerate generations fresh** (trap 12) and identify each lane by its own full capture and process/session
+   evidence. Do not use a tail, grep, footer, or banner alone to select a lane; if activity is ambiguous, leave it.
+3. **Per lane, in worktree order:** capture the pre-restart process/session identity; `ctrl+c` x2; read that pane's
+   own `codex resume <uuid>` hint; dispatch that exact id (never `codexc`, trap 11), checking both `cmux send`
+   and Enter exit codes. Before sending `continue` or accepting a goal dialog, verify a new PID and the same
+   session id. On a failed, missing, or mismatched check, send nothing further and report unverified.
+4. After sending `continue`, require a new non-timer transcript/session event to report progress. Take the
+   two-sample full-buffer captures required by `cmux-steer`; a changed screen alone is not proof of recovery.
+5. Report each lane's UUID, process/session verification, transcript progress evidence, and any remaining wall
+   as unverified unless independently confirmed at the account level.
 
 A resumed lane that immediately re-prints the wall on its next long turn is a genuine wall, not a bad resume:
 stop that lane and report the reset time rather than looping the restart.
