@@ -56,7 +56,7 @@ Three failure modes that keep recurring in the user's last month of coding-CLI s
 
 - User types `/write-goal <topic>`, or natural-language equivalent ("write a goal spec for X", "draft a goal that …")
 - User asks for a goal to be designed with explicit evidence + green-CI + quality requirements
-- User wants to take an ambiguous ask ("ship the new campaign wizard step") and turn it into a contract the next agent (or `/harness` loop) can execute against
+- User wants to take an ambiguous ask ("ship the new onboarding wizard step") and turn it into a contract the next agent (or `/harness` loop) can execute against
 
 ## Pipeline (execute the phases that apply, in order)
 
@@ -103,7 +103,7 @@ Pull the user's actual coding history so the goal is grounded. Run two parallel 
 
 From the 30-day audit: 319 of 6,433 Hermes sessions were test/repro sessions. When the goal is bug-shaped ("X isn't working", "Y is broken", "Z is failing"), add a "/repro step before Phase 3:
 
-- Load the `repro` skill (or `repro-twin-clone-evidence` skill for your-project.com)
+- Load the `repro` skill (or a repo-local repro skill, if one is installed)
 - Reproduce the bug FIRST — get the actual error/failure output — Before writing the goal doc
 - Put the repro output into the "Prior context" section of the goal
 
@@ -198,7 +198,7 @@ At the end, the agent's final reply MUST contain (finish-the-job Phase 4):
 
 ## Pitfalls (mined from history — Phase 2)
 - <pitfall 1 — e.g. "PR mergeability flipped to CONFLICTING after main branch updated — re-verify mergeable status at current HEAD">
-- <pitfall 2 — e.g. "merge conflicts on world_logic.py recur because it's a 421KB file — always pull --rebase before push">
+- <pitfall 2 — e.g. "merge conflicts on <large_module>.py recur because it is a very large file — always pull --rebase before push">
 - <pitfall 3 — e.g. "Quick `looks green` false positive — must verify current-head statusCheckRollup, not `gh pr checks` conclusion">
 - <pitfall 4 — e.g. "Unit tests pass but the claimed service boundary fails — bounded unit proof cannot establish an unexercised integration">
 
@@ -313,29 +313,29 @@ Ran `/history` + `/ms` against all three session stores on 2026-06-28 before des
 - Read-only live review: 6 threads
 - Cold plan review: 7 threads
 
-### Real user goals from the last month (verbatim from session first-messages)
+### Representative goal shapes from real sessions (paraphrased)
 
-These are the actual goal-shaped messages Jeffrey sent (filtered from cron/test/ping noise):
+Goal-shaped first messages, filtered from cron/test/ping noise, paraphrased
+with project details removed:
 
-1. *"Make or find the PR where we make all local servers default to agy cli"* — outcome: PR found/created, verified merged
-2. *"did this PR truly merge and is agy_provider.py on origin main?"* — verification goal, needs proof not activity
-3. *"fullrun lets confirm agy cli is the default cli"* — autonomous drive request
-4. *"Why arent these PRs /green?"* — frustration with CI blocking, needs 2-gate green fix
-5. *"Run /repro — other people in the battle aren't taking their turns"* — bug repro + fix
-6. *"Lets design/evaluate a plan to convert game state json into a game state ledger"* — design/evaluate goal, not a PR
+1. *"Make or find the PR that makes <tool> the default, and confirm it merged"* — outcome: PR found/created, verified merged
+2. *"Did this PR truly merge, and is <file> on origin/main?"* — verification goal, needs proof not activity
+3. *"Run it end to end and confirm <tool> is the default"* — autonomous drive request
+4. *"Why aren't these PRs /green?"* — frustration with CI blocking, needs 2-gate green fix
+5. *"Run /repro — <feature> isn't working for other users"* — bug repro + fix
+6. *"Design and evaluate a plan to migrate <state blob> to <new model>"* — design/evaluate goal, not a PR
 7. *"Review this evidence using /er and /advice — how do we increase parallelism?"* — evidence review + meta question
-8. *"Look at the test and CI failures and merge conflicts across all PRs last 48 hours"* — triage/babysit goal
-9. *"cleanup merge conflicts and /green the PR"* — drive-to-green goal
-10. *"Dont do the task do the meta task. Lets read this thread and see why hermes misunderstood /green and run /harness"* — meta-goal: fix the harness behavior, not just the bug
-11. *"Is this finished? Lets do 1-4"* — verification + drive forward
+8. *"Look at the test and CI failures and merge conflicts across all PRs in the last 48 hours"* — triage/babysit goal
+9. *"Clean up merge conflicts and /green the PR"* — drive-to-green goal
+10. *"Don't do the task, do the meta task: read this thread, see why the agent misunderstood /green, and run /harness"* — meta-goal: fix the harness behavior, not just the bug
+11. *"Is this finished? Let's do 1-4"* — verification + drive forward
 
-### Memory findings (mem0 search)
+### Memory findings
 
-- `"Can drive agents toward outcomes with solid evidence, and values high code quality and green CI PRs"` (score 0.82)
-- `"Can identify anti-patterns in agent behavior"` (score 0.71)
-- `"Likes designing and evaluating plans"` (score 0.65)
-- `"Can make drive decisions autonomously"` (score 0.66)
-- `"Prefers to present options and let the user respond"` — BUT finish-the-job overrides this for execution
+Memory search may surface operator preferences (for example "values solid
+evidence and green CI" or "prefers to see options before acting"). Treat them as
+hints for the goal's constraints; the finish-the-job contract still overrides a
+preference to stop and present options during execution.
 
 ### Design decisions grounded in the audit
 
@@ -360,10 +360,10 @@ These are the actual goal-shaped messages Jeffrey sent (filtered from cron/test/
 User invoked `/write-goal` after a month of recurring CI/deploy issues that never shipped.
 
 - **Phase 1 intake:** topic = "fix the auto-deploy precompute OOM", outcome_shape = `green-pr-merged`, scope = `$GITHUB_REPOSITORY` (embed pipeline), hard_constraints = "no parallel PRs; if PR #7880 is open, push onto its head branch".
-- **Phase 2 mining:** `/history "precompute OOM"` returned 3 Slack sessions + 1 CLI session; `/ms "embed batch size"` surfaced the recipe doc at `~/.hermes/skills/worldarchitect/references/auto-deploy-dev-precompute-oom-investigation.md` and `~/.hermes/skills/devops/production-vs-main-drift/references/precompute-oom-deploy-workflow-2026-06-23.md`. Findings: prior sessions diagnosed + wrote a fix recipe but never pushed to main; deploy has been failing 80+ days.
+- **Phase 2 mining:** `/history "precompute OOM"` returned 3 Slack sessions + 1 CLI session; `/ms "embed batch size"` surfaced two recipe docs under `${HERMES_HOME:-$HOME/.hermes}/skills/<project>/references/`. Findings: prior sessions diagnosed + wrote a fix recipe but never pushed to main; deploy has been failing 80+ days.
 - **Phase 3:** outcome_shape = `green-pr-merged` (the recipe is a destructive change to `_embed_texts`; user wants it on main, not a worktree dry-run).
 - **Phase 4:** goal doc names the exact EMBED_BATCH_SIZE change, the deploy.sh exit-137 detection, the current-head CI requirements, and the prior-failure pitfalls (recipe written twice, never pushed).
 - **Phase 5:** quality scaffold passes — outcome is verifiable, evidence is Layer 2 (real callstack on embed path), gates named from history, pitfalls cite session ids.
 - **Phase 6:** reply posts `file://.../.converge/goal.md` + hands off `/harness precompute OOM fix` or `ao spawn --task "$(cat .converge/goal.md)"`.
 
-The goal became the input for the `/harness` (or `/a`) loop that finally drove the fix to a merged PR — closing the 80-day failure the user identified in SOUL.md `COMMIT: diagnosis-with-fix-not-shipped`.
+The goal became the input for the `/harness` (or `/a`) loop that finally drove the fix to a merged PR — closing a long-running "diagnosis written, fix never shipped" failure.

@@ -127,4 +127,4 @@ When reporting AO setup or supervision, include:
 - Config reference: `references/config.md`
 - CLI help: `ao --help`, `ao spawn --help`, `ao start --help`
 - Repo policies: `AGENTS.md`, `CLAUDE.md`
-- **Binary installation norms:** `scripts/setup.sh` for repo maintainers, `npm install -g @jleechanorg/ao-cli` for others; `ao doctor` must pass after any install or update
+- **Binary installation norms:** `scripts/setup.sh` for repo maintainers, `npm install -g "${AO_NPM_PACKAGE:-@jleechanorg/ao-cli}"` for others; `ao doctor` must pass after any install or update

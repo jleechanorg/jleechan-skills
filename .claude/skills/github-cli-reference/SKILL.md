@@ -63,7 +63,9 @@ mean GitHub CLI is absent.
 ### ✅ ALWAYS Do This:
 1. **Use the installed binary**: resolve it with `command -v gh`; use `~/.local/bin/gh` when installed there
 2. **GITHUB_TOKEN automatic**: No prefix needed - gh automatically uses environment variable
-3. **Specify repo**: Add `--repo jleechanorg/your-project.com` for clarity
+3. **Specify repo**: Add `--repo "$REPO"` for clarity, with `REPO` set once per shell:
+   `REPO="${GITHUB_REPOSITORY:-$("$GH" repo view --json nameWithOwner -q .nameWithOwner)}"`
+   (`gh repo view` resolves the repository of the current checkout; if `REPO` is empty, set `GITHUB_REPOSITORY=owner/repo`)
 
 ### ❌ NEVER Do This:
 1. **Don't reinstall over a working binary**: inspect the current PATH and platform first
@@ -88,125 +90,125 @@ mean GitHub CLI is absent.
 
 #### View repository info
 ```bash
-"$GH" repo view jleechanorg/your-project.com
+"$GH" repo view "$REPO"
 ```
 
 #### View repository info (JSON)
 ```bash
-"$GH" repo view jleechanorg/your-project.com --json name,owner,isPrivate,defaultBranchRef,description
+"$GH" repo view "$REPO" --json name,owner,isPrivate,defaultBranchRef,description
 ```
 
 #### List branches
 ```bash
-"$GH" api repos/jleechanorg/your-project.com/branches --jq '.[0:10] | .[] | {name: .name, protected: .protected}'
+"$GH" api "repos/$REPO/branches" --jq '.[0:10] | .[] | {name: .name, protected: .protected}'
 ```
 
 ### Pull Request Operations
 
 #### List open PRs
 ```bash
-"$GH" pr list --repo jleechanorg/your-project.com --state open --limit 10
+"$GH" pr list --repo "$REPO" --state open --limit 10
 ```
 
 #### List all PRs (including closed)
 ```bash
-"$GH" pr list --repo jleechanorg/your-project.com --state all --limit 20
+"$GH" pr list --repo "$REPO" --state all --limit 20
 ```
 
 #### View specific PR
 ```bash
-"$GH" pr view '<PR_NUMBER>' --repo jleechanorg/your-project.com
+"$GH" pr view '<PR_NUMBER>' --repo "$REPO"
 ```
 
 #### View PR with JSON output
 ```bash
-"$GH" pr view '<PR_NUMBER>' --repo jleechanorg/your-project.com --json number,title,state,author,createdAt,body
+"$GH" pr view '<PR_NUMBER>' --repo "$REPO" --json number,title,state,author,createdAt,body
 ```
 
 #### View PR checks/status
 ```bash
-"$GH" pr checks '<PR_NUMBER>' --repo jleechanorg/your-project.com
+"$GH" pr checks '<PR_NUMBER>' --repo "$REPO"
 ```
 
 #### Create PR
 ```bash
-"$GH" pr create --repo jleechanorg/your-project.com --title "PR Title" --body "PR Description"
+"$GH" pr create --repo "$REPO" --title "PR Title" --body "PR Description"
 ```
 
 #### Create PR (interactive)
 ```bash
-"$GH" pr create --repo jleechanorg/your-project.com --fill
+"$GH" pr create --repo "$REPO" --fill
 ```
 
 #### Merge PR
 ```bash
-"$GH" pr merge '<PR_NUMBER>' --repo jleechanorg/your-project.com --squash
+"$GH" pr merge '<PR_NUMBER>' --repo "$REPO" --squash
 ```
 
 #### View PR comments
 ```bash
-"$GH" api repos/jleechanorg/your-project.com/pulls/'<PR_NUMBER>'/comments
+"$GH" api "repos/$REPO/pulls/<PR_NUMBER>/comments"
 ```
 
 ### Issue Operations
 
 #### List issues
 ```bash
-"$GH" issue list --repo jleechanorg/your-project.com --limit 10
+"$GH" issue list --repo "$REPO" --limit 10
 ```
 
 #### List open issues with labels
 ```bash
-"$GH" issue list --repo jleechanorg/your-project.com --state open --label bug --limit 10
+"$GH" issue list --repo "$REPO" --state open --label bug --limit 10
 ```
 
 #### View specific issue
 ```bash
-"$GH" issue view '<ISSUE_NUMBER>' --repo jleechanorg/your-project.com
+"$GH" issue view '<ISSUE_NUMBER>' --repo "$REPO"
 ```
 
 #### Create issue
 ```bash
-"$GH" issue create --repo jleechanorg/your-project.com --title "Issue Title" --body "Issue Description"
+"$GH" issue create --repo "$REPO" --title "Issue Title" --body "Issue Description"
 ```
 
 ### Workflow Operations
 
 #### List workflows
 ```bash
-"$GH" workflow list --repo jleechanorg/your-project.com
+"$GH" workflow list --repo "$REPO"
 ```
 
 #### List workflow runs
 ```bash
-"$GH" run list --repo jleechanorg/your-project.com --limit 10
+"$GH" run list --repo "$REPO" --limit 10
 ```
 
 #### List workflow runs for specific workflow
 ```bash
-"$GH" run list --repo jleechanorg/your-project.com --workflow "Workflow Name" --limit 10
+"$GH" run list --repo "$REPO" --workflow "Workflow Name" --limit 10
 ```
 
 #### View workflow run details
 ```bash
-"$GH" run view '<RUN_ID>' --repo jleechanorg/your-project.com
+"$GH" run view '<RUN_ID>' --repo "$REPO"
 ```
 
 #### Watch workflow run
 ```bash
-"$GH" run watch '<RUN_ID>' --repo jleechanorg/your-project.com
+"$GH" run watch '<RUN_ID>' --repo "$REPO"
 ```
 
 ### Label Operations
 
 #### List labels
 ```bash
-"$GH" label list --repo jleechanorg/your-project.com
+"$GH" label list --repo "$REPO"
 ```
 
 #### Create label
 ```bash
-"$GH" label create "label-name" --repo jleechanorg/your-project.com --description "Label description" --color "ff0000"
+"$GH" label create "label-name" --repo "$REPO" --description "Label description" --color "ff0000"
 ```
 
 ### GitHub API Direct Access
@@ -218,17 +220,17 @@ mean GitHub CLI is absent.
 
 #### Get latest commit on main
 ```bash
-"$GH" api repos/jleechanorg/your-project.com/commits/main --jq '{sha: .sha[0:7], author: .commit.author.name, message: .commit.message | split("\n")[0]}'
+"$GH" api "repos/$REPO/commits/main" --jq '{sha: .sha[0:7], author: .commit.author.name, message: .commit.message | split("\n")[0]}'
 ```
 
 #### Get repository collaborators
 ```bash
-"$GH" api repos/jleechanorg/your-project.com/collaborators
+"$GH" api "repos/$REPO/collaborators"
 ```
 
 #### Get repository topics
 ```bash
-"$GH" api repos/jleechanorg/your-project.com/topics
+"$GH" api "repos/$REPO/topics"
 ```
 
 ## Troubleshooting
@@ -244,7 +246,7 @@ mean GitHub CLI is absent.
 
 ### Error: "HTTP 404: Not Found"
 **Cause**: Missing `--repo` flag or incorrect repo name
-**Solution**: Add `--repo jleechanorg/your-project.com` to command
+**Solution**: Add `--repo "$REPO"` to the command and check that `REPO` is the intended `owner/repo`
 
 ### Error: "Resource not accessible by integration"
 **Cause**: Token lacks required permissions
@@ -267,13 +269,13 @@ fi
 
 ### Get PR number from current branch
 ```bash
-PR_NUMBER=$("$GH" pr list --repo jleechanorg/your-project.com --head $(git branch --show-current) --json number --jq '.[0].number')
+PR_NUMBER=$("$GH" pr list --repo "$REPO" --head $(git branch --show-current) --json number --jq '.[0].number')
 echo "Current branch PR: #$PR_NUMBER"
 ```
 
 ### Check if PR exists for current branch
 ```bash
-PR_EXISTS=$("$GH" pr list --repo jleechanorg/your-project.com --head $(git branch --show-current) --json number --jq 'length')
+PR_EXISTS=$("$GH" pr list --repo "$REPO" --head $(git branch --show-current) --json number --jq 'length')
 if [ "$PR_EXISTS" -gt 0 ]; then
     echo "PR exists for current branch"
 else
@@ -283,7 +285,7 @@ fi
 
 ### Get PR status with detailed info
 ```bash
-"$GH" pr view '<PR_NUMBER>' --repo jleechanorg/your-project.com --json number,title,state,isDraft,mergeable,reviewDecision,statusCheckRollup
+"$GH" pr view '<PR_NUMBER>' --repo "$REPO" --json number,title,state,isDraft,mergeable,reviewDecision,statusCheckRollup
 ```
 
 ## Environment Variables
@@ -298,7 +300,7 @@ fi
 
 ### Use with jq for JSON parsing
 ```bash
-"$GH" pr list --repo jleechanorg/your-project.com --json number,title --jq '.[] | "\(.number): \(.title)"'
+"$GH" pr list --repo "$REPO" --json number,title --jq '.[] | "\(.number): \(.title)"'
 ```
 
 ### Use in scripts
@@ -312,7 +314,8 @@ if [ -z "$GH" ] && [ -x "$HOME/.local/bin/gh" ]; then
     GH="$HOME/.local/bin/gh"
 fi
 [ -n "$GH" ] || { echo "Run the installation steps first" >&2; exit 1; }
-REPO="jleechanorg/your-project.com"
+REPO="${GITHUB_REPOSITORY:-$("$GH" repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true)}"
+[ -n "$REPO" ] || { echo "GITHUB_REPOSITORY not configured: export GITHUB_REPOSITORY=owner/repo" >&2; exit 1; }
 
 # Use in script
 "$GH" pr list --repo $REPO --limit 5
@@ -320,7 +323,7 @@ REPO="jleechanorg/your-project.com"
 
 ### Use with grep for filtering
 ```bash
-"$GH" pr list --repo jleechanorg/your-project.com | grep "OPEN"
+"$GH" pr list --repo "$REPO" | grep "OPEN"
 ```
 
 ## Best Practices
@@ -342,7 +345,8 @@ if [ -z "$GH" ] && [ -x "$HOME/.local/bin/gh" ]; then
     GH="$HOME/.local/bin/gh"
 fi
 [ -n "$GH" ] || { echo "Run the installation steps first" >&2; exit 1; }
-REPO="jleechanorg/your-project.com"
+REPO="${GITHUB_REPOSITORY:-$("$GH" repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true)}"
+[ -n "$REPO" ] || { echo "GITHUB_REPOSITORY not configured: export GITHUB_REPOSITORY=owner/repo" >&2; exit 1; }
 
 # Now you can use it like this:
 "$GH" pr list --repo $REPO

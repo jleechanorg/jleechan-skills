@@ -3,13 +3,12 @@
 
 No Slack MCP server currently ships a working files.upload tool (verified
 2026-09-01 against korotovsky/slack-mcp-server v1.2.2/v1.3.0 and every
-alternative surveyed — see
-docs/research/2026-09-01-slack-mcp-file-upload-support.md in worldarchitect.ai).
+alternative surveyed — see SKILL.md).
 This wraps Slack's own current-recommended flow directly:
 files.getUploadURLExternal -> PUT bytes -> files.completeUploadExternal.
 
 Usage:
-  slack_upload.py --channel C09GRLXF9GR --file a.png --file b.mp4 \
+  slack_upload.py --channel <CHANNEL_ID> --file a.png --file b.mp4 \
       --title "Before" --title "After" --comment "evidence" \
       [--thread-ts 1234567890.123456]
 
@@ -43,9 +42,12 @@ def resolve_channel(args) -> str:
     if args.channel:
         return args.channel
     if args.dm:
-        dm = os.environ.get("JLEECHAN_DM_CHANNEL")
+        dm = os.environ.get("SLACK_OPERATOR_DM_CHANNEL")
         if not dm:
-            sys.exit("--dm requested but JLEECHAN_DM_CHANNEL is not set")
+            sys.exit(
+                "SLACK_OPERATOR_DM_CHANNEL not configured: Slack DM channel ID for --dm. "
+                "Example: export SLACK_OPERATOR_DM_CHANNEL=D0123456789"
+            )
         return dm
     sys.exit("Provide --channel <id> or --dm")
 
@@ -88,7 +90,7 @@ def main():
     p.add_argument("--file", action="append", required=True, help="Local file path; repeatable")
     p.add_argument("--title", action="append", default=[], help="Title per --file, same order; repeatable")
     p.add_argument("--channel", help="Slack channel ID (Cxxxx)")
-    p.add_argument("--dm", action="store_true", help="Send to $JLEECHAN_DM_CHANNEL instead of --channel")
+    p.add_argument("--dm", action="store_true", help="Send to $SLACK_OPERATOR_DM_CHANNEL instead of --channel")
     p.add_argument("--thread-ts", help="Reply in this thread instead of posting a new top-level message")
     p.add_argument("--comment", default="", help="initial_comment posted with the files")
     args = p.parse_args()

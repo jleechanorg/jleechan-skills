@@ -19,7 +19,7 @@ Before issuing any bulk or iterative AO spawn sequence (more than 3 spawns in a 
 
 **Cap history** — 20-cap / 5-batch was the policy through 2026-07-02. Raised to **30-cap / 15-batch by explicit user directive on 2026-07-03**, and re-confirmed by the user on 2026-07-25 when a three-way contradiction between this file, `CLAUDE.md`, and `AGENTS.md` was found and resolved in favour of 30/15. A prior revision of this file claimed the "15" was a superseded batch-size value that had never been a real gate; **that claim was wrong and has been removed.**
 
-**These are policy caps, not software-enforced ones.** As of 2026-07-25 there is no `MAX_CONCURRENT_SESSIONS` constant anywhere in `~/projects/agent-orchestrator` (the `packages/core/` tree that older docs cite no longer exists), and `~/.hermes/agent-orchestrator.yaml` defines no concurrency limit. Nothing will reject a 25th spawn for you — the agent is the enforcement layer. Verify the count yourself with `ao session ls` before each batch.
+**These are policy caps, not software-enforced ones.** As of 2026-07-25 there is no `MAX_CONCURRENT_SESSIONS` constant anywhere in the Agent Orchestrator source (`$AO_REPO_ROOT`; the `packages/core/` tree that older docs cite no longer exists), and `$AO_CONFIG_PATH` (`agent-orchestrator.yaml`) defines no concurrency limit. Nothing will reject a 25th spawn for you — the agent is the enforcement layer. Verify the count yourself with `ao session ls` before each batch.
 
 ## backfillAllPRs — separate per-project cap
 

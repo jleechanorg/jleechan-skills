@@ -15,7 +15,7 @@ When a mistake or failure pattern is identified, analyze whether the root cause 
 
 - **User scope (general)**: `~/.claude/commands/harness.md` and this skill apply to **any** repo unless a project overrides them.
 - **Repository overlay**: Some projects ship `.claude/commands/harness.md` and/or `.claude/skills/<name>/SKILL.md` that **extend** user-scope rules (for example gateway operations). When both exist, **read the repo-local file** for project-specific failure modes. **Collision:** workspace-local `.claude/commands/` overrides the same-named global command in that workspace.
-- **jleechanclaw / `~/.openclaw`**: Use the **`openclaw-harness`** skill in that repo for gateway, canary, deploy, and lane-backlog triage. Tracked user-scope copies for drift control live under **`docs/harness/`** in [jleechanclaw](https://github.com/jleechanorg/jleechanclaw).
+- **Gateway / orchestrator repositories**: if the repository ships its own `<name>-harness` skill (for gateway, canary, deploy, or lane-backlog triage), use it. Tracked user-scope copies for drift control may live under that repository's `docs/harness/`.
 
 ## Harness Layers (ordered by durability)
 

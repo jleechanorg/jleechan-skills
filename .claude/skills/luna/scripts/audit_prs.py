@@ -60,9 +60,33 @@ def _scratch_root() -> str:
     return str(path)
 
 
-def get_luna_review_dir() -> str:
+def resolve_repo(explicit=None):
+    """Return owner/repo from --repo, $GITHUB_REPOSITORY, or `gh repo view`; exit if none."""
+    repo = explicit or os.environ.get("GITHUB_REPOSITORY", "").strip()
+    if not repo:
+        repo = run_cmd(
+            ["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
+            check=True, timeout=30,
+        )
+    if not repo:
+        sys.exit(
+            "GITHUB_REPOSITORY not configured: owner/repo whose stale PRs to audit. "
+            "Example: export GITHUB_REPOSITORY=owner/repo (or pass --repo)"
+        )
+    return repo
+
+
+def _repo_slug(repo: str) -> str:
+    slug = repo.rstrip("/").rsplit("/", 1)[-1]
+    if slug in {"", ".", ".."} or Path(slug).name != slug:
+        raise RuntimeError(f"cannot derive a Scratch folder name from repo {repo!r}")
+    return slug
+
+
+def get_luna_review_dir(repo=None) -> str:
+    repo = resolve_repo(repo)
     scratch_root = Path(_scratch_root()).resolve(strict=True)
-    review_dir = scratch_root / "worldarchitect.ai" / "luna-reviews"
+    review_dir = scratch_root / _repo_slug(repo) / "luna-reviews"
     resolved = review_dir.resolve(strict=False)
     if os.path.commonpath((str(scratch_root), str(resolved))) != str(scratch_root):
         raise RuntimeError("Luna review directory resolves outside Scratch")
@@ -131,7 +155,8 @@ def run_cmd(cmd, check=True, timeout=60):
         return ""
 
 
-def get_stale_prs(repo="jleechanorg/worldarchitect.ai", hours=8, limit=100):
+def get_stale_prs(repo=None, hours=8, limit=100):
+    repo = resolve_repo(repo)
     now = datetime.datetime.now(datetime.timezone.utc)
     cutoff = now - datetime.timedelta(hours=hours)
 
@@ -170,7 +195,8 @@ def get_stale_prs(repo="jleechanorg/worldarchitect.ai", hours=8, limit=100):
     return candidates
 
 
-def inspect_pr_status(pr_item, repo="jleechanorg/worldarchitect.ai"):
+def inspect_pr_status(pr_item, repo=None):
+    repo = resolve_repo(repo)
     num = pr_item["number"]
     data = {}
     for attempt in range(2):
@@ -250,8 +276,9 @@ def inspect_pr_status(pr_item, repo="jleechanorg/worldarchitect.ai"):
     return pr_item
 
 
-def dispatch_review(pr_num, repo="jleechanorg/worldarchitect.ai"):
-    report_dir = get_luna_review_dir()
+def dispatch_review(pr_num, repo=None):
+    repo = resolve_repo(repo)
+    report_dir = get_luna_review_dir(repo)
     report_name = f"PR_{pr_num}_review.md"
     _safe_report_path(report_dir, report_name)
     diff = run_cmd(["gh", "pr", "diff", str(pr_num), "--repo", repo], check=False, timeout=90)
@@ -288,8 +315,9 @@ def dispatch_review(pr_num, repo="jleechanorg/worldarchitect.ai"):
     print(f"Review report saved to: {report_file}")
 
 
-def review_single_pr(item, repo="jleechanorg/worldarchitect.ai", report_dir=None):
-    report_dir = report_dir or get_luna_review_dir()
+def review_single_pr(item, repo=None, report_dir=None):
+    repo = resolve_repo(repo)
+    report_dir = report_dir or get_luna_review_dir(repo)
     pr_num = item["number"]
     report_name = f"PR_{pr_num}_review.md"
     _safe_report_path(report_dir, report_name)
@@ -337,7 +365,7 @@ def review_single_pr(item, repo="jleechanorg/worldarchitect.ai", report_dir=None
 
 def main():
     parser = argparse.ArgumentParser(description="/luna stale PR audit & triage tool")
-    parser.add_argument("--repo", default="jleechanorg/worldarchitect.ai", help="Target GitHub repo")
+    parser.add_argument("--repo", default=None, help="Target GitHub repo (default: $GITHUB_REPOSITORY, else `gh repo view`)")
     parser.add_argument("--hours", type=float, default=8.0, help="Hours unmodified threshold (default: 8)")
     parser.add_argument("--limit", type=int, default=100, help="Max open PRs to query")
     parser.add_argument("--json", action="store_true", help="Output raw JSON")
@@ -345,6 +373,7 @@ def main():
     parser.add_argument("--dispatch", type=int, help="Alias for --review")
     parser.add_argument("--parallel", action="store_true", help="Run parallel triage reviews across all stale PRs")
     args = parser.parse_args()
+    args.repo = resolve_repo(args.repo)
 
     target_review = args.review or args.dispatch
     if target_review:
@@ -363,7 +392,7 @@ def main():
     audited.sort(key=lambda x: x["number"], reverse=True)
 
     if args.parallel:
-        report_dir = get_luna_review_dir()
+        report_dir = get_luna_review_dir(args.repo)
         master_report_name = "MASTER_TRIAGE_REPORT.md"
         _safe_report_path(report_dir, master_report_name)
         print(f"\nLaunching parallel tri-engine reviews across {len(audited)} PRs...")

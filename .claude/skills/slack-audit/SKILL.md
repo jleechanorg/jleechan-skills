@@ -15,7 +15,7 @@ Scan one or more Slack channels for the last N hours, identify threads that cont
 /slack-audit [--channel <#channel|channel_id>] [--hours <N>] [--fix] [--dry-run]
 ```
 
-- Default channel: `#worldai` (`C0AH3RY3DK6`)
+- Default channels: `$SLACK_AUDIT_CHANNELS` (comma-separated channel IDs). If `--channel` is omitted and it is unset, stop with `SLACK_AUDIT_CHANNELS not configured: comma-separated Slack channel IDs to audit. Example: export SLACK_AUDIT_CHANNELS=C0123ABCD,C0456EFGH`
 - Default window: `24h`
 - `--dry-run` (default): print the gap report, no Slack posts
 - `--fix`: post a status reply to each dropped thread and reply-to-channel to surface it
@@ -31,7 +31,7 @@ Scan one or more Slack channels for the last N hours, identify threads that cont
 
 When running `--fix`: fan out parallel Slack posts (one per dropped thread), do not post sequentially.
 
-**Identity:** Always post as the authenticated user ($USER via MCP Slack tool). Never post as a bot user.
+**Identity:** Always post as the authenticated user (the operator, via the MCP Slack tool). Never post as a bot user.
 
 ## Step-by-step
 
@@ -96,7 +96,7 @@ RAG optimize-anything           | UNTRACKED   | none        | -
 For each `UNTRACKED` or `NEEDS_REDRIVE` thread:
 
 1. **Post a reply in the thread** summarizing what was found (or not found) and what the next step is.
-2. **Post a reply-to-channel** so the thread surfaces at the top of #worldai.
+2. **Post a reply-to-channel** so the thread surfaces at the top of the audited channel.
 
 Template for untracked item:
 ```
@@ -112,16 +112,19 @@ Current state: [open/CI-red/CR-changes-requested]
 Next: [specific action]
 ```
 
-Always use the **user's identity** ($USER via `mcp__slack__conversations_add_message`).
+Always use the **user's identity** (the operator, via `mcp__slack__conversations_add_message`).
 Never use bot tokens for these posts.
 
 ### 6. Channels to check by default
 
+Audit every channel ID listed in `$SLACK_AUDIT_CHANNELS`, in order. A typical
+setup lists one channel per work stream, for example:
+
 | Channel | ID | Purpose |
 |---------|-----|---------|
-| `#worldai` | `C0AH3RY3DK6` | Main your-project.com work |
-| `#jleechanclaw` | `C0AJ3SD5C79` | Hermes/OpenClaw infra work |
-| `#agent-orchestrator` | `C0ALSKLU9KM` | AO worker status |
+| `<#product-channel>` | `<channel-id>` | Main product work |
+| `<#infra-channel>` | `<channel-id>` | Agent infrastructure work |
+| `<#ao-channel>` | `<channel-id>` | AO worker status |
 
 ## Existing Hermes scripts (reuse, don't duplicate)
 

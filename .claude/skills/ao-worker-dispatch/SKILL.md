@@ -6,18 +6,17 @@ type: skill
 
 # AO Worker Dispatch Checklist
 
-**Canonical copy:** this file in the jleechanclaw harness repo (`skills/ao-worker-dispatch/SKILL.md`). Mirror to `~/.claude/skills/ao-worker-dispatch/SKILL.md` on machines that spawn AO workers (Cursor/Claude Code discover skills from `~/.claude/skills/`). See `docs/VERIFICATION_RULES_PLACEMENT.md` for why verification rules live here rather than only in global CLAUDE.md or per-repo CLAUDE.
+**Canonical copy:** this file in your agent-harness repository (for example `skills/ao-worker-dispatch/SKILL.md` in the repository that tracks `${HERMES_HOME:-$HOME/.hermes}`), if you keep one. Mirror to `~/.claude/skills/ao-worker-dispatch/SKILL.md` on machines that spawn AO workers (Cursor/Claude Code discover skills from `~/.claude/skills/`). See `docs/VERIFICATION_RULES_PLACEMENT.md` for why verification rules live here rather than only in global CLAUDE.md or per-repo CLAUDE.
 
 ## Mandatory prompt elements (add to EVERY ao spawn call)
 
 ### 1. Test runner
 ```
 Use the target repository's documented test runner and test-layer contract.
-For `testing_mcp/` in WorldArchitect, follow `testing_mcp/CLAUDE.md`: use its
-direct `python3` invocation with explicit `PYTHONPATH`, never `vpython` or
-pytest collection. Tests in `testing_mcp/` and `testing_ui/` require a real
-running server and real services, except the explicit direct-provider schema
-probe allow-list. Never infer a runner from a generic AO prompt.
+When a test directory ships its own instructions (for example a `CLAUDE.md`
+next to the tests), follow its exact invocation, environment, and
+real-server/real-service requirements. Never infer a runner from a generic AO
+prompt.
 ```
 
 ### 2. Commit-early discipline

@@ -7,7 +7,7 @@
 #
 # Examples:
 #   spawn-with-model.sh --project mctrl-test --model claude-sonnet-4-6 "Add a shout() function under df_demo/"
-#   spawn-with-model.sh -p worldarchitect -m claude-opus-4-7 -a claude-code --claim-pr 1234 "address review comments"
+#   spawn-with-model.sh -p my-app -m claude-opus-4-7 -a claude-code --claim-pr 1234 "address review comments"
 #
 # Exit codes:
 #   0 — spawn succeeded, session name printed on stdout (alone, on its own line)
@@ -83,7 +83,7 @@ SPAWN_ARGS=(spawn -p "$PROJECT" --agent "$AGENT")
 [ -n "$CLAIM_PR" ] && SPAWN_ARGS+=(--claim-pr "$CLAIM_PR")
 SPAWN_ARGS+=("$TASK")
 
-# AO_CONFIG_PATH overrides the bashrc export for this process tree only.
+# AO_CONFIG_PATH overrides any shell-profile export for this process tree only.
 OUTPUT="$(AO_CONFIG_PATH="$DST" ao "${SPAWN_ARGS[@]}" 2>&1)" || {
     rc=$?
     echo "ao spawn failed (rc=$rc):" >&2

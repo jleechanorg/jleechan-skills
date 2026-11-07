@@ -19,7 +19,7 @@ has two subcommands:
   evidence only, writes nothing. For every scoped file: `new` (missing live),
   `modified`, or `ok`, plus the repo's last commit touching that path, and —
   if the live path turns out to live inside its *own* distinct git repo (e.g.
-  `~/.hermes` is `jleechanorg/jleechanclaw`) — that repo's last commit on the
+  `~/.hermes` is its own checkout of a separate harness repository) — that repo's last commit on the
   same path, plus a capped unified diff for small text files. It also reports
   a **`live_only`** status: files present live but absent from the repo's
   tracked scope, which a repo-only file scan would otherwise never see (this
@@ -86,8 +86,8 @@ has two subcommands:
    - If a file is `new` (missing on the live side) with no `live_last_commit`
      at all, that usually means live never had it — repo→live is the
      ordinary call, but still check whether the *containing feature* even
-     makes sense on that target (e.g. a WorldAI-specific script has no
-     business on a machine that doesn't run WorldAI).
+     makes sense on that target (e.g. a product-specific script has no
+     business on a machine that doesn't run that product).
    - When genuinely unsure, or when repo and live both show recent,
      substantive, divergent changes to the same file — **do not apply
      either direction.** Report it to the user as a real conflict instead
@@ -124,7 +124,7 @@ has two subcommands:
    direction), apply exactly those paths:
    ```bash
    python3 scripts/sync_live_config.py apply --direction repo-to-live --paths <path> [<path> ...]
-   python3 scripts/sync_live_config.py apply --direction live-to-repo --paths <path> [<path> ...] --remote jeff-ubuntu
+   python3 scripts/sync_live_config.py apply --direction live-to-repo --paths <path> [<path> ...] --remote <ssh-host>
    ```
    Never run `apply` over an entire report's file list without having
    individually judged each one.
