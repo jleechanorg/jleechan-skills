@@ -40,7 +40,7 @@ If omitted, infer from current branch / recent commits / open PR titles.
 
 - `.claude/skills/engplan/SKILL.md` — full skill body
 - `${CLAUDE_HOME:-$HOME/.claude}/skills/pr-quantity-control/SKILL.md` — hard PR count and split ceilings
-- `.claude/skills/zfc-leveling-roadmap/SKILL.md` — domain-specific instance
+- a product plugin's `zfc-leveling-roadmap` skill, if installed — domain-specific instance
 - `.claude/skills/deletion-milestone/SKILL.md` — net-LOC discipline
 - `.claude/commands/extended-library/4layer.md` — minimal-repro ladder
 - `.claude/commands/tdd.md` — red/green/refactor

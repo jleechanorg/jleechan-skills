@@ -11,7 +11,7 @@ Skills are exported to other machines and other users, so a hardcoded
 every reader. The portable form is `${CLAUDE_HOME:-$HOME/.claude}` for
 Claude-home paths, or a bare binary name resolved on PATH.
 
-Scope: every non-binary file under `.claude/skills/`, plus symlink targets —
+Scope: every non-binary file under `.claude/skills/` and `plugins/`, plus symlink targets —
 the first real leak caught outside the original Markdown glob was a Python
 fixture string. This covers the skills tree only; personal paths elsewhere in
 the repo (notably `.beads/`, which currently holds 83) are out of its declared
@@ -25,6 +25,8 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SKILLS = REPO_ROOT / ".claude" / "skills"
+# Opt-in plugin folders ship to other machines too; scan their whole tree.
+PLUGINS = REPO_ROOT / "plugins"
 
 # No trailing slash required: `cd /Users/alice` and `(/home/bob)` leak just as
 # much as `/Users/alice/x`. Case-insensitive because macOS resolves `/users`
@@ -151,8 +153,10 @@ class SkillExportNoPersonalPathsTest(unittest.TestCase):
         self.assertTrue(SKILLS.is_dir(), f"skills tree missing: {SKILLS}")
         scanned = 0
         offenders = []
-        for path in sorted(SKILLS.rglob("*")):
-            rel_to_skills = path.relative_to(SKILLS).as_posix()
+        roots = [SKILLS] + ([PLUGINS] if PLUGINS.is_dir() else [])
+        for path in sorted(p for root in roots for p in root.rglob("*")):
+            base = SKILLS if SKILLS in path.parents else PLUGINS
+            rel_to_skills = path.relative_to(base).as_posix()
             rel = path.relative_to(REPO_ROOT)
 
             # A symlink's target is text we ship, whether or not it resolves.

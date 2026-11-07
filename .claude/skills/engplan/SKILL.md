@@ -279,9 +279,9 @@ Execute the concurrency check defined in [Rule 1: File-exclusive ownership](#rul
 ---
 
 ## See Also
-- `.claude/skills/zfc-leveling-roadmap/SKILL.md` — domain-specific instance
+- a product plugin's `zfc-leveling-roadmap` skill, if installed — domain-specific instance
 - `.claude/skills/deletion-milestone/SKILL.md` — net-LOC discipline for deletion PRs
-- `.claude/skills/repro-twin-clone-evidence/SKILL.md` — evidence capture
+- a product plugin's `repro-twin-clone-evidence` skill, if installed — evidence capture
 - `.claude/commands/4layer.md` — minimal-repro ladder
 - `.claude/commands/tdd.md` — red/green/refactor with matrix testing
 - `~/roadmap/nextsteps-2026-04-28-zfc-stage-pr-hybrid-plan.md` — historical example

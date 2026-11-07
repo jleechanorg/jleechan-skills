@@ -194,7 +194,7 @@ or backend ownership decisions.
 
 LLM makes policy and triage decisions. Do not implement keyword routing, heuristic scoring, semantic analysis, or classification logic in application code; delegate judgment to model calls. GameState access uses direct attributes or helpers, never `hasattr` or `getattr`. Full ZFC details: `~/.claude/skills/zero-framework-cognition/SKILL.md`.
 
-When independent work exists, use concurrency up to the real resource bound and prove live concurrency; serialize only for a named determinism or corruption constraint. Full method: `~/.claude/skills/parallelize-to-ceiling/SKILL.md`; runner safety: `~/.claude/skills/self-hosted-runner-preflight/SKILL.md`.
+When independent work exists, use concurrency up to the real resource bound and prove live concurrency; serialize only for a named determinism or corruption constraint. Full method: `~/.claude/skills/parallelize-to-ceiling/SKILL.md`; runner safety: the installed `self-hosted-runners` plugin's `self-hosted-runner-preflight` skill, if present.
 
 Apply `/parallel` proactively to bounded independent investigation, checks, monitoring, and mechanical follow-through when handing them off is cheaper than doing them in the parent session. Keep handful-of-calls work in the parent; name the cheapest capable model and give each lane bounded end-to-end ownership. Workers own their checks through completion and report a result, blocker, or material decision; use asynchronous completion notifications instead of repeated parent polling. The parent keeps scope, judgment, integration, and final evidence.
 

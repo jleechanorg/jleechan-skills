@@ -26,4 +26,4 @@ Thin slash command. Loads `.claude/skills/code-quality/SKILL.md` and runs that s
 
 ## Companion dispatch
 
-`/code-standards` runs `/code-quality` as one of its lanes alongside `/zfc`, `/zfclevel`, `/root-cause-first`, and `/thermo`. To run just this lane, use `/code-quality` directly. `/cq` is the short alias.
+`/code-standards` runs `/code-quality` as one of its lanes alongside `/zfc`, the optional product leveling check, `/root-cause-first`, and `/thermo`. To run just this lane, use `/code-quality` directly. `/cq` is the short alias.

@@ -157,7 +157,7 @@ Note: the Linux alias must also exist in the Mac's `~/.ssh/config` and be reacha
 
 ## Reverse direction: Linux host → Mac (this skill's primary use case)
 
-To install a skill on the Mac from another machine:
+To install a skill (`<skill>`, including its `scripts/`) on the Mac from another machine:
 
 ```bash
 # Option A: copy from the local install

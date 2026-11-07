@@ -25,7 +25,6 @@ related_skills:
   - code-standards
   - ponytail
   - zero-framework-cognition
-  - zfc-leveling-roadmap
   - root-cause-first
   - harness
 changelog:
@@ -103,7 +102,7 @@ Pull the user's actual coding history so the goal is grounded. Run two parallel 
 
 From the 30-day audit: 319 of 6,433 Hermes sessions were test/repro sessions. When the goal is bug-shaped ("X isn't working", "Y is broken", "Z is failing"), add a "/repro step before Phase 3:
 
-- Load the `repro` skill (or `repro-twin-clone-evidence` skill for your-project.com)
+- Load the `repro` skill (or the product plugin's repro skill, if one is installed for this repository)
 - Reproduce the bug FIRST — get the actual error/failure output — Before writing the goal doc
 - Put the repro output into the "Prior context" section of the goal
 
