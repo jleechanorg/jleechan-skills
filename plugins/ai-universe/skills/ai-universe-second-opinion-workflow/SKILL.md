@@ -50,7 +50,7 @@ Use this same verified `AUTH_NODE` executable for every command below.
 4. Ensure `http` (HTTPie), `jq`, and `python3` are installed.
 5. **Configure AI Universe MCP endpoint** (resolve from `.mcp.json` or `~/.claude.json` under `mcpServers["ai-universe"].url` if unset, then validate):
    ```bash
-   AI_UNIVERSE_MCP_URL="${AI_UNIVERSE_MCP_URL:-$(jq -r '.mcpServers["ai-universe"].url // empty' .mcp.json ~/.claude.json 2>/dev/null | head -1)}"
+   AI_UNIVERSE_MCP_URL="${AI_UNIVERSE_MCP_URL:-$(jq -r '.mcpServers["ai-universe"].url // empty' .mcp.json ~/.claude.json 2>/dev/null | grep -v '^$' | head -n 1)}"
    export AI_UNIVERSE_MCP_URL="${AI_UNIVERSE_MCP_URL:?Set AI_UNIVERSE_MCP_URL to the AI Universe MCP endpoint, e.g. https://<ai-universe-host>/mcp}"
    ```
 
@@ -91,7 +91,7 @@ Use this same verified `AUTH_NODE` executable for every command below.
    ```bash
    # Get token (auto-refreshes if expired, does nothing if valid)
    TOKEN=$("$AUTH_NODE" ${CLAUDE_HOME:-$HOME/.claude}/scripts/auth-cli.mjs token)
-   AI_UNIVERSE_MCP_URL="${AI_UNIVERSE_MCP_URL:-$(jq -r '.mcpServers["ai-universe"].url // empty' .mcp.json ~/.claude.json 2>/dev/null | head -1)}"
+   AI_UNIVERSE_MCP_URL="${AI_UNIVERSE_MCP_URL:-$(jq -r '.mcpServers["ai-universe"].url // empty' .mcp.json ~/.claude.json 2>/dev/null | grep -v '^$' | head -n 1)}"
    export AI_UNIVERSE_MCP_URL="${AI_UNIVERSE_MCP_URL:?Set AI_UNIVERSE_MCP_URL to the AI Universe MCP endpoint}"
    ```
 4. **Send request** (allowing up to 180s for cold starts):

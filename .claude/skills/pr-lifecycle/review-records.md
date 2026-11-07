@@ -18,7 +18,7 @@ Maintain a structured obligation ledger in the PR description under `## Review L
 | CI and conflicts | Repository policy | PASS / OPEN | Live check run results | Current candidate |
 | Closing coverage | Final phase | PASS / OPEN | Closing validation record | Current candidate |
 
-For every review type that runs, including `/es`, `/er`, `/advice`, `/wa`, `/cs`, other named lanes and native reviews, record in the PR body the exact reviewed SHA, review type/phase, verdict or status, timestamp, and reviewer/coverage. Document reviews also retain document hashes; their context SHA does not turn document approval into code approval. At each unfinished (`OPEN` or `PENDING`) obligation in the ledger, explicitly expose `owner`, `next_action`, and the actual resumption handle (`job_handle` + `wake_condition`), retaining candidate/claim applicability and recorded clocks. An unfinished obligation must never remain a bare unresolved status without an accountable owner, specific next action, and verified resumption handle.
+For every review type that runs, including `/es`, `/er`, `/advice`, `/wa`, `/cs`, other named lanes and native reviews, record in the PR body the exact reviewed SHA, review type/phase, verdict or status, timestamp, and reviewer/coverage. Document reviews also retain document hashes; their context SHA does not turn document approval into code approval. At each unfinished (`OPEN` or `PENDING`) obligation in the ledger, explicitly expose `owner`, `next_action`, and the actual resumption handle (`job_handle` + `wake_condition`), retaining candidate/claim applicability and recorded clocks. `job_handle` is required when the obligation is asynchronous; for synchronous or not-yet-started obligations, record `job_handle: N/A` while retaining a required `owner`, specific `next_action`, and genuine `wake_condition`. An unfinished obligation must never remain a bare unresolved status without an accountable owner, specific next action, and verified resumption handle.
 
 ### Execution record
 
@@ -29,12 +29,12 @@ endpoint: FINAL_READY
 candidate: <head-SHA>
 next_action: <specific unmet obligation>
 owner: <driver or delegated lane>
-job_handle: <actual handle, when asynchronous>
+job_handle: <actual handle when asynchronous, or N/A when synchronous/not-yet-started>
 wake_condition: <verified callback / poll / resume mechanism>
 blocker: <only if no executable authorized action remains>
 ```
 
-An actual handle plus a verified callback, polling, or resume mechanism must exist. A written wake condition alone does not schedule or execute resumption; ending a turn at "review requested" or "job submitted" without an active handle and verified resumption mechanism is forbidden.
+An actual handle (or `N/A` when synchronous or not yet started) plus a verified callback, polling, or resume mechanism must exist. A written wake condition alone does not schedule or execute resumption; ending a turn at "review requested" or "job submitted" without an active handle and verified resumption mechanism is forbidden.
 
 **Blocking dependency PR ownership:** When progress depends on a blocking dependency PR, the executing agent/driver must retain ownership of the blocking dependency through its required endpoint or verify an accepted handoff to a confirmed executing owner. Merely delivering a handoff message or task note does not relieve ownership or unblock the parent; delivery alone is not enough, and the parent blocker remains preserved until the dependency reaches its verified endpoint or active handoff acceptance is proven.
 
@@ -56,17 +56,14 @@ Structure of `run.stats.json`:
   "timestamps": {
     "accepted_at": "<ISO-timestamp-or-null>",
     "created_at": "<ISO-timestamp-or-null>",
+    "pushed_at": "<ISO-timestamp-or-null>",
     "evidence_ready_at": "<ISO-timestamp-or-null>",
     "review_requested_at": "<ISO-timestamp-or-null>",
-    "review_dispatch_at": "<ISO-timestamp-or-null>",
     "actual_review_started_at": "<ISO-timestamp-or-null>",
     "review_return_at": "<ISO-timestamp-or-null>",
-    "review_returned_at": "<ISO-timestamp-or-null>",
     "next_substantive_action_started_at": "<ISO-timestamp-or-null>",
-    "next_action_start_at": "<ISO-timestamp-or-null>",
-    "authority_ready_at": "<ISO-timestamp-or-null>",
-    "pushed_at": "<ISO-timestamp-or-null>",
     "green_at": "<ISO-timestamp-or-null>",
+    "authority_ready_at": "<ISO-timestamp-or-null>",
     "merged_at": "<ISO-timestamp-or-null>"
   },
   "rounds": [
@@ -76,7 +73,7 @@ Structure of `run.stats.json`:
       "evidence_ready_at": "<ISO-timestamp-or-null>",
       "review_requested_at": "<ISO-timestamp-or-null>",
       "actual_review_started_at": "<ISO-timestamp-or-null>",
-      "review_returned_at": "<ISO-timestamp-or-null>",
+      "review_return_at": "<ISO-timestamp-or-null>",
       "next_substantive_action_started_at": "<ISO-timestamp-or-null>"
     }
   ],
@@ -89,6 +86,8 @@ Structure of `run.stats.json`:
 }
 ```
 
+Top-level `timestamps` records the current candidate round while `rounds[]` preserves per-round history across review iterations.
+
 ### Derived Scratch metrics
 
 Extend existing PR/task and attempt receipts, retaining original clocks, candidate/claim applicability and owner. Derive Scratch metrics from them; no second authoritative ledger or new enforcement gate:
@@ -100,15 +99,16 @@ Extend existing PR/task and attempt receipts, retaining original clocks, candida
 | Task-to-merge | `merged_at` minus task `accepted_at`; exposes delays hidden by late PR creation |
 | Evidence dispatch delay | `review_requested_at` minus `evidence_ready_at` |
 | Reviewer pickup delay | `actual_review_started_at` minus `review_requested_at` |
-| Review execution time | `review_returned_at` minus `actual_review_started_at` |
-| Driver response delay | `next_substantive_action_started_at` minus `review_returned_at` |
-| Authorized closeout delay | `merged_at` minus the time all readiness obligations and merge authority are simultaneously satisfied |
+| Review execution time | `review_return_at` minus `actual_review_started_at` |
+| Driver response delay | `next_substantive_action_started_at` minus `review_return_at` |
+| Authorized closeout delay | `merged_at` minus `authority_ready_at` |
 | Eligible unattended interval | Observed interval with an executable authorized action, no executing owner/job and no legitimate hold; otherwise UNKNOWN or an identified waiting category |
 
 ### Evidence readiness, censoring, and waiting rules
 
 - **Evidence readiness**: Required proof is complete, readable, and available to the reviewer at its recorded candidate SHA.
 - **Actual review start**: An acknowledged message is not actual review start; `actual_review_started_at` records when the reviewer actually initiates substantive inspection.
+- **Authority readiness**: Explicitly define `authority_ready_at` as the timestamp when all readiness obligations (`FINAL_READY`) and merge authority are simultaneously satisfied (or `null` when either is incomplete), so `Authorized closeout delay` (`merged_at` minus `authority_ready_at`) is directly derivable from the schema.
 - **Interval censoring on invalidation**: If proof is invalidated before pickup (e.g. candidate head SHA moved or changed claims), close/censor that interval with the explicit reason rather than counting the whole period as reviewer neglect.
 - **Waiting category separation**: Treat active execution, CI/provider waits, explicit user holds, authority waits, and unknown periods separately.
 - **No inferred idleness from quiet periods**: Never infer uninterrupted idleness from missing GitHub writes (e.g. periods without comment or push events).

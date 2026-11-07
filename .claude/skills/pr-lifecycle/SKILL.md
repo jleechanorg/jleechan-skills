@@ -45,6 +45,10 @@ Drive the PR through this continuous cycle without stopping at intermediate chec
 7. **Synchronize Presentation:** Synchronize title, labels, and description ledger from current obligation state.
 8. **Final Readiness and Merge:** When all draft and closing obligations pass, current checks are green, and receipts are published, synchronize `FINAL_READY`. Once `FINAL_READY` is verified and merge authority holds at the exact head, execute the merge immediately before optional post-merge reporting, telemetry snapshots, or secondary bookkeeping so bookkeeping never delays an authorized merge (while mandatory pre-merge gates, exact-head verification, and required receipt publication/readback still precede merge).
 
+**Handoff transition ownership:** The active driver must maintain continuous ownership through the two primary handoff transitions without leaving an unattended gap:
+- **Evidence-ready -> review-start ownership:** As soon as required proof is complete and readable at the candidate SHA (`evidence_ready_at`), the active owner immediately dispatches the required review (`review_requested_at`) and verifies actual reviewer pickup (`actual_review_started_at`; an acknowledged message is not review start).
+- **Reviewer-return -> next-action pickup:** Immediately upon reviewer return (`review_return_at`), the active owner starts the next substantive action (`next_substantive_action_started_at`: applying fixes, advancing stage, or executing an authorized merge) without leaving an unattended gap.
+
 ## Canonical lifecycle
 
 ```

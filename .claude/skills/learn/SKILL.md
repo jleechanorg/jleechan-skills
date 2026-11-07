@@ -191,25 +191,27 @@ Resolve the wiki root following the canonical `wiki-ingest` order (`.wiki-defaul
 
 ```bash
 if [ -f ".wiki-default" ]; then
-  WIKI_DIR=$(cat .wiki-default)
-  WIKI_ROOT=$(dirname "$WIKI_DIR")
+  WIKI=$(cat .wiki-default)
 elif [ -f "$HOME/.wiki-default" ]; then
-  WIKI_DIR=$(cat "$HOME/.wiki-default")
-  WIKI_ROOT=$(dirname "$WIKI_DIR")
+  WIKI=$(cat "$HOME/.wiki-default")
 elif [ -n "${WIKI_ROOT:-}" ]; then
-  WIKI_DIR="$WIKI_ROOT/wiki"
+  WIKI="$WIKI_ROOT/wiki"
 else
   echo "WIKI_ROOT not configured"
 fi
+if [ -n "${WIKI:-}" ]; then
+  WIKI_ROOT=$(dirname "$WIKI")
+  RAW_DIR="$WIKI_ROOT/raw"
+fi
 ```
 
-After execution, verify the required side effects using the resolved `$WIKI_ROOT` and `$WIKI_DIR` (when configured):
+After execution, verify the required side effects using the resolved `$WIKI_ROOT`, `$WIKI`, and `$RAW_DIR` (when configured):
 
-- `"$WIKI_ROOT/raw/<basename>"` exists
-- `"$WIKI_DIR/sources/<slug>.md"` exists with the canonical frontmatter
+- `"$RAW_DIR/<basename>"` exists
+- `"$WIKI/sources/<slug>.md"` exists with the canonical frontmatter
   (`title`, `type`, `tags`, `sources`, `last_updated`) and `[[wikilinks]]`
-- `"$WIKI_DIR/index.md"` was updated under `## Sources` (verify with `grep -F "<slug>" "$WIKI_DIR/index.md"`)
-- `"$WIKI_DIR/log.md"` was appended with `## [YYYY-MM-DD] ingest | <title>` (verify with `tail -20 "$WIKI_DIR/log.md"`)
+- `"$WIKI/index.md"` was updated under `## Sources` (verify with `grep -F "<slug>" "$WIKI/index.md"`)
+- `"$WIKI/log.md"` was appended with `## [YYYY-MM-DD] ingest | <title>` (verify with `tail -20 "$WIKI/log.md"`)
 - Git commit created on publish branch (verify with `git -C "$WIKI_ROOT" status -sb` and `git -C "$WIKI_ROOT" log --oneline -3`)
 - Relevant entity/concept updates exist and the wiki's link lint passes.
 
@@ -221,7 +223,7 @@ itself is the source. The skill's classifier decides what is wiki-bearing.
 
 **Working-directory caveat**: if the current session cwd is not
 the resolved `$WIKI_ROOT` (e.g. an `/integrate` flow running in a feature worktree),
-resolve the source by its absolute path and pass an explicit `--wiki "$WIKI_DIR"` path
+resolve the source by its absolute path and pass an explicit `--wiki "$WIKI"` path
 when the destination must not depend on a current-directory override.
 
 ### 7. Validate and report
