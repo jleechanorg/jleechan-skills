@@ -7,15 +7,9 @@ scope: project
 
 # PR Workflow Manager
 
-## Terminal goal and first-screen contract
+## Terminal goal and entry contract
 
-An unqualified `/prw` (`/pr-workflow`) drives the PR to **`FINAL_READY`** across all applicable Stage 5 gates, unless explicitly requested earlier. One session goal covers all PR activities.
-
-- **Checkpoints vs. Completion:** PR creation, branch pushes, first approval, undrafting, and stage labels are intermediate checkpoints—never task completion.
-- **Separation of Authorities:** `FINAL_READY` certifies all required obligations, checks, and receipts are complete. Merging requires separate explicit authority under `~/.codex/AGENTS.md` § Merge safety and repository policy. When merge is requested and authorized, execute it immediately before optional reporting.
-- **Exit Conditions:** Return a final response only when:
-  1. `FINAL_READY` is verified (and merge executed if authorized); or
-  2. No authorized action remains, and an exact blocker, owner, and wake condition are recorded.
+An unqualified `/prw` (`/pr-workflow`) defaults to driving the PR to **`FINAL_READY`** across all applicable gates under one continuous session goal, unless the user explicitly requests an earlier milestone. Intermediate checkpoints (opening draft, pushes, initial approval, undrafting, stage labels) are not task completion; merge authority remains separate. For the canonical completion contract and exit conditions, follow [pr-lifecycle](../pr-lifecycle/SKILL.md#terminal-goal-and-first-screen-contract).
 
 ## One operational contract
 
@@ -40,7 +34,7 @@ Before selecting a branch, stage, or gate, inspect the target repository's `AGEN
 Drive the PR through the [pr-lifecycle completion loop](../pr-lifecycle/SKILL.md#the-autonomous-completion-loop):
 1. Default to opening PRs as DRAFT (`gh pr create --draft`).
 2. Select route from [review-routing.md](../pr-lifecycle/review-routing.md).
-3. Maintain the PR description's [Review Ledger](../pr-lifecycle/review-records.md#unified-obligation-and-review-ledger).
-4. Own asynchronous jobs with explicit handle and wake condition; never exit at "review requested".
+3. Maintain the single current record in the PR description ([Review Ledger and Execution Record](../pr-lifecycle/review-records.md#unified-obligation-and-review-ledger)).
+4. Own asynchronous jobs with explicit handle and verified resumption mechanism (a written wake condition alone is not resumption); retain ownership of blocking dependencies through their endpoint or accepted handoff.
 5. Pass draft gates in order, undraft via `gh pr ready`, and satisfy closing obligations.
 6. Creating or updating a PR does not authorize merge. Merge authority must be satisfied separately.

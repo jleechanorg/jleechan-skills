@@ -2,7 +2,11 @@
 
 On-demand part of [pr-lifecycle](SKILL.md): load it whenever a review runs, obligations are updated, or the PR body's evidence marker or review records change.
 
-## Unified obligation and review ledger
+## One current PR and task record
+
+The obligation ledger and execution fields constitute the single current PR/task record in the PR description or task context. They track candidate obligations, execution ownership, and asynchronous resumption in one authoritative place. Observational stats JSON is a derived sidecar, never another authority or state controller.
+
+### Unified obligation and review ledger
 
 Maintain a structured obligation ledger in the PR description under `## Review Ledger`:
 
@@ -16,7 +20,7 @@ Maintain a structured obligation ledger in the PR description under `## Review L
 
 For every review type that runs, including `/es`, `/er`, `/advice`, `/wa`, `/cs`, other named lanes and native reviews, record in the PR body the exact reviewed SHA, review type/phase, verdict or status, timestamp, and reviewer/coverage. Document reviews also retain document hashes; their context SHA does not turn document approval into code approval.
 
-## Execution record
+### Execution record
 
 Track the active execution state in the PR description or task context:
 
@@ -26,15 +30,17 @@ candidate: <head-SHA>
 next_action: <specific unmet obligation>
 owner: <driver or delegated lane>
 job_handle: <actual handle, when asynchronous>
-wake_condition: <job result / reviewer response / check completion>
+wake_condition: <verified callback / poll / resume mechanism>
 blocker: <only if no executable authorized action remains>
 ```
 
-An asynchronous wait requires both an actual `job_handle` and an unambiguous `wake_condition`. Ending a turn at "review requested" without an active handle and wake path is forbidden.
+An actual handle plus a verified callback, polling, or resume mechanism must exist. A written wake condition alone does not schedule or execute resumption; ending a turn at "review requested" or "job submitted" without an active handle and verified resumption mechanism is forbidden.
+
+**Blocking dependency PR ownership:** When progress depends on a blocking dependency PR, the executing agent/driver must retain ownership of the blocking dependency through its required endpoint or verify an accepted handoff to a confirmed executing owner. Merely delivering a handoff message or task note does not relieve ownership or unblock the parent; delivery alone is not enough, and the parent blocker remains preserved until the dependency reaches its verified endpoint or active handoff acceptance is proven.
 
 ## Observational Scratch runtime telemetry (`run.stats.json`)
 
-To capture execution telemetry without cluttering the repository or git history, write a tiny observational runtime snapshot to the host Scratch space (resolved dynamically via `~/.claude/skills/scratch-space/scripts/scratch-dir.sh [subpath]` or `diskm scratch-new`, falling back to `/tmp` only when unconfigured):
+Observational Scratch runtime telemetry (`run.stats.json`) is a derived sidecar for non-enforcing metrics, never a competing authority or controller. To capture execution telemetry without cluttering the repository or git history, write a tiny observational runtime snapshot to the host Scratch space (resolved dynamically via `~/.claude/skills/scratch-space/scripts/scratch-dir.sh [subpath]` or `diskm scratch-new`, falling back to `/tmp` only when unconfigured):
 
 - **Non-enforcement invariant:** Stats are strictly observational. They cannot delay gates, block stage transitions, or become gating criteria.
 - **Integrity invariant:** Unknown values MUST be `null`. Never fabricate cost, idle time, or token estimates.

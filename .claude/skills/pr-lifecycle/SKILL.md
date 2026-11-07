@@ -36,7 +36,7 @@ Drive the PR through this continuous cycle without stopping at intermediate chec
 3. **Batch Code Fixes:** Batch accepted review fixes into a single commit; rerun only affected proof and review.
 4. **Clarify Unsupported Findings:** For contradictory or disproven findings, pin counterevidence and seek reviewer clarification before editing code.
 5. **Delta Assessment & Reuse:** A changed commit SHA does not automatically invalidate evidence. Evaluate delta per [review-routing.md](review-routing.md#sha-binding-rule-critical--applies-to-every-gate-in-this-chain) and reuse valid verdicts. Never blanket auto-carry assertion, driver, prompt, schema, or config changes.
-6. **Own Asynchronous Work:** Record actual job handle and wake condition in the [execution record](review-records.md#execution-record). Never exit at "review requested" without an active wake path.
+6. **Own Asynchronous Work & Dependencies:** Record actual job handle and verified callback/poll/resume mechanism in the current execution record (written wake conditions alone do not cause resumption). Retain ownership of blocking dependency PRs through their required endpoint or verified accepted handoff; delivery alone does not unblock the parent.
 7. **Synchronize Presentation:** Synchronize title, labels, and description ledger from current obligation state.
 8. **Final Readiness and Merge:** When all draft and closing obligations pass, current checks are green, and receipts are published, synchronize `FINAL_READY`. If merge is authorized, execute merge before reporting.
 
@@ -44,10 +44,13 @@ Drive the PR through this continuous cycle without stopping at intermediate chec
 
 ```
 DRAFT
-  → /es PASS @ SHA (or route exemption)
-  → /er PASS @ SHA (or route exemption)
-  → Table-selected source review PASS @ SHA
-  → /visual-verification PASS @ SHA (when visual claims or media exist)
+  → Route selection & exemptions (Markdown-only/doc routes skip /es and /er)
+  → When pinned source ready: Table-selected source review PASS @ SHA
+      (runs concurrently with independent evidence work)
+  → For routes requiring evidence:
+      1. Complete evidence bundle (/es @ SHA; early preflight != final PASS)
+      2. Required independent visual findings (/visual-verification PASS @ SHA, for visual claims)
+      3. Closing evidence review (/er PASS @ SHA, adjudicating evidence + visual findings)
   → Mark ready-for-review (gh pr ready <N>)
   → /ready work: /green, comments, conflicts, regressions
   → Final closing /er and source review coverage applicable to candidate
@@ -57,12 +60,14 @@ DRAFT
 
 ## Draft-phase final acceptance gates (in order)
 
-While a PR is draft, satisfy these gates in order before undrafting (`gh pr ready <N>`):
+Before undrafting (`gh pr ready <N>`), select route and satisfy applicable gates:
 
-1. **`/es`** — Evidence bundle passes per `../evidence-standards/SKILL.md` bound to tested SHA and verified applicable to candidate.
-2. **`/er`** — Evidence review PASS (not PARTIAL/FAIL/INCONCLUSIVE) under [review-routing.md](review-routing.md) or justified exemption under [exceptions.md](exceptions.md).
-3. **Table-selected source review** — Independent approval (`APPROVED at <SHA>`) per [review-routing.md](review-routing.md). `WITHHELD` does not satisfy the gate.
-4. **`/visual-verification`** — Required for published media or rendered UI claims outside the one-liner fast path. An independent visual seat decodes media, inspects frames, and confirms `VISUAL APPROVED at <40-char-sha>`.
+1. **Route selection and exemptions** — Classify the diff under [review-routing.md](review-routing.md). Positively qualified Markdown instruction-only changes and documentation-only exceptions do not force separate `/es` or `/er` adjudication; they satisfy draft review through route-defined scenario review(s) and Markdown structure checks.
+2. **Concurrent source review** — Table-selected independent source review (`APPROVED at <SHA>`) can start as soon as pinned source is ready, running concurrently with independent evidence work.
+3. **Evidence bundle (`/es`)** — When evidence is required, prepare the complete evidence bundle bound to tested SHA per `../evidence-standards/SKILL.md`. An early evidence preflight checks artifact completeness, but is not final PASS.
+4. **Independent visual findings (`/visual-verification`)** — For published media or rendered UI claims outside the one-liner fast path, an independent visual seat decodes media, inspects frames, and confirms `VISUAL APPROVED at <40-char-sha>` before closing evidence review (preserving required seats and qualified combined-seat exceptions per [review-routing.md](review-routing.md)).
+5. **Closing evidence review (`/er`)** — When `/er` is required, obtain closing evidence review PASS (not PARTIAL/FAIL/INCONCLUSIVE) under [review-routing.md](review-routing.md), adjudicating complete evidence and required visual findings.
+6. **Undraft** — Execute `gh pr ready <N>` once all applicable draft-phase gates pass.
 
 ## Ready phase — finish `/ready`, then final reviews
 
