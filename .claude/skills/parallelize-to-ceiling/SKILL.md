@@ -269,7 +269,7 @@ stream, and invented data):
 PAIR TASK: <bounded task and explicit file scope>
 CODER: follow `${CLAUDE_HOME:-$HOME/.claude}/agents/agy-pair-coder.md`; implement and signal IMPLEMENTATION_READY with `Revision: <exact git SHA>` and `Worktree: <absolute path>`.
 VERIFIER: follow `${CLAUDE_HOME:-$HOME/.claude}/agents/agy-pair-verifier.md`; independently verify the handed-off revision and signal VERIFICATION_COMPLETE or VERIFICATION_FAILED.
-FALLBACK: if an AGY lane concretely fails, retry that lane with a gpt-6-luna subagent, then codex-luna as the fallback if gpt-6-luna is unavailable or fails, while preserving isolation and independent verification. 5.6 models are forbidden; only GPT 6 and 6.1 models are permitted.
+FALLBACK: if an AGY lane concretely fails, retry that lane with a Codex subagent using gpt-6-luna. If Luna is unavailable or concretely fails, or the task requires more capability, retry the same bounded lane with a Codex subagent using gpt-6.1-terra. Only if Terra is unavailable, concretely fails, or lacks required capability, use a Codex subagent with gpt-6.1-sol as the final fallback. Preserve isolation and independent verification. Never use 5.6 models.
 ```
 
 ## Fallback precedence
@@ -277,10 +277,14 @@ FALLBACK: if an AGY lane concretely fails, retry that lane with a gpt-6-luna sub
 The `FALLBACK` template above is governed by this order:
 
 1. Start with the AGY pair as the primary implementation and verification lanes.
-2. After a concrete AGY lane failure, retry the same bounded lane with a
-   `gpt-6-luna` subagent. If `gpt-6-luna` is unavailable or fails, invoke
-   the Codex CLI explicitly with `-m gpt-6-sol` (or other approved GPT 6 / 6.1 model),
-   advancing only after a concrete failure in that lane (5.6 models forbidden).
+2. After a concrete AGY lane failure, retry the same bounded lane with a Codex
+   subagent using `gpt-6-luna`. If Luna is unavailable or concretely fails, or
+   the task requires more capability, retry it with a Codex subagent using
+   `gpt-6.1-terra`. Only if Terra is unavailable, concretely fails, or lacks
+   required capability, use a Codex subagent with `gpt-6.1-sol` as the final
+   fallback. Advance only after a concrete failure, unavailability, or
+   demonstrated capability gap at the preceding tier; preserve the same
+   bounded scope and verification requirements. Never use 5.6 models.
 3. Use `claudem` or an own cheap agent only when the ordered Codex route is
    unavailable; preserve the same bounded scope and verification requirements.
 
@@ -314,14 +318,18 @@ state and verify against `Revision`.
 
 ## Codex model routing
 
-For Codex parallel lanes, prefer the native `gpt-6-luna` subagent for bounded
-coding and simple task-driving. Advance only after a concrete per-lane failure
-or when the requested model is unavailable:
+For Codex parallel lanes, use this default progression unless the caller
+explicitly requests a different model:
 
-`gpt-6-luna` → `gpt-6-sol` (5.6 models forbidden)
+`gpt-6-luna` → `gpt-6.1-terra` → `gpt-6.1-sol`
 
-If `gpt-6-luna` is unavailable or fails, use the active GPT 6 / 6.1 tier
-(`gpt-6-sol`). Record the rejection and retry the same bounded lane with the next explicit model.
+Start with Luna for bounded work. Escalate to Terra when Luna is unavailable,
+concretely fails, or the task requires more intelligence or capability. Use Sol
+only as the final fallback after Terra is unavailable, concretely fails, or
+lacks required capability. Record the specific reason for each escalation and
+retry the same bounded lane with the next explicit model. Explicit model
+requests remain authoritative; this routing rule does not grant review,
+approval, or merge authority. Never use 5.6 models.
 
 ## One-line form (for config files)
 
@@ -396,8 +404,12 @@ there to a pointer 2026-09-06; this section is the full policy).
 - Small/mechanical bounded coding:
   - AGY CLI (`agy`): pass `--model gemini-3.8-flash-high` (or `gemini-3.8-flash-medium` / `gemini-3.8-flash-low` per `agy models`; alias `gemini-3.8-flash`).
   - Antigravity native subagents (`invoke_subagent`): pass `Model: "flash"` (or `Model: "flash_lite"` for simple lookups/reads); never leave `Model: "inherit"` or `"pro"` on bounded subagent lanes.
-  - Codex: spawn a `gpt-6-luna` subagent when available. If it is unavailable
-    or fails, use `gpt-6-sol` (5.6 models forbidden).
+  - Codex: spawn a `gpt-6-luna` subagent when available. If Luna is unavailable,
+    concretely fails, or the task requires more capability, use `gpt-6.1-terra`.
+    Use `gpt-6.1-sol` only as the final fallback if Terra is unavailable,
+    concretely fails, or lacks required capability. Explicit model requests
+    remain authoritative; see the Codex model routing section above. Never use
+    5.6 models.
   - Claude: `haiku` subagent.
 - Simple task-driving, polling, and mechanical sweeps: the available Gemini 3.8 Flash (`Model: "flash"` / `--model gemini-3.8-flash-medium`), Luna, or
   haiku/mini tier.
