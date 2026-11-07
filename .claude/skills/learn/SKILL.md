@@ -17,7 +17,7 @@ Every confirmed learning must produce or update all of these:
 2. Optional mem0 save when the configured helper and mem0 package are available (see step 3 gates).
 3. Monthly roadmap log at `${ROADMAP_DIR:-$HOME/roadmap}/learnings-YYYY-MM.md` (skip and report when that directory is absent).
 4. A closed or referenced bead in `.beads/issues.jsonl` when the current repo has beads.
-5. LLM wiki ingest under the configured wiki (resolved via `.wiki-default` in repo root, then `~/.wiki-default`, then `$WIKI_ROOT/wiki`; report "WIKI_ROOT not configured" and skip when no wiki is configured): raw source copy, source page, index entry, log entry, and relevant concept/entity updates.
+5. LLM wiki ingest under the configured wiki (resolved following `wiki-ingest`'s exact 4-step order: `--wiki <path>` override if passed, `.wiki-default` in repo root, `~/.wiki-default` in home, or `$WIKI_ROOT/wiki`; report "WIKI_ROOT not configured" and skip when no wiki is configured): raw source copy, source page, index entry, log entry, and relevant concept/entity updates.
 
 If a persistence target is unavailable, report the exact blocker and continue
 with the remaining targets. Do not silently skip wiki ingest.
@@ -187,32 +187,45 @@ Claude-specific Skill tool or a second CLI is never a prerequisite. Writes
 performed as part of the complete wiki-ingest procedure are authorized; do
 not substitute a partial copy that skips entity/concept extraction or validation.
 
-Resolve the wiki root following the canonical `wiki-ingest` order (`.wiki-default` in repo root, then `~/.wiki-default`, then `$WIKI_ROOT/wiki`):
+Resolve the wiki destination once for both ingestion and verification, following the exact `wiki-ingest` order (`--wiki <path>` / `$WIKI_OVERRIDE` first, then `.wiki-default` in repo root, then `~/.wiki-default`, then `$WIKI_ROOT/wiki`):
 
 ```bash
-if [ -f ".wiki-default" ]; then
+# Resolve destination once for both ingestion and verification:
+if [ -n "${WIKI_OVERRIDE:-}" ]; then
+  WIKI="$WIKI_OVERRIDE"
+elif [ -f ".wiki-default" ]; then
   WIKI=$(cat .wiki-default)
 elif [ -f "$HOME/.wiki-default" ]; then
   WIKI=$(cat "$HOME/.wiki-default")
 elif [ -n "${WIKI_ROOT:-}" ]; then
   WIKI="$WIKI_ROOT/wiki"
 else
-  echo "WIKI_ROOT not configured"
+  echo "WIKI_ROOT not configured — skipping wiki ingest and verification"
+  return 0 2>/dev/null || exit 0
 fi
-if [ -n "${WIKI:-}" ]; then
+
+# Gate verification assertions directly against the resolved $WIKI:
+if [ -n "${WIKI:-}" ] && [ -d "$WIKI" ]; then
   WIKI_ROOT=$(dirname "$WIKI")
   RAW_DIR="$WIKI_ROOT/raw"
+
+  # Verify raw source copy, canonical source page, index, log, and git commit:
+  test -f "$RAW_DIR/<basename>" 2>/dev/null || test -f "$WIKI/raw/<basename>"
+  test -f "$WIKI/sources/<slug>.md"
+  grep -q -F "<slug>" "$WIKI/index.md"
+  tail -20 "$WIKI/log.md" | grep -q "<title>"
+  git -C "$WIKI" status --porcelain
 fi
 ```
 
-After execution, verify the required side effects using the resolved `$WIKI_ROOT`, `$WIKI`, and `$RAW_DIR` (when configured):
+After execution, verify the required side effects using the exact resolved destination `$WIKI` (and sibling `$RAW_DIR`):
 
-- `"$RAW_DIR/<basename>"` exists
+- `"$RAW_DIR/<basename>"` (or `"$WIKI/raw/<basename>"`) exists
 - `"$WIKI/sources/<slug>.md"` exists with the canonical frontmatter
   (`title`, `type`, `tags`, `sources`, `last_updated`) and `[[wikilinks]]`
 - `"$WIKI/index.md"` was updated under `## Sources` (verify with `grep -F "<slug>" "$WIKI/index.md"`)
 - `"$WIKI/log.md"` was appended with `## [YYYY-MM-DD] ingest | <title>` (verify with `tail -20 "$WIKI/log.md"`)
-- Git commit created on publish branch (verify with `git -C "$WIKI_ROOT" status -sb` and `git -C "$WIKI_ROOT" log --oneline -3`)
+- Git commit created on publish branch (verify with `git -C "$WIKI" status -sb` or `git -C "$WIKI_ROOT" log --oneline -3`)
 - Relevant entity/concept updates exist and the wiki's link lint passes.
 
 If the full procedure cannot be completed, report the exact missing step and
@@ -224,7 +237,7 @@ itself is the source. The skill's classifier decides what is wiki-bearing.
 **Working-directory caveat**: if the current session cwd is not
 the resolved `$WIKI_ROOT` (e.g. an `/integrate` flow running in a feature worktree),
 resolve the source by its absolute path and pass an explicit `--wiki "$WIKI"` path
-when the destination must not depend on a current-directory override.
+(setting `WIKI_OVERRIDE="$WIKI"`) so the destination does not depend on a current-directory override.
 
 ### 7. Validate and report
 
