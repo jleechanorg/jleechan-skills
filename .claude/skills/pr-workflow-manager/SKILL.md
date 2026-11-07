@@ -52,7 +52,7 @@ Drive the PR through the [pr-lifecycle completion loop](../pr-lifecycle/SKILL.md
 2. Select route from [review-routing.md](../pr-lifecycle/review-routing.md).
 3. Maintain the single current record in the PR description ([Review Ledger and Execution Record](../pr-lifecycle/review-records.md#unified-obligation-and-review-ledger)).
 4. Own asynchronous jobs with explicit handle and verified resumption mechanism (a written wake condition alone is not resumption); retain ownership of blocking dependencies through their endpoint or accepted handoff.
-5. Pass draft gates in order, undraft via `gh pr ready`, and satisfy closing obligations.
+5. Pass draft gates in order, undraft via `gh pr ready`, and satisfy closing obligations, following [pr-lifecycle's final-approval claim-to-proof check](../pr-lifecycle/SKILL.md#the-autonomous-completion-loop) (reconcile each headline claim against its real caller, source events/arithmetic, and exact reviewed artifacts; missing proof remains `UNVERIFIED`).
 
 ## Boundaries
 
