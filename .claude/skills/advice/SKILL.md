@@ -182,7 +182,7 @@ obligation. Review votes never replace missing substantive evidence.
   exposed model/account fields as `attested.` values; never invent a hidden runtime SKU. A verified Dot account is its
   own CLI/model identity under the one-Dot cap. Missing public fields do not invalidate a privately verified session;
   an actually unverified account is unavailable. Keep its frozen expected binding, positive identity probe and source-
-  author independence proof. Codex models may be only `gpt-6-astra`, `gpt-6-luna`, `gpt-6.1-terra` or `gpt-6.1-sol`.
+  author independence proof. Codex models may be only `gpt-6-astra`, `gpt-6-luna`, `gpt-6-sol`, `gpt-6.1-terra` or `gpt-6.1-sol`.
 - Neither the author nor the orchestrator awards itself a vote, and no verdict counts twice: a Dot account whose verdict fills the
   pr-lifecycle `/dot` leg at this head is not also an `/advice` vote.
 - Run every seat with full permissions and record its actual command, model, account and transport.

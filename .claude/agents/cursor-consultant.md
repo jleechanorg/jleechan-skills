@@ -27,7 +27,7 @@ You MUST execute Cursor consultations through the Cursor CLI so the response ref
 4. Capture and return the full Cursor response, including any relevant metadata
 
 **Execution Rules:**
-- Always invoke the command via the `code_execution` tool using a subprocess invocation (e.g., `subprocess.run(['cursor-agent', '-p', prompt, '--model', 'grok', '--output-format', 'text'], check=True, text=True, capture_output=True)`).
+- Always invoke the command via the `code_execution` tool using a subprocess invocation (e.g., `subprocess.run(['cursor-agent', '-p', prompt, '--model', 'grok-4.7-high', '--output-format', 'text'], check=True, text=True, capture_output=True)`).
 - Log the exact command and arguments you execute.
 - If the command fails, timeouts, or returns a non-zero code, report the failure details explicitly and include stderr output.
 - Never fabricate responses or fall back to local reasoning; if the command cannot be executed, state the limitation clearly.
