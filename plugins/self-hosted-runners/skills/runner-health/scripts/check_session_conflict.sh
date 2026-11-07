@@ -119,14 +119,20 @@ if [[ $GH_RC -ne 0 ]]; then
 fi
 
 declare -a offline_runners=()
+offline_count=0
 while IFS= read -r name; do
   [[ -z "$name" ]] && continue
   offline_runners+=("$name")
+  offline_count=$((offline_count + 1))
 done <<<"$OFFLINE_OUT"
 
 declare -a session_conflicts=() runner_offline=() docker_unavailable=() ssh_unreachable=() invalid_names=()
 
-for name in "${offline_runners[@]}"; do
+# `${arr[@]+"${arr[@]}"}` is the portable empty-array idiom: on bash 3.2 (the
+# macOS system bash) expanding an empty array under `set -u` aborts with
+# "unbound variable", so the all-online / no-offline-runners case must never
+# expand a bare `"${arr[@]}"`.
+for name in ${offline_runners[@]+"${offline_runners[@]}"}; do
   status="$(container_status_for "$name")"
   case "$status" in
     running) session_conflicts+=("$name") ;;
@@ -139,21 +145,20 @@ done
 
 json_array() {
   # Prints a JSON array from the given bash array args (possibly empty).
-  local -a items=("$@")
-  if [[ ${#items[@]} -eq 0 ]]; then
+  if [[ "$#" -eq 0 ]]; then
     printf '[]'
     return
   fi
-  printf '%s\n' "${items[@]}" | python3 -c 'import json,sys; print(json.dumps([l.rstrip(chr(10)) for l in sys.stdin]))'
+  printf '%s\n' "$@" | python3 -c 'import json,sys; print(json.dumps([l.rstrip(chr(10)) for l in sys.stdin]))'
 }
 
-SESSION_CONFLICTS_JSON="$(json_array "${session_conflicts[@]}")"
-RUNNER_OFFLINE_JSON="$(json_array "${runner_offline[@]}")"
-DOCKER_UNAVAILABLE_JSON="$(json_array "${docker_unavailable[@]}")"
-SSH_UNREACHABLE_JSON="$(json_array "${ssh_unreachable[@]}")"
-INVALID_NAMES_JSON="$(json_array "${invalid_names[@]}")"
+SESSION_CONFLICTS_JSON="$(json_array ${session_conflicts[@]+"${session_conflicts[@]}"})"
+RUNNER_OFFLINE_JSON="$(json_array ${runner_offline[@]+"${runner_offline[@]}"})"
+DOCKER_UNAVAILABLE_JSON="$(json_array ${docker_unavailable[@]+"${docker_unavailable[@]}"})"
+SSH_UNREACHABLE_JSON="$(json_array ${ssh_unreachable[@]+"${ssh_unreachable[@]}"})"
+INVALID_NAMES_JSON="$(json_array ${invalid_names[@]+"${invalid_names[@]}"})"
 
 printf '{"timestamp":"%s","org":"%s","error":null,"offline_count":%d,"session_conflicts":%s,"runner_offline":%s,"docker_unavailable":%s,"ssh_unreachable":%s,"invalid_names":%s}\n' \
-  "$TS" "$ORG" "${#offline_runners[@]}" \
+  "$TS" "$ORG" "$offline_count" \
   "$SESSION_CONFLICTS_JSON" "$RUNNER_OFFLINE_JSON" "$DOCKER_UNAVAILABLE_JSON" "$SSH_UNREACHABLE_JSON" "$INVALID_NAMES_JSON"
 exit 0
