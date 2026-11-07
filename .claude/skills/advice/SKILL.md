@@ -20,7 +20,7 @@ affected independent judgment, or an explicitly requested further review.
 Every reviewer gets only the static-review channel preamble plus its template: no question, summary, excerpt or
 framing. The user's `[question]` stays with the orchestrator, which records it in the §5 report and answers it from
 the reviewers' findings; if the template cannot surface what the question needs, report that gap. Send a pointer to
-the complete change, never a transcription. A verdict built on truncated input is never `APPROVED`.
+the complete change, never a transcription. A verdict built on unrecovered truncated input is never APPROVED; if display/tool output truncates, complete required content recovered via narrower range requests within the attempt deadline satisfies full coverage.
 
 - **Revision review** covers exactly the pinned commit.
 - **Document-only review** covers explicitly named, non-ignored, non-symlink Markdown files, committed or not. Give
@@ -217,10 +217,13 @@ Mac or Ubuntu machine); try or record each host separately. When the tiers canno
   deadline. For outside routes, `C` covers only readback and receipt writing. Record queue boundary, deadline and
   actual exit in the receipt, never the prompt; the orchestrator's bounded tool call is the mechanism.
 - **Outcome.** Setup, delivery, review, capture, receipt writing and cleanup all count against `B`; the deadline
-  decides eligibility, not a real-time guarantee. Cleanup or receipt overrun makes the attempt nonzero and voids its
-  vote. A late, incomplete, failed or timed-out result is not approval: keep partial findings and cleanup status, then
-  use another eligible reviewer. Do not wait on unresolved cleanup, reuse an unresolved resource, or claim cleanup
-  without receipt evidence.
+  decides eligibility, not a real-time guarantee. The pre-dispatch prompt/SHA256 and actual completion timestamp
+  govern the attempt receipt; later sanitized PR/gist publication and protected/encrypted session archive files do not
+  alter the completion clock or invalidate a verified plaintext dispatch receipt. Cleanup or receipt overrun makes the
+  attempt nonzero and voids its vote. A late, incomplete, failed or timed-out result is not approval: keep partial
+  findings and cleanup status, then use another eligible reviewer. Do not wait on unresolved cleanup, reuse an
+  unresolved resource, or claim cleanup without receipt evidence. Non-mandatory bookkeeping must never delay an
+  authorized merge.
 
 ## 4. Review access modes and isolation
 
@@ -263,7 +266,10 @@ retains the original clocks.
 
 **Counting a vote.** A counted reviewer returns full-scope `COVERAGE:` and a nonempty `VERDICT:`. Its receipt shows
 a zero exit, a present and parseable receipt, no mutation of the original checkout, no surviving reviewer process,
-and no cleanup failure. A static-review receipt replaces only the exit field; an outside-route receipt (`remote` or
+and no cleanup failure. The pre-dispatch prompt/SHA256 and actual completion timestamp govern the attempt receipt;
+later sanitized PR/gist publication and protected/encrypted session archive files do not alter the completion clock or
+invalidate a verified plaintext dispatch receipt. Non-mandatory bookkeeping must never delay an authorized merge.
+A static-review receipt replaces only the exit field; an outside-route receipt (`remote` or
 `packet`) replaces the exit, process and cleanup fields with that row's evidence. When a seat returns nonzero, ignore its
 whole receipt, since a failed late rewrite can leave an older success-looking one. If clone setup timed out,
 directory removal does not prove its descendants exited: record that and do not count the attempt.
@@ -290,3 +296,4 @@ For visual follow-up, use [visual-verification's reuse and scoped follow-up](../
 Repair mechanically verifiable receipt fields yourself rather than dispatching a
 reviewer for bookkeeping; preserve §3 eligibility and original clocks. Such a
 repair cannot supply missing coverage, alter a verdict or revive a void vote.
+Non-mandatory bookkeeping must never delay an authorized merge once required pre-merge receipts and checks are verified.

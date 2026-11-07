@@ -364,7 +364,7 @@ Goal-driving harnesses own any further normalization under their own policy:
 | FAIL | any | FAIL | FAIL |
 | INCONCLUSIVE | any | INCONCLUSIVE | FAIL |
 
-**Normalization constraint:** A harness may normalize `WARN` to `PASS` only when all mandatory proof, required artifacts, and claim coverage are fully verified (i.e., the warning is strictly advisory/non-blocking and all mandatory checks pass). A normalization label can NEVER establish `PASS` while mandatory proof or required claim coverage is missing; in such cases the verdict ceiling remains `PARTIAL` per check 2. Under no circumstance may a harness or reviewer promote missing mandatory proof to PASS.
+**Normalization constraint:** A harness may normalize `WARN` to `PASS` only when all mandatory proof, required artifacts, and claim coverage are fully verified (i.e., the warning is strictly advisory/non-blocking and all mandatory checks pass). A normalization label can NEVER establish `PASS` while mandatory proof or required claim coverage is missing; in such cases the verdict remains capped at `PARTIAL` or `FAIL` under the applicable mandatory check in sections 1–4 (and at `PARTIAL` per check 2 when `verification_report.json` is `WARN`/`PARTIAL`). Under no circumstance may a harness or reviewer promote missing mandatory proof to PASS.
 
 **Proves vs does NOT prove reconfirmation is mandatory.** For every claim, the final report restates what the evidence proves and does NOT prove, even when both passes PASS.
 

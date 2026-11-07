@@ -22,7 +22,8 @@ both revisions, or verifies absence. Include binary, mode, symlink, submodule
 and LFS payloads. Verify unchanged spans before reusing a fully read version;
 changed hunks with small context do not establish full-file coverage. Missing
 or unretrievable required content means WITHHELD; recover truncated tool outputs
-with narrower ranges within the attempt deadline before concluding. Never combine
+with narrower ranges within the fixed attempt deadline (600s for static-review §4;
+1800s for advice §3; no timer reset) before concluding. Never combine
 partial reviewers into one complete vote.
 
 ## 1. Cold input and access mode
@@ -54,9 +55,9 @@ the complete base-to-head diff and full
 content of every changed path at both revisions, or verify its absence, including
 binary, mode, symlink, submodule and LFS payloads. Retrieve via bounded per-file or
 range requests; if tool output truncates, recover remaining content with narrower
-ranges within the original attempt deadline (truncation alone is not inaccessibility;
+ranges within the fixed attempt deadline (600s for static-review §4; 1800s for advice §3;
 no timer reset). The model must directly read all content (fetching bytes into a
-script variable or reading a subset is not coverage). If required content is missing
+script variable or reading only a required-content subset is not coverage). If required content is missing
 or cannot be retrieved completely by the deadline, report incomplete COVERAGE and
 withhold.
 Report P0/P1/P2 with file:line and MODEL: for the reviewer's actual
@@ -75,10 +76,10 @@ bundle sha256:<BUNDLE HASH>. Read its complete diff and full changed-path conten
 at both revisions, or verified absence, including special-object payloads.
 Assess the changed claims under /prw; prior approval or a completed review is not
 a prerequisite. Retrieve via bounded per-file or range requests; if tool output
-truncates, recover remaining content with narrower ranges within the original
-attempt deadline (truncation alone is not inaccessibility; no timer reset). The
+truncates, recover remaining content with narrower ranges within the fixed attempt
+deadline (600s for static-review §4; 1800s for advice §3; no timer reset). The
 model must directly read all content (fetching bytes into a script variable or
-reading a subset is not coverage). If required content is missing, unreadable or
+reading only a required-content subset is not coverage). If required content is missing, unreadable or
 cannot be retrieved completely by the deadline, report incomplete COVERAGE and
 withhold. Report P0/P1/P2 with file:line and MODEL: for the reviewer's actual
 runtime/model when exposed, or `unreported` when hidden. Never name the
@@ -101,10 +102,10 @@ approval or a completed review is not a prerequisite. If the
 packet claims revision binding, also read its complete base-to-head diff and
 changed-path content at both revisions, including special objects or verified
 absence. Retrieve via bounded per-file or range requests; if tool output
-truncates, recover remaining content with narrower ranges within the original
-attempt deadline (truncation alone is not inaccessibility; no timer reset). The
+truncates, recover remaining content with narrower ranges within the fixed attempt
+deadline (600s for static-review §4; 1800s for advice §3; no timer reset). The
 model must directly read all content (fetching bytes into a script variable or
-reading a subset is not coverage). If required content is missing or cannot be
+reading only a required-content subset is not coverage). If required content is missing or cannot be
 retrieved completely by the deadline, report incomplete COVERAGE and WITHHELD.
 Report P0/P1/P2 with file:line and MODEL: for the reviewer's actual
 runtime/model when exposed, or `unreported` when hidden. Never name the reviewed
@@ -216,18 +217,25 @@ attempts rather than relabeling them.
 
 Keep the exact prompt/hash, scope and revision/bundle, actual identity,
 queue/return, native exit/completion, coverage, verdict and the advice §4
-mode-specific checks. A managed native completion replaces a CLI exit; never
+mode-specific checks. The orchestrator captures the exact dispatched prompt and its
+SHA256 before queueing and records managed completion/return at the moment the
+attempt finishes (within the attempt deadline), never timing later PR/gist
+publication against the attempt budget. A managed native completion replaces a CLI exit; never
 demand a clone path or process cleanup for a mode that created neither.
 Original checkouts, refs, local config and hooks must remain unchanged.
 
 Capture the private technical receipt and required cleanup within the attempt
 deadline. Later sanitized publication is a separate lifecycle step, preserving
-original times and hashes. Publish final review and technical receipts; exclude
+original times and hashes; never replace actual completion clocks with later
+publication timestamps. Publish final review and technical receipts; exclude
 private reasoning, secrets and credentials. If a filled prompt contains private
 paths/hosts, publish only its hash and template name outside the authorized
 workspace; retain the exact original privately.
 
 Check actual input byte-for-byte against the selected preamble and filled
-template. Added code framing or summaries invalidate the cold vote. Evidence-only
+template. Encrypted or protected rollout/archive representations are not source input:
+never attempt to decrypt them, never compare encrypted archive blobs against plaintext
+prompts to reject a valid receipt, and never replace actual completion clocks with
+later publication timestamps. Added code framing or summaries invalidate the cold vote. Evidence-only
 /er retains its own claim/artifact dispatch contract and never supplies an
 unseen-code approval.
