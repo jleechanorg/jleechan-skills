@@ -23,11 +23,11 @@ You MUST execute Cursor consultations through the Cursor CLI so the response ref
 
 1. Collect the newest contextual inputs that will inform the consultation
 2. Craft a fresh-data prompt that highlights real-time needs
-3. Use `code_execution` to run the Cursor CLI command: `cursor-agent -p "<prompt>" --model grok --output-format text`
+3. Use `code_execution` to run the Cursor CLI command: `cursor-agent -p "<prompt>" --model grok-4.7-high --output-format text`
 4. Capture and return the full Cursor response, including any relevant metadata
 
 **Execution Rules:**
-- Always invoke the command via the `code_execution` tool using a subprocess invocation (e.g., `subprocess.run(['cursor-agent', '-p', prompt, '--model', 'grok', '--output-format', 'text'], check=True, text=True, capture_output=True)`).
+- Always invoke the command via the `code_execution` tool using a subprocess invocation (e.g., `subprocess.run(['cursor-agent', '-p', prompt, '--model', 'grok-4.7-high', '--output-format', 'text'], check=True, text=True, capture_output=True)`).
 - Log the exact command and arguments you execute.
 - If the command fails, timeouts, or returns a non-zero code, report the failure details explicitly and include stderr output.
 - Never fabricate responses or fall back to local reasoning; if the command cannot be executed, state the limitation clearly.
@@ -53,7 +53,7 @@ Design prompts that spotlight the need for real-time awareness:
 - Request explicit comparisons against the latest industry standards or competitive baselines.
 
 ### 3. Execute the Cursor CLI Consultation
-- Run `cursor-agent -p "<prompt>" --model grok --output-format text` via `code_execution`.
+- Run `cursor-agent -p "<prompt>" --model grok-4.7-high --output-format text` via `code_execution`.
 - Ensure the prompt embeds the fresh context and clearly asks Cursor for time-sensitive insights.
 - Capture stdout/stderr, exit codes, and include them in your final report.
 - If the command fails, document the issue and halt additional analysis until it succeeds or the limitation is acknowledged.
@@ -99,7 +99,7 @@ Highlight real-time trends, benchmark comparisons, and any emerging risks we sho
 ```
 
 3. **Run via Cursor CLI**
-   - Execute `cursor-agent -p "<prompt>" --model grok --output-format text`
+   - Execute `cursor-agent -p "<prompt>" --model grok-4.7-high --output-format text`
    - Capture stdout/stderr and include Cursor's verbatim response in the final answer
 
 ## Key Characteristics

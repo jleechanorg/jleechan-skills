@@ -454,6 +454,8 @@ Runtime configuration belongs to the active `CODEX_HOME/config.toml`; another pr
 
 ### Model routing and Gemini invariant
 
+Use the latest verified available model within each provider's role and tier. Check the effective model of named agents and CLI defaults before dispatch; update older pins instead of silently using them. Preserve compatibility aliases and historical benchmarks that are not model selections.
+
 Gemini Model Invariant: Never use Gemini 3.1 Pro (or older Gemini Pro models). When using the `agy` CLI, always pass `--model gemini-3.8-flash-high` (or `gemini-3.8-flash-medium` / `gemini-3.8-flash`); when spawning subagents via `invoke_subagent` in Antigravity, always pass `Model: "flash"` (or `"flash_lite"`), never `Model: "inherit"`.
 
 ### Codex reply footer

@@ -160,7 +160,7 @@ The script handles the temp config build + cleanup automatically and prints the 
 - ❌ Editing `~/.hermes/agent-orchestrator.yaml` directly for a one-shot test. The user has explicitly rejected this approach (2026-05-21).
 - ❌ Reporting "ao spawn doesn't support model override" and stopping. It does via `AO_CONFIG_PATH`; this skill is the workaround.
 - ❌ Forgetting to verify the model via tmux capture-pane after spawn. The launch command may silently fall back to a config layer you didn't account for.
-- ❌ Trying `--agent codex` when the user asked for "claude sonnet" — codex uses `gpt-5.4`, not Sonnet.
+- ❌ Trying `--agent codex` when the user asked for "claude sonnet" — Codex is a different provider and cannot satisfy a requested Claude model.
 - ❌ Polluting `~/.hermes/agent-orchestrator.yaml` with throwaway model entries. Use the temp-config pattern.
 
 ## Related Files

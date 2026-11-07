@@ -25,7 +25,7 @@ The `minimax` CLI agent runs Claude Code with the MiniMax API endpoint:
 
 - **Binary**: Uses `claude` CLI binary
 - **Auth**: Sets `ANTHROPIC_AUTH_TOKEN` and `ANTHROPIC_BASE_URL` for MiniMax proxy
-- **Model**: MiniMax-M2.5
+- **Model**: MiniMax-M3.1-Flash
 
 ## Environment Variables
 
@@ -34,7 +34,7 @@ The automation automatically sets these from `MINIMAX_API_KEY`:
 ANTHROPIC_AUTH_TOKEN="<MINIMAX_API_KEY>"
 ANTHROPIC_API_KEY="<MINIMAX_API_KEY>"
 ANTHROPIC_BASE_URL="https://api.minimax.io/anthropic"
-ANTHROPIC_MODEL="MiniMax-M2.5"
+ANTHROPIC_MODEL="MiniMax-M3.1-Flash"
 API_TIMEOUT_MS="3000000"
 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="1"
 ```

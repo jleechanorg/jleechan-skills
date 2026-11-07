@@ -2,7 +2,7 @@
 name: wafer-pair-coder
 description: |
   Wafer-powered pair programming coder. Delegates implementation to Claude CLI
-  with Wafer API backend (ANTHROPIC_BASE_URL=https://pass.wafer.ai, model GLM-5.1).
+  with Wafer API backend (ANTHROPIC_BASE_URL=https://pass.wafer.ai, model GLM-5.2).
   Works with any pair-verifier teammate. Reference: orchestration/task_dispatcher.py CLI_PROFILES["wafer"], ~/.bashrc claudew()
 ---
 
@@ -45,7 +45,7 @@ cat > "$PROMPT_FILE" << 'PROMPT_EOF'
 PROMPT_EOF
 
 # Launch Claude CLI with Wafer backend
-# Model overridable via WAFER_MODEL env var (default: GLM-5.1)
+# Model overridable via WAFER_MODEL env var (default: GLM-5.2)
 # Fail fast if WAFER_API_KEY is not set
 if [ -z "${WAFER_API_KEY:-}" ]; then
   echo "ERROR: WAFER_API_KEY is required but not set. Export WAFER_API_KEY before running." >&2
@@ -55,11 +55,11 @@ fi
 CLAUDEW_MODE=1 \
 ANTHROPIC_BASE_URL="https://pass.wafer.ai" \
 ANTHROPIC_AUTH_TOKEN="${WAFER_API_KEY}" \
-ANTHROPIC_DEFAULT_MODEL="${WAFER_MODEL:-GLM-5.1}" \
-ANTHROPIC_DEFAULT_OPUS_MODEL="${WAFER_MODEL:-GLM-5.1}" \
-ANTHROPIC_DEFAULT_SONNET_MODEL="${WAFER_MODEL:-GLM-5.1}" \
-ANTHROPIC_DEFAULT_HAIKU_MODEL="${WAFER_MODEL:-GLM-5.1}" \
-claude --model ${WAFER_MODEL:-GLM-5.1} -p @"$PROMPT_FILE" \
+ANTHROPIC_DEFAULT_MODEL="${WAFER_MODEL:-GLM-5.2}" \
+ANTHROPIC_DEFAULT_OPUS_MODEL="${WAFER_MODEL:-GLM-5.2}" \
+ANTHROPIC_DEFAULT_SONNET_MODEL="${WAFER_MODEL:-GLM-5.2}" \
+ANTHROPIC_DEFAULT_HAIKU_MODEL="${WAFER_MODEL:-GLM-5.2}" \
+claude --model ${WAFER_MODEL:-GLM-5.2} -p @"$PROMPT_FILE" \
   --output-format stream-json --verbose \
   --dangerously-skip-permissions \
   --teammate-mode=tmux \
@@ -154,7 +154,7 @@ echo "[$(date '+%Y-%m-%d %H:%M:%S')] [PHASE_TAG] message" >> $LOG
 | When | Phase tag | Message content |
 |------|-----------|----------------|
 | Before delegating | `[ENGINE]` | `Delegating to Wafer (Claude CLI + Wafer API)` |
-| CLI started | `[CLI_START]` | `claude --model GLM-5.1 (ANTHROPIC_BASE_URL=wafer)` |
+| CLI started | `[CLI_START]` | `claude --model GLM-5.2 (ANTHROPIC_BASE_URL=wafer)` |
 | CLI completed | `[CLI_RESULT]` | `Wafer CLI exit code: X` |
 | After running tests | `[TESTS]` | Pipe: `python3 -m pytest ... 2>&1 \| tail -5 >> $LOG` |
 | After sending to verifier | `[SIGNAL]` | `IMPLEMENTATION_READY sent to verifier` |
