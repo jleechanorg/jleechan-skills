@@ -23,7 +23,7 @@ Searches Claude Code JSONL, Codex SQLite threads, Hermes messages (FTS5), and An
 | Claude Code | JSONL per session | `~/.claude/projects/*/*.jsonl` |
 | Codex | SQLite threads + first message | `~/.codex/state_5.sqlite` |
 | Hermes | Messages with FTS5 | `~/.hermes/state.db` |
-| Antigravity | Markdown exports | `~/Library/CloudStorage/Dropbox/conversation-backups/antigravity/` |
+| Antigravity | Markdown exports | `$ANTIGRAVITY_EXPORT_DIR` (skip this source when unset) |
 | OpenCode | Session diff JSON | `~/.local/share/opencode/storage/session_diff/` |
 | Cursor | Prompt history + chats | `~/.cursor/prompt_history.json`, `~/.cursor/chats/` |
 
@@ -167,8 +167,10 @@ con.close()
 import os, glob, re
 
 query = "<QUERY>"
-antigrav_dir = os.path.expanduser("~/Library/CloudStorage/Dropbox/conversation-backups/antigravity/")
-if not os.path.exists(antigrav_dir):
+antigrav_dir = os.path.expanduser(os.environ.get("ANTIGRAVITY_EXPORT_DIR", ""))
+if not antigrav_dir:
+    print("[Antigravity] ANTIGRAVITY_EXPORT_DIR not configured: skipped")
+elif not os.path.exists(antigrav_dir):
     print("[Antigravity] No exports found")
 else:
     results = []
@@ -247,18 +249,29 @@ else:
 
 ### Parallel block G — git fsck --lost-found scan
 
-For each worktree under candidate locations (passed as a positional arg, defaulting to `$HOME/projects/`):
+Scan every worktree of the candidate checkouts. Run the block as a script (`bash fsck-scan.sh [<checkout>]`). Roots resolve in this order: the positional `<checkout>` argument, every checkout directly under `$PROJECTS_DIR`, then `$PROJECT_ROOT` (or `$REPO_ROOT`, or the current repository from `git rev-parse --show-toplevel`):
 
 ```bash
-for wt in $(git -C <location> worktree list --porcelain | grep -E '^worktree ' | awk '{print $2}'); do
-  dangling=$(git -C "$wt" fsck --lost-found --no-reflogs --no-progress 2>/dev/null | grep "^dangling commit" || true)
-  if [ -n "$dangling" ]; then
+if [ -n "${1:-}" ]; then
+  roots="$1"
+elif [ -n "${PROJECTS_DIR:-}" ]; then
+  roots=$(find "$PROJECTS_DIR" -mindepth 1 -maxdepth 1 -type d)
+else
+  roots="${PROJECT_ROOT:-${REPO_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null)}}"
+  if [ -z "$roots" ]; then
+    echo "PROJECT_ROOT not configured: checkout to scan for dangling commits. Example: export PROJECT_ROOT=\$HOME/src/<repo> (or PROJECTS_DIR=\$HOME/src to scan every checkout under it)" >&2
+    exit 1
+  fi
+fi
+for root in $roots; do
+  for wt in $(git -C "$root" worktree list --porcelain 2>/dev/null | grep -E '^worktree ' | awk '{print $2}'); do
+    dangling=$(git -C "$wt" fsck --lost-found --no-reflogs --no-progress 2>/dev/null | grep "^dangling commit" | awk '{print $3}' || true)
     for sha in $dangling; do
       subject=$(git -C "$wt" log -1 --format="%h %s" "$sha" 2>/dev/null)
       files=$(git -C "$wt" diff-tree --no-commit-id --name-only -r "$sha" 2>/dev/null | wc -l)
       echo "[fsck:$wt] $subject ($files files)"
     done
-  fi
+  done
 done
 ```
 
@@ -272,11 +285,11 @@ After collecting results from all parallel blocks, display as:
 === History Search: "<query>" ===
 
 📁 Claude Code  (N matches)
-  2026-05-14 | -Users-$USER-worldarchitect | user | "text snippet..."
+  2026-05-14 | -Users-$USER-<project> | user | "text snippet..."
   ...
 
 🤖 Codex  (N matches)
-  2026-05-10 | worldarchitect | main | "thread title" | "first message..."
+  2026-05-10 | <project> | main | "thread title" | "first message..."
   ...
 
 ⚡ Hermes  (N matches)

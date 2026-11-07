@@ -3,7 +3,8 @@
 # Canonical CLI usage, environment variables, draft handling, and exit codes live in SKILL.md.
 set -euo pipefail
 
-export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$PATH"
+# Caller PATH wins; Homebrew (when brew shellenv exported HOMEBREW_PREFIX) and common user bins are fallbacks.
+export PATH="$PATH${HOMEBREW_PREFIX:+:$HOMEBREW_PREFIX/bin}:/usr/local/bin:$HOME/.local/bin"
 
 NEW_ARGS=()
 while [[ $# -gt 0 ]]; do
@@ -24,7 +25,6 @@ PROFILE_RESOLVER_MODE="resolve-profile"
 [[ "${1:-}" == "probe" ]] && PROFILE_RESOLVER_MODE="resolve-profile-existing"
 
 if [[ -n "${DOT_NODE:-}" ]]; then NODE="$DOT_NODE"
-elif [[ -x "$HOME/.nvm/versions/node/v22.22.0/bin/node" ]]; then NODE="$HOME/.nvm/versions/node/v22.22.0/bin/node"
 elif command -v node >/dev/null 2>&1; then NODE="$(command -v node)"
 elif [[ -d "$HOME/.nvm/versions/node" ]]; then NODE="$(ls -1d "$HOME/.nvm/versions/node"/v* 2>/dev/null | tail -1)/bin/node"
 else NODE="/usr/local/bin/node"

@@ -2,7 +2,7 @@
 # Regression test: run_chrome's wall-clock bound must kill the whole process
 # group (node wrapper + browser descendants), never only the direct child.
 # A surviving browser against its live profile corrupts the session cookie
-# store (the 2026-10-10 17:00 PDT worldarchitect login loss).
+# store (observed 2026-10-10 as a dedicated-profile login loss).
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

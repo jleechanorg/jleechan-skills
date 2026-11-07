@@ -1,6 +1,6 @@
 ---
 name: learn
-description: Capture durable learnings from failures, corrections, repeated mistakes, successful recovery patterns, or direct /learn requests. Use whenever the user invokes /learn, asks to save/remember/capture a lesson, or when a workflow failure should become reusable process knowledge. Always persist to Claude memory, optional mem0, ~/roadmap, beads, and wiki-ingest.
+description: Capture durable learnings from failures, corrections, repeated mistakes, successful recovery patterns, or direct /learn requests. Use whenever the user invokes /learn, asks to save/remember/capture a lesson, or when a workflow failure should become reusable process knowledge. Always persist to Claude memory, optional mem0, the roadmap log (ROADMAP_DIR), beads, and wiki-ingest (WIKI_ROOT).
 ---
 
 # Learn
@@ -15,9 +15,9 @@ Every confirmed learning must produce or update all of these:
 
 1. Claude auto-memory under `~/.claude/projects/<project-key>/memory/`.
 2. Optional mem0 save when the configured helper and mem0 package are available (see step 3 gates).
-3. Monthly roadmap log at `~/roadmap/learnings-YYYY-MM.md`.
+3. Monthly roadmap log at `${ROADMAP_DIR:-$HOME/roadmap}/learnings-YYYY-MM.md` (skip and report when that directory is absent).
 4. A closed or referenced bead in `.beads/issues.jsonl` when the current repo has beads.
-5. LLM wiki ingest under `~/llm_wiki`: raw source copy, source page, index entry, log entry, and relevant concept/entity updates.
+5. LLM wiki ingest under the configured wiki (`$WIKI_ROOT`; report "WIKI_ROOT not configured" and skip when no wiki is configured): raw source copy, source page, index entry, log entry, and relevant concept/entity updates.
 
 If a persistence target is unavailable, report the exact blocker and continue
 with the remaining targets. Do not silently skip wiki ingest.
@@ -34,9 +34,9 @@ with the remaining targets. Do not silently skip wiki ingest.
   strings, artifacts, and verification results.
 - Search existing local records before writing:
   - `~/.claude/projects/**/memory`
-  - `~/roadmap/learnings-*.md`
+  - `${ROADMAP_DIR:-$HOME/roadmap}/learnings-*.md`
   - `.beads/issues.jsonl`
-  - `~/llm_wiki/wiki/index.md` and relevant `concepts/` pages
+  - `$WIKI_ROOT/wiki/index.md` and relevant `concepts/` pages (when configured)
 
 ### 1a. Fix vs. Document decision (apply BEFORE writing the memory entry)
 
@@ -44,7 +44,7 @@ Workarounds-as-memory are NOT a complete resolution when a small fix is possible
 
 | Bug class | Action |
 |---|---|
-| User-managed config (yaml/plist/dotfile) + fix < 10 lines + currently blocking | **FIX IT NOW**, then write memory entry that *references the fix* (commit SHA, diff, or `~/.hermes/...:line`). Memory body must say "FIX: <what> at <where> on <date>" — not just "workaround: ..." |
+| User-managed config (yaml/plist/dotfile) + fix < 10 lines + currently blocking | **FIX IT NOW**, then write memory entry that *references the fix* (commit SHA, diff, or `<config-file>:line`). Memory body must say "FIX: <what> at <where> on <date>" — not just "workaround: ..." |
 | User's published code in a separate PR scope (separate repo, separate concern) | Document workaround; open a dedicated fix PR; memory links the fix PR |
 | Third-party code (provider outage, npm package, OS-level) | Workaround only — no fix possible from here. Memory describes the trigger conditions and the recovery path |
 | Agent-orchestrator core code in same repo | Fix in same PR per project CLAUDE.md; memory captures the *pattern* (e.g. "configKey/name/path mismatch must be validated at write-time") so the fix is durable |
@@ -92,14 +92,14 @@ references, and a reusable pattern.
 Save a concise text record only when a configured helper and the **mem0 Python
 package** are present. **Do NOT probe `OPENAI_API_KEY` / `MEM0_API_KEY`** — those
 were the pre-Ollama-era gates; mem0 now uses local Ollama embedder + Groq LLM
-(configured in `~/.hermes/.claude/hooks/mem0_config.py`), neither of which
+(configured in `$MEM0_HOOKS_DIR/mem0_config.py`), neither of which
 require `OPENAI_API_KEY`. The real availability gates are:
 
 1. `python3 -c "from mem0 import Memory"` resolves (requires `mem0ai` PyPI pkg).
 2. The helper script exists:
-   - `~/.hermes/.claude/hooks/mem0_save.py` (Hermes state dir — used on this machine), OR
+   - `$MEM0_HOOKS_DIR/mem0_save.py` (machine-local hooks dir; unset means skip mem0), OR
    - `$(git rev-parse --show-toplevel)/.claude/hooks/mem0_save.py` (repo-local fallback)
-3. `~/.hermes/.claude/hooks/mem0_config.py` exists and its `mem0_hooks_enabled()` returns `True`
+3. `mem0_config.py` exists next to that helper and its `mem0_hooks_enabled()` returns `True`
    (this is the helper's own gate — it inspects `OPENAI_API_KEY`, `GROQ_API_KEY`,
    `OLLAMA_HOST`, etc., not what we hard-code here).
 
@@ -108,23 +108,26 @@ existing read-only health check. Do not manufacture a learning message or requir
 Qdrant/markdown write merely to test availability:
 
 ```bash
-~/.hermes/.venv/bin/python3 - <<'EOF'
-import subprocess, sys
+"${MEM0_PYTHON:-python3}" - <<'EOF'
+import os, subprocess, sys
 from pathlib import Path
 try:
     from mem0 import Memory  # noqa: F401
 except ImportError as e:
     raise AssertionError(f"mem0 package missing: {e}")
-hooks = Path.home() / ".hermes/.claude/hooks"
-helpers = [hooks / "mem0_save.py"]
-if not helpers[0].is_file():
+hooks_env = os.environ.get("MEM0_HOOKS_DIR", "")
+hooks = Path(hooks_env) if hooks_env else None
+helpers = [hooks / "mem0_save.py"] if hooks else []
+if not any(h.is_file() for h in helpers):
     result = subprocess.run(
         ["git", "rev-parse", "--show-toplevel"],
         capture_output=True, text=True, timeout=10,
     )
     if result.returncode == 0:
         helpers.append(Path(result.stdout.strip()) / ".claude/hooks/mem0_save.py")
-assert any(h.is_file() for h in helpers), f"mem0_save.py missing: {helpers}"
+found = [h for h in helpers if h.is_file()]
+assert found, f"mem0_save.py missing (MEM0_HOOKS_DIR not configured?): {helpers}"
+hooks = found[0].parent
 assert (hooks / "mem0_config.py").is_file(), f"mem0_config.py missing: {hooks}"
 sys.path.insert(0, str(hooks))
 import mem0_config
@@ -135,7 +138,7 @@ EOF
 
 This checks all three gates above (the real `Memory` import, either helper
 path, and the helper's own `mem0_hooks_enabled()` — asserting `mem0_config.py`
-exists first so a missing Hermes dir yields an assertion, not a traceback),
+exists first so a missing hooks dir yields an assertion, not a traceback),
 never writes anything, and prints the failing assertion. If it fails report `mem0 unavailable: <exact assertion
 message>`; otherwise report `mem0 available` and save only the actual learning.
 **Never block learning capture on a mem0 error** — it is an optional target;
@@ -145,9 +148,9 @@ Reference incident: 2026-06-24 — old SKILL.md probed `OPENAI_API_KEY` and
 falsely reported "mem0 unavailable" for ~2 months after the Ollama/Groq switch
 in PR #7178 / bead `rev-1cmaj` (2026-05-24).
 
-### 4. Append `~/roadmap` learning log
+### 4. Append the roadmap learning log
 
-Append to `~/roadmap/learnings-YYYY-MM.md`:
+Append to `${ROADMAP_DIR:-$HOME/roadmap}/learnings-YYYY-MM.md` (if the directory is absent, report it and skip):
 
 ```markdown
 ## YYYY-MM-DD - <learning title>
@@ -167,8 +170,8 @@ If `.beads/issues.jsonl` exists:
 - Reuse a matching learning bead when one already exists.
 - Otherwise create a closed task bead with labels including `learning` and
   `documentation`.
-- Use the repository's normal bead id prefix when possible. In your-project.com,
-  prefer `br create ... --type task --priority 3` or the existing `rev-` prefix
+- Use the repository's normal bead id prefix when possible: follow the prefix
+  existing beads use (for example `rev-`) via `br create ... --type task --priority 3`
   rather than inventing a `bd-` id.
 - Record the bead id in the Claude memory frontmatter and roadmap entry.
 
@@ -186,11 +189,11 @@ not substitute a partial copy that skips entity/concept extraction or validation
 
 After execution, verify the required side effects:
 
-- `~/llm_wiki/raw/<basename>` exists
-- `~/llm_wiki/wiki/sources/<slug>.md` exists with the canonical frontmatter
+- `$WIKI_ROOT/raw/<basename>` exists
+- `$WIKI_ROOT/wiki/sources/<slug>.md` exists with the canonical frontmatter
   (`title`, `type`, `tags`, `sources`, `last_updated`) and `[[wikilinks]]`
-- `~/llm_wiki/wiki/index.md` was updated under `## Sources`
-- `~/llm_wiki/wiki/log.md` was appended with `## [YYYY-MM-DD] ingest | <title>`
+- `$WIKI_ROOT/wiki/index.md` was updated under `## Sources`
+- `$WIKI_ROOT/wiki/log.md` was appended with `## [YYYY-MM-DD] ingest | <title>`
 - Relevant entity/concept updates exist and the wiki's link lint passes.
 
 If the full procedure cannot be completed, report the exact missing step and
@@ -200,7 +203,7 @@ continue independent persistence; never present a partial ingest as complete.
 itself is the source. The skill's classifier decides what is wiki-bearing.
 
 **Working-directory caveat**: if the current session cwd is not
-`~/llm_wiki` (e.g. an `/integrate` flow running in a feature worktree),
+`$WIKI_ROOT` (e.g. an `/integrate` flow running in a feature worktree),
 resolve the source by its absolute path and pass an explicit `--wiki` path
 when the destination must not depend on a current-directory override.
 

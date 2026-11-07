@@ -389,7 +389,8 @@ End reports quoting agent output with the LLM-provenance footer:
 ## Syncing copies (repo ↔ hosts)
 
 Published source of truth: `jleechanorg/jleechan-skills` → `.claude/skills/cmux-bulk-steer/`.
-Live working copies: `~/.claude/skills/cmux-bulk-steer/` on Mac and on `jeff-ubuntu`.
+Live working copies: `~/.claude/skills/cmux-bulk-steer/` locally and on the peer host `$LINUX_REMOTE_HOST`, when one is configured
+(skip the remote checks when it is unset).
 
 **Sync direction is one-way: repo -> live.** Edit the repo worktree first; a live copy is never a source.
 
@@ -399,7 +400,7 @@ before your edit can hide it:
 ```bash
 git -C <repo> show HEAD:.claude/skills/cmux-bulk-steer/SKILL.md > /tmp/baseline.skill.md
 diff -u /tmp/baseline.skill.md ~/.claude/skills/cmux-bulk-steer/SKILL.md
-ssh jeff-ubuntu cat ~/.claude/skills/cmux-bulk-steer/SKILL.md | diff -u /tmp/baseline.skill.md -
+ssh "$LINUX_REMOTE_HOST" cat ~/.claude/skills/cmux-bulk-steer/SKILL.md | diff -u /tmp/baseline.skill.md -
 ```
 
 Any non-empty baseline diff is foreign drift: stop and report it. Then edit and propagate:
@@ -408,7 +409,7 @@ Any non-empty baseline diff is foreign drift: stop and report it. Then edit and 
 git -C <repo> status --porcelain     # repo-wide: is anything else dirty?
 git -C <repo> diff -- <path>         # the intended change only?
 diff -u <repo-file> ~/.claude/skills/cmux-bulk-steer/SKILL.md
-ssh jeff-ubuntu cat <remote-live-file> | diff -u <repo-file> -
+ssh "$LINUX_REMOTE_HOST" cat <remote-live-file> | diff -u <repo-file> -
 ```
 
 Stage by explicit path (`git add <path>`), never a directory or wildcard glob. After propagating, confirm all six

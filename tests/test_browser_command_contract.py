@@ -63,6 +63,25 @@ class BrowserSkillStaticSafetyTest(unittest.TestCase):
             "Secret-bearing branch must arm signal traps BEFORE allocating temp files",
         )
 
+    def test_isolated_path_never_derives_from_an_empty_tool_lookup(self) -> None:
+        # `dirname "$(command -v browserclaw)"` yields "." when browserclaw is
+        # absent, so `env -i ... PATH=".:/usr/local/bin:..."` would execute
+        # binaries from the current directory. Every isolated PATH must use
+        # the guarded $BROWSERCLAW_DIR resolver instead.
+        for block in re.findall(r"```bash\n(.*?)\n```", self.skill_text, re.DOTALL):
+            if "env -i" not in block:
+                continue
+            self.assertNotIn(
+                'PATH="$(dirname "$(command -v browserclaw)")',
+                block,
+                "isolated PATH must use the guarded $BROWSERCLAW_DIR resolver",
+            )
+        self.assertGreaterEqual(
+            self.skill_text.count('PATH="$BROWSERCLAW_DIR:'),
+            3,
+            "every documented isolated browserclaw PATH must use $BROWSERCLAW_DIR",
+        )
+
     def test_no_screenshot_in_any_documented_bash_block(self) -> None:
         blocks = re.findall(r"```bash\n(.*?)\n```", self.skill_text, re.DOTALL)
         self.assertGreater(len(blocks), 0, "Skill must contain documented bash blocks")
@@ -227,7 +246,7 @@ class ExtractedRecipeExecutionTest(unittest.TestCase):
             out.append(line)
         branch = "\n".join(out)
         branch = branch.replace(
-            '"$HOME/.local/orch-venv/bin/python" - "$TMP_COOKIES" "$BROWSE_TARGET_URL" <<\'PY\'',
+            'python3 - "$TMP_COOKIES" "$BROWSE_TARGET_URL" <<\'PY\'',
             '/usr/bin/python3 - "$TMP_COOKIES" "http://stub" <<\'PY\'',
         )
         return branch

@@ -173,7 +173,7 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 WorkingDirectory=@REPO@
-ExecStart=/bin/bash @HOME@/.hermes/scripts/systemd-wrapper.sh @REPO@/daemon/scripts/<job>.sh
+ExecStart=/bin/bash @HOME@/.local/libexec/systemd-wrapper.sh @REPO@/daemon/scripts/<job>.sh
 # Strip shell-exported GitHub tokens so keyring auth wins (PR #206).
 UnsetEnvironment=GITHUB_TOKEN GH_TOKEN
 # Pulls in HERMES_SLACK_BOT_TOKEN etc. from the file at 0600; the leading
@@ -185,8 +185,8 @@ TimeoutStartSec=600
 # on its own cadence. Restart=on-failure would re-run inside the same
 # OnCalendar slot, violating the launchd ThrottleInterval contract that
 # the macOS twin plist already documents.
-StandardOutput=append:@HOME@/Library/Logs/<owning-repo>/<job>.log
-StandardError=append:@HOME@/Library/Logs/<owning-repo>/<job>.err.log
+StandardOutput=append:@HOME@/.local/state/<service>/logs/<job>.log
+StandardError=append:@HOME@/.local/state/<service>/logs/<job>.err.log
 
 [Install]
 WantedBy=default.target
@@ -208,8 +208,8 @@ KillSignal=SIGINT
 TimeoutStopSec=30s
 Environment=HOME=@HOME@
 Environment=PATH=@HOME@/.local/bin:@HOME@/.cargo/bin:/usr/bin:/bin
-StandardOutput=append:@HOME@/Library/Logs/<owning-repo>/rust-daemon.out.log
-StandardError=append:@HOME@/Library/Logs/<owning-repo>/rust-daemon.err.log
+StandardOutput=append:@HOME@/.local/state/<service>/logs/rust-daemon.out.log
+StandardError=append:@HOME@/.local/state/<service>/logs/rust-daemon.err.log
 ```
 
 ---
@@ -270,8 +270,8 @@ OnUnitActiveSec=60
 
 1. Write the target script (the worker) under `daemon/scripts/<job>.sh` and ensure it is executable (`chmod 0755 daemon/scripts/<job>.sh`).
 2. Write the sourced wrapper script (`systemd-wrapper.sh`) to
-   `~/.hermes/scripts/systemd-wrapper.sh` and `chmod 0755` it.
-3. Ensure the log directory exists: `mkdir -p "$HOME/Library/Logs/<owning-repo>"`.
+   `~/.local/libexec/systemd-wrapper.sh` and `chmod 0755` it.
+3. Ensure the log directory exists: `mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/<service>/logs"`.
 4. Write the minimal unit template files using `@HOME@` / `@REPO@`
    placeholders (not hardcoded paths), commit them under
    `daemon/systemd/<unit>.service.template` and
@@ -298,11 +298,11 @@ OnUnitActiveSec=60
 
 | Pattern | Precedent | Notes |
 |---|---|---|
-| Daily 03:00 audit timer | `~/.config/systemd/user/jleechanclaw-slack-thread-auto-park.{timer,service}` | Best template for a G10–G13 audit timer |
+| Daily 03:00 audit timer | `<repo>/daemon/systemd/<daily-audit>.{timer,service}.template` | Best template for a G10–G13 audit timer |
 | Sub-minute polling | `~/.config/systemd/user/<job>.{timer,service}` | `OnUnitActiveSec=60s` for a 60s sweep |
 | Long-running daemon | `daemon/systemd/ai.example.daemon.service.template` | `Type=notify` + `WatchdogSec=7200` — the right shape when the job isn't timer-fired |
 | Installer | `daemon/systemd/install-systemd-user.sh` | `--dry-run`, `--render-only`, `--uninstall` flags; expands `@HOME@`/`@REPO@`; verifies linger |
-| Wrapper | `daemon/launchd/launchd-wrapper.sh` | Linux twin lives at `~/.hermes/scripts/systemd-wrapper.sh` |
+| Wrapper | `daemon/launchd/launchd-wrapper.sh` | Linux twin lives at `~/.local/libexec/systemd-wrapper.sh` |
 
 ---
 
@@ -348,7 +348,7 @@ systemctl --user start <job>.service
 journalctl --user -u <job>.service -n 50
 
 # Wrapper is sourcing profile correctly? (avoid raw bash -x which could echo tokens)
-~/.hermes/scripts/systemd-wrapper.sh /usr/bin/printenv PATH
+~/.local/libexec/systemd-wrapper.sh /usr/bin/printenv PATH
 ```
 
 ---

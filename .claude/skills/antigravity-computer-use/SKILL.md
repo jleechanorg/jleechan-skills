@@ -27,21 +27,21 @@ authorization rules below. Never click an access/approval control merely
 because a dialog appeared, and never infer an active task from a spinner alone.
 - 2026-04-05: Sidebar spinner is UNRELIABLE for detecting active conversations — spinner ◌ persists even when conversation is dead/idle; MUST cross-check with red stop square in bottom-right of chat input area AND the status bar model indicator; three failure modes: (1) zombie spinner = spinner + no red square + send arrow → conversation dead, send "Continue"; (2) frozen-active = spinner + red square + timestamp >1h → stuck in loop, interrupt and redirect; (3) actually working = spinner + red square + timestamp <30m → leave alone; status bar shows "Claude Opus 4.6 (Thinking)" with red ■ = active, "Gemini 3.8 Flash (High)" with send → = idle
 - 2026-04-05: VS Code "Remote Window" dialog can open in editor windows (shows SSH/container options) — blocks agent silently; press Escape to close, then verify red-stop still present to confirm agent resumes
-- 2026-04-05: win 902 gutter FP — x≈2 (retina x=4) at left edge is always a VS Code diff/edit gutter indicator; add `cx//2 > 30` filter (logical x > 30) to PIL scan to skip all left-edge detections in editor windows
-- 2026-04-05: Manager window IDs change every Antigravity relaunch — ALWAYS re-run `peekaboo window list` at session start; never cache window IDs across restarts; current session IDs: Manager=1191, worldai_claw editor=902
+- 2026-04-05: the editor window gutter FP — x≈2 (retina x=4) at left edge is always a VS Code diff/edit gutter indicator; add `cx//2 > 30` filter (logical x > 30) to PIL scan to skip all left-edge detections in editor windows
+- 2026-04-05: Manager window IDs change every Antigravity relaunch — ALWAYS re-run `peekaboo window list` at session start; never cache window IDs across restarts; re-read IDs with `peekaboo window list` each session
 - 2026-04-05: Clicking conversation sidebar items by elem_N sometimes doesn't switch view when another conversation is actively generating — use coordinate click at approximate sidebar y position instead; if coord also fails, try a different y offset (items are ~25px apart logical)
 - 2026-04-05: "New Conversation" (elem_22) click in Manager sometimes routes message to wrong conversation (the one already selected, not the new one) — after clicking New Conversation, verify the title bar changed before pasting; use `agy chat --mode agent --reuse-window "prompt"` from the target workspace directory as alternative
 - 2026-04-05: Opening a workspace folder from Manager (clicking "Open Folder" or workspace item) closes the Manager floating window and opens an editor window with inline Agent panel — the Manager window_id becomes invalid; use "Open Agent Manager" button or "Switch to Agent Manager" in the editor to reopen
 - 2026-04-05: Editor Agent panel text field coords: window at x=-28,y=-998,w=1189,h=857 → text input at logical x≈987, y≈390 → screen (959,-608); use these as starting coords, adjust if click misses
 - 2026-04-05: Manager conversation input at screen (860,-230) when Manager is at x=429,y=-1005,w=1437,h=849 — reliable across sessions as long as Manager hasn't been resized
-- 2026-04-05: Red stop square (active generation indicator) in editor Agent panel appears at retina x≈2312-2331, y≈1608-1627 (for win 902 1189x857) = logical x≈1156, y≈804 — bottom-right of Agent panel; filter right-side only (x > 80% of image width) to avoid false positives from left-side gutter
+- 2026-04-05: Red stop square (active generation indicator) in editor Agent panel appears at retina x≈2312-2331, y≈1608-1627 (for the editor window 1189x857) = logical x≈1156, y≈804 — bottom-right of Agent panel; filter right-side only (x > 80% of image width) to avoid false positives from left-side gutter
 - 2026-04-05: win313/319/334 FPs — light-blue code highlights [136,201,245] and blue UI elements in non-Manager editor windows persist after click; muted blue with G>130 is NOT a button; add all persistent coords to FP_SET after first click-persist confirmation; check G<165 threshold before counting as real Allow
 - 2026-04-05: win319 ($USER—list window at 186,-990) generates multiple stacked Allow dialogs — each click reveals next one; scan persists showing new coords; click each until CLEAN; FP after 2nd persistence
 - 2026-04-04: Tab bar FP — Antigravity's blue active-tab indicator spans the full window width at retina y=0-120 (logical y=0-60); skip rows < 120 retina to avoid detecting tab bar blue as Allow dialogs; bottom status bar also fires at retina y>1600 with muted blue [70,127,161] — skip if B<165 or if G>130 (muted blue is not Allow button)
 - 2026-04-04: PIL scan thresholds were too strict — B>150, R<150, B>R+50 missed Allow button with edge pixels having R up to 197; real Allow button had B~203, R~39 mean but gradients/edges up to R=197; CORRECT thresholds: B>130, R<180, B>R+30, G<B; also scan from row 0 (not h//2) since dialogs can appear anywhere; min pixel threshold raised to 200 to compensate for looser thresholds
 - 2026-04-04: MANDATORY — keep 3 conversations active at all times; check at every cycle end; if <3 active, click idle 24h conversations in reverse-cron order and send continuation tasks until 3 are generating (confirmed via red stop square, not just A11y spinner which lags)
-- 2026-04-04: PIL scan MUST cover ALL Antigravity editor windows dynamically — hardcoding only wt-task2 (WIN_X=186) missed Allow dialog in worldai_claw editor (WIN_X=-28, WIN_Y=-998) for >10 min; fix: run `osascript` to get ALL window positions each cycle, then scan each one; never hardcode a single window's bounds as the only scan target; the worldai_claw conversation is a SEPARATE editor window from wt-task2
-- 2026-04-04: "Allow directory access to /Users/.../worldai_claw/.github/workflows?" dialog has TWO blue buttons ("Allow Once" + "Allow This Conversation") — both are valid click targets; the PIL scan still works because it finds the rightmost blue cluster; click the rightmost detected button (Allow This Conversation) for persistent permission
+- 2026-04-04: PIL scan MUST cover ALL Antigravity editor windows dynamically — hardcoding only wt-task2 (WIN_X=186) missed Allow dialog in <workspace> editor (WIN_X=-28, WIN_Y=-998) for >10 min; fix: run `osascript` to get ALL window positions each cycle, then scan each one; never hardcode a single window's bounds as the only scan target; the <workspace> conversation is a SEPARATE editor window from wt-task2
+- 2026-04-04: "Allow directory access to <workspace>/.github/workflows?" dialog has TWO blue buttons ("Allow Once" + "Allow This Conversation") — both are valid click targets; the PIL scan still works because it finds the rightmost blue cluster; click the rightmost detected button (Allow This Conversation) for persistent permission
 - 2026-04-03: FP at (1458,846) — persists after click; blue [99,147,199] "Open Editor" link text in Manager top bar; add to FP set
 - 2026-04-03: Teal/cyan VS Code filter — add `G > B` rejection to PIL scan; [114,199,177] and similar teal pixels pass the B>R+50 filter but are VS Code editor syntax colors, not Allow buttons; check center pixel: if arr[cy*2,cx*2][1] > arr[cy*2,cx*2][2] (G>B) then skip; also add FP coords (1129,672) and (1115,674) to FP set for this region
 - 2026-04-03: FPs at (1322,695), (1127,897), (1132,934) — persistent after click; (1322,695) in right-panel conversation text area, (1127,897) and (1132,934) near bottom ~y=900-940 which is the conversation input edge; add all to FP set
@@ -92,7 +92,7 @@ for row_start in range(0, h, 20):
         scr_cx = int(os.environ.get('WIN_X',0)) + cx//2
         scr_cy = int(os.environ.get('WIN_Y',0)) + cy//2
         wx = int(os.environ.get('WIN_X',0))
-        # FP zones (worldai_claw window x=70,y=81,w=1684,h=900):
+        # FP zones (<workspace> window x=70,y=81,w=1684,h=900):
         if scr_cx < wx+150: continue  # gutter FP
         if abs(scr_cx-1434)<40 and abs(scr_cy-629)<40: continue  # Review Changes link FP
         if abs(scr_cx-1707)<40 and scr_cy < 840: continue  # sidebar FP (y<840 only — real Allow/Accept button appears at y≈856)
@@ -143,7 +143,7 @@ echo "$ALL_WINS" | while IFS='|' read title pos size; do
 done
 ```
 
-This was the root cause of the 2026-04-04 miss: scan was targeting only wt-task2 (x=186, y=-990) but the Allow dialog appeared in the worldai_claw editor window (x=-28, y=-998) — a completely different window never scanned.
+This was the root cause of the 2026-04-04 miss: scan was targeting only wt-task2 (x=186, y=-990) but the Allow dialog appeared in the <workspace> editor window (x=-28, y=-998) — a completely different window never scanned.
 
 **Why**: Allow dialogs are web-rendered (not in A11y tree). They block ALL agent progress silently. The agent shows `progress_activity` spinner but never executes commands. This was a real miss on 2026-04-03 — the agent was stalled until a human flagged it. It was also missed on 2026-04-04 for the same multi-window reason.
 
@@ -175,7 +175,7 @@ FP = {
 
 **Gutter FP rule**: any coord with screen x < 100 in the fullscreen window (0,37,1728,1080) is a VS Code diff/edit gutter indicator — always skip. Real Allow dialogs appear in the center-right of the window (x > 300).
 
-**Editor window left-edge rule (2026-04-05)**: in any editor window, `cx//2 < 30` (logical x < 30) is always a VS Code diff/edit gutter indicator — add `cx//2 > 30` to the PIL scan filter. This catches the recurring x≈2 FP in win 902.
+**Editor window left-edge rule (2026-04-05)**: in any editor window, `cx//2 < 30` (logical x < 30) is always a VS Code diff/edit gutter indicator — add `cx//2 > 30` to the PIL scan filter. This catches the recurring x≈2 FP in the editor window.
 
 **Historical detection note only**: button-color detections may be false
 positives. Never click to test whether a detected control is an Allow dialog.
@@ -218,7 +218,7 @@ def is_busy_red_square(img_path, win_x, win_y):
 
 The red square appears at approximately screen `(win_x + w*0.54, win_y + h*0.93)` in the Manager window (right side of input box).
 
-**Known red-stop location (2026-04-05)**: in win 902 (x=-28, y=-998, w=1189, h=857), the red stop is at retina pixels x≈2312-2331, y≈1608-1627 (logical x≈1156, y≈804). Always filter x > 80% of image width to exclude gutter noise.
+**Known red-stop location (2026-04-05)**: in the editor window (x=-28, y=-998, w=1189, h=857), the red stop is at retina pixels x≈2312-2331, y≈1608-1627 (logical x≈1156, y≈804). Always filter x > 80% of image width to exclude gutter noise.
 
 Use A11y and screenshot observations only as clues. They do not establish
 conversation health or authorization; verify status against visible content and
@@ -244,7 +244,7 @@ to the current task. Never classify a conversation from a spinner alone.
 
 **Reliable input field coordinates (2026-04-05):**
 - Manager (x=429, y=-1005, w=1437, h=849): input at screen `(860, -230)` — reliable across sessions if Manager not resized
-- Editor Agent panel win 902 (x=-28, y=-998, w=1189, h=857): input at screen `(959, -608)`
+- Editor Agent panel the editor window (x=-28, y=-998, w=1189, h=857): input at screen `(959, -608)`
 - Always cmd+a → delete to clear before pasting to avoid accumulated text
 
 **Opening a workspace folder closes the Manager (2026-04-05):**
@@ -442,7 +442,7 @@ fi
 
 ## [antig] Commit Prefix and PR Claim Convention
 
-**All commits made by Antigravity agents MUST use the `[antig]` prefix** — analogous to `[agento]` for AO workers and `[worldai_claw]` for wc workers.
+**All commits made by Antigravity agents MUST use the `[antig]` prefix** — analogous to `[agento]` for AO workers and `[<project>]` for other worker types.
 
 ```
 [antig] feat(parties): add name field and owner_id schema
@@ -459,7 +459,7 @@ Push to origin feat/xxx after each logical unit of work.
 
 **Zero-touch tracking**: `[antig]`-prefixed merged PRs count toward the Antigravity zero-touch rate, separate from `[agento]` (AO workers). This lets the eloop measure Antigravity's contribution independently.
 
-**Fallback prefix**: If Antigravity agent doesn't use `[antig]`, the commit author `OpenClaw <openclaw@openclaw.ai>` identifies it as an agent commit — but the prefix is required for zero-touch counting.
+**Fallback prefix**: If Antigravity agent doesn't use `[antig]`, the agent's configured git author (`git config user.email`) identifies it as an agent commit — but the prefix is required for zero-touch counting.
 
 ---
 
@@ -1210,9 +1210,9 @@ The "New conversation in > [workspace]" dropdown is **web-rendered and cannot be
 **Don't fight the dropdown. Include the workspace path in your prompt text instead:**
 
 ```bash
-# The dropdown says "agent-orchestrator" but you want worldai_claw? Don't try to switch it.
+# The dropdown says "agent-orchestrator" but you want <target-workspace>? Don't try to switch it.
 # Just include the workspace path explicitly in the prompt:
-peekaboo paste --app Antigravity --text "You are working in $HOME/project_worldaiclaw/worldai_claw on branch main. <your task here>"
+peekaboo paste --app Antigravity --text "You are working in $PROJECT_ROOT on branch main. <your task here>"
 ```
 
 This works because Antigravity agents resolve the workspace from the path in the prompt, regardless of which workspace the dropdown shows. The dropdown only sets the default context — explicit paths override it.
