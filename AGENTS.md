@@ -7,6 +7,13 @@ metadata, public documentation, and the installer.
 - Put reusable scripts in `scripts/`, not the repository root.
 - **Portability & Zero-PII Invariant**: Enforce strict exclusion of non-portable, user-specific data including personal email addresses, personal names, account identifiers, and machine-specific personal home paths (`/home/<user>/...`, `/Users/<user>/...`).
 - Exported skills and tools must rely on generic interfaces, environment variables, or machine-local configuration files (`~/.config/<tool>/config.json`) rather than hardcoded personal configuration.
+- **Fresh-machine, any-developer invariant**: Every exported skill, command, script, and doc must work for a different developer on a brand-new machine working in any repository. Do not assume:
+  - a specific machine, OS install, hostname, LAN/tailnet address, SSH alias, or companion host (for example "the Mac mini" or "the Ubuntu box");
+  - a specific checkout location (`~/projects/<repo>`, `$HOME/projects_other/...`) or that any particular repository is cloned locally;
+  - a specific target product or repository (for example WorldArchitect.AI, `mvp_site/`, a named GitHub org or repo other than this one), its file layout, test commands, deploy targets, cloud projects, datasets, or Slack channels;
+  - pre-installed personal tooling, wrappers, aliases, or install paths (`/opt/homebrew`, `~/.local/bin/<tool>`, shell functions from a personal `~/.bashrc`) beyond what the skill documents as a prerequisite.
+- Resolve such values at run time instead: from the current working repository (`git rev-parse --show-toplevel`), a documented environment variable with a safe default or a clear "not configured" failure, or a machine-local config file. When a required value or tool is absent, report the missing prerequisite and stop or degrade gracefully; never guess a path, host, or repository.
+- Content that only makes sense for one product or repository belongs in that repository's own `.claude/skills/`, or in an opt-in plugin folder under `plugins/<name>/`, never in the generic `.claude/skills/` export. Generic skills may point to such companions only by a discoverable convention (for example "a repo-local `user-story-*` skill, if present"), not by a hardcoded name or path.
 - Preserve unrelated worktree changes and never commit credentials or sensitive data.
 - Verify installer and relevant tests after changing exported content.
 - Track planned work with Beads.

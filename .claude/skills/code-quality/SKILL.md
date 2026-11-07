@@ -214,7 +214,7 @@ This skill owns **logic / architecture / maintainability / testability / metric-
 - **Syntax / formatting / lint enforcement** — covered by ESLint, Ruff, mypy, prettier, and the repo's pre-commit hooks. Do not duplicate.
 - **Naming conventions / file layout / import ordering** — covered by `/code-standards` style lane and the language-specific linters.
 - **ZFC contract / agent routing / structured-field design** — owned by `/zfc`.
-- **Level-up / XP / reward loop semantics** — owned by `/zfclevel`.
+- **Level-up / XP / reward loop semantics** — owned by the product plugin's leveling check, when one is installed.
 - **Root-cause-first debugging methodology for fix proposals** — owned by `/root-cause-first`.
 
 If a finding would belong to one of those lanes, name the lane and hand off rather than producing conflicting feedback.
@@ -246,6 +246,6 @@ If a model returns a Short variant that contains Long-variant headings (or vice 
 
 ## Cross-references
 
-- `.claude/skills/code-standards/SKILL.md` — dispatches `code-quality` alongside `/zfc`, `/zfclevel`, `/root-cause-first`, and `/thermo`
+- `.claude/skills/code-standards/SKILL.md` — dispatches `code-quality` alongside `/zfc`, the optional product leveling check, `/root-cause-first`, and `/thermo`
 - `.claude/skills/root-cause-first/SKILL.md` — for fixes, not for code-quality findings
 - `.claude/skills/evidence-standards/SKILL.md` — required for `$PROJECT_ROOT/` production PRs (this skill is supporting evidence, not primary)

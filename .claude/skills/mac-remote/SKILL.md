@@ -142,18 +142,18 @@ Note: jeff-ubuntu must be reachable from the MacBook. From the home LAN, it's `<
 
 ## Reverse direction: jeff-ubuntu → MacBook (this skill's primary use case)
 
-To install a skill (e.g. `/ezgha-watchdog`) on the MacBook from jeff-ubuntu:
+To install a skill (`<skill>`) on the MacBook from jeff-ubuntu:
 
 ```bash
 # Option A: copy from jeff-ubuntu's local clone
-ssh macbook 'mkdir -p ~/.claude/skills/ezgha-watchdog'
-scp ~/.claude/skills/ezgha-watchdog/SKILL.md macbook:~/.claude/skills/ezgha-watchdog/
-scp ~/.claude/skills/ezgha-watchdog/scripts/ezgha-fleet-watchdog.sh macbook:~/.claude/skills/ezgha-watchdog/scripts/
+ssh macbook 'mkdir -p ~/.claude/skills/<skill>'
+scp ~/.claude/skills/<skill>/SKILL.md macbook:~/.claude/skills/<skill>/
+scp ~/.claude/skills/<skill>/scripts/<script> macbook:~/.claude/skills/<skill>/scripts/
 
 # Option B: pull from GitHub
 ssh macbook 'git clone https://github.com/$GITHUB_REPOSITORY.git /tmp/your-project.com && \
-  mkdir -p ~/.claude/skills/ezgha-watchdog && \
-  cp -r /tmp/your-project.com/.claude/skills/ezgha-watchdog/* ~/.claude/skills/ezgha-watchdog/'
+  mkdir -p ~/.claude/skills/<skill> && \
+  cp -r /tmp/your-project.com/.claude/skills/<skill>/* ~/.claude/skills/<skill>/'
 ```
 
 ## Caveats

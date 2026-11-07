@@ -15,6 +15,36 @@
         "name": "WorldArchitect.AI Team",
         "email": "team@worldarchitect.ai"
       }
+    },
+    {
+      "name": "worldarchitect",
+      "description": "Opt-in WorldArchitect.AI product skills and commands: agent routing, campaign evidence, level-up validation, local and preview servers, and product test infrastructure",
+      "version": "0.1.0",
+      "source": "./plugins/worldarchitect",
+      "author": {
+        "name": "WorldArchitect.AI Team",
+        "email": "team@worldarchitect.ai"
+      }
+    },
+    {
+      "name": "ai-universe",
+      "description": "Opt-in AI Universe MCP server skills: authentication, HTTPie calls, and the multi-model second-opinion workflow",
+      "version": "0.1.0",
+      "source": "./plugins/ai-universe",
+      "author": {
+        "name": "WorldArchitect.AI Team",
+        "email": "team@worldarchitect.ai"
+      }
+    },
+    {
+      "name": "self-hosted-runners",
+      "description": "Opt-in operations skills for a self-hosted GitHub Actions runner fleet: health snapshots, watchdog, preflight triage, and a machine-local infrastructure locations template",
+      "version": "0.1.0",
+      "source": "./plugins/self-hosted-runners",
+      "author": {
+        "name": "WorldArchitect.AI Team",
+        "email": "team@worldarchitect.ai"
+      }
     }
   ]
 }

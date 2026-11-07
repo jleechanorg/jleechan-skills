@@ -15,7 +15,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from scripts.skill_portability_scan import changed_files, find_personal_identifiers, scan_personal  # noqa: E402
 
-SKILL_ROOTS = (".claude/skills", "shared/aliases", "portable/skills")
+SKILL_ROOTS = (".claude/skills", "shared/aliases", "portable/skills", "plugins/")
 
 
 class PersonalIdentifierTest(unittest.TestCase):
@@ -70,7 +70,7 @@ class PersonalIdentifierTest(unittest.TestCase):
         if probe.returncode:
             self.skipTest("origin/main not available")
         names = subprocess.run(
-            ["git", "-C", str(REPO_ROOT), "diff", "--name-only", "--diff-filter=AM", "origin/main...HEAD"],
+            ["git", "-C", str(REPO_ROOT), "diff", "--name-only", "--no-renames", "--diff-filter=AM", "origin/main...HEAD"],
             capture_output=True, text=True, check=True).stdout.splitlines()
         paths = [REPO_ROOT / n for n in names if n.startswith(SKILL_ROOTS)]
         self.assertEqual(scan_personal(paths), {})
