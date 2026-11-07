@@ -693,6 +693,12 @@ def evidence_remote_live_only(root: Path, files: list[str], host: str, full: boo
     # Deliberately does NOT follow symlinks (`find` without -L): a followed link
     # would enumerate files outside the mapped root.
     quoted_roots = " ".join(shlex.quote(root) for root in roots)
+    # Same directory-level pruning the local walk already does with os.walk's
+    # in-place dirnames filter: excluded subtrees are never descended, so cost
+    # tracks syncable config instead of e.g. ~/.claude/projects (~72k session
+    # transcripts), and no git subprocess is spawned per leaf inside them.
+    prune_names = sorted(RUNTIME_DIRS | NOISE_DIRS)
+    prune_expr = " -o ".join(f"-name {shlex.quote(name)}" for name in prune_names)
     script = _SYMLINK_GUARD_FN + f"""set -e
 REMOTE_HOME={shlex.quote(remote_home)}
 # Record/field/group separator bytes must be declared in THIS script too: they
@@ -702,6 +708,11 @@ REMOTE_HOME={shlex.quote(remote_home)}
 RS=$'\\x1e'
 FS=$'\\x1f'
 GS=$'\\x1d'
+# Filenames are opaque bytes: they may contain newlines and the very FS/RS/GS
+# bytes used to frame records, so every free-text field is base64-encoded.
+# base64's alphabet cannot contain a framing byte, so the frame stays parseable
+# while the decoded value stays byte-exact.
+b64() {{ base64 | tr -d '\\n'; }}
 for rel in {quoted_roots}; do
   rel=${{rel%/}}
   base="$REMOTE_HOME/$rel"
@@ -709,19 +720,20 @@ for rel in {quoted_roots}; do
   # `[ -L "$base" ]` check missed a symlinked parent (e.g. ~/.claude/skills ->
   # /private/target), and `find` then happily enumerated the target's children.
   if path_has_symlink_component "$REMOTE_HOME" "$base"; then
-    printf 'SYMLINK%s%s%s' "$FS" "$rel" "$RS"
+    printf 'SYMLINK%s%s%s' "$FS" "$(printf '%s' "$rel" | b64)" "$RS"
     continue
   fi
   [ -d "$base" ] || continue
-  find "$base" -mindepth 1 ! -type d -print 2>/dev/null | while IFS= read -r path; do
+  # Prune excluded subtrees DURING the walk (never descended), matching local.
+  # `-type d` keeps a regular FILE that happens to share a pruned name visible.
+  find "$base" -mindepth 1 \\( -type d \\( {prune_expr} \\) -prune \\) -o \\( ! -type d -print0 \\) 2>/dev/null | while IFS= read -r -d '' path; do
     case "$path" in
-      */__pycache__/*|*/.pytest_cache/*|*/.mypy_cache/*|*/.ruff_cache/*) continue ;;
       *.pyc|*.pyo) continue ;;
       */.DS_Store) continue ;;
     esac
     live_rel=${{path#"$REMOTE_HOME"/}}
     if [ -L "$path" ]; then
-      printf 'SYMLINK%s%s%s' "$FS" "$live_rel" "$RS"
+      printf 'SYMLINK%s%s%s' "$FS" "$(printf '%s' "$live_rel" | b64)" "$RS"
     else
       # Regular file: report the live file's own enclosing repo + last commit,
       # same as evidence_remote does for tracked files (the sync-live-config
@@ -732,7 +744,7 @@ for rel in {quoted_roots}; do
       if [ -n "$repo_root" ]; then
         commit=$(git -C "$dir" log -1 --format="%H${{GS}}%aI${{GS}}%an${{GS}}%s" -- "$path" 2>/dev/null || true)
       fi
-      printf 'FILE%s%s%s%s%s%s%s' "$FS" "$live_rel" "$FS" "$repo_root" "$FS" "$commit" "$RS"
+      printf 'FILE%s%s%s%s%s%s%s' "$FS" "$(printf '%s' "$live_rel" | b64)" "$FS" "$(printf '%s' "$repo_root" | b64)" "$FS" "$(printf '%s' "$commit" | b64)" "$RS"
     fi
   done
   # Keep the partial rows the walk already emitted, but never let a failed `find`
@@ -741,7 +753,7 @@ for rel in {quoted_roots}; do
   # would abort the script and silently discard every useful record.
   find_status=${{PIPESTATUS[0]}}
   if [ "$find_status" -ne 0 ]; then
-    printf 'INCOMPLETE%s%s%s%s' "$FS" "$rel" "$FS" "$find_status" "$RS"
+    printf 'INCOMPLETE%s%s%s%s' "$FS" "$(printf '%s' "$rel" | b64)" "$FS" "$find_status" "$RS"
   fi
 done
 """
@@ -752,25 +764,40 @@ done
     if proc.returncode != 0:
         raise RuntimeError(f"remote live_only scan failed on {host}: {proc.stderr.strip()}")
     out: list[FileEvidence] = []
+
+    def _decode_field(value: str, label: str) -> str:
+        # Values were base64-encoded on the remote side so a filename containing
+        # a newline or an FS/RS/GS byte round-trips exactly instead of splitting
+        # the frame; surrogateescape keeps non-UTF-8 filenames byte-exact too.
+        try:
+            return base64.b64decode(value, validate=True).decode("utf-8", "surrogateescape")
+        except ValueError as exc:
+            raise RuntimeError(f"malformed remote live_only {label} on {host}: {exc}") from exc
+
     for record in proc.stdout.split(RS):
         if not record.strip():
             continue
         fields = record.split(FS)
         kind = fields[0]
         if kind == "INCOMPLETE":
-            rel = fields[1] if len(fields) > 1 else "?"
-            detail = fields[2] if len(fields) > 2 else ""
+            if len(fields) != 3:
+                raise RuntimeError(f"malformed remote live_only INCOMPLETE record on {host}: {len(fields)} fields, expected 3")
+            rel = _decode_field(fields[1], "INCOMPLETE path")
+            detail = fields[2]
             if warnings is not None:
                 warnings.append(f"find exited {detail or 'non-zero'} under {rel}")
             continue
         if kind == "FILE":
             if len(fields) != 4:
                 raise RuntimeError(f"malformed remote live_only FILE record on {host}: {len(fields)} fields, expected 4")
-            _, live_rel, remote_repo_root, commit_raw = fields
+            live_rel = _decode_field(fields[1], "FILE path")
+            remote_repo_root = _decode_field(fields[2], "FILE repo root")
+            commit_raw = _decode_field(fields[3], "FILE commit")
         elif kind == "SYMLINK":
             if len(fields) != 2:
                 raise RuntimeError(f"malformed remote live_only SYMLINK record on {host}: {len(fields)} fields, expected 2")
-            live_rel, remote_repo_root, commit_raw = fields[1], "", ""
+            live_rel = _decode_field(fields[1], "SYMLINK path")
+            remote_repo_root = commit_raw = ""
         else:
             raise RuntimeError(f"unknown remote live_only record kind {kind!r} on {host}")
         if not live_rel or live_rel in exclude:

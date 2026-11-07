@@ -15,6 +15,12 @@ from scripts.sync_live_config import FileEvidence, cmd_report, evidence_remote_l
 
 class RemoteLiveOnlyTest(unittest.TestCase):
     def _scan(self, remote_home: Path, environment: dict[str, str] | None = None):
+        rows, _warnings = self._scan_full(remote_home, environment)
+        return rows
+
+    def _scan_full(self, remote_home: Path, environment: dict[str, str] | None = None,
+                   files: list[str] | None = None, full: bool = False,
+                   exclude: set[str] | None = None):
         actual_run = subprocess.run
 
         def fake_ssh_run(command, **kwargs):
@@ -31,10 +37,14 @@ class RemoteLiveOnlyTest(unittest.TestCase):
                 return result
             raise AssertionError(f"unexpected subprocess call: {command}")
 
+        warnings: list[str] = []
         with patch("scripts.sync_live_config.subprocess.run", side_effect=fake_ssh_run):
-            return evidence_remote_live_only(
-                Path("."), [".claude/skills/fixture/SKILL.md"], "testhost", False, set()
+            rows = evidence_remote_live_only(
+                Path("."),
+                files or [".claude/skills/fixture/SKILL.md"],
+                "testhost", full, set(exclude or ()), warnings,
             )
+        return rows, warnings
 
     def test_root_symlink_is_reported_without_enumerating_target_children(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -79,7 +89,7 @@ class RemoteLiveOnlyTest(unittest.TestCase):
             fake_bin = root / "bin"
             fake_bin.mkdir()
             fake_find = fake_bin / "find"
-            fake_find.write_text("#!/bin/sh\nprintf '%s\\n' \"$1/partial.md\"\nexit 1\n")
+            fake_find.write_text("#!/bin/sh\nprintf '%s\\0' \"$1/partial.md\"\nexit 1\n")
             fake_find.chmod(0o755)
             env = dict(os.environ)
             env["PATH"] = f"{fake_bin}:/usr/bin:/bin"
@@ -152,6 +162,66 @@ class RemoteLiveOnlyTest(unittest.TestCase):
         self.assertEqual(result.status, "live_only")
         self.assertEqual(result.live_repo_root, f"testhost:{nested_repo}")
         self.assertEqual(result.live_last_commit["sha"], expected_commit)
+
+    def test_full_scan_prunes_runtime_dirs_without_traversing_them(self):
+        """--full must not walk RUNTIME_DIRS subtrees at all, exactly like local.
+
+        The `projects` subtree is made unreadable: a walk that descends into it
+        fails and surfaces an incomplete-scan warning, while a walk that prunes
+        it never opens the directory. The `node_modules` sentinel catches a
+        filter-after-traversal implementation on hosts that ignore the mode.
+        """
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            remote = root / "remote-home"
+            claude = remote / ".claude"
+            claude.mkdir(parents=True)
+            (claude / "CLAUDE.md").write_text("ordinary live config\n")
+            runtime = claude / "projects"
+            runtime.mkdir()
+            (runtime / "TRANSCRIPT_SENTINEL.jsonl").write_text("sentinel\n")
+            modules = claude / "node_modules"
+            modules.mkdir()
+            (modules / "MODULE_SENTINEL.js").write_text("sentinel\n")
+            os.chmod(runtime, 0)
+            try:
+                rows, warnings = self._scan_full(remote, full=True)
+            finally:
+                os.chmod(runtime, 0o755)
+
+        self.assertEqual([(item.status, item.live_rel) for item in rows], [
+            ("live_only", ".claude/CLAUDE.md")
+        ])
+        self.assertEqual(warnings, [])
+
+    def test_live_only_names_with_newline_and_framing_bytes_round_trip_exactly(self):
+        """A live filename is opaque bytes: newline / FS / RS / GS in a name must
+        survive as one exact row, never split into fabricated rows or records."""
+        names = [
+            "plain.md",
+            "line\nbreak.md",
+            "field\x1fsep.md",
+            "record\x1esep.md",
+            "group\x1dsep.md",
+        ]
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            remote = root / "remote-home"
+            fixture = remote / ".claude" / "skills" / "fixture"
+            fixture.mkdir(parents=True)
+            for name in names:
+                (fixture / name).write_text("live\n")
+            secret = root / "SECRET_TARGET_NAME"
+            secret.write_text("secret\n")
+            (fixture / "link\nsym").symlink_to(secret)
+
+            rows, warnings = self._scan_full(remote)
+
+        live_only = sorted(item.live_rel for item in rows if item.status == "live_only")
+        symlinks = sorted(item.live_rel for item in rows if item.status == "symlink")
+        self.assertEqual(live_only, sorted(f".claude/skills/fixture/{name}" for name in names))
+        self.assertEqual(symlinks, [".claude/skills/fixture/link\nsym"])
+        self.assertEqual(warnings, [])
 
 
 if __name__ == "__main__":
