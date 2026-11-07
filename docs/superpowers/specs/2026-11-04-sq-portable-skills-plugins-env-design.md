@@ -137,6 +137,12 @@ inside a plugin to satisfy a literal reading of "self-contained": duplication cr
 two drifting copies, and `tests/test_plugin_folders.py` asserts links stay within the
 plugin or its declared dependencies.
 
+**Host floor.** Plugin scripts run on the operator's own host, so they use
+`#!/usr/bin/env bash` and the system `python3`: no bash-4-only constructs
+(`declare -A`, `mapfile`, `${var,,}`), no GNU-only coreutils flags, and no Python
+syntax that needs more than 3.8 at import time. Mac hosts therefore run them with
+bash 3.2 and the Command Line Tools Python.
+
 ### D2. Environment variable registry
 
 `docs/portability-env-vars.md` is the single registry. Rules:

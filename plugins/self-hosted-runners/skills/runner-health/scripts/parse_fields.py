@@ -14,6 +14,8 @@ Restart hints name RUNNER_SYSTEMD_UNIT (Linux) and RUNNER_LAUNCHD_LABEL (Mac).
 
 Reads JSON from argv[2], outputs formatted text to stdout.
 """
+from __future__ import annotations
+
 import json
 import os
 import sys
