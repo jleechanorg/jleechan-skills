@@ -19,11 +19,14 @@
 # Evidence bundle is written to /tmp/<repo>/<branch>/test_level_up_organic/latest/.
 set -euo pipefail
 
-# Resolve the product repository from REPO_ROOT or the current working tree; this
-# script may be installed outside the repository (for example as a plugin).
-REPO_ROOT="${REPO_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || true)}"
+# Resolve the product repository: PROJECT_ROOT wins, then its accepted REPO_ROOT
+# alias, then the current working tree (verified by the testing_mcp/ check below).
+# This script may be installed outside the repository (for example as a plugin);
+# see docs/portability-env-vars.md ("PROJECT_ROOT / REPO_ROOT").
+PROJECT_ROOT="${PROJECT_ROOT:-${REPO_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || true)}}"
+REPO_ROOT="${PROJECT_ROOT}"
 if [ -z "${REPO_ROOT}" ] || [ ! -d "${REPO_ROOT}/testing_mcp" ]; then
-  echo "REPO_ROOT not configured: run from the product repository root or export REPO_ROOT=<product-repo-checkout>." >&2
+  echo "PROJECT_ROOT not configured: run from the product repository root, or export PROJECT_ROOT (or its REPO_ROOT alias) to the product-repo checkout." >&2
   exit 2
 fi
 cd "${REPO_ROOT}"
