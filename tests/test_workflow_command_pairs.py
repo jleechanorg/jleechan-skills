@@ -3,6 +3,7 @@
 import os
 import shlex
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -11,6 +12,11 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 COMMANDS = REPO_ROOT / ".claude" / "commands"
 SKILLS = REPO_ROOT / ".claude" / "skills"
+
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from scripts.skill_portability_scan import owner_roots, parse_frontmatter  # noqa: E402
 
 
 class WorkflowCommandPairTest(unittest.TestCase):
@@ -388,10 +394,10 @@ class WorkflowCommandPairTest(unittest.TestCase):
         self.assertTrue(skill.is_file(), f"Skill {skill} must exist")
         skill_content = skill.read_text(encoding="utf-8")
         self.assertNotIn("~/.claude/", skill_content)
+        # Mandatory core lanes: loaded from the global export, and present in-tree.
         for required_lane in (
             "ponytail",
             "zero-framework-cognition",
-            "zfc-leveling-roadmap",
             "root-cause-first",
         ):
             with self.subTest(lane=required_lane):
@@ -402,6 +408,33 @@ class WorkflowCommandPairTest(unittest.TestCase):
                 self.assertTrue(
                     (SKILLS / required_lane / "SKILL.md").is_file(),
                     f"Required lane skill {required_lane} must exist in repo",
+                )
+
+        # ZFC leveling is a product specialization, optional by review scope: the
+        # workflow must not claim it from the global export, and when it names the
+        # companion that companion resolves from a declared plugin owner.
+        leveling_export = "${CLAUDE_HOME:-$HOME/.claude}/skills/zfc-leveling-roadmap/SKILL.md"
+        self.assertNotIn(leveling_export, skill_content)
+        self.assertFalse(
+            (SKILLS / "zfc-leveling-roadmap").exists(),
+            "the product leveling companion must stay out of the core export",
+        )
+        if "zfc-leveling-roadmap" in skill_content:
+            owners = [
+                root / "zfc-leveling-roadmap" / "SKILL.md"
+                for root in owner_roots(REPO_ROOT)
+                if root != SKILLS
+            ]
+            existing = [path for path in owners if path.is_file()]
+            self.assertTrue(
+                existing,
+                "the workflow names zfc-leveling-roadmap, so a declared plugin must own it",
+            )
+            for path in existing:
+                self.assertEqual(
+                    parse_frontmatter(path.read_text(encoding="utf-8")).get("name"),
+                    "zfc-leveling-roadmap",
+                    path,
                 )
 
 

@@ -7,8 +7,6 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-SKILLS_ROOT = REPO_ROOT / ".claude" / "skills"
-
 BATCH3 = (
     "no-second-llm-calls",
     "org-runner-audit",
@@ -23,7 +21,7 @@ BATCH3 = (
 
 class SkillPortabilityBatch3Test(unittest.TestCase):
     def test_batch3_skill_is_proper(self):
-        result = importlib.import_module("scripts.skill_portability_scan").scan(SKILLS_ROOT)
+        result = importlib.import_module("scripts.skill_portability_scan").scan_owners(REPO_ROOT)
         for name in BATCH3:
             with self.subTest(name=name):
                 self.assertIn(name, result["proper"])

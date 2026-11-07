@@ -134,6 +134,43 @@ def scan(root) -> dict:
     }
 
 
+MARKETPLACE_MANIFEST = ".claude-plugin/marketplace.json"
+
+
+def owner_roots(repo_root=None) -> list:
+    """Skill roots an install can select: the default export, then each plugin
+    source declared in the marketplace manifest.
+
+    The manifest is the declared-owner registry, so a skill that moved into an
+    opt-in plugin is still resolved against the root that now owns it.
+    """
+    repo_root = Path(repo_root) if repo_root is not None else DEFAULT_ROOT.parent.parent
+    roots = [repo_root / ".claude" / "skills"]
+    manifest = repo_root / MARKETPLACE_MANIFEST
+    if manifest.is_file():
+        for plugin in json.loads(manifest.read_text(encoding="utf-8")).get("plugins", []):
+            source = plugin.get("source")
+            if isinstance(source, str):
+                root = repo_root / source / "skills"
+                if root.is_dir():
+                    roots.append(root)
+    return roots
+
+
+def scan_owners(repo_root=None) -> dict:
+    """Union of `scan()` over `owner_roots()`, using the same classifier."""
+    result = {"proper": [], "improper": {}, "orphan": [], "duplicate": []}
+    for root in owner_roots(repo_root):
+        found = scan(root)
+        for bucket in ("proper", "orphan", "duplicate"):
+            result[bucket] += [name for name in found[bucket] if name not in result[bucket]]
+        for name, reason in found["improper"].items():
+            result["improper"].setdefault(name, reason)
+    for bucket in ("proper", "orphan", "duplicate"):
+        result[bucket].sort()
+    return result
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         description="Classify skill entries as proper, improper, orphan, or duplicate."
