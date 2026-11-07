@@ -51,6 +51,32 @@ Infer the current topic or directory/worktree/branch intent from admitted conver
 Use this skill whenever `/history` runs without `--deep`, when you need orientation
 without loading full transcripts, or when you want a quick multi-source sweep.
 
+## Human-prompt mining: attribution and coverage
+
+- Count a prompt as human-authored only when source and context support that
+  attribution; `role=user` alone is insufficient. Separate bots, system/agent
+  instructions, automated traffic, and quoted or pasted prior history.
+- Count each raw, verified human prompt, including initial task requests.
+  Separately group later related follow-ups into intervention episodes for the
+  same task or PR; episode counts do not imply new tasks.
+- Treat `has_user_event` as an index hint, not proof of absence: it may be
+  false despite a human event. Check only the permitted bounded receipt tail
+  and available context for a positive event; do not widen the source search.
+- Each retained event records its exact message/event ID, timestamp,
+  source/runtime, and an excerpt of at most 200 characters. Attribute a PR
+  only from an explicit or independently corroborated identifier; otherwise
+  mark it unassigned.
+- For cmux terminal evidence, apply the shared full-buffer rule in
+  [cmux-steer](../cmux-steer/SKILL.md); bounded transcripts are not captures.
+- The local coding-agent history helper does not index Dot conversations.
+  `/dot` read is a page-tail read, not a complete history export; use admitted
+  connectors for their actual scope ([dot](../dot/SKILL.md)).
+- Treat actor attribution and intervention labels as evidence-based judgments,
+  not keyword rules. Unknown or partial coverage stays unknown; never report it
+  as zero activity. Measurement owners: [command-research](../command-research/SKILL.md),
+  [zero-touch](../zero-touch/SKILL.md), and
+  [PR efficiency audit](../pr-efficiency-audit/SKILL.md).
+
 ## Fast CLI Helper
 
 The repository includes the optional source-owned `scripts/history_search.py`.
