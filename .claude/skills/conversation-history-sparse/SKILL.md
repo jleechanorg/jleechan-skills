@@ -56,9 +56,9 @@ without loading full transcripts, or when you want a quick multi-source sweep.
 - Count a prompt as human-authored only when source and context support that
   attribution; `role=user` alone is insufficient. Separate bots, system/agent
   instructions, automated traffic, and quoted or pasted prior history.
-- Keep initial task requests distinct from later intervention episodes. Group
-  related human follow-ups around the same task or PR, retaining each event's
-  provenance; do not count one task's correction sequence as new tasks.
+- Count each raw, verified human prompt, including initial task requests.
+  Separately group later related follow-ups into intervention episodes for the
+  same task or PR; episode counts do not imply new tasks.
 - Treat `has_user_event` as an index hint, not proof of absence: it may be
   false despite a human event. Check only the permitted bounded receipt tail
   and available context for a positive event; do not widen the source search.
@@ -68,9 +68,9 @@ without loading full transcripts, or when you want a quick multi-source sweep.
   mark it unassigned.
 - For cmux terminal evidence, apply the shared full-buffer rule in
   [cmux-steer](../cmux-steer/SKILL.md); bounded transcripts are not captures.
-- Dot helper coverage differs from the `/dot` read-page tail
-  ([dot](../dot/SKILL.md)); neither implies a complete history export. Report
-  actual connector/runtime scope.
+- The local coding-agent history helper does not index Dot conversations.
+  `/dot` read is a page-tail read, not a complete history export; use admitted
+  connectors for their actual scope ([dot](../dot/SKILL.md)).
 - Treat actor attribution and intervention labels as evidence-based judgments,
   not keyword rules. Unknown or partial coverage stays unknown; never report it
   as zero activity. Measurement owners: [command-research](../command-research/SKILL.md),
