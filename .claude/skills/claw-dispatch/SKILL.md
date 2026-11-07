@@ -373,12 +373,15 @@ fi
 
 # Extract ts + ask Slack for the thread permalink. SLACK_WORKSPACE_DOMAIN
 # (e.g. myteam.slack.com) is only a fallback when chat.getPermalink fails.
+# The permalink lookup is optional, so a curl timeout or a non-JSON reply must
+# not abort the already-posted dispatch: its failure falls through to the
+# fallback below (same `|| true` guard as the optional cleanup earlier).
 MSG_TS=$(python3 -c "import json; print(json.load(open('$POST_LOG')).get('ts', ''))")
 POST_CH=$(python3 -c "import json; print(json.load(open('$POST_LOG')).get('channel', ''))")
 THREAD_URL=$(curl -sS -m 10 -G -H "Authorization: Bearer $CLAW_TOKEN" \
   --data-urlencode "channel=$POST_CH" --data-urlencode "message_ts=$MSG_TS" \
   "https://slack.com/api/chat.getPermalink" 2>/dev/null |
-  python3 -c "import json,sys; print(json.load(sys.stdin).get('permalink', ''))" 2>/dev/null)
+  python3 -c "import json,sys; print(json.load(sys.stdin).get('permalink', ''))" 2>/dev/null || true)
 if [ -z "$THREAD_URL" ] && [ -n "${SLACK_WORKSPACE_DOMAIN:-}" ]; then
   THREAD_URL="https://${SLACK_WORKSPACE_DOMAIN}/archives/${POST_CH}/p${MSG_TS//./}"
 fi

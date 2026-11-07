@@ -134,7 +134,7 @@ class LunaRepoTest(StubGhMixin, unittest.TestCase):
             scratch = Path(scratch).resolve()
             with mock.patch.object(audit_prs, "_scratch_root", return_value=str(scratch)):
                 review_dir = audit_prs.get_luna_review_dir("acme/widgets")
-            self.assertEqual(Path(review_dir), scratch / "widgets" / "luna-reviews")
+            self.assertEqual(Path(review_dir), scratch / "acme__widgets" / "luna-reviews")
 
 
 class SlackUploadDmChannelTest(unittest.TestCase):

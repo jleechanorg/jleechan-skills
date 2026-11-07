@@ -632,6 +632,88 @@ class DocumentedShellExamplesTest(unittest.TestCase):
                     self.assertNotEqual(res.returncode, 0)
                     self.assertNotIn("DISPATCH:", res.stdout)
 
+    def test_claw_optional_permalink_failure_keeps_receipt_and_ack_monitor(self):
+        content = (REPO_ROOT / ".claude/skills/claw-dispatch/SKILL.md").read_text()
+        execution = content.split("```bash\n", 1)[1].split("\n```", 1)[0]
+        script = "# Extract ts + ask Slack" + execution.split(
+            "# Extract ts + ask Slack", 1
+        )[1]
+        post_log = self.tmp_path / "claw-post.json"
+        post_log.write_text(json.dumps({
+            "ok": True,
+            "ts": "1700000000.000100",
+            "channel": "C0FIXTURE",
+        }))
+        domain_url = "https://acme.slack.com/archives/C0FIXTURE/p1700000000000100"
+        fixture = (
+            "set -euo pipefail\n"
+            "CLAW_TOKEN=fixture-token\n"
+            "CLAW_CHANNEL=C0FIXTURE\n"
+            "CLAW_BOT_ID=U0FIXTURE\n"
+            "curl() {\n"
+            "  local last='' arg\n"
+            "  for arg in \"$@\"; do last=$arg; done\n"
+            "  case \"$last\" in\n"
+            "    *chat.getPermalink*)\n"
+            "      printf 'permalink\\n' >> \"$CALLS_FILE\"\n"
+            "      printf '%s' \"$FIXTURE_PERMALINK_BODY\"\n"
+            "      return \"$FIXTURE_PERMALINK_STATUS\" ;;\n"
+            "    *reactions.get*)\n"
+            "      printf '%s' '{\"ok\": true, \"message\": {\"reactions\": [{\"name\": \"eyes\"}]}}' ;;\n"
+            "    *conversations.replies*)\n"
+            "      printf '%s' '{\"ok\": true, \"messages\": [{\"ts\": \"1\"}]}' ;;\n"
+            "  esac\n"
+            "  return 0\n"
+            "}\n"
+            "sleep() { :; }\n"
+            f"POST_LOG='{post_log}'\n"
+        )
+        trailer = (
+            '\nprintf "THREAD:%s\\n" "$THREAD_URL"\n'
+            'CALLS=0\n'
+            'if [ -f "$CALLS_FILE" ]; then CALLS=$(wc -l < "$CALLS_FILE"); fi\n'
+            'printf "PERMALINK_CALLS:%s\\n" "$CALLS"\n'
+        )
+        ok_permalink = json.dumps({"ok": True, "permalink": domain_url})
+        cases = (
+            ("permalink ok", 0, ok_permalink, "acme.slack.com", domain_url),
+            ("curl timeout", 28, "", "acme.slack.com", domain_url),
+            ("curl timeout, no domain", 28, "", None,
+             "(channel C0FIXTURE, ts 1700000000.000100)"),
+            ("non-JSON body, no domain", 0, "upstream connect error", None,
+             "(channel C0FIXTURE, ts 1700000000.000100)"),
+            ("ok without permalink", 0, json.dumps({"ok": False}), "acme.slack.com",
+             domain_url),
+        )
+        for label, status, body, domain, expected in cases:
+            with self.subTest(label=label):
+                calls_file = self.tmp_path / f"permalink-calls-{label}.log"
+                calls_file.unlink(missing_ok=True)
+                env = {
+                    "HOME": str(self.tmp_path / "fixture_home"),
+                    "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+                    "BASH_ENV": os.devnull,
+                    "ENV": os.devnull,
+                    "CALLS_FILE": str(calls_file),
+                    "FIXTURE_PERMALINK_BODY": body,
+                    "FIXTURE_PERMALINK_STATUS": str(status),
+                }
+                if domain is None:
+                    env.pop("SLACK_WORKSPACE_DOMAIN", None)
+                else:
+                    env["SLACK_WORKSPACE_DOMAIN"] = domain
+                result = subprocess.run(
+                    ["bash", "-c", fixture + script + trailer],
+                    env=env, text=True, capture_output=True, timeout=60,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("THREAD:" + expected + "\n", result.stdout)
+                self.assertIn("PERMALINK_CALLS:1\n", result.stdout)
+                self.assertIn("   channel: C0FIXTURE\n", result.stdout)
+                self.assertIn("Hermes acked (reaction at 1s)", result.stdout)
+                self.assertIn("   Channel:  C0FIXTURE\n", result.stdout)
+
     def test_documented_gh_resolution_prefers_path_then_local_executable(self):
         content = (
             REPO_ROOT / ".claude/skills/github-cli-reference/SKILL.md"

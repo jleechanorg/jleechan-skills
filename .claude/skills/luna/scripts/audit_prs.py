@@ -9,6 +9,7 @@ import argparse
 import datetime
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -76,9 +77,24 @@ def resolve_repo(explicit=None):
     return repo
 
 
+_REPO_SLUG_PART = re.compile(r"[A-Za-z0-9._-]+")
+
+
 def _repo_slug(repo: str) -> str:
-    slug = repo.rstrip("/").rsplit("/", 1)[-1]
-    if slug in {"", ".", ".."} or Path(slug).name != slug:
+    """Return the Scratch folder identity for repo, keeping its owner.
+
+    The owner is part of the identity so ``acme/widgets`` and ``other/widgets``
+    cannot share -- and truncate -- the same report directory. A bare repo name
+    (no owner) keeps its historical single-segment folder.
+    """
+    parts = repo.rstrip("/").split("/")
+    if len(parts) > 2:
+        raise RuntimeError(f"cannot derive a Scratch folder name from repo {repo!r}")
+    for part in parts:
+        if not _REPO_SLUG_PART.fullmatch(part) or part in {".", ".."}:
+            raise RuntimeError(f"cannot derive a Scratch folder name from repo {repo!r}")
+    slug = "__".join(parts)
+    if Path(slug).name != slug:
         raise RuntimeError(f"cannot derive a Scratch folder name from repo {repo!r}")
     return slug
 

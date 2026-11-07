@@ -15,7 +15,7 @@ sys.modules[SPEC.name] = audit_prs
 SPEC.loader.exec_module(audit_prs)
 
 REPO = "acme/widgets"
-SLUG = "widgets"  # Scratch folder is named after the target repo
+SLUG = "acme__widgets"  # Scratch folder keeps the owner: acme/widgets -> acme__widgets
 
 
 class LunaReportContainmentTests(unittest.TestCase):
@@ -104,3 +104,17 @@ class LunaReportContainmentTests(unittest.TestCase):
                 audit_prs._write_report_file(str(alias / "luna-reviews"), "PR_7_review.md", "inside\n")
             self.assertEqual(report.parent, real_dir.resolve())
             self.assertEqual((real_dir / "PR_7_review.md").read_text(), "inside\n")
+
+    def test_same_basename_repos_keep_distinct_report_directories(self):
+        temp, root, scratch = self.fixture()
+        with temp:
+            with mock.patch.object(audit_prs, "_scratch_root", return_value=str(scratch)):
+                first = Path(audit_prs.get_luna_review_dir("acme/widgets"))
+                second = Path(audit_prs.get_luna_review_dir("other/widgets"))
+                self.assertNotEqual(first, second)
+                audit_prs._write_report_file(str(first), "PR_7_review.md", "acme\n")
+                audit_prs._write_report_file(str(second), "PR_7_review.md", "other\n")
+            self.assertEqual((first / "PR_7_review.md").read_text(), "acme\n")
+            self.assertEqual((second / "PR_7_review.md").read_text(), "other\n")
+            self.assertEqual(first.parent.parent, scratch)
+            self.assertEqual(second.parent.parent, scratch)
