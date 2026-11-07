@@ -73,6 +73,16 @@ the exact action, current reason it cannot proceed, controlling owner, attempts
 and alternatives, and a concrete resumption trigger; do not label routine
 verification or review as waiting for the user.
 
+## Roadmap publication
+
+For routine human-readable updates in `~/roadmap`, follow that repository's
+`AGENTS.md` direct-`origin/main` workflow, including scoped mechanical
+validation and an expected-head check. Do not open a roadmap PR solely to
+publish a `/nextsteps` artifact; existing roadmap PRs remain governed by that
+repository's merge policy. This applies only to roadmap documentation: code
+and skill changes keep their repository PR and merge gates, and Beads state
+continues through the canonical `br` publisher.
+
 A `/nextsteps` run is **incomplete** unless it leaves **all** of these artifacts
 **for its chosen mode**:
 
