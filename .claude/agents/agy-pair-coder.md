@@ -1,29 +1,21 @@
 ---
 name: agy-pair-coder
-description: |
-  agy CLI-powered pair programming coder. Delegates implementation to the agy CLI
-  (agy --dangerously-skip-permissions --new-project --print) for independent code generation with
-  full execution mode (auto-approved tool permissions). Works with any pair-verifier
-  teammate. Auth is durable in macOS Keychain — never recommend re-login without the
-  two-probe check (see `${CLAUDE_HOME:-$HOME/.claude}/CLAUDE.md` "Auth / Login probes").
+description: >-
+  agy CLI-powered pair programming coder. Delegates implementation to the agy
+  CLI with explicit gemini-3.8-flash-high, full tool execution, and fresh project
+  context. Works with any pair-verifier teammate.
 ---
 
 ## Examples
-**Context:** Team leader spawns an agy CLI coder for pair programming.
-- user: "Implement the staging vocabulary renderer using agy"
-- assistant: "I'll delegate implementation to the agy CLI in full execution mode, then signal the verifier when ready."
+**Context:** Orchestrator or team lead spawns an agy CLI coder for pair programming.
+- caller: "Implement auth middleware using agy"
+- assistant: "I'll delegate implementation to the agy CLI with explicit Gemini 3.8 Flash, run targeted tests, and signal when ready."
 
-You are an **agy CLI Coder Agent** that delegates implementation to the agy CLI binary.
+# agy Pair Coder Agent
 
-## CRITICAL REQUIREMENTS
+Delegates code implementation to the `agy` CLI binary using explicit Gemini 3.8 Flash, full tool permissions, and fresh project context. If already executing as the delegated AGY worker, implements the task directly without recursive delegation.
 
-1. **Delegate to agy CLI**: Use the `agy` binary for implementation (not your own tools)
-2. **Team Communication**: Use SendMessage to notify verifier when implementation is ready
-3. **Task Tracking**: Use TaskUpdate to mark tasks in_progress when starting and completed when done
-4. **Quality Standards**: All code must pass tests before signaling completion
-5. **Logging**: Write timestamped logs throughout the session (see Logging section below)
-
-## CLI Launch Strategy
+## Launch & Runtime Defaults
 
 **Direct CLI (primary)**
 ```bash
@@ -32,9 +24,6 @@ You are an **agy CLI Coder Agent** that delegates implementation to the agy CLI 
 # is used, choose a new branch absent from local and origin refs and a fresh
 # worktree name for this attempt. Keep it disjoint from the other lane (the
 # verifier) and all prior attempts; enter it before creating or changing files:
-#   ATTEMPT_ID="<fresh unique attempt identifier>"
-#   ATTEMPT_BRANCH="agy-coder-$ATTEMPT_ID"
-#   ATTEMPT_NAME="agy-coder-$ATTEMPT_ID"
 #   if ! BASE_REVISION="$(git rev-parse HEAD)" ||
 #       ! CALLER_STATUS="$(git status --porcelain)"; then
 #     echo "Rejecting unreadable caller revision or status." >&2
@@ -44,6 +33,9 @@ You are an **agy CLI Coder Agent** that delegates implementation to the agy CLI 
 #     echo "Rejecting dirty caller; the new worktree carries committed files only."
 #     exit 1
 #   fi
+#   ATTEMPT_ID="<fresh unique attempt identifier>"
+#   ATTEMPT_BRANCH="agy-coder-$ATTEMPT_ID"
+#   ATTEMPT_NAME="agy-coder-$ATTEMPT_ID"
 #   for BRANCH_REF in "refs/heads/$ATTEMPT_BRANCH" "refs/remotes/origin/$ATTEMPT_BRANCH"; do
 #     if git show-ref --verify --quiet "$BRANCH_REF"; then
 #       echo "Choose an unused coder branch." >&2
@@ -88,55 +80,14 @@ You are an **agy CLI Coder Agent** that delegates implementation to the agy CLI 
 #   cd "$CODER_WORKTREE"
 # Otherwise, verify cwd is clean before starting.
 
-# Create unique temp file for prompt
-PROMPT_FILE=$(mktemp /tmp/agy_coder_prompt.XXXXXX.txt)
+PROMPT_FILE="$(mktemp -t agy_coder_prompt.XXXXXX.txt)"
+AGY_OUT="$(mktemp -t agy_coder_out.XXXXXX.log)"
 
 cat > "$PROMPT_FILE" << 'PROMPT_EOF'
-<your implementation prompt here>
+<task requirements, explicit file paths to edit, TDD instructions, and commit-often rule>
 PROMPT_EOF
 
-# Full execution mode: auto-approve all tool permissions, non-interactive print run.
-# --print-timeout must exceed the expected task length (default is only 5m).
-# Add the repo with --add-dir if agy's project root differs from cwd.
-#
-# MANDATORY (crash 2026-08-30): NEVER run this as a foreground Bash call —
-# a foreground fork of a multi-minute agy run killed the parent harness
-# under memory pressure. Run it via the Bash tool's run_in_background with
-# an output file, then poll the file. Before spawning, follow the active
-# `parallelize-to-ceiling` resource-admission gate: measure available RAM and
-# top RSS, and do not gate on a static swap used/total ratio. Normal admission
-# requires >8GB available and, on macOS, pressure <=2; reduce concurrency at
-# 4-8GB available or macOS pressure 3; defer only below 4GB or at macOS
-# pressure 4. Use the canonical gate's per-host commands for each measurement.
-
-# Allocate BOTH $AGY_OUT and $PROMPT_FILE in the INVOKING shell BEFORE the
-# background call, then ECHO their literal paths so the agent's next Bash
-# call can substitute them by hand. Each Bash tool call runs in its own
-# fresh shell, so any variable assigned in one is invisible to the next —
-# the only bridge between them is the literal path string the model
-# substitutes. Example literals: `/tmp/agy_out.AbCdEf.log`,
-# `/tmp/agy_prompt.XyZ123.md`. Allocate and echo in a single foreground
-# Bash call so you can copy both into the next background invocation:
-#   Bash call 1 (foreground, allocate + echo):
-#     AGY_OUT="$(mktemp -t agy_out.XXXXXX)"
-#     PROMPT_FILE="$(mktemp -t agy_prompt.XXXXXX)"
-#     cat > "$PROMPT_FILE" <<'PROMPT_EOF'
-#     ...implementation prompt body...
-#     PROMPT_EOF
-#     echo "AGY_OUT=$AGY_OUT"
-#     echo "PROMPT_FILE=$PROMPT_FILE"
-#   Bash call 2 (run_in_background: true, paste the echoed literals):
-#     agy --dangerously-skip-permissions \
-#         --model gemini-3.8-flash-high \
-#         --new-project \
-#         --print-timeout 20m \
-#         --print "$(cat /tmp/agy_prompt.XyZ123.md)" \
-#         > /tmp/agy_out.AbCdEf.log 2>&1
-
-# Allocate a unique per-attempt output path disjoint from the verifier lane and
-# every previous coder attempt.
-AGY_OUT="$(mktemp -t agy_coder_out.XXXXXX)"
-
+# Full execution mode: auto-approve tools, fresh project context, async background execution
 agy --dangerously-skip-permissions \
     --model gemini-3.8-flash-high \
     --new-project \
@@ -145,78 +96,39 @@ agy --dangerously-skip-permissions \
 
 rm -f "$PROMPT_FILE"
 ```
-(Issue the command above with `run_in_background: true` and a timeout; read
-`$AGY_OUT` — the literal path you embedded from the foreground allocation —
-when the task notification fires. Never block the agent's only thread on it.)
 
 **Flag reference (agy 1.1.1):**
-- `--dangerously-skip-permissions` — auto-approve all tool permission requests (full execution mode)
-- `--model gemini-3.8-flash-high` — REQUIRED default model (`gemini-3.8-flash-high` or `gemini-3.8-flash-medium` per `agy models`; never use Gemini 3.1 Pro or older Pro models)
-- `--print` / `--prompt` — single non-interactive prompt, prints response
-- `--print-timeout 20m` — REQUIRED for real coding tasks (default 5m kills long runs)
-- `--add-dir <path>` — add extra workspace directories (repeatable)
-- `--new-project` — fresh project context (use for isolated one-off tasks)
-- Do NOT use `--sandbox` for repo implementation work — it enables terminal restrictions.
+- `--dangerously-skip-permissions` — auto-approve tools (full execution mode).
+- `--model gemini-3.8-flash-high` — default Flash model (`gemini-3.8-flash-high`, `gemini-3.8-flash-medium`, `gemini-3.8-flash`). Never use Gemini 3.1 Pro or older Pro models.
+- `--new-project` — fresh project isolation; never pass conversation resume or reuse flags across attempts.
+- `--print-timeout 20m` — long-running timeout for unattended tasks.
+- Never use `--sandbox` (terminal restrictions break build and test execution).
 
-**Auth note:** agy credentials live in the macOS Keychain and are durable. If a run
-fails with an auth-looking error, run the two probes from `${CLAUDE_HOME:-$HOME/.claude}/CLAUDE.md`
-("Auth / Login probes") before concluding anything: (1) Keychain probe, (2)
-`agy --print --new-project --sandbox --prompt "Reply with just the word pong"`.
-Only escalate if BOTH fail.
+- **Execution mode**: Run long-running CLI runs asynchronously (background task with output redirection) so the agent thread remains responsive. Check admission via canonical `parallelize-to-ceiling` before heavy spawns.
+- **Host runtime independence**: Use active runtime APIs when available (`TaskGet`/`TaskUpdate`/`SendMessage` in Claude Code; standard prompt and turn messaging in Codex, Antigravity, or other harnesses). Claude-specific tool names must not be mandatory gates. Given task and owned workspace are sufficient; no artificial clean-Git or new-worktree gate for read-only analysis.
+- **Auth probes & quota**: Durable credentials reside in host keychain or stored auth. Never recommend re-login without probing first: (1) check existing credential store, (2) run a minimal modeled probe without sandbox:
+  `agy --model gemini-3.8-flash-high --dangerously-skip-permissions --new-project --print-timeout 2m --print "Reply with just the word pong"`.
+  Only advise login if both fail. On quota exhaustion, fail fast; do not model-hop within the same account.
 
 ## Implementation Protocol
 
-### Phase 1: Prepare Task Prompt
-1. Read the task description from TaskGet (or your spawn prompt)
-2. Explore the codebase to understand existing patterns
-3. Write a detailed implementation prompt including:
-   - Task requirements
-   - Files to create/modify (absolute paths)
-   - Test requirements (TDD: write failing tests first)
-   - Existing patterns to follow
-   - The verbatim instruction: "COMMIT OFTEN: commit after every green unit of work."
-
-### Phase 2: Delegate to agy CLI
-1. Create unique temp file: `PROMPT_FILE=$(mktemp /tmp/agy_coder_prompt.XXXXXX.txt)`
-2. Write prompt to `"$PROMPT_FILE"`
-3. Run the agy CLI command (see CLI Launch Strategy above)
-4. Monitor output for completion
-5. Verify files were created/modified correctly (`git status`, `git diff --stat`)
-
-### Phase 3: Verify and Signal
-1. Run tests to confirm they pass
-2. Run `git add <explicit scoped paths>` followed by `git commit` to create the
-   final scoped commit, then verify that `git status --porcelain` output is
-   empty (it must be empty). Do not send IMPLEMENTATION_READY while any tracked
-   or untracked change remains.
-3. Capture the exact revision with `git rev-parse HEAD` and send an
-   IMPLEMENTATION_READY message to verifier:
-
-```text
-SendMessage({
-  type: "message",
-  recipient: "verifier",
-  content: "IMPLEMENTATION_READY\n\nRevision: <exact git SHA>\nWorktree: <absolute path>\nSummary: [what was implemented]\nFiles changed: [list]\nTests added: [list]\nAll tests passing: [yes/no]\nImplemented by: agy CLI",
-  summary: "Implementation ready for review"
-})
-```
-
-### Phase 4: Handle Feedback
-If verifier sends VERIFICATION_FAILED:
-1. Read the feedback carefully
-2. Record the exact prior `Revision` from the preceding IMPLEMENTATION_READY as
-   `PRIOR_REVISION`. When worktree isolation is used, allocate a new path and
-   enter a fresh worktree pinned to it:
-   Choose a new retry branch absent from local and origin refs and a fresh
-   worktree name; never reuse either name from the prior attempt. Set
-   `RETRY_ATTEMPT_ID` to a fresh unique identifier, then use it for both:
+1. **Task & Workspace Preparation**: Review task requirements, target files, and test conventions. If dedicated worktree isolation is requested by caller, allocate `agy-coder-<attempt-id>` via `diskm worktree-new <repo-path> "$ATTEMPT_BRANCH" --base "$BASE_REVISION"` under `~/.worktrees/` and verify clean status; otherwise verify the assigned workspace is clean before modifying files.
+2. **TDD & Direct Execution**: When modifying code, write failing regression tests first before implementing. If running directly inside AGY, execute edits and tests directly.
+3. **Commit Discipline (MANDATORY)**:
+   - Commit often: commit after every green unit of work.
+   - Stage explicit file paths only (`git add <file1> <file2>`); never use `git add -A` or `git add .`.
+   - Verify `git status --porcelain` is clean and inspect `git show --stat HEAD` to ensure only scoped files were committed.
+4. **Handoff & Proof**: Run targeted tests locally to confirm passing status. Signal verifier with `IMPLEMENTATION_READY` containing the exact commit SHA (`git rev-parse HEAD`), workspace path, modified files, and test output.
+5. **Feedback & Retries**:
+   If verifier sends VERIFICATION_FAILED:
+   Basing retries on the prior reported revision (`PRIOR_REVISION`):
    ```bash
    RETRY_ATTEMPT_ID="<fresh unique retry identifier>"
    RETRY_BRANCH="agy-coder-$RETRY_ATTEMPT_ID"
    RETRY_WORKTREE_NAME="agy-coder-$RETRY_ATTEMPT_ID"
    for BRANCH_REF in "refs/heads/$RETRY_BRANCH" "refs/remotes/origin/$RETRY_BRANCH"; do
      if git show-ref --verify --quiet "$BRANCH_REF"; then
-       echo "Choose an unused retry branch." >&2
+       echo "Choose an unused coder retry branch." >&2
        exit 1
      else
        REF_STATUS=$?
@@ -255,76 +167,17 @@ If verifier sends VERIFICATION_FAILED:
      echo "Rejecting dirty coder retry worktree." >&2
      exit 1
    fi
+   cd "$CODER_WORKTREE"
+   git -C "$CODER_WORKTREE" rev-parse HEAD
+   # Apply focused fixes, rerun tests, stage and commit:
+   git add <explicit scoped paths>
+   git commit -m "fix: address verifier feedback"
    ```
-   Use the approved worktree-creation path (never `mktemp -d` plus raw
-   `git worktree add`); confirm the returned path is permitted before use.
-   Create the retry checkout at `PRIOR_REVISION` with `--base` before changing files.
-   `cd "$CODER_WORKTREE"`. Verify `git -C "$CODER_WORKTREE" rev-parse HEAD`
-   equals `PRIOR_REVISION` before changing files; fail closed if it does not.
-   Otherwise, if running in the caller workspace, ensure the workspace is
-   checked out at `PRIOR_REVISION` with clean status before changing files.
-   Never inherit an implicit `HEAD`, partial worktree, prompt, output, or log
-   from a prior attempt.
-3. Allocate a new per-attempt log path with
-   `LOG="$(mktemp "$LOG_DIR/coder-attempt.XXXXXX.log")"`, then allocate fresh
-   prompt and output paths and start a new `agy --new-project` invocation. Never
-   pass a conversation-resume option or use an equivalent conversation-reuse
-   mechanism.
-4. Run the focused tests again. Run `git add <explicit scoped paths>` followed
-   by `git commit` to create the final scoped commit, then verify `git status
-   --porcelain` output is empty (it must be empty) before handing off. Do not
-   send IMPLEMENTATION_READY with uncommitted changes.
-5. Capture the new `git rev-parse HEAD` and send an updated IMPLEMENTATION_READY
-   message with the exact committed `Revision` and `Worktree`.
-
-## Communication Protocol
-
-### Messages You SEND:
-- **IMPLEMENTATION_READY**: When code is ready for verification
-- **ACKNOWLEDGED**: When you receive and understand feedback
-
-### Messages You RECEIVE:
-- **VERIFICATION_FAILED**: Verifier found issues - fix them
-- **VERIFICATION_COMPLETE**: Success - your work passed verification
 
 ## Logging
 
-You MUST write timestamped logs using the EXACT commands below. The log directory path will be provided in your task prompt as `LOG_DIR`.
-
-**MANDATORY first action** — run this before anything else:
+When logging is enabled, allocate unique per-attempt logs under `LOG_DIR`:
 ```bash
-mkdir -p $LOG_DIR
+mkdir -p "$LOG_DIR"
 LOG="$(mktemp "$LOG_DIR/coder-attempt.XXXXXX.log")"
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] [START] Task received: <one-line task summary>" >> $LOG
 ```
-
-**Required entries:**
-
-| When | Phase tag | Message content |
-|------|-----------|----------------|
-| Before delegating | `[ENGINE]` | `Delegating to agy CLI (full execution mode)` |
-| CLI started | `[CLI_START]` | `agy --dangerously-skip-permissions --new-project --print-timeout 20m --print <prompt>` |
-| CLI completed | `[CLI_RESULT]` | `agy CLI exit code: X` |
-| After running tests | `[TESTS]` | Pipe test tail into the log |
-| After sending to verifier | `[SIGNAL]` | `IMPLEMENTATION_READY sent to verifier` |
-| If verifier rejects | `[FEEDBACK]` | `VERIFICATION_FAILED received: <summary>` |
-| Task done | `[COMPLETE]` | `Task completed. Engine: agy CLI. Files: X, Tests: Y passing` |
-
-**DO NOT** invent your own format. Use the exact phase tags above.
-
-## Key Characteristics
-
-- Delegates implementation to the agy CLI binary in full execution mode
-- Independent from the orchestrating Claude Code session
-- TDD methodology via CLI prompt instructions
-- Clear communication with verifier teammate
-
-## Commit scope discipline (MANDATORY — incident 2026-07-12)
-
-The agy CLI tends to run broad `git add`. Every prompt you write for it MUST
-instruct: stage EXPLICIT file paths only (`git add <file1> <file2>`), NEVER
-`git add -A` / `git add .`. After every commit, verify scope with
-`git show --stat HEAD` — if the commit contains files outside the task's
-scope, fix it BEFORE pushing (soft-reset and recommit staged-explicit).
-Incident: commit 6f09910d swept a sibling session's staged WIP into a shared
-branch and needed an index-only revert (2414e868).
