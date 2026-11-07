@@ -75,6 +75,9 @@ exports.chromium = {
             encoding="utf-8",
         )
         self.env = dict(os.environ)
+        self.env.pop("BASH_ENV", None)
+        self.env.pop("ENV", None)
+        self.env["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
         self.env.update(
             {
                 "HOME": str(self.home),
@@ -105,9 +108,13 @@ exports.chromium = {
         )
 
     def _run_dot_sh(self, env=None):
+        command_env = dict(env or self.env)
+        command_env.pop("BASH_ENV", None)
+        command_env.pop("ENV", None)
+        command_env["PATH"] = self.env["PATH"]
         return subprocess.run(
             [str(DOT_SH), "existing-profile-only"],
-            env=env or self.env,
+            env=command_env,
             capture_output=True,
             text=True,
             timeout=40,
@@ -535,7 +542,16 @@ process.stdout.write = (chunk, ...args) => {
         )
 
     def test_dot_sh_exposes_redacted_local_mode_without_fallback_banner(self):
-        proc = self._run_dot_sh()
+        startup_script = self.root / "benign-startup-env.sh"
+        startup_script.write_text(
+            "DOT_ACCOUNT=contaminated\nexport DOT_ACCOUNT\n",
+            encoding="utf-8",
+        )
+        env = dict(self.env)
+        env["BASH_ENV"] = str(startup_script)
+        env["ENV"] = str(startup_script)
+
+        proc = self._run_dot_sh(env=env)
 
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIsNotNone(self._result(proc.stdout))
@@ -594,6 +610,185 @@ process.stdout.write = (chunk, ...args) => {
         self.assertEqual(
             self._result(proc.stdout),
             {"schema_version": 1, "launch_state": "unavailable", "diagnostic": "profile_owner_present"},
+        )
+        self.assertFalse(self.launch_record.exists())
+
+    def test_ignores_only_ancestor_owned_exact_profile_lock_holder(self):
+        self.profile.rename(self.root / "profile with spaces")
+        self.profile = self.root / "profile with spaces"
+        config = json.loads(self.config.read_text(encoding="utf-8"))
+        config["accounts"]["fixture"]["user_data_dir"] = str(self.profile)
+        self.config.write_text(json.dumps(config), encoding="utf-8")
+        self.env["DOT_CHROME_USER_DATA"] = str(self.profile)
+        bin_dir = self.root / "lock-holder-bin"
+        bin_dir.mkdir()
+        fake_ps = bin_dir / "ps"
+        lock_holder = (
+            f"python3 - {self.profile}/.dot-profile.lock "
+            f"{self.profile}/.dot-profile.lock.ready.ABC123"
+        )
+        fake_ps.write_text(
+            "#!/bin/sh\n"
+            'node_pid="$PPID"\n'
+            'parent_pid=$(/bin/ps -o ppid= -p "$node_pid" | tr -d "[:space:]")\n'
+            '/bin/ps -o pid=,ppid=,command= -p "$parent_pid"\n'
+            "printf '%s %s %s\\n' 987654 \"$parent_pid\" "
+            + shlex.quote(lock_holder)
+            + "\n",
+            encoding="utf-8",
+        )
+        fake_ps.chmod(fake_ps.stat().st_mode | stat.S_IXUSR)
+        env = dict(self.env)
+        env["PATH"] = f"{bin_dir}{os.pathsep}{self.env['PATH']}"
+
+        proc = self._run(env=env)
+
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertTrue(self.launch_record.exists())
+        self.assertEqual(
+            self._result(proc.stdout),
+            {
+                "schema_version": 1,
+                "launch_state": "started",
+                "browser_disposition": "spawned",
+                "cleanup_state": "context_close_returned",
+            },
+        )
+
+    def test_ancestor_process_with_extra_lock_arguments_still_blocks_launch(self):
+        bin_dir = self.root / "lookalike-lock-holder-bin"
+        bin_dir.mkdir()
+        fake_ps = bin_dir / "ps"
+        lock_path = f"{self.profile}/.dot-profile.lock"
+        lock_holder_lookalike = (
+            f"python3 - unrelated-helper {lock_path} {lock_path}.ready.ABC123"
+        )
+        fake_ps.write_text(
+            "#!/bin/sh\n"
+            'node_pid="$PPID"\n'
+            'parent_pid=$(/bin/ps -o ppid= -p "$node_pid" | tr -d "[:space:]")\n'
+            '/bin/ps -o pid=,ppid=,command= -p "$parent_pid"\n'
+            "printf '%s %s %s\\n' 987654 \"$parent_pid\" "
+            + shlex.quote(lock_holder_lookalike)
+            + "\n",
+            encoding="utf-8",
+        )
+        fake_ps.chmod(fake_ps.stat().st_mode | stat.S_IXUSR)
+        env = dict(self.env)
+        env["PATH"] = f"{bin_dir}{os.pathsep}{self.env['PATH']}"
+
+        proc = self._run(env=env)
+
+        self.assertEqual(proc.returncode, 10, proc.stderr)
+        self.assertEqual(
+            self._result(proc.stdout),
+            {
+                "schema_version": 1,
+                "launch_state": "unavailable",
+                "diagnostic": "profile_owner_present",
+            },
+        )
+        self.assertFalse(self.launch_record.exists())
+
+    def test_ancestor_python_prefix_with_embedded_arguments_still_blocks_launch(self):
+        bin_dir = self.root / "embedded-python-prefix-bin"
+        bin_dir.mkdir()
+        fake_ps = bin_dir / "ps"
+        lock_path = f"{self.profile}/.dot-profile.lock"
+        lock_holder_lookalike = (
+            f"/usr/bin/python3 -c /tmp/python3 - {lock_path} "
+            f"{lock_path}.ready.ABC123"
+        )
+        fake_ps.write_text(
+            "#!/bin/sh\n"
+            'node_pid="$PPID"\n'
+            'parent_pid=$(/bin/ps -o ppid= -p "$node_pid" | tr -d "[:space:]")\n'
+            '/bin/ps -o pid=,ppid=,command= -p "$parent_pid"\n'
+            "printf '%s %s %s\\n' 987654 \"$parent_pid\" "
+            + shlex.quote(lock_holder_lookalike)
+            + "\n",
+            encoding="utf-8",
+        )
+        fake_ps.chmod(fake_ps.stat().st_mode | stat.S_IXUSR)
+        env = dict(self.env)
+        env["PATH"] = f"{bin_dir}{os.pathsep}{self.env['PATH']}"
+
+        proc = self._run(env=env)
+
+        self.assertEqual(proc.returncode, 10, proc.stdout + proc.stderr)
+        self.assertEqual(
+            self._result(proc.stdout),
+            {
+                "schema_version": 1,
+                "launch_state": "unavailable",
+                "diagnostic": "profile_owner_present",
+            },
+        )
+        self.assertFalse(self.launch_record.exists())
+
+    def test_same_ancestor_non_lock_process_still_blocks_launch(self):
+        bin_dir = self.root / "same-parent-bin"
+        bin_dir.mkdir()
+        fake_ps = bin_dir / "ps"
+        fake_ps.write_text(
+            "#!/bin/sh\n"
+            'node_pid="$PPID"\n'
+            'parent_pid=$(/bin/ps -o ppid= -p "$node_pid" | tr -d "[:space:]")\n'
+            '/bin/ps -o pid=,ppid=,command= -p "$parent_pid"\n'
+            "printf '%s %s %s\\n' 987654 \"$parent_pid\" "
+            + shlex.quote(f"python3 - {self.profile}/unrelated-helper")
+            + "\n",
+            encoding="utf-8",
+        )
+        fake_ps.chmod(fake_ps.stat().st_mode | stat.S_IXUSR)
+        env = dict(self.env)
+        env["PATH"] = f"{bin_dir}{os.pathsep}{self.env['PATH']}"
+
+        proc = self._run(env=env)
+
+        self.assertEqual(proc.returncode, 10, proc.stderr)
+        self.assertEqual(
+            self._result(proc.stdout),
+            {
+                "schema_version": 1,
+                "launch_state": "unavailable",
+                "diagnostic": "profile_owner_present",
+            },
+        )
+        self.assertFalse(self.launch_record.exists())
+
+    def test_non_ancestor_profile_lock_holder_still_blocks_launch(self):
+        bin_dir = self.root / "foreign-lock-holder-bin"
+        bin_dir.mkdir()
+        fake_ps = bin_dir / "ps"
+        lock_holder = (
+            f"python3 - {self.profile}/.dot-profile.lock "
+            f"{self.profile}/.dot-profile.lock.ready.ABC123"
+        )
+        fake_ps.write_text(
+            "#!/bin/sh\n"
+            'node_pid="$PPID"\n'
+            'parent_pid=$(/bin/ps -o ppid= -p "$node_pid" | tr -d "[:space:]")\n'
+            '/bin/ps -o pid=,ppid=,command= -p "$parent_pid"\n'
+            "printf '%s %s %s\\n' 987654 1 "
+            + shlex.quote(lock_holder)
+            + "\n",
+            encoding="utf-8",
+        )
+        fake_ps.chmod(fake_ps.stat().st_mode | stat.S_IXUSR)
+        env = dict(self.env)
+        env["PATH"] = f"{bin_dir}{os.pathsep}{self.env['PATH']}"
+
+        proc = self._run(env=env)
+
+        self.assertEqual(proc.returncode, 10, proc.stderr)
+        self.assertEqual(
+            self._result(proc.stdout),
+            {
+                "schema_version": 1,
+                "launch_state": "unavailable",
+                "diagnostic": "profile_owner_present",
+            },
         )
         self.assertFalse(self.launch_record.exists())
 
