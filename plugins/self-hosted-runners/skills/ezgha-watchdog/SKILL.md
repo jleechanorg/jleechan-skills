@@ -253,9 +253,13 @@ tail -n 20 /tmp/ezgha-watchdog.log
 
 | Code | Meaning |
 |---|---|
-| 0 | Both hosts at configured count |
-| 1 | One or more hosts below count (fixed by restart, or dry-run reported it) |
-| 2 | Cannot read state (ezgha missing, SSH timeout, config unreadable) |
+| 0 | Every checked host at configured count |
+| 1 | One or more checked hosts below count (fixed by restart, or dry-run reported it) |
+| 2 | Cannot read state (ezgha missing, SSH timeout/unreachable, config unreadable, or a required host variable such as `RUNNER_HOST` not configured) |
+
+`--host linux` without `RUNNER_HOST` set is a configuration error, not a healthy
+result: the script exits 2 and the summary names only the hosts it actually
+checked, so an unconfigured or unselected host is never reported as OK.
 
 ## Install on a new host
 

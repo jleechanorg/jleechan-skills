@@ -20,9 +20,10 @@
 #                                    # threshold. Unset/0 = detect + log only.
 #
 # Exit codes:
-#   0 = both hosts at or above configured count
-#   1 = one or more hosts below count (fixed or reported)
-#   2 = supervisor not installed (manual install needed)
+#   0 = every checked host at or above configured count
+#   1 = one or more checked hosts below count (fixed or reported)
+#   2 = cannot read state: supervisor not installed, SSH unreachable, config
+#       unreadable, or a required host variable (RUNNER_HOST) not configured
 #
 # Logs to: /tmp/ezgha-watchdog.log
 
@@ -211,8 +212,8 @@ check_linux() {
   if [[ -n "$HOST_FILTER" && "$HOST_FILTER" != "linux" ]]; then return 0; fi
   local configured actual
   if [[ -z "$LINUX_HOST" ]]; then
-    log "LINUX: RUNNER_HOST not configured: SSH alias of the Linux runner host; skipping"
-    return 0
+    log "LINUX: RUNNER_HOST not configured (required): set it to the SSH alias of the Linux runner host"
+    return 2
   fi
   configured=$(ssh -o ConnectTimeout=5 "$LINUX_HOST" 'cat ~/.config/ezgha/config.toml 2>/dev/null' 2>/dev/null | read_configured_count)
   actual=$(ssh -o ConnectTimeout=5 "$LINUX_HOST" 'ezgha status 2>/dev/null | grep -oE "managed containers: [0-9]+" | grep -oE "[0-9]+"' 2>/dev/null)
@@ -246,11 +247,26 @@ check_linux() {
   return 0
 }
 
-# Aggregate host results: severity 2 (cannot read state) beats 1 (below target).
+# Aggregate host results: severity 2 (cannot read state / not configured) beats
+# 1 (below target). Only the hosts selected by --host are checked, and the final
+# message names them: a host that was never checked is never reported healthy.
 mac_rc=0
 linux_rc=0
-check_mac || mac_rc=$?
-check_linux || linux_rc=$?
+CHECKED_HOSTS=""
+if [[ -z "$HOST_FILTER" || "$HOST_FILTER" == "mac" ]]; then
+  check_mac || mac_rc=$?
+  CHECKED_HOSTS="mac"
+fi
+if [[ -z "$HOST_FILTER" || "$HOST_FILTER" == "linux" ]]; then
+  check_linux || linux_rc=$?
+  CHECKED_HOSTS="${CHECKED_HOSTS:+$CHECKED_HOSTS, }linux"
+fi
+
+if [[ -z "$CHECKED_HOSTS" ]]; then
+  log "ERROR: --host '$HOST_FILTER' selected no known host (expected mac or linux)"
+  exit 2
+fi
+
 EXIT=0
 for rc in "$mac_rc" "$linux_rc"; do
   if [[ "$rc" -gt "$EXIT" ]]; then
@@ -259,9 +275,9 @@ for rc in "$mac_rc" "$linux_rc"; do
 done
 
 if [[ "$EXIT" -eq 0 ]]; then
-  log "OK: both hosts at configured count"
+  log "OK: checked host(s) at configured count: $CHECKED_HOSTS"
 elif [[ "$EXIT" -eq 2 ]]; then
-  log "WARN: one or more hosts missing ezgha or unreachable — manual intervention needed"
+  log "WARN: one or more checked hosts ($CHECKED_HOSTS) missing ezgha, unreachable, or not configured — manual intervention needed"
 fi
 
 exit $EXIT
