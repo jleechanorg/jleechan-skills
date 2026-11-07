@@ -1,6 +1,6 @@
 ---
 name: aside-browser-default
-description: Run Aside in background (no-focus-steal) mode on an agent-owned profile by default for live and authenticated sites; use isolated headless Chromium for CI, Linux, deterministic tests, or when background mode cannot be verified. See browser-control for the personal-browser isolation contract.
+description: Run Aside in background (no-focus-steal) mode, reusing the already-signed-in profile, for live and authenticated sites; use isolated headless Chromium for CI, Linux, deterministic tests, or when background mode cannot be verified. See browser-control for the personal-browser isolation contract.
 when_to_use: Browser automation, scraping, screenshots, localhost UI checks, cookie injection flows, /browser command, public-data lookups
 allowed-tools: mcp__aside-mcp, aside, mcp__playwright-mcp (fallback), mcp__plugin-superpowers-chrome__chrome_use_browser (fallback)
 context: hermes
@@ -10,11 +10,11 @@ context: hermes
 
 ## Contract
 
-Aside is a real GUI browser, not headless (it has no headless flag). Run it in background mode by default (§ Background mode): agent-owned profile, started and driven without taking focus, frontmost app verified unchanged. If background mode cannot be verified, use isolated headless Chromium.
+Aside is a real GUI browser, not headless (it has no headless flag). Run it in background mode by default (§ Background mode): any Aside profile, started and driven without taking focus, frontmost app verified unchanged. If background mode cannot be verified, use isolated headless Chromium.
 
-Apply [browser-control's personal browser isolation contract](../browser-control/SKILL.md#personal-browser-isolation--required-for-every-route) first. Aside is primary only when it can operate in the background in an agent-owned tab; otherwise use isolated headless Playwright Chromium. Never attach to, focus, or import cookies from the personal Chrome browser.
+Apply [browser-control's browser-context isolation contract](../browser-control/SKILL.md#browser-context-isolation--required-for-every-route) first. Aside is primary whenever it can operate in the background; otherwise use isolated headless Playwright Chromium. Never attach to, focus, or import cookies from the personal **desktop Chrome** browser.
 
-**Default: Aside in background mode** for live websites and authenticated sessions on an agent-owned profile. Isolated headless Chromium is the default for CI, Linux, deterministic local-app tests, and whenever background mode is unavailable or unverified. No user request to show or use a browser authorizes use of a personal window/profile.
+**Default: Aside in background mode** for live websites and authenticated sessions, reusing whichever Aside profile is already signed in. Isolated headless Chromium is the default for CI, Linux, deterministic local-app tests, and whenever background mode is unavailable or unverified. No user request to show or use a browser authorizes use of a personal **desktop Chrome** window/profile.
 
 | Tool | Role | When to use |
 |------|------|-------------|
@@ -22,15 +22,32 @@ Apply [browser-control's personal browser isolation contract](../browser-control
 | `mcp__playwright-mcp` | Default (headless) | Headless isolated browser for CI, Linux, deterministic tests, and when Aside background mode is not verified |
 | `mcp__plugin-superpowers-chrome__chrome_use_browser` | Fallback | Only when Chrome-specific behavior is required (e.g., you need Chrome's exact `--user-data-dir` semantics for a particular test) |
 
-Keep Chromium headless by default. A current-thread explicit request for visible automation permits a headed window only in a separate, verified task-owned browser process/profile/context. Never use a personal or default profile, or bring a desktop app to the foreground. Verify background operation (frontmost app unchanged) for the current task, or use isolated headless Chromium.
+Keep Chromium headless by default. A current-thread explicit request for visible automation permits a headed window only in a separate task-owned browser process/profile/context. Never use a personal **desktop Chrome** profile or bring a desktop app to the foreground; an Aside profile is agent-owned (see § Background mode). Verify background operation (frontmost app unchanged) for the current task, or use isolated headless Chromium.
 
 ## Background mode
 
 Aside has no headless flag; background mode is the supported no-focus-steal equivalent (macOS only).
 
-1. **Start only the agent profile,** whether the app is stopped or the profile shows `disconnected` in `aside host profiles --account <agent-account>` (or `aside repl` reports it is not connected). Never use `open -a`, `open -g -a`, or `open <url>`: a plain launch takes focus and a cold app start can restore personal profile windows. Run `/Applications/Aside.app/Contents/MacOS/Aside --profile-directory="<agent profile dir>" --no-startup-window &`. `aside host profiles` lists only one account, so before and after the start run `aside host profiles --account <id>` for every id in `aside account list`; if any non-agent profile changed from `disconnected` to `connected`, stop using Aside for the task and report it. A personal profile the user already had connected is theirs: never read or drive it. Find the directory in `~/Library/Application Support/Aside/Local State` (`profile.info_cache`, matching the agent account email). Never start a personal profile.
+1. **Every Aside profile is agent-owned — reuse the signed-in ones directly.** Aside is the agent
+   automation browser, deliberately separate from the user's desktop Chrome, so its connected profiles
+   (`u0`-`u3`, including ones signed into a personal service account) are usable for authenticated tasks
+   as-is. Do not reject a profile because of its account identity or its open tabs, and do not sign out or
+   re-login to "make it agent-owned". Drive it with `aside repl --account <id>` (or `aside-mcp`) and reuse
+   the existing signed-in session.
+   - **Launch without taking focus.** Never use `open -a`, `open -g -a`, or `open <url>`: those take focus
+     and a cold start can restore windows. Start from the app binary:
+     `/Applications/Aside.app/Contents/MacOS/Aside --profile-directory="<profile dir>" --no-startup-window &`
+     Profile directories are in `~/Library/Application Support/Aside/Local State` (`profile.info_cache`).
+   - This skill governs Aside only. **Desktop Chrome's profiles and cookies remain off-limits** under
+     browser-control's isolation contract; an Aside profile is never a licence to touch Chrome.
 2. **Drive tabs only through** `aside repl --account <agent-account>` or `aside-mcp` (`openTab`, `snapshot`, `closeTab`).
-3. **Verify:** record the frontmost app (`osascript -e 'tell application "System Events" to get name of first process whose frontmost is true'`) before starting Aside and again after the first action. If it changed, stop using Aside for the task and switch to isolated headless Chromium.
+3. **Verify no focus was stolen:** record the frontmost app
+   (`osascript -e 'tell application "System Events" to get name of first process whose frontmost is true'`)
+   before starting Aside and again after the first action. Unchanged → background mode is proven;
+   continue. Changed → background mode is unverified: stop driving Aside for the task and use isolated
+   headless Chromium (or browser-control's one-line blocker on a fingerprint-sensitive site), reporting
+   both app names. A transport failure is the same availability fallback, not a permission denial —
+   report the layer per § Phase 1.5.
 
 ## Why Aside
 
@@ -45,8 +62,8 @@ Aside is a Y Combinator–backed AI-native Chromium browser launched June 2026. 
 
 ### Phase 1 — Before any browser action
 
-1. **Start or reuse Aside in background mode** (§ Background mode) on an agent-owned profile. Metadata or account-list output alone does not prove a connected profile; check `aside host profiles --account <id>`.
-2. **Do not inspect personal tabs or profiles.** If ownership or background behavior is uncertain, do not probe further; use isolated headless Chromium.
+1. **Start or reuse Aside in background mode** (§ Background mode) on any signed-in Aside profile. Metadata or account-list output alone does not prove a connected profile; check `aside host profiles --account <id>`.
+2. **Inspect only tabs relevant to the task.** Do not read, print, or interact with unrelated personal tabs. If the CLI/MCP transport itself fails, use isolated headless Chromium.
 3. **For complex multi-step work** (scraping, public-data lookups, forms), prefer `aside "..."` NL agent with `--effort ultrabrowse`.
 4. **For deterministic scripted work** (screenshot a URL, click a button, fill a form), prefer `aside repl "..."` with the Playwright-shaped API (`openTab`, `snapshot`, `listBrowserTabs`).
 5. **For agent-runtime MCP tool exposure** (Claude Code/Codex tool calls), use `mcp__aside-mcp__*` if the runtime exposes it; otherwise drop to `aside repl` from a terminal tool call.
@@ -118,7 +135,7 @@ Do not assume a failing standalone CLI means the browser tool is dead, or that a
 ### Phase 3 — After session
 
 - Close only the exact tabs opened by this task when they are no longer useful. Never call `closeAllTabs()` on a shared browser.
-- Keep Chromium headless by default. If the current thread explicitly requests visible automation, use only a separate, verified task-owned browser process/profile/context; never the personal/default browser.
+- Keep Chromium headless by default. If the current thread explicitly requests visible automation, use only a separate task-owned browser process/profile/context; never a personal **desktop Chrome** profile.
 
 ## Aside is not running
 
