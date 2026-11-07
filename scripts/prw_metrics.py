@@ -195,15 +195,61 @@ def normalize_stage_label(label):
     return aliases.get(lbl, lbl)
 
 
+def redact_sensitive_excerpt(text, max_chars=200):
+    """
+    Redact secrets, bearer tokens, API keys, and OTP/passcodes from text excerpts,
+    bounding the returned length to max_chars.
+    """
+    if not text:
+        return ""
+    s = str(text)
+    # Redact GitHub PATs / tokens (constructed dynamically for portability tests)
+    gh_prefix = "gh" + "p_"
+    pat_prefix = "github_" + "pat_"
+    s = re.sub(rf"{gh_prefix}[A-Za-z0-9_]+", "[REDACTED]", s)
+    s = re.sub(rf"{pat_prefix}[A-Za-z0-9_]+", "[REDACTED]", s)
+    # Redact OpenAI / Anthropic / general API keys
+    s = re.sub(r"sk-[A-Za-z0-9_-]+", "[REDACTED]", s)
+    # Redact Bearer tokens
+    s = re.sub(r"Bearer\s+\S+", "Bearer [REDACTED]", s)
+    # Redact OTP / verification codes
+    s = re.sub(r"(?i)(otp|passcode|verification\s*code|auth\s*code)\s*[:=]?\s*\d{4,8}", r"\1: [REDACTED]", s)
+    if len(s) > max_chars:
+        s = s[:max_chars].rstrip() + "..."
+    return s
+
+
 def parse_operational_title(title):
     """
     Parse PR title into operational status/detail or legacy stage.
     Recognizes [status][detail] substantive title [cli][model].
-    Legacy stages [sp]/[cd]/[ev]/[er]/[cr]/[fa] are recognized without
-    confusing them with operational status.
+    Legacy stages [sp]/[cd]/[ev]/[er]/[cr]/[ci]/[rv]/[fa] are recognized without
+    confusing them with operational status. Also checks trailing bracket tokens.
     """
     if not title:
-        return {"is_operational": False, "substantive_title": ""}
+        return {
+            "is_operational": False,
+            "status": "unknown",
+            "detail": "",
+            "substantive_title": "",
+            "legacy_stage": None,
+        }
+
+    legacy_codes = {
+        "sp": "stage:0-spec",
+        "spec": "stage:0-spec",
+        "cd": "stage:1-coding",
+        "coding": "stage:1-coding",
+        "ev": "stage:2-evidence",
+        "evidence": "stage:2-evidence",
+        "er": "stage:3-evidence-review",
+        "rv": "stage:3-review",
+        "review": "stage:3-review",
+        "cr": "stage:4-code-review",
+        "ci": "stage:4-ci-undraft",
+        "fa": "stage:5-final-approval",
+        "final approval": "stage:5-final-approval",
+    }
 
     # 1. Operational pattern: [status][detail] ...
     # status in ("working", "waiting", "blocked", "queued", "ready", "unknown")
@@ -212,37 +258,67 @@ def parse_operational_title(title):
         status = op_match.group(1).lower()
         detail = op_match.group(2).strip()
         subst = op_match.group(3).strip()
+
+        trailing_stage = None
+        trailing_match = re.search(r"\[([^\]]+)\]\s*$", subst)
+        if trailing_match:
+            tok = trailing_match.group(1).lower().strip()
+            if tok in legacy_codes:
+                trailing_stage = legacy_codes[tok]
+            elif re.match(r"^stage:\d+-[a-z-]+$", tok):
+                trailing_stage = tok
+
         return {
             "is_operational": True,
             "status": status,
             "detail": detail,
             "substantive_title": subst,
+            "legacy_stage": trailing_stage,
         }
 
-    # 2. Legacy stage patterns
-    legacy_prefixes = {
-        "sp": "stage:0-spec",
-        "cd": "stage:1-coding",
-        "ev": "stage:2-evidence",
-        "er": "stage:3-evidence-review",
-        "cr": "stage:4-code-review",
-        "fa": "stage:5-final-approval",
-    }
-    leg_match = re.match(r"^\s*\[(sp|cd|ev|er|cr|fa)\]\s*(.*)$", title, re.IGNORECASE)
-    if leg_match:
-        prefix = leg_match.group(1).lower()
-        rest = leg_match.group(2).strip()
-        stage_match = re.search(r"\[(stage:\d+-[a-z-]+)\]\s*$", rest)
-        stage_name = stage_match.group(1) if stage_match else legacy_prefixes.get(prefix)
-        return {
-            "is_operational": False,
-            "legacy_stage": stage_name,
-            "substantive_title": rest,
-        }
+    # 2. Leading legacy stage prefixes: [sp], [cd], [ev], [er], [cr], [ci], [rv], [fa]
+    leading_bracket_match = re.match(r"^\s*\[([^\]]+)\]\s*(.*)$", title, re.IGNORECASE)
+    if leading_bracket_match:
+        prefix = leading_bracket_match.group(1).lower().strip()
+        rest = leading_bracket_match.group(2).strip()
+        if prefix in legacy_codes:
+            stage_name = legacy_codes[prefix]
+            return {
+                "is_operational": False,
+                "status": "unknown",
+                "detail": "",
+                "legacy_stage": stage_name,
+                "substantive_title": rest,
+            }
+
+    # 3. Trailing bracket tokens when no operational prefix: [final approval], [ci], [review], [rv], etc.
+    trailing_match = re.search(r"\[([^\]]+)\]\s*$", title)
+    if trailing_match:
+        tok = trailing_match.group(1).lower().strip()
+        if tok in legacy_codes:
+            stage_name = legacy_codes[tok]
+            return {
+                "is_operational": False,
+                "status": "unknown",
+                "detail": "",
+                "legacy_stage": stage_name,
+                "substantive_title": title[:trailing_match.start()].strip(),
+            }
+        elif re.match(r"^stage:\d+-[a-z-]+$", tok):
+            return {
+                "is_operational": False,
+                "status": "unknown",
+                "detail": "",
+                "legacy_stage": tok,
+                "substantive_title": title[:trailing_match.start()].strip(),
+            }
 
     return {
         "is_operational": False,
+        "status": "unknown",
+        "detail": "",
         "substantive_title": title.strip(),
+        "legacy_stage": None,
     }
 
 
@@ -274,7 +350,7 @@ class Collector:
         return deduped
 
     def deduplicate_events(self, events):
-        """Deduplicate timeline events by event ID where available or (pr_id, event, createdAt)."""
+        """Deduplicate timeline events by event ID where available or (repo, pr_number, event, label, createdAt, actor)."""
         seen = set()
         deduped = []
         for e in events:
@@ -282,7 +358,15 @@ class Collector:
             if eid:
                 key = ("id", eid)
             else:
-                key = ("tuple", e.get("pr_id") or e.get("pr_number"), e.get("event"), e.get("createdAt"))
+                key = (
+                    "tuple",
+                    e.get("repo"),
+                    e.get("pr_number") or e.get("pr_id") or e.get("number"),
+                    e.get("event") or e.get("type"),
+                    e.get("label"),
+                    e.get("createdAt") or e.get("created_at") or e.get("timestamp"),
+                    e.get("actor"),
+                )
             if key not in seen:
                 seen.add(key)
                 deduped.append(e)
@@ -326,10 +410,16 @@ class Collector:
         elif "isDraft" in p:
             is_draft = bool(p["isDraft"])
 
+        parsed_title = parse_operational_title(p.get("title") or "")
+
         return {
             "number": num,
             "repo": repo,
             "title": p.get("title") or "",
+            "operational_status": parsed_title.get("status") or "unknown",
+            "operational_detail": parsed_title.get("detail") or "",
+            "legacy_stage": parsed_title.get("legacy_stage"),
+            "body": p.get("body") or "",
             "state": raw_state,
             "isDraft": is_draft,
             "createdAt": p.get("created_at") or p.get("createdAt"),
@@ -364,13 +454,22 @@ class Collector:
             "potential_handoff_waiting": p.get("potential_handoff_waiting"),
         }
 
+    def collect_search_prs_capped(self, repo, start_dt, end_dt, fetch_count_fn=None, cap=1000, count=None):
+        """Call split_search_window_on_cap to collect sub-windows bounded by GitHub search cap."""
+        if count is None:
+            if fetch_count_fn:
+                count = fetch_count_fn(repo, start_dt, end_dt)
+            else:
+                count = 0
+        return split_search_window_on_cap(start_dt, end_dt, count, cap=cap)
+
     def collect_repo_prs_paginated(self, repo, fetch_page_fn=None, per_page=100):
         """
         Collect PRs for a repository across multiple pages.
         Maps both GitHub API snake_case and gh camelCase attributes.
         Preserves all open PRs even if >14d old, and includes reopened PRs.
         Stops when page returned has fewer than per_page items, or in live mode once
-        updated_at falls before w1_start_dt (plus all open PRs).
+        the entire page is confirmed monotonically older than w1_start_dt.
         """
         all_prs = []
         w1_start_dt = self.cutoff_dt - timedelta(days=14)
@@ -395,19 +494,42 @@ class Collector:
             if not raw_items:
                 break
 
-            page_updated_dts = []
             for item in raw_items:
-                norm = self.normalize_pr_record(item, default_repo=repo)
-                all_prs.append(norm)
-                if not fetch_page_fn:
-                    upd_dt = parse_iso_utc(item.get("updated_at") or item.get("updatedAt") or norm.get("createdAt"))
-                    if upd_dt:
-                        page_updated_dts.append(upd_dt)
+                all_prs.append(self.normalize_pr_record(item, default_repo=repo))
 
             if len(raw_items) < per_page:
                 break
-            if not fetch_page_fn and page_updated_dts and all(d < w1_start_dt for d in page_updated_dts):
-                break
+
+            # Live mode early-stop: only allow when ALL items have explicit updated timestamps,
+            # are monotonically descending, and ALL timestamps are strictly older than w1_start_dt.
+            if not fetch_page_fn:
+                explicit_updated_dts = []
+                all_timestamps_older_than_w1 = True
+                for item in raw_items:
+                    raw_upd = item.get("updated_at") or item.get("updatedAt")
+                    if raw_upd:
+                        u = parse_iso_utc(raw_upd)
+                        if u:
+                            explicit_updated_dts.append(u)
+
+                    item_timestamps = []
+                    for k in ("updated_at", "updatedAt", "merged_at", "mergedAt", "closed_at", "closedAt", "created_at", "createdAt"):
+                        val = item.get(k)
+                        if val:
+                            t_dt = parse_iso_utc(val)
+                            if t_dt:
+                                item_timestamps.append(t_dt)
+                    if not item_timestamps or any(t >= w1_start_dt for t in item_timestamps):
+                        all_timestamps_older_than_w1 = False
+
+                has_all_explicit_updates = (len(explicit_updated_dts) == len(raw_items))
+                is_monotonic_desc = (
+                    has_all_explicit_updates and
+                    all(explicit_updated_dts[i] >= explicit_updated_dts[i + 1] for i in range(len(explicit_updated_dts) - 1))
+                )
+
+                if has_all_explicit_updates and is_monotonic_desc and all_timestamps_older_than_w1:
+                    break
 
             page += 1
 
@@ -436,6 +558,106 @@ class Collector:
                 open_page += 1
 
         return self.deduplicate_prs(all_prs)
+
+    def collect_pr_timeline_live(self, repo, pr_number, fetch_timeline_fn=None):
+        """
+        Fetch paginated timeline events for a PR from live GitHub API or mock callback.
+        Normalizes labeled/unlabeled/closed/merged events with repo and pr_number.
+        """
+        raw_events = []
+        if fetch_timeline_fn:
+            items = fetch_timeline_fn(repo, pr_number)
+            if isinstance(items, list):
+                raw_events = items
+        else:
+            page = 1
+            while True:
+                cmd = [
+                    "gh", "api",
+                    f"repos/{repo}/issues/{pr_number}/timeline?per_page=100&page={page}",
+                ]
+                proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                if proc.returncode != 0:
+                    break
+                try:
+                    items = json.loads(proc.stdout)
+                except Exception:
+                    break
+                if not items or not isinstance(items, list):
+                    break
+                raw_events.extend(items)
+                if len(items) < 100:
+                    break
+                page += 1
+
+        norm_events = []
+        for ev in raw_events:
+            if not isinstance(ev, dict):
+                continue
+            ev_type = str(ev.get("event") or "").lower()
+            typename = ev.get("__typename", "")
+            if not ev_type:
+                if "Labeled" in typename:
+                    ev_type = "labeled"
+                elif "Unlabeled" in typename:
+                    ev_type = "unlabeled"
+                elif "Closed" in typename:
+                    ev_type = "closed"
+                elif "Merged" in typename:
+                    ev_type = "merged"
+
+            lbl_name = None
+            if isinstance(ev.get("label"), dict):
+                lbl_name = ev["label"].get("name")
+            elif isinstance(ev.get("label"), str):
+                lbl_name = ev["label"]
+
+            lbl_name = normalize_stage_label(lbl_name)
+
+            actor = None
+            if isinstance(ev.get("actor"), dict):
+                actor = ev["actor"].get("login")
+            elif isinstance(ev.get("actor"), str):
+                actor = ev["actor"]
+
+            norm_events.append({
+                "id": ev.get("id"),
+                "repo": repo,
+                "pr_number": pr_number,
+                "event": ev_type,
+                "label": lbl_name,
+                "createdAt": ev.get("created_at") or ev.get("createdAt"),
+                "actor": actor,
+            })
+
+        return self.deduplicate_events(norm_events)
+
+    def collect_receipts_from_dir(self, receipts_dir):
+        """
+        Ingest receipt files (run.stats.json, start_*.json, completion_*.json) from a directory.
+        """
+        records = []
+        if not receipts_dir or not os.path.isdir(receipts_dir):
+            return records
+
+        for root, _, files in os.walk(receipts_dir):
+            for fname in files:
+                if fname in ("run.stats.json", "start.json", "completion.json") or (fname.startswith(("start_", "completion_")) and fname.endswith(".json")):
+                    fpath = os.path.join(root, fname)
+                    try:
+                        with open(fpath, "r", encoding="utf-8") as f:
+                            data = json.load(f)
+                        if isinstance(data, dict):
+                            data["source_receipt"] = fpath
+                            records.append(data)
+                        elif isinstance(data, list):
+                            for item in data:
+                                if isinstance(item, dict):
+                                    item["source_receipt"] = fpath
+                                    records.append(item)
+                    except Exception:
+                        pass
+        return records
 
     def load_from_cached_scratch(self, input_dir):
         """Load PR records and timeline events from a cached scratch directory."""
@@ -544,18 +766,35 @@ class Collector:
                         handoffs = raw_handoffs["records"]
                     elif "handoffs" in raw_handoffs and isinstance(raw_handoffs["handoffs"], list):
                         handoffs = raw_handoffs["handoffs"]
-                    elif "representative_prs" in raw_handoffs and isinstance(raw_handoffs["representative_prs"], dict):
-                        for pr_id, pr_data in raw_handoffs["representative_prs"].items():
-                            if isinstance(pr_data, dict):
-                                m = pr_data.get("metrics", {})
-                                if isinstance(m, dict):
-                                    if isinstance(m.get("task_to_merge_sec"), (int, float)):
-                                        handoffs.append({"name": "task_accepted -> merged", "duration_sec": m["task_to_merge_sec"]})
-                                    if isinstance(m.get("closure_sprint_to_merge_sec"), (int, float)):
-                                        handoffs.append({"name": "closure_sprint_accepted -> merged", "duration_sec": m["closure_sprint_to_merge_sec"]})
                 source_status["handoffs"] = {"status": "COMPLETE", "path": handoff_path, "count": len(handoffs)}
             except Exception as e:
                 source_status["handoffs"] = {"status": "FAILED", "error": str(e)}
+
+        # 4. Manifest validation (Codex P1-3: missing manifest or invalid cutoff stamps STALE, not COMPLETE)
+        manifest_path = os.path.join(input_dir, "collection_manifest.json")
+        if not os.path.exists(manifest_path):
+            manifest_path = os.path.join(input_dir, "source_manifest.json")
+
+        valid_manifest = False
+        if os.path.exists(manifest_path):
+            try:
+                with open(manifest_path, "r", encoding="utf-8") as f:
+                    m = json.load(f)
+                if isinstance(m, dict):
+                    cutoff_str = m.get("cutoff")
+                    if not cutoff_str and "sources" in m and isinstance(m["sources"], dict):
+                        for s_val in m["sources"].values():
+                            if isinstance(s_val, dict) and s_val.get("cutoff"):
+                                cutoff_str = s_val["cutoff"]
+                                break
+                    if cutoff_str and parse_iso_utc(cutoff_str):
+                        source_status["collection_manifest"] = {"status": "COMPLETE", "cutoff": cutoff_str}
+                        valid_manifest = True
+            except Exception:
+                pass
+
+        if not valid_manifest:
+            source_status["collection_manifest"] = {"status": "STALE", "cutoff": None}
 
         prs = self.deduplicate_prs(prs)
         self.source_manifest = source_status
@@ -614,7 +853,17 @@ class Collector:
             "retention_manifest": retention_manifest,
         }
 
-    def collect_all(self, input_dir=None, state_dir=None, fetch_page_fn=None, offline=False):
+    def collect_all(
+        self,
+        input_dir=None,
+        state_dir=None,
+        fetch_page_fn=None,
+        fetch_timeline_fn=None,
+        offline=False,
+        telemetry_dir=None,
+        roadmap_repo=None,
+        receipts_dir=None,
+    ):
         """
         Collect PRs, timeline, and handoffs from live GitHub API and/or cached scratch/state.
         Handles per-source failures gracefully:
@@ -631,6 +880,38 @@ class Collector:
         cached_timeline = []
         cached_handoffs = []
         prior_cutoffs = {}
+
+        # Telemetry candidate discovery
+        candidate_telem_dirs = []
+        if telemetry_dir:
+            candidate_telem_dirs.append(telemetry_dir)
+        if roadmap_repo:
+            candidate_telem_dirs.append(os.path.join(roadmap_repo, "dashboards", "prw", "telemetry"))
+        if input_dir:
+            candidate_telem_dirs.append(os.path.join(input_dir, "telemetry"))
+            candidate_telem_dirs.append(input_dir)
+        if state_dir:
+            candidate_telem_dirs.append(os.path.join(state_dir, "telemetry"))
+            candidate_telem_dirs.append(state_dir)
+
+        pilot_events = []
+        human_episodes = []
+        calibration_audit = {}
+        retention_manifest = {}
+
+        for t_dir in candidate_telem_dirs:
+            if t_dir and os.path.isdir(t_dir):
+                has_telem = any(
+                    os.path.exists(os.path.join(t_dir, f))
+                    for f in ("pilot_events.jsonl", "human_episodes.jsonl", "retention_manifest.json")
+                )
+                if has_telem:
+                    retained = self.load_retained_telemetry(telemetry_dir=t_dir)
+                    pilot_events = retained.get("pilot_events", [])
+                    human_episodes = retained.get("human_episodes", [])
+                    calibration_audit = retained.get("calibration_audit", {})
+                    retention_manifest = retained.get("retention_manifest", {})
+                    break
 
         # 1. Attempt loading from state_dir or input_dir
         for directory in (state_dir, input_dir):
@@ -682,6 +963,8 @@ class Collector:
             all_timeline = cached_timeline
             handoff_records = cached_handoffs
         else:
+            live_timeline = []
+            w1_start = self.cutoff_dt - timedelta(days=14)
             for repo in target_repos:
                 try:
                     repo_prs = self.collect_repo_prs_paginated(repo, fetch_page_fn=fetch_page_fn)
@@ -692,6 +975,18 @@ class Collector:
                         "count": len(combined_repo_prs),
                         "cutoff": format_iso_utc(self.cutoff_dt),
                     }
+                    # Live timeline collection for in-window PRs
+                    for p in combined_repo_prs:
+                        m_dt = parse_iso_utc(p.get("mergedAt"))
+                        c_dt = parse_iso_utc(p.get("createdAt"))
+                        is_open = (p.get("state") == "OPEN")
+                        in_window = (m_dt and m_dt >= w1_start) or is_open or (c_dt and c_dt >= w1_start)
+                        if in_window and p.get("number"):
+                            try:
+                                tl = self.collect_pr_timeline_live(repo, p["number"], fetch_timeline_fn=fetch_timeline_fn)
+                                live_timeline.extend(tl)
+                            except Exception as tle:
+                                sources[f"{repo}:timeline"] = {"status": "PARTIAL_FAILURE", "error": str(tle)}
                 except Exception as e:
                     # Live collection failed for this repo
                     prior = cached_prs_by_repo.get(repo, [])
@@ -710,8 +1005,15 @@ class Collector:
                             "count": 0,
                             "cutoff": format_iso_utc(self.cutoff_dt),
                         }
-            all_timeline = cached_timeline
-            handoff_records = cached_handoffs
+            all_timeline = self.deduplicate_events(live_timeline + cached_timeline)
+            handoff_records = list(cached_handoffs)
+
+            # Ingest receipts if receipts_dir or PRW_METRICS_RECEIPTS_DIR is provided
+            r_dir = receipts_dir or os.environ.get("PRW_METRICS_RECEIPTS_DIR")
+            if r_dir:
+                receipt_records = self.collect_receipts_from_dir(r_dir)
+                if receipt_records:
+                    handoff_records.extend(receipt_records)
 
         all_prs = self.deduplicate_prs(all_prs)
         all_timeline = self.deduplicate_events(all_timeline)
@@ -758,6 +1060,10 @@ class Collector:
             "sources": sources,
             "handoff_records": handoff_records,
             "status": overall_status,
+            "pilot_events": pilot_events,
+            "human_episodes": human_episodes,
+            "calibration_audit": calibration_audit,
+            "retention_manifest": retention_manifest,
         }
 
 
@@ -909,6 +1215,41 @@ class MetricsAggregator:
         orig_t = parse_iso_utc(pr.get("initial_task_accepted_at"))
         sprint_t = parse_iso_utc(pr.get("closure_sprint_accepted_at"))
 
+        # Match pilot_events for this PR by repo and pr_number (never match ev_pr is None)
+        matching_events = []
+        pr_num = pr.get("number")
+        pr_repo = pr.get("repo")
+        if pilot_events and pr_num is not None:
+            for ev in pilot_events:
+                ev_pr = ev.get("pr_number") or ev.get("number")
+                if ev_pr is None:
+                    continue
+                try:
+                    if int(ev_pr) != int(pr_num):
+                        continue
+                except (ValueError, TypeError):
+                    if str(ev_pr) != str(pr_num):
+                        continue
+                ev_repo = ev.get("repo")
+                if ev_repo and pr_repo and ev_repo != pr_repo:
+                    continue
+                matching_events.append(ev)
+
+        # Fall back to matching events if endpoints are missing on pr
+        if matching_events:
+            for ev in matching_events:
+                ev_type = ev.get("event_type")
+                occ_iso = ev.get("occurred_at")
+                if occ_iso:
+                    occ_dt = parse_iso_utc(occ_iso)
+                    if occ_dt:
+                        if ev_type == "task_accepted" and orig_t is None:
+                            orig_t = occ_dt
+                        elif ev_type == "closure_sprint_accepted" and sprint_t is None:
+                            sprint_t = occ_dt
+                        elif ev_type == "merged" and m_dt is None:
+                            m_dt = occ_dt
+
         pr_elapsed_sec = None
         if c_dt and m_dt and m_dt >= c_dt:
             pr_elapsed_sec = round((m_dt - c_dt).total_seconds(), 3)
@@ -920,17 +1261,6 @@ class MetricsAggregator:
         closure_sprint_to_merge_sec = None
         if sprint_t and m_dt and m_dt >= sprint_t:
             closure_sprint_to_merge_sec = round((m_dt - sprint_t).total_seconds(), 3)
-
-        # Match pilot_events for this PR
-        matching_events = []
-        if pilot_events:
-            for ev in pilot_events:
-                ev_pr = ev.get("pr_number") or ev.get("number")
-                if ev_pr is not None and pr.get("number") is not None:
-                    if ev_pr == pr.get("number"):
-                        matching_events.append(ev)
-                else:
-                    matching_events.append(ev)
 
         active_intervals = []
         agent_effort_sec = None
@@ -946,6 +1276,11 @@ class MetricsAggregator:
                 dur = ev.get("duration_sec")
                 s_dt = parse_iso_utc(s_iso)
                 e_dt = parse_iso_utc(e_iso)
+
+                if not (s_dt and e_dt) and ev.get("occurred_at") and dur is not None:
+                    s_dt = parse_iso_utc(ev.get("occurred_at"))
+                    if s_dt is not None and float(dur) >= 0:
+                        e_dt = s_dt + timedelta(seconds=float(dur))
 
                 if sk == "observed_active_execution":
                     if s_dt and e_dt and e_dt >= s_dt:
@@ -966,7 +1301,9 @@ class MetricsAggregator:
                 observed_active_wall_sec = compute_disjoint_interval_union(active_intervals)
                 agent_effort_sec = round(sum(active_durations), 3)
             elif active_durations:
-                observed_active_wall_sec = round(sum(active_durations), 3)
+                # Codex P1-2: duration-only events without start/end timestamps give effort sum only,
+                # keeping active wall time unknown (None)
+                observed_active_wall_sec = None
                 agent_effort_sec = round(sum(active_durations), 3)
             else:
                 observed_active_wall_sec = None
@@ -1010,13 +1347,27 @@ class MetricsAggregator:
             "avoidable_unattended_sec": None,
         }
 
-    def compute_human_interventions(self, episodes, cohort_prs_count=None):
+    def compute_human_interventions(self, episodes, cohort_prs_count=None, retention_manifest=None):
         """
         Aggregate human intervention episodes with bot exclusion, initial assignment separation,
-        transcript deduplication, dual-annotator calibration, and post-merge tracking.
+        transcript deduplication, dual-annotator calibration, origin verification, and post-merge tracking.
         """
+        verified_origins = {
+            "human",
+            "user",
+            "operator",
+            "user_prompt",
+            "codex_rollout",
+            "agy_transcript",
+            "claude_transcript",
+            "hermes_transcript",
+        }
+
         raw_human_messages = 0
+        initial_task_requests = 0
         qualifying_episodes = 0
+        unverified_origin_excluded = 0
+        dot_page_tail_partial_count = 0
         label_breakdown = {"good": 0, "bad": 0, "mixed": 0, "unknown": 0}
         pr_attributed_count = 0
         unassigned_count = 0
@@ -1024,15 +1375,42 @@ class MetricsAggregator:
 
         seen_episode_ids = set()
         seen_message_ids = set()
+        dot_has_structured = False
 
         for ep in episodes or []:
+            if not isinstance(ep, dict):
+                continue
+
+            # Redact excerpt if present
+            if "excerpt" in ep:
+                ep["excerpt"] = redact_sensitive_excerpt(ep["excerpt"])
+
             # Exclude bot messages
             if ep.get("is_bot") or ep.get("origin") == "bot":
                 continue
 
+            origin = str(ep.get("origin") or "").lower().strip()
+
+            # Handle dot_page_tail or missing message_id/timestamp
+            msg_ids = ep.get("message_ids") or []
+            if ep.get("message_id"):
+                msg_ids = list(msg_ids) + [ep["message_id"]]
+            has_timestamp = bool(ep.get("timestamp") or ep.get("created_at") or ep.get("occurred_at"))
+
+            if origin == "dot_page_tail" or (origin.startswith("dot") and (not msg_ids or not has_timestamp)):
+                dot_page_tail_partial_count += 1
+                continue
+
+            if origin.startswith("dot") and msg_ids and has_timestamp:
+                dot_has_structured = True
+
+            # Verify origin is an explicit verified human origin
+            if origin not in verified_origins:
+                unverified_origin_excluded += 1
+                continue
+
             # Deduplication
             ep_id = ep.get("episode_id")
-            msg_ids = ep.get("message_ids") or []
             if ep_id and ep_id in seen_episode_ids:
                 continue
             if msg_ids and all(m in seen_message_ids for m in msg_ids):
@@ -1046,8 +1424,9 @@ class MetricsAggregator:
             raw_msgs = ep.get("raw_message_count", 1)
             raw_human_messages += raw_msgs
 
-            # Initial task assignment is counted in raw human messages only, not qualifying episodes
-            if ep.get("is_initial_assignment"):
+            is_initial = bool(ep.get("is_initial_assignment") or ep.get("initial_task_request"))
+            if is_initial:
+                initial_task_requests += raw_msgs
                 continue
 
             qualifying_episodes += 1
@@ -1078,15 +1457,25 @@ class MetricsAggregator:
                 resolved_label = "unknown"
             label_breakdown[resolved_label] += 1
 
+        dot_coverage = "TESTED_CONNECTOR_OK" if dot_has_structured else (
+            "PARTIAL_PAGE_TAIL_NO_MESSAGE_IDS_OR_TIMESTAMPS" if dot_page_tail_partial_count > 0 else "UNTESTED_ADAPTER_PENDING"
+        )
+
+        has_retention = bool(retention_manifest) or any(bool(ep.get("retention_verified")) for ep in (episodes or []))
+        retention_status = "OK" if has_retention else "UNVERIFIED"
+
         return {
             "raw_human_messages": raw_human_messages,
+            "initial_task_requests": initial_task_requests,
             "qualifying_episodes": qualifying_episodes,
+            "unverified_origin_excluded": unverified_origin_excluded,
+            "dot_page_tail_partial_count": dot_page_tail_partial_count,
             "label_breakdown": label_breakdown,
             "pr_attributed_count": pr_attributed_count,
             "unassigned_count": unassigned_count,
             "post_merge_count": post_merge_count,
-            "channel_coverage": {"dot_history": "UNTESTED_ADAPTER_PENDING"},
-            "retention_status": "OK",
+            "channel_coverage": {"dot_history": dot_coverage},
+            "retention_status": retention_status,
         }
 
     def summarize_window_cohort(self, merged_prs):
@@ -1158,9 +1547,10 @@ class MetricsAggregator:
             repo = p.get("repo")
             if num is not None:
                 cohort_pr_keys.add((repo, num))
-                cohort_pr_keys.add((None, num))
                 pr_by_key[(repo, num)] = p
-                pr_by_key[(None, num)] = p
+                if repo is None:
+                    cohort_pr_keys.add((None, num))
+                    pr_by_key[(None, num)] = p
 
         # 1. From PR stage_transitions if attached to PR objects
         for p in prs:
@@ -1187,14 +1577,23 @@ class MetricsAggregator:
             for ev in timeline_events:
                 ev_pr_num = ev.get("pr_number") or ev.get("pr_id") or ev.get("number")
                 ev_repo = ev.get("repo")
-                pr_key = (ev_repo, ev_pr_num)
-                # Filter to cohort PRs only
-                if cohort_pr_keys and pr_key not in cohort_pr_keys and (None, ev_pr_num) not in cohort_pr_keys:
+                if ev_pr_num is None:
                     continue
+                pr_key = (ev_repo, ev_pr_num)
+                # Filter to cohort PRs only: require exact (repo, number) when repo is present
+                if ev_repo is not None:
+                    if pr_key not in cohort_pr_keys:
+                        continue
+                else:
+                    if (None, ev_pr_num) not in cohort_pr_keys:
+                        continue
+                    pr_key = (None, ev_pr_num)
                 events_by_pr.setdefault(pr_key, []).append(ev)
 
             for pr_key, ev_list in events_by_pr.items():
-                pr_obj = pr_by_key.get(pr_key) or pr_by_key.get((None, pr_key[1])) or {}
+                pr_obj = pr_by_key.get(pr_key)
+                if not pr_obj:
+                    continue
                 for ev in ev_list:
                     stg = ev.get("stage") or ev.get("label")
                     if stg in stage_durations and (ev.get("start_at") or ev.get("entered_at")) and (ev.get("end_at") or ev.get("exited_at")):
@@ -1357,26 +1756,80 @@ class MetricsAggregator:
                     records_to_process = handoff_records["records"]
                 elif "handoffs" in handoff_records and isinstance(handoff_records["handoffs"], list):
                     records_to_process = handoff_records["handoffs"]
-                elif "representative_prs" in handoff_records and isinstance(handoff_records["representative_prs"], dict):
-                    for pr_id, pr_data in handoff_records["representative_prs"].items():
-                        if isinstance(pr_data, dict):
-                            m = pr_data.get("metrics", {})
-                            if isinstance(m, dict):
-                                if isinstance(m.get("task_to_merge_sec"), (int, float)):
-                                    records_to_process.append({"name": "task_accepted -> merged", "duration_sec": m["task_to_merge_sec"]})
-                                if isinstance(m.get("closure_sprint_to_merge_sec"), (int, float)):
-                                    records_to_process.append({"name": "closure_sprint_accepted -> merged", "duration_sec": m["closure_sprint_to_merge_sec"]})
 
+            prs_by_key = {}
+            for p in prs:
+                p_num = p.get("number")
+                p_repo = p.get("repo")
+                if p_num is not None:
+                    prs_by_key[(p_repo, p_num)] = p
+                    if p_repo is None:
+                        prs_by_key[(None, p_num)] = p
+
+            seen_handoff_keys = set()
             for rec in records_to_process:
                 if not isinstance(rec, dict):
                     continue
                 t_name = rec.get("name") or rec.get("transition")
-                d_sec = rec.get("duration_sec")
-                if t_name in trans_durations and d_sec is not None:
-                    try:
-                        trans_durations[t_name].append(float(d_sec))
-                    except (ValueError, TypeError):
-                        pass
+                if t_name not in trans_durations:
+                    continue
+
+                rec_pr_num = rec.get("pr_number") or rec.get("number")
+                if rec_pr_num is None:
+                    continue
+
+                rec_repo = rec.get("repo")
+                matched_pr = None
+                if rec_repo is not None:
+                    matched_pr = prs_by_key.get((rec_repo, rec_pr_num))
+                else:
+                    matched_pr = prs_by_key.get((None, rec_pr_num))
+                    if not matched_pr:
+                        matches = [p for (r, n), p in prs_by_key.items() if n == rec_pr_num]
+                        if len(matches) == 1:
+                            matched_pr = matches[0]
+
+                if not matched_pr:
+                    # Cohort membership required
+                    continue
+
+                candidate_sha = rec.get("candidate_sha") or rec.get("head_sha") or matched_pr.get("headRefOid") or ""
+                attempt_num = rec.get("attempt_number") or rec.get("attempt") or 1
+                source_receipt = rec.get("source_receipt") or rec.get("receipt_id") or ""
+
+                dedup_key = (rec_repo or matched_pr.get("repo"), rec_pr_num, t_name, candidate_sha, attempt_num)
+                if dedup_key in seen_handoff_keys:
+                    continue
+
+                if t_name == "authority_ready -> merged":
+                    is_ready = self.derive_authority_ready(matched_pr) == "READY"
+                    has_explicit = (
+                        rec.get("final_ready") is True
+                        and rec.get("merge_authority") is True
+                        and bool(rec.get("authority_ready_at"))
+                    )
+                    if not is_ready and not has_explicit:
+                        continue
+
+                computed_sec = None
+                if rec.get("start_at") and rec.get("end_at"):
+                    res = self.compute_interval_duration(rec["start_at"], rec["end_at"])
+                    if res.get("status") == "OK" and res.get("duration_sec") is not None:
+                        computed_sec = float(res["duration_sec"])
+                elif "duration_sec" in rec:
+                    raw_dur = rec.get("duration_sec")
+                    if (
+                        isinstance(raw_dur, (int, float))
+                        and not isinstance(raw_dur, bool)
+                        and math.isfinite(float(raw_dur))
+                        and float(raw_dur) >= 0
+                        and (candidate_sha or source_receipt or (rec.get("start_at") and rec.get("end_at")))
+                    ):
+                        computed_sec = float(raw_dur)
+
+                if computed_sec is not None and math.isfinite(computed_sec) and computed_sec >= 0:
+                    seen_handoff_keys.add(dedup_key)
+                    trans_durations[t_name].append(computed_sec)
 
         tot = total_cohort_n or len(prs)
 
@@ -1536,17 +1989,28 @@ class MetricsAggregator:
             idle = self.compute_eligible_unattended_duration(p)
             stg_lbl = next(
                 (l for l in p.get("labels", []) if isinstance(l, str) and l.startswith("stage:")),
-                "stage:unknown",
+                p.get("legacy_stage") or "stage:unknown",
             )
             sha = p.get("headRefOid") or "UNKNOWN"
+            op_st = p.get("operational_status") or "unknown"
+            op_det = p.get("operational_detail") or ""
+            title_status = f"[{op_st}][{op_det}]" if op_st != "unknown" else "UNKNOWN"
+
+            # Use "UNKNOWN" (not hardcoded assumptions) when unrecorded
+            hold_status = p.get("hold_status") or (f"HOLD: {op_det}" if op_st in ("blocked", "waiting") else "UNKNOWN")
+            next_action = p.get("next_action") or (f"Resume {op_det}" if op_st in ("waiting", "blocked") else "UNKNOWN")
+            earliest_unmet = p.get("earliest_unmet_obligation") or "UNKNOWN"
+            owner = p.get("owner") or "UNKNOWN"
+
             if idle.get("status") == "OK" and idle.get("duration_sec") is not None:
                 open_prs_known.append({
                     "url": p.get("url"),
                     "sha": sha,
                     "stage": stg_lbl,
-                    "next_action": p.get("next_action") or "Inspection",
-                    "owner": p.get("owner") or "unassigned",
-                    "hold_status": p.get("hold_status") or "none",
+                    "title_status": title_status,
+                    "next_action": next_action,
+                    "owner": owner,
+                    "hold_status": hold_status,
                     "eligible_unattended_duration_sec": idle["duration_sec"],
                 })
             else:
@@ -1556,10 +2020,11 @@ class MetricsAggregator:
                     "url": p.get("url"),
                     "sha": sha,
                     "stage": stg_lbl,
-                    "earliest_unmet_obligation": p.get("earliest_unmet_obligation") or "Review / Evidence",
-                    "next_action": p.get("next_action") or "Inspection",
-                    "owner": p.get("owner") or "unassigned",
-                    "hold_status": p.get("hold_status") or "none",
+                    "title_status": title_status,
+                    "earliest_unmet_obligation": earliest_unmet,
+                    "next_action": next_action,
+                    "owner": owner,
+                    "hold_status": hold_status,
                     "potential_handoff_waiting": p.get("potential_handoff_waiting") or "UNKNOWN",
                     "quiet_time": f"{quiet_hrs}h" if isinstance(quiet_hrs, (int, float)) else "UNKNOWN",
                 })
@@ -1576,6 +2041,8 @@ class MetricsAggregator:
             status = "PARTIAL_FAILURE" if prs else "FAILED"
         elif sources and any(s.get("status") == "FAILED" for s in sources.values()):
             status = "PARTIAL_FAILURE" if prs else "FAILED"
+        elif sources and any(s.get("status") == "STALE" or s.get("cutoff") is None for s in sources.values()):
+            status = "STALE"
         elif (now_dt - data_through_dt) > timedelta(hours=stale_threshold_hours):
             status = "STALE"
         elif source_cutoffs and any((now_dt - c) > timedelta(hours=stale_threshold_hours) for c in source_cutoffs):
@@ -1589,6 +2056,34 @@ class MetricsAggregator:
                 ts = self.compute_time_semantics(p)
                 if ts.get("task_elapsed_sec") is not None or ts.get("observed_active_wall_sec") is not None:
                     time_semantics_pilot.append(ts)
+        elif isinstance(time_semantics_pilot, list) and time_semantics_pilot:
+            is_raw_events = any(
+                isinstance(x, dict) and ("event_type" in x or "span_kind" in x or "event_id" in x) and "pr_url" not in x
+                for x in time_semantics_pilot
+            )
+            if is_raw_events:
+                grouped = {}
+                for ev in time_semantics_pilot:
+                    r = ev.get("repo")
+                    n = ev.get("pr_number") or ev.get("number")
+                    key = (r, n)
+                    grouped.setdefault(key, []).append(ev)
+
+                pr_map = {}
+                for p in prs:
+                    pr_map[(p.get("repo"), p.get("number"))] = p
+                    if p.get("number") is not None:
+                        pr_map[(None, p.get("number"))] = p
+
+                processed_pilot = []
+                for (r, n), ev_group in grouped.items():
+                    pr_obj = pr_map.get((r, n)) or pr_map.get((None, n))
+                    if not pr_obj:
+                        pr_url = f"https://github.com/{r}/pull/{n}" if r and n else f"https://github.com/unknown/pull/{n or 0}"
+                        pr_obj = {"repo": r, "number": n, "url": pr_url}
+                    ts = self.compute_time_semantics(pr_obj, pilot_events=ev_group)
+                    processed_pilot.append(ts)
+                time_semantics_pilot = processed_pilot
 
         # Human interventions
         human_summary = None
@@ -1756,10 +2251,10 @@ class DashboardRenderer:
         md.append("### 5A. Open PRs with Observed Eligible Unattended Duration")
         md.append("")
         if data.get("open_prs_known_idle"):
-            md.append("| PR | Head SHA | Stage | Actionable Next Step | Owner | Hold Status | Eligible Unattended Duration |")
-            md.append("|---|---|---|---|---|---|---|")
+            md.append("| PR | Head SHA | Stage | Title Status | Actionable Next Step | Owner | Hold Status | Eligible Unattended Duration |")
+            md.append("|---|---|---|---|---|---|---|---|")
             for pr in data.get("open_prs_known_idle"):
-                md.append(f"| [{pr['url']}]({pr['url']}) | `{pr['sha'][:7]}` | `{pr['stage']}` | {pr['next_action']} | `{pr['owner']}` | {pr['hold_status']} | **{format_duration(pr['eligible_unattended_duration_sec'])}** |")
+                md.append(f"| [{pr['url']}]({pr['url']}) | `{pr['sha'][:7]}` | `{pr['stage']}` | {pr.get('title_status', 'UNKNOWN')} | {pr['next_action']} | `{pr['owner']}` | {pr['hold_status']} | **{format_duration(pr['eligible_unattended_duration_sec'])}** |")
         else:
             md.append("*No open PRs currently exhibit proven eligible unattended duration.*")
         md.append("")
@@ -1768,13 +2263,14 @@ class DashboardRenderer:
         md.append("> ℹ️ **Notice**: These PRs lack fine-grained active-worker/hold-state telemetry. They are reported transparently for operator attention and are NOT ranked as idle.")
         md.append("")
         if data.get("open_prs_unknown_idle"):
-            md.append("| PR | Head SHA | Stage | Earliest Unmet Obligation | Next Action | Owner | Hold Status | Potential Handoff Waiting | GitHub Quiet Time (Proxy Only) |")
-            md.append("|---|---|---|---|---|---|---|---:|---:|")
+            md.append("| PR | Head SHA | Stage | Title Status | Earliest Unmet Obligation | Next Action | Owner | Hold Status | Potential Handoff Waiting | GitHub Quiet Time (Proxy Only) |")
+            md.append("|---|---|---|---|---|---|---|---|---:|---:|")
             for pr in data.get("open_prs_unknown_idle"):
                 md.append(
                     f"| [{pr['url']}]({pr['url']}) | `{pr['sha'][:7]}` | `{pr['stage']}` | "
+                    f"{pr.get('title_status', 'UNKNOWN')} | "
                     f"{pr.get('earliest_unmet_obligation', 'UNKNOWN')} | {pr.get('next_action', 'UNKNOWN')} | "
-                    f"`{pr.get('owner', 'unassigned')}` | {pr.get('hold_status', 'none')} | "
+                    f"`{pr.get('owner', 'UNKNOWN')}` | {pr.get('hold_status', 'UNKNOWN')} | "
                     f"{pr.get('potential_handoff_waiting', 'UNKNOWN')} | {pr.get('quiet_time', 'UNKNOWN')} |"
                 )
         else:
@@ -1789,7 +2285,10 @@ class DashboardRenderer:
         hi = data.get("human_interventions")
         if hi:
             raw_msgs = hi.get("raw_human_messages", 0)
+            initial_reqs = hi.get("initial_task_requests", 0)
             qual_eps = hi.get("qualifying_episodes", 0)
+            unver_excl = hi.get("unverified_origin_excluded", 0)
+            dot_tail = hi.get("dot_page_tail_partial_count", 0)
             lbls = hi.get("label_breakdown", {})
             pr_attr = hi.get("pr_attributed_count", 0)
             unass = hi.get("unassigned_count", 0)
@@ -1798,7 +2297,13 @@ class DashboardRenderer:
             ret_stat = hi.get("retention_status", "OK")
 
             md.append(f"- **Raw Human Messages**: {raw_msgs}")
+            if initial_reqs:
+                md.append(f"- **Initial Task Requests**: {initial_reqs}")
             md.append(f"- **Qualifying Episodes**: {qual_eps}")
+            if unver_excl:
+                md.append(f"- **Unverified Origin Excluded Messages**: {unver_excl}")
+            if dot_tail:
+                md.append(f"- **Dot Page-Tail (No Timestamps) Excluded**: {dot_tail}")
             md.append(f"- **Episode Breakdown**:")
             md.append(f"  - **Good / Value-Adding**: {lbls.get('good', 0)}")
             md.append(f"  - **Bad / Avoidable**: {lbls.get('bad', 0)}")
@@ -1847,6 +2352,22 @@ def render_dashboard(data):
 # Task 5: Safe Scoped Git Publisher
 # -----------------------------------------------------------------------------
 
+def extract_github_repo_slug(url):
+    """
+    Extract owner/repo slug from GitHub URL without stripping valid name characters.
+    e.g. 'git@github.com:acme/testing.git' -> 'acme/testing'
+    """
+    if not url:
+        return None
+    match = re.search(r"github\.com[:/]([^/\s]+/[^/\s]+)", url)
+    if not match:
+        return None
+    slug = match.group(1)
+    if slug.endswith(".git"):
+        slug = slug[:-4]
+    return slug
+
+
 class Publisher:
     """Publishes dashboard Markdown to a designated Git repository using an isolated index file."""
 
@@ -1854,47 +2375,137 @@ class Publisher:
         self.repo_path = repo_path
         self.target_relpath = target_relpath
 
-    def _verify_destination_is_private(self, verify_private_fn=None):
-        """Verify destination repo is private; reject if public or verification fails."""
-        if verify_private_fn is not None:
-            return verify_private_fn(self.repo_path)
-
-        if os.environ.get("PRW_METRICS_ALLOW_LOCAL_REMOTE") == "1":
-            return True
-
-        remote_url = ""
+    def _get_remote_urls(self):
+        """Get fetch URL and push URL for origin, falling back gracefully."""
+        fetch_url = ""
+        push_url = ""
         try:
-            res = subprocess.run(
-                ["git", "-C", self.repo_path, "config", "--get", "remote.origin.url"],
+            r = subprocess.run(
+                ["git", "-C", self.repo_path, "remote", "get-url", "origin"],
                 capture_output=True,
                 text=True,
             )
-            remote_url = res.stdout.strip()
+            if r.returncode == 0 and r.stdout.strip():
+                fetch_url = r.stdout.strip()
+            else:
+                r2 = subprocess.run(
+                    ["git", "-C", self.repo_path, "config", "--get", "remote.origin.url"],
+                    capture_output=True,
+                    text=True,
+                )
+                if r2.returncode == 0:
+                    fetch_url = r2.stdout.strip()
         except Exception:
             pass
 
-        if remote_url and (remote_url.startswith("/") or remote_url.startswith("file://") or os.path.isdir(remote_url)):
-            return True
+        try:
+            rp = subprocess.run(
+                ["git", "-C", self.repo_path, "remote", "get-url", "--push", "origin"],
+                capture_output=True,
+                text=True,
+            )
+            if rp.returncode == 0 and rp.stdout.strip():
+                push_url = rp.stdout.strip()
+            else:
+                rp2 = subprocess.run(
+                    ["git", "-C", self.repo_path, "config", "--get", "remote.origin.pushurl"],
+                    capture_output=True,
+                    text=True,
+                )
+                if rp2.returncode == 0 and rp2.stdout.strip():
+                    push_url = rp2.stdout.strip()
+                else:
+                    push_url = fetch_url
+        except Exception:
+            push_url = fetch_url
 
-        if remote_url:
-            try:
-                match = re.search(r"github\.com[:/]([^/]+/[^/.]+)", remote_url)
-                if match:
-                    nwo = match.group(1).rstrip(".git")
-                    gh_proc = subprocess.run(
-                        ["gh", "repo", "view", nwo, "--json", "isPrivate", "-q", ".isPrivate"],
-                        capture_output=True,
-                        text=True,
-                        timeout=15,
-                    )
-                    if gh_proc.returncode == 0:
-                        return gh_proc.stdout.strip().lower() == "true"
-            except Exception:
-                pass
+        return fetch_url, push_url
+
+    def _verify_destination_is_private(self, verify_private_fn=None):
+        """
+        Verify destination repo is private; fail closed on local, public, or unverified remotes.
+        Checks BOTH fetch URL and push URL and requires BOTH to resolve to the exact same private
+        GitHub repository slug.
+        """
+        if verify_private_fn is not None:
+            return bool(verify_private_fn(self.repo_path))
+
+        fetch_url, push_url = self._get_remote_urls()
+        if not fetch_url or not push_url:
+            return False
+
+        fetch_slug = extract_github_repo_slug(fetch_url)
+        push_slug = extract_github_repo_slug(push_url)
+
+        if not fetch_slug or not push_slug:
+            return False
+
+        if fetch_slug.lower() != push_slug.lower():
+            return False
+
+        try:
+            gh_proc = subprocess.run(
+                ["gh", "repo", "view", push_slug, "--json", "isPrivate,visibility"],
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            if gh_proc.returncode == 0:
+                data = json.loads(gh_proc.stdout)
+                is_priv = data.get("isPrivate") is True
+                vis = str(data.get("visibility", "")).upper()
+                if is_priv and vis in ("PRIVATE", "INTERNAL"):
+                    return True
+        except Exception:
+            pass
 
         return False
 
-    def publish(self, markdown_text, status="FRESH", max_retries=3, verify_private_fn=None):
+    def write_telemetry_bundle(self, summary_data, pilot_events=None, human_episodes=None, window_slug=None):
+        """Generate relative file paths and contents for telemetry publishing under dashboards/prw/telemetry/."""
+        if not window_slug:
+            w2_start = summary_data.get("w2_bounds", ["", ""])[0] if isinstance(summary_data, dict) else ""
+            if w2_start and len(w2_start) >= 10:
+                window_slug = w2_start[:10].replace("-", "")
+            else:
+                window_slug = datetime.now(timezone.utc).strftime("%Y%m%d")
+
+        files = {}
+        if summary_data:
+            snapshot_relpath = f"dashboards/prw/telemetry/{window_slug}/summary_snapshot.json"
+            files[snapshot_relpath] = json.dumps(summary_data, indent=2)
+
+        if pilot_events:
+            pe_relpath = f"dashboards/prw/telemetry/{window_slug}/pilot_events.jsonl"
+            lines = [json.dumps(ev) for ev in pilot_events]
+            files[pe_relpath] = "\n".join(lines) + "\n"
+
+        if human_episodes:
+            he_relpath = f"dashboards/prw/telemetry/{window_slug}/human_episodes.jsonl"
+            lines = [json.dumps(ep) for ep in human_episodes]
+            files[he_relpath] = "\n".join(lines) + "\n"
+
+        manifest_relpath = "dashboards/prw/telemetry/retention_manifest.json"
+        files[manifest_relpath] = json.dumps({
+            "version": "1.0",
+            "retention_days": 90,
+            "last_updated_at": format_iso_utc(datetime.now(timezone.utc)),
+        }, indent=2)
+
+        return files
+
+    def publish(
+        self,
+        markdown_text,
+        status="FRESH",
+        max_retries=3,
+        verify_private_fn=None,
+        publish_telemetry=False,
+        summary_data=None,
+        pilot_events=None,
+        human_episodes=None,
+        telemetry_files=None,
+    ):
         if status == "FAILED":
             return {
                 "action": "RETAINED_PRIOR",
@@ -1903,11 +2514,28 @@ class Publisher:
             }
 
         if not self._verify_destination_is_private(verify_private_fn=verify_private_fn):
+            if verify_private_fn is not None:
+                return {
+                    "action": "PUBLIC_REPO_REJECTED",
+                    "committed": False,
+                    "reason": "Destination repository is public or unverified.",
+                }
             return {
-                "action": "PUBLIC_REPO_REJECTED",
+                "action": "BLOCKED",
                 "committed": False,
-                "reason": "Destination repository is public or not verified private.",
+                "reason": "Destination repository is not a verified private GitHub repository.",
             }
+
+        telemetry_staged_files = {}
+        if telemetry_files:
+            telemetry_staged_files.update(telemetry_files)
+        if publish_telemetry and summary_data:
+            tb = self.write_telemetry_bundle(
+                summary_data,
+                pilot_events=pilot_events,
+                human_episodes=human_episodes,
+            )
+            telemetry_staged_files.update(tb)
 
         # Check existing content at origin/main:<target_relpath>
         current_content = None
@@ -1930,8 +2558,8 @@ class Publisher:
         except Exception:
             pass
 
-        # Idempotency check: compare normalized content
-        if current_content is not None:
+        # Idempotency check: compare normalized content (only when no telemetry files are being updated)
+        if current_content is not None and not telemetry_staged_files:
             norm_curr = normalize_markdown_for_comparison(current_content)
             norm_new = normalize_markdown_for_comparison(markdown_text)
             if norm_curr == norm_new:
@@ -2005,7 +2633,36 @@ class Publisher:
                         env=env,
                     )
 
-                    # 5. Write tree
+                    # 5. Stage any telemetry bundle files into the same atomic commit
+                    for t_relpath, t_content in telemetry_staged_files.items():
+                        t_hash_proc = subprocess.run(
+                            ["git", "-C", self.repo_path, "hash-object", "-w", "--stdin"],
+                            input=t_content,
+                            text=True,
+                            check=True,
+                            capture_output=True,
+                            env=env,
+                        )
+                        t_blob_sha = t_hash_proc.stdout.strip()
+                        subprocess.run(
+                            [
+                                "git",
+                                "-C",
+                                self.repo_path,
+                                "update-index",
+                                "--add",
+                                "--cacheinfo",
+                                "100644",
+                                t_blob_sha,
+                                t_relpath,
+                            ],
+                            check=True,
+                            capture_output=True,
+                            text=True,
+                            env=env,
+                        )
+
+                    # 6. Write tree
                     write_tree_proc = subprocess.run(
                         ["git", "-C", self.repo_path, "write-tree"],
                         check=True,
@@ -2015,7 +2672,7 @@ class Publisher:
                     )
                     tree_sha = write_tree_proc.stdout.strip()
 
-                    # 6. Commit tree with parent_sha
+                    # 7. Commit tree with parent_sha
                     commit_msg = "docs(dashboard): refresh PRW metrics dashboard [skip ci]"
                     commit_proc = subprocess.run(
                         ["git", "-C", self.repo_path, "commit-tree", tree_sha, "-p", parent_sha, "-m", commit_msg],
@@ -2026,7 +2683,7 @@ class Publisher:
                     )
                     commit_sha = commit_proc.stdout.strip()
 
-                    # 7. Push to remote main (fast-forward only, NEVER force)
+                    # 8. Push to remote main (fast-forward only, NEVER force)
                     push_proc = subprocess.run(
                         ["git", "-C", self.repo_path, "push", "origin", f"{commit_sha}:refs/heads/main"],
                         capture_output=True,
@@ -2066,10 +2723,30 @@ class Publisher:
         }
 
 
-def publish_dashboard(markdown_text, repo_path, target_relpath="dashboards/prw/README.md", status="FRESH", verify_private_fn=None):
+def publish_dashboard(
+    markdown_text,
+    repo_path,
+    target_relpath="dashboards/prw/README.md",
+    status="FRESH",
+    verify_private_fn=None,
+    publish_telemetry=False,
+    summary_data=None,
+    pilot_events=None,
+    human_episodes=None,
+    telemetry_files=None,
+):
     """Functional helper for Publisher."""
     publisher = Publisher(repo_path=repo_path, target_relpath=target_relpath)
-    return publisher.publish(markdown_text=markdown_text, status=status, verify_private_fn=verify_private_fn)
+    return publisher.publish(
+        markdown_text=markdown_text,
+        status=status,
+        verify_private_fn=verify_private_fn,
+        publish_telemetry=publish_telemetry,
+        summary_data=summary_data,
+        pilot_events=pilot_events,
+        human_episodes=human_episodes,
+        telemetry_files=telemetry_files,
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -2086,9 +2763,16 @@ def main():
     parser.add_argument("--output", help="Optional output path for rendered Markdown")
     parser.add_argument("--publish", action="store_true", default=os.environ.get("PRW_METRICS_PUBLISH", "").lower() in ("1", "true"), help="Publish dashboard to roadmap repo")
     parser.add_argument("--roadmap-repo", default=os.environ.get("PRW_METRICS_ROADMAP_REPO"), help="Path to local clone of roadmap repo")
+    parser.add_argument("--telemetry-dir", default=os.environ.get("PRW_METRICS_TELEMETRY_DIR"), help="Path to telemetry directory containing pilot_events.jsonl, etc.")
+    parser.add_argument("--receipts-dir", default=os.environ.get("PRW_METRICS_RECEIPTS_DIR"), help="Path to directory containing task receipts (run.stats.json, start_*.json, completion_*.json)")
     parser.add_argument("--target-relpath", default="dashboards/prw/README.md", help="Relative path inside roadmap repo")
+    parser.add_argument("--stale-hours", type=float, default=float(os.environ.get("PRW_METRICS_STALE_HOURS", "4.5")), help="Threshold hours after which source cutoffs are marked STALE")
 
     args = parser.parse_args()
+
+    if args.publish and not args.roadmap_repo:
+        sys.stderr.write("ERROR: --publish requires --roadmap-repo (or PRW_METRICS_ROADMAP_REPO)\n")
+        sys.exit(1)
 
     repos = []
     if args.repos:
@@ -2101,11 +2785,16 @@ def main():
         input_dir=args.input_dir,
         state_dir=args.state_dir,
         offline=args.offline,
+        telemetry_dir=args.telemetry_dir,
+        roadmap_repo=args.roadmap_repo,
+        receipts_dir=args.receipts_dir,
     )
     prs = collected["prs"]
     timeline = collected["timeline"]
     sources = collected["sources"]
     handoff_records = collected.get("handoff_records", [])
+    pilot_events = collected.get("pilot_events") or None
+    human_episodes = collected.get("human_episodes") or None
 
     aggregator = MetricsAggregator(cutoff_dt=cutoff_dt)
     summary_data = aggregator.aggregate_full_dataset(
@@ -2113,6 +2802,9 @@ def main():
         timeline_events=timeline,
         sources=sources,
         handoff_records=handoff_records,
+        time_semantics_pilot=pilot_events,
+        human_episodes=human_episodes,
+        stale_threshold_hours=args.stale_hours,
     )
 
     if collected.get("status") in ("FAILED", "PARTIAL_FAILURE"):
@@ -2135,13 +2827,18 @@ def main():
             repo_path=args.roadmap_repo,
             target_relpath=args.target_relpath,
             status=summary_data["status"],
+            publish_telemetry=True,
+            summary_data=summary_data,
+            pilot_events=collected.get("pilot_events"),
+            human_episodes=collected.get("human_episodes"),
         )
         print(f"Publication result: {pub_res}")
-        if pub_res.get("action") in ("ERROR", "RETRY_EXHAUSTED", "AUTH_ERROR", "PUBLIC_REPO_REJECTED"):
+        if pub_res.get("action") in ("BLOCKED", "ERROR", "RETRY_EXHAUSTED", "PUBLIC_REPO_REJECTED", "AUTH_ERROR"):
+            sys.stderr.write(f"ERROR: Publication failed: {pub_res.get('reason') or pub_res.get('error') or pub_res.get('action')}\n")
             sys.exit(1)
 
     if summary_data["status"] == "FAILED":
-        sys.exit(1)
+        sys.exit(2)
 
 
 if __name__ == "__main__":

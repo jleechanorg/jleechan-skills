@@ -33,8 +33,10 @@ try:
         parse_iso_utc,
         parse_operational_title,
         publish_dashboard,
+        redact_sensitive_excerpt,
         render_dashboard,
         split_search_window_on_cap,
+        extract_github_repo_slug,
     )
 except ImportError:
     Collector = None
@@ -427,6 +429,7 @@ class TestPublisher(unittest.TestCase):
             status="FAILED",
             repo_path=self.local_dir,
             target_relpath="dashboards/prw/README.md",
+            verify_private_fn=lambda _: True,
         )
         self.assertEqual(res["action"], "RETAINED_PRIOR")
         self.assertFalse(res["committed"])
@@ -442,6 +445,7 @@ class TestPublisher(unittest.TestCase):
             status="FRESH",
             repo_path=self.local_dir,
             target_relpath="dashboards/prw/README.md",
+            verify_private_fn=lambda _: True,
         )
         self.assertTrue(res1["committed"])
 
@@ -451,6 +455,7 @@ class TestPublisher(unittest.TestCase):
             status="FRESH",
             repo_path=self.local_dir,
             target_relpath="dashboards/prw/README.md",
+            verify_private_fn=lambda _: True,
         )
         self.assertEqual(res2["action"], "NO_CHANGE")
         self.assertFalse(res2["committed"])
@@ -467,6 +472,7 @@ class TestPublisher(unittest.TestCase):
             status="FRESH",
             repo_path=self.local_dir,
             target_relpath="dashboards/prw/README.md",
+            verify_private_fn=lambda _: True,
         )
         self.assertTrue(res["committed"])
 
@@ -796,12 +802,14 @@ class TestTimeSemanticsHumanInterventionsAndTitleParsing(unittest.TestCase):
         # Two parallel agents: Agent 1 (10:00 - 12:00 = 2h), Agent 2 (11:00 - 13:00 = 2h)
         events = [
             {
+                "pr_number": 1,
                 "span_kind": "observed_active_execution",
                 "agent_id": "agent-1",
                 "start_at": "2026-11-05T10:00:00Z",
                 "end_at": "2026-11-05T12:00:00Z",
             },
             {
+                "pr_number": 1,
                 "span_kind": "observed_active_execution",
                 "agent_id": "agent-2",
                 "start_at": "2026-11-05T11:00:00Z",
@@ -827,12 +835,14 @@ class TestTimeSemanticsHumanInterventionsAndTitleParsing(unittest.TestCase):
         events = [
             # Operation elapsed includes setup / queue: 10:00 -> 10:30 (1800s)
             {
+                "pr_number": 2,
                 "span_kind": "observed_operation_elapsed",
                 "start_at": "2026-11-05T10:00:00Z",
                 "end_at": "2026-11-05T10:30:00Z",
             },
             # Evidenced active execution: 10:05 -> 10:30 (1500s)
             {
+                "pr_number": 2,
                 "span_kind": "observed_active_execution",
                 "start_at": "2026-11-05T10:05:00Z",
                 "end_at": "2026-11-05T10:30:00Z",
@@ -1168,6 +1178,380 @@ class TestTimeSemanticsHumanInterventionsAndTitleParsing(unittest.TestCase):
         renderer = DashboardRenderer()
         md = renderer.render(summary)
         self.assertIn("- **Status**: **STALE**", md)
+
+    def test_raw_pilot_events_aggregation_and_parallel_overlap(self):
+        """Passing raw pilot_events.jsonl records into aggregate_full_dataset groups by PR and computes disjoint active wall vs effort sum."""
+        agg = MetricsAggregator()
+        raw_events = [
+            # PR 740 events
+            {
+                "event_id": "evt_pr740_accepted",
+                "repo": "example-org/repo-alpha",
+                "pr_number": 740,
+                "event_type": "task_accepted",
+                "occurred_at": "2026-11-05T10:00:00Z",
+            },
+            {
+                "event_id": "evt_pr740_r1_codex_span",
+                "repo": "example-org/repo-alpha",
+                "pr_number": 740,
+                "span_kind": "observed_active_execution",
+                "occurred_at": "2026-11-05T10:30:00Z",
+                "duration_sec": 898.054,
+            },
+            {
+                "event_id": "evt_pr740_r1_hermes_span",
+                "repo": "example-org/repo-alpha",
+                "pr_number": 740,
+                "span_kind": "observed_active_execution",
+                "occurred_at": "2026-11-05T10:30:00Z",
+                "duration_sec": 898.054,
+            },
+            {
+                "event_id": "evt_pr740_merged",
+                "repo": "example-org/repo-alpha",
+                "pr_number": 740,
+                "event_type": "merged",
+                "occurred_at": "2026-11-05T12:00:00Z",
+            },
+            # PR 741 events
+            {
+                "event_id": "evt_pr741_accepted",
+                "repo": "example-org/repo-alpha",
+                "pr_number": 741,
+                "event_type": "task_accepted",
+                "occurred_at": "2026-11-05T11:00:00Z",
+            },
+            {
+                "event_id": "evt_pr741_span",
+                "repo": "example-org/repo-alpha",
+                "pr_number": 741,
+                "span_kind": "observed_active_execution",
+                "occurred_at": "2026-11-05T11:15:00Z",
+                "duration_sec": 300.0,
+            },
+            {
+                "event_id": "evt_pr741_merged",
+                "repo": "example-org/repo-alpha",
+                "pr_number": 741,
+                "event_type": "merged",
+                "occurred_at": "2026-11-05T11:45:00Z",
+            },
+        ]
+        summary = agg.aggregate_full_dataset(prs=[], time_semantics_pilot=raw_events)
+        pilot_rows = summary["time_semantics_pilot"]
+        self.assertEqual(len(pilot_rows), 2)
+
+        # Check PR 740 row
+        row740 = next(r for r in pilot_rows if "740" in r["pr_url"])
+        self.assertEqual(row740["observed_active_wall_sec"], 898.054)
+        self.assertEqual(row740["agent_effort_sec"], 1796.108)
+        self.assertLess(row740["observed_active_wall_sec"], row740["agent_effort_sec"])
+        # task_elapsed_sec: 10:00 to 12:00 = 7200s
+        self.assertEqual(row740["task_elapsed_sec"], 7200.0)
+
+        # Check PR 741 row
+        row741 = next(r for r in pilot_rows if "741" in r["pr_url"])
+        self.assertEqual(row741["observed_active_wall_sec"], 300.0)
+        self.assertEqual(row741["agent_effort_sec"], 300.0)
+        # task_elapsed_sec: 11:00 to 11:45 = 2700s
+        self.assertEqual(row741["task_elapsed_sec"], 2700.0)
+
+
+class TestRound2HermesAndCodexReviewFixes(unittest.TestCase):
+    """Unit tests for Hermes & Codex Round-2 review findings and parent addenda."""
+
+    def test_extract_github_repo_slug_does_not_strip_trailing_characters(self):
+        """Codex P0-1: never strip trailing g/i/t from repo names like testing."""
+        self.assertEqual(extract_github_repo_slug("git@github.com:example-org/testing.git"), "example-org/testing")
+        self.assertEqual(extract_github_repo_slug("https://github.com/example-org/testing"), "example-org/testing")
+        self.assertEqual(extract_github_repo_slug("https://github.com/example-org/target.git"), "example-org/target")
+        self.assertEqual(extract_github_repo_slug("https://github.com/example-org/repo-alpha.git"), "example-org/repo-alpha")
+        self.assertIsNone(extract_github_repo_slug("/local/filesystem/path"))
+        self.assertIsNone(extract_github_repo_slug(""))
+
+    def test_publisher_fails_closed_on_mismatched_fetch_and_push_urls(self):
+        """Codex P0-1: mismatched origin.url vs origin.pushurl must fail closed and block publish."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_dir = os.path.join(temp_dir, "repo")
+            os.makedirs(repo_dir)
+            subprocess.run(["git", "-C", repo_dir, "init"], check=True, capture_output=True)
+            subprocess.run(
+                ["git", "-C", repo_dir, "remote", "add", "origin", "https://github.com/example-org/private-repo.git"],
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                ["git", "-C", repo_dir, "remote", "set-url", "--push", "origin", "https://github.com/example-org/public-repo.git"],
+                check=True,
+                capture_output=True,
+            )
+            pub = Publisher(repo_path=repo_dir)
+            self.assertFalse(pub._verify_destination_is_private())
+            res = pub.publish("# Dashboard Content")
+            self.assertEqual(res["action"], "BLOCKED")
+            self.assertFalse(res["committed"])
+
+    def test_verify_destination_is_private_fails_closed_on_local_remote(self):
+        """Codex P0-1: local filesystem remotes fail closed without verify_private_fn."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_dir = os.path.join(temp_dir, "repo")
+            os.makedirs(repo_dir)
+            subprocess.run(["git", "-C", repo_dir, "init"], check=True, capture_output=True)
+            subprocess.run(
+                ["git", "-C", repo_dir, "remote", "add", "origin", "/local/bare/repo.git"],
+                check=True,
+                capture_output=True,
+            )
+            pub = Publisher(repo_path=repo_dir)
+            self.assertFalse(pub._verify_destination_is_private())
+            res = pub.publish("# Dashboard Content")
+            self.assertEqual(res["action"], "BLOCKED")
+
+    def test_normalize_pr_record_populates_operational_status_detail_legacy_stage(self):
+        """Codex P0-3 & P2-2: operational title and legacy stages populated without losing body."""
+        collector = Collector()
+        # 1. Operational status
+        p1 = {
+            "number": 101,
+            "title": "[working][lane4] implement live metrics [gemini][flash]",
+            "body": "PR description body here",
+        }
+        n1 = collector.normalize_pr_record(p1, default_repo="example-org/repo-alpha")
+        self.assertEqual(n1["operational_status"], "working")
+        self.assertEqual(n1["operational_detail"], "lane4")
+        self.assertIsNone(n1["legacy_stage"])
+        self.assertEqual(n1["body"], "PR description body here")
+
+        # 2. Leading legacy prefix [ci]
+        p2 = {"number": 102, "title": "[ci] undraft PR"}
+        n2 = collector.normalize_pr_record(p2)
+        self.assertEqual(n2["legacy_stage"], "stage:4-ci-undraft")
+
+        # 3. Leading legacy prefix [rv]
+        p3 = {"number": 103, "title": "[rv] review changes"}
+        n3 = collector.normalize_pr_record(p3)
+        self.assertEqual(n3["legacy_stage"], "stage:3-review")
+
+        # 4. Trailing bracket [final approval]
+        p4 = {"number": 104, "title": "feat: release new feature [final approval]"}
+        n4 = collector.normalize_pr_record(p4)
+        self.assertEqual(n4["legacy_stage"], "stage:5-final-approval")
+
+    def test_collect_pr_timeline_live_paginated_and_normalized(self):
+        """Codex P0-3: collect_pr_timeline_live normalizes labeled/unlabeled/closed/merged events."""
+        collector = Collector()
+        mock_timeline = [
+            {
+                "id": "tl_1",
+                "event": "labeled",
+                "label": {"name": "stage:2-evidence"},
+                "createdAt": "2026-11-05T10:00:00Z",
+                "actor": {"login": "test-dev"},
+            },
+            {
+                "id": "tl_2",
+                "event": "unlabeled",
+                "label": "stage:2-evidence",
+                "createdAt": "2026-11-05T10:30:00Z",
+                "actor": "test-reviewer",
+            },
+            {
+                "id": "tl_3",
+                "event": "merged",
+                "createdAt": "2026-11-05T11:00:00Z",
+            },
+        ]
+        evs = collector.collect_pr_timeline_live(
+            repo="example-org/repo-alpha",
+            pr_number=55,
+            fetch_timeline_fn=lambda r, n: mock_timeline,
+        )
+        self.assertEqual(len(evs), 3)
+        self.assertEqual(evs[0]["repo"], "example-org/repo-alpha")
+        self.assertEqual(evs[0]["pr_number"], 55)
+        self.assertEqual(evs[0]["label"], "stage:2-evidence")
+        self.assertEqual(evs[0]["actor"], "test-dev")
+        self.assertEqual(evs[2]["event"], "merged")
+
+    def test_attention_tables_default_to_unknown_when_unrecorded_and_render_title_status(self):
+        """Codex P0-3: unrecorded fields default to UNKNOWN and title_status renders in 5A/5B."""
+        agg = MetricsAggregator(cutoff_dt=datetime(2026, 11, 7, 12, 0, tzinfo=timezone.utc))
+        open_pr = {
+            "number": 10,
+            "repo": "example-org/repo-alpha",
+            "url": "https://github.com/example-org/repo-alpha/pull/10",
+            "headRefOid": "abcd1234ef",
+            "state": "OPEN",
+            "title": "[waiting][review] await second review",
+            "operational_status": "waiting",
+            "operational_detail": "review",
+            "createdAt": "2026-11-06T10:00:00Z",
+            "updatedAt": "2026-11-06T10:00:00Z",
+            "labels": [],
+        }
+        summary = agg.aggregate_full_dataset(prs=[open_pr])
+        open_unknown = summary["open_prs_unknown_idle"]
+        self.assertEqual(len(open_unknown), 1)
+        row = open_unknown[0]
+        self.assertEqual(row["title_status"], "[waiting][review]")
+        self.assertEqual(row["earliest_unmet_obligation"], "UNKNOWN")
+
+        renderer = DashboardRenderer()
+        md = renderer.render(summary)
+        self.assertIn("Title Status", md)
+        self.assertIn("[waiting][review]", md)
+
+    def test_compute_handoff_breakdown_strict_validation(self):
+        """Codex P0-5: validate handoff_records against cohort PRs, deduplicate, reject negative/NaN."""
+        agg = MetricsAggregator()
+        cohort_prs = [
+            {
+                "number": 20,
+                "repo": "example-org/repo-alpha",
+                "headRefOid": "sha20",
+                "mergedAt": "2026-11-06T12:00:00Z",
+                "labels": ["stage:5-final-approval"],
+            }
+        ]
+        records = [
+            # 1. Negative duration -> must be rejected
+            {"name": "task_accepted -> merged", "number": 20, "repo": "example-org/repo-alpha", "candidate_sha": "sha20", "duration_sec": -3600.0},
+            # 2. NaN duration -> must be rejected
+            {"name": "task_accepted -> merged", "number": 20, "repo": "example-org/repo-alpha", "candidate_sha": "sha20", "duration_sec": float("nan")},
+            # 3. Foreign non-cohort PR -> must be rejected
+            {"name": "task_accepted -> merged", "number": 999, "repo": "example-org/repo-alpha", "candidate_sha": "sha999", "duration_sec": 1000.0},
+            # 4. Valid record
+            {"name": "task_accepted -> merged", "number": 20, "repo": "example-org/repo-alpha", "candidate_sha": "sha20", "duration_sec": 3600.0, "attempt_number": 1},
+            # 5. Duplicate of record 4 -> deduplicated
+            {"name": "task_accepted -> merged", "number": 20, "repo": "example-org/repo-alpha", "candidate_sha": "sha20", "duration_sec": 3600.0, "attempt_number": 1},
+        ]
+        data = agg.compute_handoff_breakdown(cohort_prs, handoff_records=records)
+        t_row = next(r for r in data if r["name"] == "task_accepted -> merged")
+        self.assertEqual(t_row["observed_n"], 1)
+        self.assertEqual(t_row["median_sec"], 3600.0)
+
+    def test_deduplicate_events_and_stage_dwell_prevent_foreign_repo_collision(self):
+        """Codex P1-1: stage dwell and event deduplication must not collide across different repos with same PR number."""
+        collector = Collector()
+        agg = MetricsAggregator()
+        ev1 = {"repo": "example-org/repo-alpha", "pr_number": 7, "event": "labeled", "label": "stage:1-coding", "createdAt": "2026-11-05T10:00:00Z"}
+        ev2 = {"repo": "example-org/repo-beta", "pr_number": 7, "event": "labeled", "label": "stage:1-coding", "createdAt": "2026-11-05T10:00:00Z"}
+        deduped = collector.deduplicate_events([ev1, ev2])
+        self.assertEqual(len(deduped), 2)
+
+        # Stage dwell: PR 7 in repo-alpha should not consume timeline events for PR 7 in repo-beta
+        pr_alpha = {
+            "number": 7,
+            "repo": "example-org/repo-alpha",
+            "mergedAt": "2026-11-05T12:00:00Z",
+            "labels": [],
+        }
+        dwell = agg.compute_stage_dwell([pr_alpha], timeline_events=[ev2])
+        coding_row = next(r for r in dwell if r["stage"] == "stage:1-coding")
+        self.assertEqual(coding_row["n"], 0)
+
+    def test_duration_only_events_give_effort_only_wall_time_unknown(self):
+        """Codex P1-2: duration-only events without start/end endpoints give effort sum only, wall time UNKNOWN."""
+        agg = MetricsAggregator()
+        pr = {
+            "number": 30,
+            "repo": "example-org/repo-alpha",
+            "createdAt": "2026-11-05T09:00:00Z",
+            "mergedAt": "2026-11-05T12:00:00Z",
+        }
+        events = [
+            {"pr_number": 30, "span_kind": "observed_active_execution", "duration_sec": 3600.0},
+            {"pr_number": 30, "span_kind": "observed_active_execution", "duration_sec": 3600.0},
+        ]
+        metrics = agg.compute_time_semantics(pr, pilot_events=events)
+        self.assertEqual(metrics["agent_effort_sec"], 7200.0)
+        self.assertIsNone(metrics["observed_active_wall_sec"])
+
+    def test_missing_manifest_or_invalid_cutoff_stamps_stale(self):
+        """Codex P1-3: cached scratch lacking valid collection manifest stamps STALE, not COMPLETE/FRESH."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            prs = [{"number": 1, "repo": "example-org/repo-alpha", "state": "MERGED"}]
+            with open(os.path.join(temp_dir, "enriched_prs.json"), "w") as f:
+                json.dump(prs, f)
+            collector = Collector()
+            loaded = collector.load_from_cached_scratch(temp_dir)
+            self.assertEqual(loaded["sources"]["collection_manifest"]["status"], "STALE")
+            self.assertIsNone(loaded["sources"]["collection_manifest"]["cutoff"])
+
+            agg = MetricsAggregator()
+            summary = agg.aggregate_full_dataset(prs=loaded["prs"], sources=loaded["sources"])
+            self.assertEqual(summary["status"], "STALE")
+
+    def test_redact_sensitive_excerpt_scrubs_secrets_and_bounds_length(self):
+        """Parent addendum: redact_sensitive_excerpt scrubs PATs, API keys, Bearer tokens, and OTPs."""
+        raw = ("gh" + "p_1234567890abcdef ") + ("github_" + "pat_11AAAAAAA ") + "sk-proj-12345 Bearer mysecrettoken123 verification code: 849201"
+        scrubbed = redact_sensitive_excerpt(raw, max_chars=200)
+        self.assertNotIn("gh" + "p_", scrubbed)
+        self.assertNotIn("github_pat_11AAAAAAA", scrubbed)
+        self.assertNotIn("sk-proj-12345", scrubbed)
+        self.assertNotIn("mysecrettoken123", scrubbed)
+        self.assertNotIn("849201", scrubbed)
+        self.assertIn("[REDACTED]", scrubbed)
+
+        long_text = "A" * 500
+        bounded = redact_sensitive_excerpt(long_text, max_chars=50)
+        self.assertLessEqual(len(bounded), 55)
+
+    def test_human_interventions_initial_requests_vs_followup_and_dot_page_tail(self):
+        """Parent addendum & Codex P1-4: separate initial requests, follow-ups, and dot_page_tail."""
+        agg = MetricsAggregator()
+        episodes = [
+            # 1. Initial task request (counted in raw_human_messages, not qualifying_episodes)
+            {
+                "episode_id": "ep_1",
+                "origin": "user_prompt",
+                "is_initial_assignment": True,
+                "raw_message_count": 1,
+            },
+            # 2. Qualifying human follow-up intervention
+            {
+                "episode_id": "ep_2",
+                "origin": "human",
+                "is_initial_assignment": False,
+                "label": "good",
+                "raw_message_count": 2,
+            },
+            # 3. Unverified origin (excluded)
+            {
+                "episode_id": "ep_3",
+                "origin": "unknown",
+                "raw_message_count": 1,
+            },
+            # 4. Dot page-tail lacking message_ids / timestamps
+            {
+                "episode_id": "ep_4",
+                "origin": "dot_page_tail",
+                "raw_message_count": 1,
+            },
+        ]
+        res = agg.compute_human_interventions(episodes)
+        self.assertEqual(res["raw_human_messages"], 3)  # 1 initial + 2 follow-up
+        self.assertEqual(res["initial_task_requests"], 1)
+        self.assertEqual(res["qualifying_episodes"], 1)
+        self.assertEqual(res["unverified_origin_excluded"], 1)
+        self.assertEqual(res["dot_page_tail_partial_count"], 1)
+        self.assertEqual(res["channel_coverage"]["dot_history"], "PARTIAL_PAGE_TAIL_NO_MESSAGE_IDS_OR_TIMESTAMPS")
+        self.assertEqual(res["retention_status"], "UNVERIFIED")
+
+    def test_main_cli_publish_without_roadmap_repo_exits_nonzero(self):
+        """Hermes P0-3: CLI with --publish without --roadmap-repo exits 1."""
+        cmd = [
+            "python3",
+            "scripts/prw_metrics.py",
+            "--publish",
+        ]
+        env = os.environ.copy()
+        env.pop("PRW_METRICS_ROADMAP_REPO", None)
+        env.pop("PRW_METRICS_PUBLISH", None)
+        proc = subprocess.run(cmd, capture_output=True, text=True, env=env)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("--roadmap-repo", proc.stderr)
 
 
 if __name__ == "__main__":

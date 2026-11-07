@@ -124,25 +124,37 @@ acquire_lock() {
     exit 0
   fi
 
-  # Stale lock detected (dead PID or recycled PID with different command). Recover lock.
+  # Stale lock detected (dead PID or recycled PID with different command). Recover lock via atomic reclaim guard.
   echo "Stale lock detected (PID ${existing_pid:-unknown} is dead or recycled). Recovering lock..."
-  rm -f "$PID_FILE" "$COMM_FILE" 2>/dev/null || true
-  rmdir "$LOCK_DIR" 2>/dev/null || true
+  local reclaim_lock="${LOCK_DIR}.reclaim"
+  local stage_lock="${LOCK_DIR}.stage.$$"
+  mkdir -p "$stage_lock"
+  echo "$$" > "$stage_lock/pid"
+  ps -p $$ -o comm= 2>/dev/null | tr -d ' ' > "$stage_lock/comm" || echo "bash" > "$stage_lock/comm"
 
-  # Retry atomic staging rename
-  mkdir -p "$stage_dir"
-  echo "$$" > "$stage_dir/pid"
-  ps -p $$ -o comm= 2>/dev/null | tr -d ' ' > "$stage_dir/comm" || echo "bash" > "$stage_dir/comm"
-
-  if python3 -c 'import os,sys; os.rename(sys.argv[1], sys.argv[2])' "$stage_dir" "$LOCK_DIR" 2>/dev/null; then
-    LOCK_ACQUIRED=1
-    return 0
+  if mkdir "$reclaim_lock" 2>/dev/null; then
+    local recheck_pid=""
+    if [[ -f "$PID_FILE" ]]; then
+      recheck_pid="$(cat "$PID_FILE" 2>/dev/null || true)"
+    fi
+    if [[ "$recheck_pid" == "$existing_pid" ]]; then
+      mv "$LOCK_DIR" "${LOCK_DIR}.stale.$$" 2>/dev/null || true
+      if python3 -c 'import os,sys; os.rename(sys.argv[1], sys.argv[2])' "$stage_lock" "$LOCK_DIR" 2>/dev/null; then
+        rm -rf "${LOCK_DIR}.stale.$$" "$reclaim_lock" 2>/dev/null || true
+        LOCK_ACQUIRED=1
+        return 0
+      else
+        rm -rf "${LOCK_DIR}.stale.$$" "$reclaim_lock" "$stage_lock" 2>/dev/null || true
+      fi
+    else
+      rmdir "$reclaim_lock" 2>/dev/null || true
+      rm -rf "$stage_lock" 2>/dev/null || true
+    fi
+  else
+    rm -rf "$stage_lock" 2>/dev/null || true
   fi
 
-  rm -f "$stage_dir/pid" "$stage_dir/comm" 2>/dev/null || true
-  rmdir "$stage_dir" 2>/dev/null || true
-
-  echo "Failed to acquire lock. Exiting cleanly."
+  echo "Another prw-metrics instance won the reclaim race. Exiting cleanly."
   exit 0
 }
 
@@ -194,6 +206,8 @@ fi
 
 export PRW_METRICS_STATE_DIR
 export PRW_METRICS_ROADMAP_REPO
+export PRW_METRICS_TELEMETRY_DIR="${PRW_METRICS_TELEMETRY_DIR:-$PRW_METRICS_ROADMAP_REPO/dashboards/prw/telemetry}"
+export PRW_METRICS_STALE_HOURS="${PRW_METRICS_STALE_HOURS:-4.5}"
 export PRW_METRICS_PUBLISH="${PRW_METRICS_PUBLISH:-1}"
 
 echo "Starting PRW metrics collection at $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
@@ -202,7 +216,14 @@ set +e
 if [[ -n "${PRW_METRICS_COLLECTOR_CMD:-}" ]]; then
   bash -c "$PRW_METRICS_COLLECTOR_CMD"
 else
-  python3 "$REPO_DIR/scripts/prw_metrics.py" --roadmap-repo "$PRW_METRICS_ROADMAP_REPO" --state-dir "$PRW_METRICS_STATE_DIR"
+  telem_args=()
+  if [[ -d "$PRW_METRICS_TELEMETRY_DIR" ]]; then
+    telem_args+=(--telemetry-dir "$PRW_METRICS_TELEMETRY_DIR")
+  fi
+  python3 "$REPO_DIR/scripts/prw_metrics.py" \
+    --roadmap-repo "$PRW_METRICS_ROADMAP_REPO" \
+    --state-dir "$PRW_METRICS_STATE_DIR" \
+    "${telem_args[@]}"
 fi
 STATUS=$?
 set -e

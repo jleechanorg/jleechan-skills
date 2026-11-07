@@ -451,9 +451,143 @@ class PRWMetricsSchedulerTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0, "Missing roadmap repo must fail closed (exit != 0)")
         self.assertIn("PRW_METRICS_ROADMAP_REPO is not set", result.stderr)
 
+    def test_install_script_derives_label_and_fails_closed_when_missing(self):
+        """Verifies install-prw-metrics-launchd.sh derives LABEL from plist template and fails closed if missing."""
+        self.assertTrue(INSTALL_SCRIPT.exists(), f"Missing install script: {INSTALL_SCRIPT}")
 
-# Alias for test discovery
-TestSchedulerScript = PRWMetricsSchedulerTests
+        # 1. Template without <key>Label</key> must fail closed
+        bad_template = self.scratch_dir / "bad_template.plist.template"
+        bad_template.write_text("<dict><key>ProgramArguments</key><array></array></dict>", encoding="utf-8")
+
+        result = subprocess.run(
+            ["bash", str(INSTALL_SCRIPT), str(bad_template)],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=self._base_env(),
+        )
+        self.assertNotEqual(result.returncode, 0, "Installer must fail closed when Label is missing")
+        self.assertIn("Could not parse Label", result.stderr)
+
+        # 2. Template with custom Label derives that exact label
+        custom_label = "org.custom.test-runner"
+        good_template = self.scratch_dir / "custom.plist.template"
+        good_template.write_text(
+            f"<dict><key>Label</key>\n<string>{custom_label}</string></dict>",
+            encoding="utf-8",
+        )
+        extract_cmd = f"sed -n '/<key>Label<\\/key>/{{n;s/.*<string>\\(.*\\)<\\/string>.*/\\1/p;}}' '{good_template}'"
+        derived = subprocess.check_output(["bash", "-c", extract_cmd], text=True).strip()
+        self.assertEqual(derived, custom_label)
+
+    def test_run_script_telemetry_dir_and_stale_hours_exported(self):
+        """Verifies PRW_METRICS_TELEMETRY_DIR and PRW_METRICS_STALE_HOURS are exported to collector."""
+        self.assertTrue(RUN_SCRIPT.exists(), f"Missing run script: {RUN_SCRIPT}")
+        output_file = self.state_dir / "telem_env.txt"
+        collector_cmd = (
+            f"echo \"TELEMETRY_DIR=$PRW_METRICS_TELEMETRY_DIR\" > '{output_file}'; "
+            f"echo \"STALE_HOURS=$PRW_METRICS_STALE_HOURS\" >> '{output_file}'"
+        )
+        env = self._base_env(
+            PRW_METRICS_FORCE_RUN="1",
+            PRW_METRICS_COLLECTOR_CMD=collector_cmd,
+        )
+        result = subprocess.run(
+            ["bash", str(RUN_SCRIPT)],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, f"Script failed: {result.stderr}")
+        self.assertTrue(output_file.exists())
+        captured = output_file.read_text(encoding="utf-8")
+        self.assertIn(f"TELEMETRY_DIR={self.scratch_dir}/dashboards/prw/telemetry", captured)
+        self.assertIn("STALE_HOURS=4.5", captured)
+
+    def test_competing_stale_lock_recovery_single_winner(self):
+        """When two processes race to recover a stale lock, exactly one reclaims and runs."""
+        self.assertTrue(RUN_SCRIPT.exists(), f"Missing run script: {RUN_SCRIPT}")
+        lock_dir = self.state_dir / "lock"
+        lock_dir.mkdir(parents=True, exist_ok=True)
+        pid_file = lock_dir / "pid"
+        comm_file = lock_dir / "comm"
+        # Plant dead stale PID
+        pid_file.write_text("999999", encoding="utf-8")
+        comm_file.write_text("bash", encoding="utf-8")
+
+        marker = self.state_dir / "stale_reclaim_runs.txt"
+        collector_cmd = f"echo 1 >> '{marker}'; sleep 1"
+        env = self._base_env(
+            PRW_METRICS_FORCE_RUN="1",
+            PRW_METRICS_COLLECTOR_CMD=collector_cmd,
+        )
+
+        p1 = subprocess.Popen(["bash", str(RUN_SCRIPT)], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        p2 = subprocess.Popen(["bash", str(RUN_SCRIPT)], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+        out1, err1 = p1.communicate(timeout=15)
+        out2, err2 = p2.communicate(timeout=15)
+
+        self.assertEqual(p1.returncode, 0, f"P1 failed: {err1}")
+        self.assertEqual(p2.returncode, 0, f"P2 failed: {err2}")
+
+        self.assertTrue(marker.exists(), "Collector should have executed")
+        lines = marker.read_text().strip().splitlines()
+        self.assertEqual(len(lines), 1, f"Expected exactly 1 collector execution across stale reclaim race, got {len(lines)}")
+
+    def test_install_script_handles_ampersand_and_xml_metacharacters_in_repo_root(self):
+        """Verifies installer handles ampersands and XML metacharacters in paths without corruption."""
+        self.assertTrue(INSTALL_SCRIPT.exists(), f"Missing install script: {INSTALL_SCRIPT}")
+        custom_repo = self.scratch_dir / "R&D" / "skills <testing>"
+        custom_repo.mkdir(parents=True, exist_ok=True)
+
+        template = self.scratch_dir / "amp.plist.template"
+        template.write_text(
+            """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.jleechan.amp-test</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>@REPO_ROOT@/scripts/run_prw_metrics.sh</string>
+  </array>
+</dict>
+</plist>""",
+            encoding="utf-8",
+        )
+
+        dest_plist = self.scratch_dir / "rendered_amp.plist"
+        py_cmd = f"""python3 - "{template}" "{dest_plist}" "{self.fake_home}" "{custom_repo}" <<'PY'
+import plistlib, sys
+tpl_path, dest_path, home_val, repo_val = sys.argv[1:5]
+with open(tpl_path, "rb") as f:
+    data = plistlib.load(f)
+def replace_tokens(obj):
+    if isinstance(obj, str):
+        return obj.replace("@HOME@", home_val).replace("@REPO_ROOT@", repo_val)
+    if isinstance(obj, list):
+        return [replace_tokens(x) for x in obj]
+    if isinstance(obj, dict):
+        return {{k: replace_tokens(v) for k, v in obj.items()}}
+    return obj
+rendered = replace_tokens(data)
+with open(dest_path, "wb") as f:
+    plistlib.dump(rendered, f, sort_keys=False)
+print(rendered["Label"])
+PY
+"""
+        label = subprocess.check_output(["bash", "-c", py_cmd], text=True).strip()
+        self.assertEqual(label, "com.jleechan.amp-test")
+
+        with open(dest_plist, "rb") as f:
+            loaded = plistlib.load(f)
+        args = loaded["ProgramArguments"]
+        expected_path = f"{custom_repo}/scripts/run_prw_metrics.sh"
+        self.assertEqual(args[0], expected_path)
+        self.assertNotIn("@REPO_ROOT@", args[0])
 
 
 if __name__ == "__main__":

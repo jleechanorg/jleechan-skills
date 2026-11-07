@@ -11,11 +11,9 @@
 
 set -euo pipefail
 
-LABEL="com.jleechan.prw-metrics"
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PLIST_TEMPLATE="$REPO_DIR/launchd/${LABEL}.plist.template"
+PLIST_TEMPLATE="${1:-$REPO_DIR/launchd/com.jleechan.prw-metrics.plist.template}"
 LAUNCH_AGENTS_DIR="$HOME/Library/LaunchAgents"
-PLIST_DEST="$LAUNCH_AGENTS_DIR/${LABEL}.plist"
 UID_NUM="$(/usr/bin/id -u)"
 
 if [[ ! -f "$PLIST_TEMPLATE" ]]; then
@@ -23,17 +21,44 @@ if [[ ! -f "$PLIST_TEMPLATE" ]]; then
   exit 1
 fi
 
-mkdir -p "$LAUNCH_AGENTS_DIR"
-mkdir -p "$HOME/Library/Logs"
-
 TEMP_PLIST="$(mktemp "${TMPDIR:-/tmp}/prw-metrics-plist.XXXXXX")"
 trap 'rm -f "$TEMP_PLIST"' EXIT
 
 echo "Rendering $PLIST_TEMPLATE -> $TEMP_PLIST ..."
-sed -e "s|@HOME@|$HOME|g" -e "s|@REPO_ROOT@|$REPO_DIR|g" "$PLIST_TEMPLATE" > "$TEMP_PLIST"
+LABEL="$(python3 - "$PLIST_TEMPLATE" "$TEMP_PLIST" "$HOME" "$REPO_DIR" <<'PY'
+import plistlib, sys
+tpl_path, dest_path, home_val, repo_val = sys.argv[1:5]
+with open(tpl_path, "rb") as f:
+    data = plistlib.load(f)
+if not isinstance(data, dict) or not data.get("Label") or not isinstance(data.get("Label"), str):
+    sys.exit(1)
+def replace_tokens(obj):
+    if isinstance(obj, str):
+        return obj.replace("@HOME@", home_val).replace("@REPO_ROOT@", repo_val)
+    if isinstance(obj, list):
+        return [replace_tokens(x) for x in obj]
+    if isinstance(obj, dict):
+        return {k: replace_tokens(v) for k, v in obj.items()}
+    return obj
+rendered = replace_tokens(data)
+with open(dest_path, "wb") as f:
+    plistlib.dump(rendered, f, sort_keys=False)
+print(rendered["Label"])
+PY
+)" || {
+    echo "ERROR: Could not parse Label or render plist from $PLIST_TEMPLATE" >&2
+    exit 1
+}
 
-echo "Validating plist with plutil -lint ..."
-/usr/bin/plutil -lint "$TEMP_PLIST"
+PLIST_DEST="$LAUNCH_AGENTS_DIR/${LABEL}.plist"
+
+mkdir -p "$LAUNCH_AGENTS_DIR"
+mkdir -p "$HOME/Library/Logs"
+
+if [[ -x /usr/bin/plutil ]]; then
+  echo "Validating plist with plutil -lint ..."
+  /usr/bin/plutil -lint "$TEMP_PLIST"
+fi
 
 cp "$TEMP_PLIST" "$PLIST_DEST"
 chmod 644 "$PLIST_DEST"
