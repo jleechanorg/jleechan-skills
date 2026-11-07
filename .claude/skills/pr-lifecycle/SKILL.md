@@ -27,6 +27,10 @@ Execute the PR's next unmet obligation continuously through `FINAL_READY`. Statu
 
 Target repository instructions (`AGENTS.md`, `CLAUDE.md`) take precedence within their domain. Apply shared defaults only where silent; never remove a local requirement or infer an ungranted exception. Bind head repository, branch, SHA, and base from live PR metadata (`gh pr view`).
 
+### Existing authorization and prepared plans
+
+An existing user or standing authorization keeps covering the same action, target and outcome within its stated spending, request and retry bounds. Re-pin and review each newly prepared plan or plan SHA before execution; that is an integrity check, not a request for renewed human approval. A required validation or evidence step does not itself authorize extra paid work; obtain new authority only for paid work outside the authorized scope or beyond its bounds. Other merge, security, retry, source-integrity, budget and evidence gates can still block execution.
+
 ## The autonomous completion loop
 
 Drive the PR through this continuous cycle without stopping at intermediate checkpoints:
@@ -44,7 +48,7 @@ Drive the PR through this continuous cycle without stopping at intermediate chec
 
 ```
 DRAFT
-  → Route selection & exemptions (Markdown-only/doc routes skip /es and /er)
+  → Route selection & exemptions (qualified Markdown instruction-only route skips separate /es and /er; documentation allowlist exempts /er but retains applicable /es)
   → When pinned source ready: Table-selected source review PASS @ SHA
       (runs concurrently with independent evidence work)
   → For routes requiring evidence:
@@ -62,10 +66,10 @@ DRAFT
 
 Before undrafting (`gh pr ready <N>`), select route and satisfy applicable gates:
 
-1. **Route selection and exemptions** — Classify the diff under [review-routing.md](review-routing.md). Positively qualified Markdown instruction-only changes and documentation-only exceptions do not force separate `/es` or `/er` adjudication; they satisfy draft review through route-defined scenario review(s) and Markdown structure checks.
+1. **Route selection and exemptions** — Classify the diff under [review-routing.md](review-routing.md). Positively qualified Markdown instruction-only changes do not force separate `/es` or `/er` adjudication; they satisfy draft review through route-defined scenario review(s) and Markdown structure checks. Ordinary documentation-only exceptions under [exceptions.md](exceptions.md) exempt `/er` under their exact allowlist, but retain applicable `/es` (proportionate diff/link/structure checks; no runtime proof added to ordinary docs merely by size).
 2. **Concurrent source review** — Table-selected independent source review (`APPROVED at <SHA>`) can start as soon as pinned source is ready, running concurrently with independent evidence work.
 3. **Evidence bundle (`/es`)** — When evidence is required, prepare the complete evidence bundle bound to tested SHA per `../evidence-standards/SKILL.md`. An early evidence preflight checks artifact completeness, but is not final PASS.
-4. **Independent visual findings (`/visual-verification`)** — For published media or rendered UI claims outside the one-liner fast path, an independent visual seat decodes media, inspects frames, and confirms `VISUAL APPROVED at <40-char-sha>` before closing evidence review (preserving required seats and qualified combined-seat exceptions per [review-routing.md](review-routing.md)).
+4. **Independent visual findings (`/visual-verification`)** — For published media or rendered UI claims outside the one-liner fast path, an independent visual seat decodes media, inspects frames, and confirms `VISUAL APPROVED at <40-char-sha>` before closing evidence review (requiring two independent visual seats before undraft for user-visible headline claims unless a qualified one-vote UI route, one-liner fast path, or explicit `SINGLE-SEAT` limitation applies, preserving independent author/evidence-seat rules per [review-routing.md](review-routing.md#visual-verification-and-seat-requirements)).
 5. **Closing evidence review (`/er`)** — When `/er` is required, obtain closing evidence review PASS (not PARTIAL/FAIL/INCONCLUSIVE) under [review-routing.md](review-routing.md), adjudicating complete evidence and required visual findings.
 6. **Undraft** — Execute `gh pr ready <N>` once all applicable draft-phase gates pass.
 
@@ -79,7 +83,7 @@ Resolve and read `../advice/SKILL.md` or `../web-advice/SKILL.md`. If absent, re
 
 ## Default PR route — `/prw`
 
-Drive every PR through `/prw` by default. UI and user-facing changes always use `/prw`. Lighter non-production or doc-only paths drop intermediate stage transitions but retain all required checks, independent reviews, and merge authorization.
+Drive every PR through `/prw` by default. UI and user-facing changes always use `/prw` unless an explicit human instruction overrides it for that PR. Lighter paths (documentation-only, qualified non-production changes, backup/mirror repos, or very small changes) drop intermediate stage transitions but retain all required checks, independent reviews, and merge authorization. When unsure, use `/prw`. See [review-routing.md](review-routing.md#default-pr-route-and-lighter-paths) for full lighter-path eligibility and exclusions.
 
 ## Coding lifecycle — scale layers to risk
 
@@ -87,7 +91,7 @@ Explore → outcome spec → TDD (failing test first) → unit/integration tests
 
 ## Merge authorization
 
-Merge authorization follows `~/.codex/AGENTS.md` § Merge safety and explicit target-repository policy. Readiness does not confer merge authority.
+Merge authorization follows the shared size-tiered rule in `~/.codex/AGENTS.md` § Merge safety and explicit target-repository policy. This skill neither requires nor waives a human `MERGE APPROVED` phrase where the governing rule does not; explicit local approval requirements stay in force. Earlier-SHA review applicability for readiness does not satisfy a stricter exact-head condition on a separately authorized automatic-merge route; keep that merge condition unless the human explicitly changes it. Readiness or this refactor grants no new permission.
 
 ## Review obligations by changed claim and risk
 
@@ -140,3 +144,7 @@ See [review-records.md](review-records.md) for PR description review ledgers and
 ## Proportional exceptions and fast paths
 
 See [exceptions.md](exceptions.md) for trivial-change, one-liner fast path, and documentation allowlist rules.
+
+### Documentation-only exceptions
+
+For a diff that may be documentation-only, see [exceptions.md](exceptions.md#documentation-only-ci-exception): it owns the CI exception and the narrow `/er` allowlist. Use its existing [canonical changed-path helper](scripts/pr-base-changed-paths.sh) rather than by eye.

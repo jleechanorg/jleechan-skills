@@ -44,11 +44,35 @@ Visual evidence follows the changed claim: backend-only changes with no rendered
 
 Reuse valid proof and independent coverage across draft/final phases under § SHA-binding rule. A phase label alone does not demand another model call. Changed source, evidence or interpretation gets affected independent review; unchanged historical claims retain original status and SHA. Route-selected source review can start as soon as pinned source is ready, running concurrently with independent evidence work; an early source vote may pass source correctness while evidence/readiness remains open. For routes requiring visual claims, the dependency order is: complete evidence bundle (`/es`) -> required independent visual findings (`/visual-verification`) -> closing `/er` adjudication. An early evidence preflight is not final PASS. Preserve required seats and qualified combined-seat exceptions (e.g. low-risk UI presentation where an independent reviewer explicitly covers both source and visual claims). Final readiness still requires every applicable gate.
 
+### Visual verification and seat requirements
+
+Published screenshots, GIFs or video always require this inspection. Without published media, a bounded compact-route source/logic claim that claims no changed rendering, interaction or displayed data does not trigger media proof merely because a downstream UI exists; any actual rendered, interaction or displayed-data claim keeps its applicable proof, regardless of diff size. The gate does not apply to a source-literal-only claim (copy, log or alert text inspected in source) that publishes no media, including a one-liner fast-path PR; those keep their bounded `N/A` allowance.
+
+For table-qualified UI presentation or bounded frontend interaction, the source reviewer may also supply the visual seat with explicit coverage; no extra visual seat is added by this default. Otherwise a qualifying seat is independent of the author **and** of the `/er` seat that judged the bundle. It downloads each media artifact, verifies its hash, decodes it, extracts the before and after frames, and returns `VISUAL-VERDICT: PASS|FAIL` mapping what it observed to the claim, plus what the media does **not** prove. The Review Gate Ledger carries its own `/visual-verification` row; media without that row blocks undraft. Author-side frame reading, a difference score (PSNR or similar), "captions present", a published hash, or an `/er` line item calling media "VERIFIED" is **never** a substitute: that is the same recording read by the same side. Every applicable seat must PASS; missing, inaccessible or insufficient required media leaves the gate open.
+
+When the headline claim is user-visible and no table-qualified one-vote UI route or one-liner fast path applies, the shared default is **two** independent visual seats before undraft; a repository route that genuinely cannot supply two records a `SINGLE-SEAT` limitation naming the missing seat, never a silent waiver.
+
+When the consuming surface lives in another repository, the PR cites a capture of that surface for the visual seat to review, or records the visual proof as deferred debt naming the owning repository. Deferred debt does **not** discharge this gate or authorise undraft, and is allowed only when the PR publishes no media and makes no rendered or displayed-data claim for that surface; a PR whose headline claim *is* another repository's rendered output stays draft until that capture exists and an independent seat has PASSed it.
+
+Byte-identical prose is still user-visible when a client renders the new data or a displayed value changes, so "no web-visible change" cannot mark video `N/A` there; otherwise `N/A` needs its specific bounded reason.
+
 ### Advice applicability
 
 Outside positively qualified direct/static or existing trivial exceptions, the table's two-source-vote rows use `/advice` with its canonical independent quorum. Agent-policy changes of at least 50 complete-diff additions+deletions also use `/advice`; under 50, their cold independent source review remains mandatory. Preserve specifically requested reviews and explicit repository routes. Count the full verified base...head additions+deletions, not net lines or the latest commit; record production totals and runtime-file/module scope separately for numeric admission. Unknown counts and uncounted binaries cannot establish a numeric exception.
 
-Readiness and merge authority are separate. A one-vote readiness result does not authorize automatic merge: retain the governing two-eligible-vote exact-head condition and any human approval requirement. A second static vote counts toward that merge quorum only when the advice/merge owner explicitly accepts it; otherwise use a human route only where allowed. No receipt manufactures merge, spending, credential or destructive authority.
+Readiness and merge authority are separate: follow `~/.codex/AGENTS.md` § Merge safety and repository policy. A one-vote readiness result does not authorize automatic merge: retain the governing two-eligible-vote exact-head condition and any human approval requirement. Earlier-SHA review applicability for readiness does not satisfy a stricter exact-head condition on a separately authorized automatic-merge route; keep that merge condition unless the human explicitly changes it. A second static vote counts toward that merge quorum only when the advice/merge owner explicitly accepts it; otherwise use a human route only where allowed. No receipt manufactures merge, spending, credential or destructive authority; readiness or this refactor grants no new permission.
+
+## Default PR route and lighter paths
+
+Drive every PR through `/prw` (`/pr-workflow`) by default, using this generic lifecycle unless the repository opted into the visible six-stage workflow. UI and other user-facing changes always use `/prw` unless a human explicitly overrides it for that PR. A lighter path is allowed only for:
+
+- documentation-only changes;
+- non-production changes (documentation, tests, fixtures, and skill/instruction updates that do not alter approval, merge, review, evidence or security policy), subject to the repository's non-production classifier;
+- backup or mirror repositories;
+- an explicit human instruction to skip `/prw` for that PR;
+- a very small change that needs no evidence or `/es`, such as a fix to a helper script with no user-visible effect.
+
+The non-production and small-change bullets never cover a class excluded in § Proportional exceptions and fast paths, a high-risk class in § Coding lifecycle — scale layers to risk, or a test change that weakens an assertion; those always use `/prw`. The lighter path drops the `/prw` driver and the intermediate stage title/label transitions (`Stage 0–3`), not the work those stages gate: in opted-in repositories, keep the specification in its prescribed location and synchronize `[fa]` / `stage:5-final-approval` once applicable gates pass. Every applicable gate still applies: CI or its documented exception, `/green`, the table-selected source-review route, at least one independent adversarial full-scope LLM review of any agent-instruction change regardless of size, any repository-required review, evidence or `/dot` route, and merge authorization. When unsure, use `/prw`.
 
 ## Compact risk-based route
 

@@ -51,4 +51,7 @@ Drive the PR through the [pr-lifecycle completion loop](../pr-lifecycle/SKILL.md
 3. Maintain the single current record in the PR description ([Review Ledger and Execution Record](../pr-lifecycle/review-records.md#unified-obligation-and-review-ledger)).
 4. Own asynchronous jobs with explicit handle and verified resumption mechanism (a written wake condition alone is not resumption); retain ownership of blocking dependencies through their endpoint or accepted handoff.
 5. Pass draft gates in order, undraft via `gh pr ready`, and satisfy closing obligations.
-6. Creating or updating a PR does not authorize merge. Merge authority must be satisfied separately.
+
+## Boundaries
+
+Creating or updating a PR does not authorize merge, deployment, credential changes, new quota, native/account operations, schedule changes or another owner's source work. Merge authority remains repository/user-specific and must be satisfied separately. Stage-exit receipts follow [pr-lifecycle's stage-exit receipt contract](../pr-lifecycle/six-stage.md#evidence-attached-to-every-stage-exit); that contract is the single owner.

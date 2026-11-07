@@ -40,8 +40,9 @@ An actual handle plus a verified callback, polling, or resume mechanism must exi
 
 ## Observational Scratch runtime telemetry (`run.stats.json`)
 
-Observational Scratch runtime telemetry (`run.stats.json`) is a derived sidecar for non-enforcing metrics, never a competing authority or controller. To capture execution telemetry without cluttering the repository or git history, write a tiny observational runtime snapshot to the host Scratch space (resolved dynamically via `~/.claude/skills/scratch-space/scripts/scratch-dir.sh [subpath]` or `diskm scratch-new`, falling back to `/tmp` only when unconfigured):
+Observational Scratch runtime telemetry (`run.stats.json`) is an optional derived sidecar for non-enforcing metrics, never a competing authority, schema enforcement, or second ledger. The executing agent/driver produces this telemetry optionally from already-fetched candidate, gate, or job events without making new model/tool calls, and human audit is the consumer for offline review without blocking gates or stage transitions. To capture execution telemetry without cluttering the repository or git history, write a tiny observational runtime snapshot to the host Scratch space (resolved dynamically via `~/.claude/skills/scratch-space/scripts/scratch-dir.sh [subpath]` or `diskm scratch-new`, falling back to `/tmp` only when unconfigured):
 
+- **Producer and consumer roles:** The executing driver is the producer, updating fields optionally from already-fetched event data (no new model calls, scripts, or duplicate ledger); human audit is the consumer for non-blocking offline inspection (no schema enforcement or gating).
 - **Non-enforcement invariant:** Stats are strictly observational. They cannot delay gates, block stage transitions, or become gating criteria.
 - **Integrity invariant:** Unknown values MUST be `null`. Never fabricate cost, idle time, or token estimates.
 - **Safety invariant:** Never include credentials, tokens, secrets, or private personal messages. Never write runtime telemetry into the repository tree or `$HOME`.

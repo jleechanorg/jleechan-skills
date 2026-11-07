@@ -2,7 +2,7 @@
 
 On-demand reference for [pr-lifecycle](SKILL.md): load when managing reviewer deadlines, handling timeouts, applying replacement quorums, or handling backlogged CI.
 
-### Reviewer timeout and completion
+## Reviewer timeout and completion
 
 For `/pr-workflow` and other lifecycle reviews, each reviewer attempt has a default wall-clock limit of 1800 seconds (30 minutes), starting when the request is queued or sent. Queueing and delivery wait count; progress, partial output or a new message do not reset it. An explicit user-specified limit, shorter or longer, governs that attempt, and a later specific user instruction to await a named reviewer overrides the deadline for that attempt even without a number. If the reviewer is explicitly unavailable or quota-blocked, stop the attempt and route to the fallback immediately. Do not keep waiting on the same attempt.
 
