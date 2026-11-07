@@ -209,12 +209,14 @@ if [ -n "${WIKI:-}" ] && [ -d "$WIKI" ]; then
   WIKI_ROOT=$(dirname "$WIKI")
   RAW_DIR="$WIKI_ROOT/raw"
 
-  # Verify raw source copy, canonical source page, index, log, and git commit:
-  test -f "$RAW_DIR/<basename>" 2>/dev/null || test -f "$WIKI/raw/<basename>"
-  test -f "$WIKI/sources/<slug>.md"
-  grep -q -F "<slug>" "$WIKI/index.md"
-  tail -20 "$WIKI/log.md" | grep -q "<title>"
-  git -C "$WIKI" status --porcelain
+  # Verify raw source copy, canonical source page, index, log, and clean git commit recording the ingested source page:
+  ( { test -f "$RAW_DIR/<basename>" 2>/dev/null || test -f "$WIKI/raw/<basename>"; } && \
+    test -f "$WIKI/sources/<slug>.md" && \
+    grep -q -F "<slug>" "$WIKI/index.md" && \
+    tail -20 "$WIKI/log.md" | grep -q "<title>" && \
+    test -z "$(git -C "$WIKI" status --porcelain)" && \
+    git -C "$WIKI" log -n 1 --oneline -- "sources/<slug>.md" | grep -q . ) || \
+    { echo "ERROR: wiki ingest verification failed" >&2; exit 1; }
 fi
 ```
 
@@ -225,7 +227,7 @@ After execution, verify the required side effects using the exact resolved desti
   (`title`, `type`, `tags`, `sources`, `last_updated`) and `[[wikilinks]]`
 - `"$WIKI/index.md"` was updated under `## Sources` (verify with `grep -F "<slug>" "$WIKI/index.md"`)
 - `"$WIKI/log.md"` was appended with `## [YYYY-MM-DD] ingest | <title>` (verify with `tail -20 "$WIKI/log.md"`)
-- Git commit created on publish branch (verify with `git -C "$WIKI" status -sb` or `git -C "$WIKI_ROOT" log --oneline -3`)
+- Git commit created on publish branch (verify with `test -z "$(git -C "$WIKI" status --porcelain)" && git -C "$WIKI" log -n 1 --oneline -- "sources/<slug>.md" | grep -q .`)
 - Relevant entity/concept updates exist and the wiki's link lint passes.
 
 If the full procedure cannot be completed, report the exact missing step and

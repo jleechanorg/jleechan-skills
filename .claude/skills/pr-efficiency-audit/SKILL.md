@@ -129,6 +129,7 @@ Audits pull request throughput, lifecycle duration, and stage dwell across exact
 
 ## Storage & Reporting
 
+- **Scheduled collection & dashboard:** `scripts/prw_metrics.py` (and `scripts/run_prw_metrics.sh`) implements the scheduled 4-hour rolling collector and private dashboard renderer following this skill's window, handoff, and `UNKNOWN` idle rules.
 - **Reuse existing records**: Leverage `history`, `ms`, and existing PR timeline receipts. Do not introduce new enforcement frameworks, background scorers, or ledgers.
 - **Audit reports**: Save human-readable summary reports to `~/roadmap/` (e.g. `~/roadmap/pr-efficiency-<repo>-<window>.md`).
 - **Bulky evidence**: Save large raw JSON dumps, event logs, and paginated query payloads to Scratch space (`diskm scratch-new` or host scratch), never in the repository tree.
