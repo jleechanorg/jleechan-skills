@@ -68,18 +68,26 @@ Audits pull request throughput, lifecycle duration, and stage dwell across exact
   ' -f q="repo:<owner>/<repo> is:pr is:merged merged:<WINDOW_START>..<WINDOW_END>"
   ```
 - **Search-count and cap checks**: Verify `issueCount` on the first response page. GitHub Search caps results at 1,000 items. If `issueCount >= 1000`, the query hits the cap and will truncate; split the time window into narrower sub-windows (e.g. daily slices) to ensure complete data retrieval.
-- **Half-open exact timestamp postfilters**: GitHub search date syntax (`created:START..END`) operates on day/minute resolution with inclusive boundaries. Apply an exact postfilter on ISO-8601 timestamps (`createdAt >= WINDOW_START && createdAt < WINDOW_END`) to maintain half-open `[WINDOW_START, WINDOW_END)` window boundaries.
+- **Half-open exact timestamp postfilters**: GitHub search date syntax (`created:START..END`, `merged:START..END`, `closed:START..END`) operates on day/minute resolution with inclusive boundaries. Apply an exact postfilter on ISO-8601 timestamps matched to the specific measured event to maintain half-open `[WINDOW_START, WINDOW_END)` boundaries:
+  * When filtering created PRs (`created:...`), postfilter on `createdAt`: `createdAt >= WINDOW_START && createdAt < WINDOW_END`.
+  * When filtering merged PRs (`merged:...`), postfilter on `mergedAt`: `mergedAt >= WINDOW_START && mergedAt < WINDOW_END`. Never filter merge events on `createdAt`, which drops backlog PRs created prior to the window start that merged inside the window.
+  * When filtering closed unmerged PRs (`closed:...`), postfilter on `closedAt`: `closedAt >= WINDOW_START && closedAt < WINDOW_END`.
 
 ### 2. Throughput & Cohort Metrics
-- **Separate event counts**:
-  * PRs created within the window.
-  * PRs merged within the window.
-  * PRs closed unmerged within the window.
-- **No mixed-event conversion claims**: Do not compute a naive "merge rate" by dividing merged PRs by created PRs within the same window. PRs merged during a window include backlog items created earlier, while PRs created near the window end are right-censored (still in flight). Never present mixed event counts as a causal speed or cohort conversion rate.
+- **Separate event counts & explicit denominators**:
+  * PRs created within the window ($N_{\text{created}}$, denominator for creation cohort).
+  * PRs merged within the window ($N_{\text{merged}}$, denominator for merge delivery cohort).
+  * PRs closed unmerged within the window ($N_{\text{closed\_unmerged}}$).
+- **Window scenario & censoring rules**:
+  * **Backlog merges**: A PR created before `WINDOW_START` and merged inside `[WINDOW_START, WINDOW_END)` MUST count toward window merges ($N_{\text{merged}}$).
+  * **Right-censored in-flight PRs**: A PR created inside `[WINDOW_START, WINDOW_END)` and merged after `WINDOW_END` (or still open at cutoff) is right-censored / unmerged at cutoff; it counts toward $N_{\text{created}}$ but is excluded from completed intra-window cohort duration.
 - **Completed PR lifecycle duration**:
-  * For PRs both created and merged (or closed cohorts), compute exact duration from creation to merge/closure.
+  * Distinguish **merged-event cohort latency** from **both-created-and-merged cohort latency**, always reporting distinct metrics and naming explicit denominators:
+    - *Merged-event cohort duration* ($N_{\text{merged}}$ denominator): Duration from `createdAt` to `mergedAt` for all PRs merged within `[WINDOW_START, WINDOW_END)`. Reflects total delivery cycle time including historical backlog aging.
+    - *Both-created-and-merged cohort duration* ($N_{\text{created\_and\_merged}}$ denominator): Duration from `createdAt` to `mergedAt` strictly for PRs both created and merged within `[WINDOW_START, WINDOW_END)`. Reflects turnaround time for intra-window cycles; document right-censoring bias (longer tasks initiated in the window remain in flight).
   * Report distribution statistics: **median** and **p75** duration alongside sample size (**n**).
   * Document caveats: backlog aging, task mix (e.g. large refactors vs small fixes), and right-censoring of in-progress work.
+- **No mixed-event conversion claims**: Do not compute a naive "merge rate" by dividing merged PRs by created PRs within the same window. PRs merged during a window include backlog items created earlier, while PRs created near the window end are right-censored (still in flight). Never present mixed event counts as a causal speed or cohort conversion rate.
 - **No unsupported productivity or causal claims**: Do not attribute duration or throughput changes to tooling or developer speed without controlled task mix, backlog normalization, and explicit confounding factor documentation.
 
 ### 3. Stage Dwell & Timeline Analysis
