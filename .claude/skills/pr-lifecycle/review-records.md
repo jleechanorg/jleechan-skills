@@ -1,11 +1,70 @@
 # Review records in the PR description
 
-On-demand part of [pr-lifecycle](SKILL.md): load it whenever a review runs or the PR body's evidence marker or
-review records change.
+On-demand part of [pr-lifecycle](SKILL.md): load it whenever a review runs, obligations are updated, or the PR body's evidence marker or review records change.
+
+## Unified obligation and review ledger
+
+Maintain a structured obligation ledger in the PR description under `## Review Ledger`:
+
+| Obligation | Required by | Status | Receipt | Candidate applicability |
+|---|---|---|---|---|
+| Source review quorum | Selected route | PASS / OPEN | <Reviewer receipt URL or ID> | Valid / affected / unknown (<rationale>) |
+| Evidence review (/er) | Selected route | PASS / NOT REQUIRED | <Receipt URL or exemption> | Current candidate / Reason |
+| Visual approval | Changed claims | PASS / NOT REQUIRED | VISUAL APPROVED at <40-char-sha> | Rendered frames inspected / Reason |
+| CI and conflicts | Repository policy | PASS / OPEN | Live check run results | Current candidate |
+| Closing coverage | Final phase | PASS / OPEN | Closing validation record | Current candidate |
 
 For every review type that runs, including `/es`, `/er`, `/advice`, `/wa`, `/cs`, other named lanes and native reviews, record in the PR body the exact reviewed SHA, review type/phase, verdict or status, timestamp, and reviewer/coverage. Document reviews also retain document hashes; their context SHA does not turn document approval into code approval.
 
-Outside the canonical Markdown instruction-only route, the compact route and the one-liner fast path (§ Proportional exceptions and fast paths), publish each completed review's sanitized receipt as a gist within the approved disclosure scope, and keep one current marker in the PR body for evidence-gate compatibility: `**Evidence**: <gist-url> (head <sha>)`, pointing to the authorized sanitized evidence-review receipt for current applicability. Compact PRs use the outcome/checks/SHA/limitations/reviewer summary described above, linking an artifact only when needed to substantiate the claim; the one-liner fast-path `/es` record uses its before/after section. Update only that index; keep the historical ledger, receipt URLs and original capture SHAs. Underlying raw artifacts may stay private. Missing publication authority or an inaccessible required receipt leaves the marker incomplete; never fabricate its URL.
+## Execution record
+
+Track the active execution state in the PR description or task context:
+
+```text
+endpoint: FINAL_READY
+candidate: <head-SHA>
+next_action: <specific unmet obligation>
+owner: <driver or delegated lane>
+job_handle: <actual handle, when asynchronous>
+wake_condition: <job result / reviewer response / check completion>
+blocker: <only if no executable authorized action remains>
+```
+
+An asynchronous wait requires both an actual `job_handle` and an unambiguous `wake_condition`. Ending a turn at "review requested" without an active handle and wake path is forbidden.
+
+## Observational Scratch runtime telemetry (`run.stats.json`)
+
+To capture execution telemetry without cluttering the repository or git history, write a tiny observational runtime snapshot to the host Scratch space (resolved dynamically via `~/.claude/skills/scratch-space/scripts/scratch-dir.sh [subpath]` or `diskm scratch-new`, falling back to `/tmp` only when unconfigured):
+
+- **Non-enforcement invariant:** Stats are strictly observational. They cannot delay gates, block stage transitions, or become gating criteria.
+- **Integrity invariant:** Unknown values MUST be `null`. Never fabricate cost, idle time, or token estimates.
+- **Safety invariant:** Never include credentials, tokens, secrets, or private personal messages. Never write runtime telemetry into the repository tree or `$HOME`.
+- **Event-driven update:** Update only on actual candidate, gate, or job events using already-fetched data.
+
+Structure of `run.stats.json`:
+```json
+{
+  "endpoint": "FINAL_READY",
+  "candidate_sha": "<40-char-sha>",
+  "timestamps": {
+    "created_at": "<ISO-timestamp-or-null>",
+    "pushed_at": "<ISO-timestamp-or-null>",
+    "review_return_at": "<ISO-timestamp-or-null>",
+    "green_at": "<ISO-timestamp-or-null>",
+    "merged_at": "<ISO-timestamp-or-null>"
+  },
+  "model_usage": {
+    "cached_input_tokens": null,
+    "uncached_input_tokens": null,
+    "output_tokens": null,
+    "reasoning_tokens_subset": null
+  }
+}
+```
+
+## Publication and receipt integrity
+
+Outside the canonical Markdown instruction-only route, the compact route and the one-liner fast path (in [exceptions.md](exceptions.md#proportional-exceptions-and-fast-paths)), publish each completed review's sanitized receipt as a gist within the approved disclosure scope, and keep one current marker in the PR body for evidence-gate compatibility: `**Evidence**: <gist-url> (head <sha>)`, pointing to the authorized sanitized evidence-review receipt for current applicability. Compact PRs use the outcome/checks/SHA/limitations/reviewer summary, linking an artifact only when needed to substantiate the claim; the one-liner fast-path `/es` record uses its before/after section. Update only that index; keep the historical ledger, receipt URLs and original capture SHAs. Underlying raw artifacts may stay private. Missing publication authority or an inaccessible required receipt leaves the marker incomplete; never fabricate its URL.
 
 A gist is link-accessible, not private storage: omit credentials, private source, personal communications and sensitive artifacts unless separately authorized. Verify the gist URL and intended reviewer access before calling publication complete. If tools or permissions prevent publishing a required receipt, record `PUBLICATION BLOCKED` with the exact reason and local receipt location; never invent a gist URL or passing verdict, and do not claim the record complete.
 

@@ -1,0 +1,86 @@
+# Review Obligations and Routing Reference
+
+On-demand reference for [pr-lifecycle](SKILL.md): load when selecting a review route, classifying risk and claims, determining reviewer counts, or assessing SHA delta applicability.
+
+## Review obligations by changed claim and risk
+
+This table is the single shared-default routing decision for both generic and opted-in lifecycles. Classify the **complete** base-to-head diff, including non-production effects. Apply explicit repository overrides first, then the highest-risk applicable row; mixed changes retain proof for every changed claim. Unknown scope or uncertain eligibility takes the ordinary route until resolved. Never split work, relabel risk or weaken assertions to qualify.
+
+A changed boundary means the diff alters its contract, execution or claimed outcome. Merely using an existing service, shipping to a deployed environment, holding test credentials or having an unchanged downstream UI does not create a changed service/gameplay claim. Conversely, a local label or mock test cannot erase an actual boundary change. Size admits a candidate; it never proves safety.
+
+### Markdown instruction-only route
+
+Apply this route before the general compact route and size-based /advice default. The diff must change agent or operator guidance in Markdown; it may also include human-readable Markdown specifications, records, and conflict notes that accompany or document that work. Those supporting documents count toward size but do not defeat eligibility. No changed path may add scripts or helpers, tests, CI, configuration, machine-readable schemas, production prompts, or an actual runtime/service contract. Mixed changes and prompt/schema/runtime-contract changes use the ordinary rows below.
+
+Count additions plus deletions across the full PR diff at its actual base and current head, including supporting Markdown. For an ordinary, low-risk instruction change at or below 150 changed lines, one cold independent AI reviewer reads the complete diff and checks the changed rules against relevant before/after scenarios. Above 150 changed lines, use two independent full-scope reviewers. Sensitive changes use two at any size, including security, permission, credential, destructive, deployment or release operations; evidence requirements or policy; and approval, review, or merge rules. A reviewer confirms route eligibility from the diff; a label or the author’s classification cannot qualify it. Reviewer identity, independence, tier and class-count caps follow [advice](../advice/SKILL.md). Each static reviewer follows [static-review](../static-review/SKILL.md) for cold input and complete base/head changed-file coverage. Do not count separate processes or subagents as separate votes; follow advice’s reviewer-class caps. Do not combine partial coverage.
+
+For this route, the required proof is the pinned source diff, relevant link/frontmatter or Markdown-structure checks, and the reviewer’s scenario-based receipt on the PR. Do not add a seven-element spec, separate /es or /er adjudication, evidence bundle/publication, runtime test, model/provider run, browser journey, or visual capture solely because the change is a skill or exceeds a size threshold. Reuse a complete reviewer receipt at later phases when the SHA delta leaves its claims and scenarios applicable; a phase label alone does not call for another model review. Specific evidence needed to verify a changed example or runtime claim remains required. Repository-specific gates and explicit user-requested proof still apply.
+
+For eligible Markdown instruction changes, this subsection controls reviewer count and proof in place of the generic Agent instructions/policy row, compact route, and default size-based advice rule. It does not override the high-risk row, stricter repository requirements, or explicit user-requested proof.
+
+This route cannot exempt itself from its sensitive-review rule. Changes that modify review policy use two independent full-scope reviews and all separately required repository or user gates.
+
+| Class / risk | Admission and exclusions | Required proof | Independent review for readiness |
+|---|---|---|---|
+| Editorial / minimal | Typo, link or wording only; no policy, contract, legal/security meaning, behavior or new correctness claim. | Diff, relevant link/Markdown checks; no unrelated runtime test. | Existing trivial-doc exception where eligible; otherwise one cold static reviewer of changed text. Explicitly requested reviews still run. |
+| Archive or package / integrity | Preserve existing artifact bytes, meaning and approved/unverified/historical status; no executable or install effect, fresh semantic correctness claim or missing/conflicting content. | Completeness, hashes/provenance, preservation, redaction and executable/install delta; required publication/readback remains separate. | One evidence-integrity review where needed. No semantic re-review of unchanged historical claims; this is not source approval. |
+| Agent instructions / policy | Changes agents' execution of production work, evidence or review; approval/security/permission/merge changes use high-risk row. Wording-only no-rule changes may be editorial. | Full diff and before/after adversarial enforcement scenarios; runtime proof only for a changed runtime claim. | At least one cold independent adversarial full-scope source reviewer; preserve any stronger repository quorum. This policy cannot exempt itself. |
+| Small deterministic / low | At most 150 production added+deleted lines and 3 runtime files in one module plus tests; deterministic local proof. No user-visible, API/data/model/deploy contract, auth/permission, shared-state, prompt/schema, security, destructive or credential effect; no changed CI/proof selection, shared-fixture meaning, assertion weakening, network path or retry budget. | Fresh focused RED/GREEN and relevant regressions; applicable CI and mergeability. Offline tooling may qualify; mutating/billable probes retain explicit execution/action/account/campaign/provider controls. | One cold independent static reviewer covers the complete source diff, focused proof, safeguards and eligibility. Direct static route below. |
+| UI presentation / low | Copy, color, spacing/layout or static assets only; no interaction, navigation, state, availability, accessibility, auth or displayed-data change. Legal meaning and claims about attribution/link correctness retain their specific proof. | Real before/after rendered frame for an appearance claim, focused assertion where present; source-literal-only claims may use the existing narrow fast path. | One cold independent source reviewer may also inspect the frames if its receipt explicitly covers both source and visual claims. Direct static route below. |
+| UI interaction / moderate | Navigation, settings, buttons, streaming or other observable behavior. One-vote admission requires the 150-line/3-runtime-file ceiling, frontend-only journey and component-local presentation state, with no service/data/auth/permission effect. | Real browser journey, user story and visual evidence; service claims add real boundary proof. | One full-coverage source vote only for that positively qualified bounded frontend case; otherwise two. Visual inspection does not create an additional source vote. |
+| Ordinary or cross-module / moderate | Remaining features, larger deterministic work or changes spanning modules that do not positively qualify above. | Outcome specification, fresh relevant regression proof, applicable integration/visual evidence and current checks. | Two independent full-coverage source votes through the stronger route below. |
+| Changed service boundary / elevated | Changes API, persistence, async/provider contract, auth/session or a deployed execution boundary; unchanged use alone does not qualify. High-risk effects use next row. | Real integration across the changed boundary; mock unit tests alone cannot prove it. | Two independent full-coverage source votes, plus applicable evidence adjudication. |
+| High-risk / any size | Security, permissions, destructive operations, credentials, approval/merge authority, shared-state integrity, model prompt/schema policy, signing/release or deployment/capacity controls. | All triggered domain proof, adversarial checks and current-head checks; no generic fast-path waiver. | Two independent full-coverage source votes with applicable domain lenses; separate specialist reviewers only where an explicit owner requires independence. |
+
+### Direct static route and evidence applicability
+
+For the positively qualified one-vote rows, dispatch directly through [static-review](../static-review/SKILL.md): one cold reviewer independent of the author/orchestrator, complete actual diff and applicable proof, exact reviewed SHA, eligibility finding and retrievable receipt. Do not start `/advice`, Dot rotation or a provider fallback ladder merely because the total diff exceeds 50 lines. A specifically requested workflow or stricter repository route still runs. A full-coverage reviewer may cover source and evidence only where the evidence owner accepts that combined coverage; preserve any explicitly separate evidence seat. Source vote count does not waive `/es`, `/er` or publication requirements.
+
+Proof follows **changed claims**. Use the lowest sufficient layer, retaining real boundary, native and rendered proof where claimed. For example, an App Store icon/splash presentation change needs its rendered surface; a copy/attribution/link change needs literal, attribution or destination proof as claimed; reuse of an existing Apple-logo asset needs provenance and relevant presentation proof. None implies a new gameplay journey when gameplay is unchanged. Signing, release, legal meaning, interaction or trust changes reclassify the affected scope.
+
+Visual evidence follows the changed claim: backend-only changes with no rendered, displayed-data, or interaction claim need no visual proof. Changes that do alter a rendered surface or interaction retain the applicable real visual or browser proof. This rule applies across implementation types and does not waive service-boundary proof.
+
+Reuse valid proof and independent coverage across draft/final phases under § SHA-binding rule. A phase label alone does not demand another model call. Changed source, evidence or interpretation gets affected independent review; unchanged historical claims retain original status and SHA. An early source vote may pass source correctness while evidence/readiness remains open: a reviewer must not withhold that source vote merely because a later approval does not yet exist. Final readiness still requires every applicable gate.
+
+### Advice applicability
+
+Outside positively qualified direct/static or existing trivial exceptions, the table's two-source-vote rows use `/advice` with its canonical independent quorum. Agent-policy changes of at least 50 complete-diff additions+deletions also use `/advice`; under 50, their cold independent source review remains mandatory. Preserve specifically requested reviews and explicit repository routes. Count the full verified base...head additions+deletions, not net lines or the latest commit; record production totals and runtime-file/module scope separately for numeric admission. Unknown counts and uncounted binaries cannot establish a numeric exception.
+
+Readiness and merge authority are separate. A one-vote readiness result does not authorize automatic merge: retain the governing two-eligible-vote exact-head condition and any human approval requirement. A second static vote counts toward that merge quorum only when the advice/merge owner explicitly accepts it; otherwise use a human route only where allowed. No receipt manufactures merge, spending, credential or destructive authority.
+
+## Compact risk-based route
+
+The small deterministic row and qualifying one-vote UI rows use the direct static route in § Review obligations by changed claim and risk. Retain focused proof and complete independent review; skip the separate seven-element committed specification and duplicate intermediate stage ceremony only where the repository permits the existing compact exception. The PR body records outcome, acceptance, checks and limitations. Current-candidate checks, applicable evidence, final Stage 5 synchronization and separate merge authority remain required.
+
+## Change-impact review and test depth
+
+Initial gate applicability follows the rules above. For a later delta, read the full change and identify which claims, contracts, assertions or drivers it can invalidate before choosing full re-review or focused reaffirmation. Use `../4layer/SKILL.md` (`/4layer`), `../testing-layers/SKILL.md` and the repository testing-layers overlay to select the lowest sufficient layer. Evidence classification (`/es`) does not by itself require a paid model call or browser run.
+
+| Actual change or claim | Proof and review depth |
+|---|---|
+| Unrelated prose delta | Read the delta, run relevant checks, and reaffirm unchanged claims; no automatic expensive replay. |
+| Small single-file deterministic fix | Fresh causal unit RED/GREEN plus affected regressions can prove the deterministic claim when no external boundary is implicated; focused delta review may suffice. |
+| A service boundary, auth, or persistence race | Integration proof crossing the implicated boundary; isolated unit mocks cannot establish the claim. |
+| A prompt/schema or model-behavior change | Check assembled inputs deterministically first; run real LLM evidence when lower layers cannot prove the claim or an applicable risk-specific rule requires it. |
+| New browser/UI behavior | Real browser proof for browser/UI claims, with required visual evidence, plus the `/visual-verification` gate: an independent seat must decode the media and read the frames. |
+| CI config, agent policy, security, shared fixture, or weakened assertion | Review actual effects and rerun dependent proof; non-production labels and small file counts do not establish safety. |
+
+Unit proof does not prove model compliance, auth, persistence races or browser behavior. Do not manufacture live proof from mocks or replays. Keep the strict real-service-only rules inside `testing_mcp/` and `testing_ui/`; use deterministic layers outside those directories. File count, path category and line count alone never decide evidence sufficiency or independent safety-review depth.
+
+## SHA-binding rule (critical — applies to every gate in this chain)
+
+Evidence and independent reviews are earned at their actual tested/reviewed commit SHAs. Those original SHAs and timestamps never change; never relabel an old capture as a new run. A different candidate SHA is not, by itself, a defect in the evidence or a reason to repeat the review.
+
+Before relying on earlier /es, /er, /advice, /dot, /wa or /cs results, read the complete intervening head and base delta against the precise claims and scope of the original receipt. Record:
+- original tested SHA, original reviewed SHA, candidate head/base and the inspected delta;
+- covered claims, execution paths, environment/build/config and evidence dependencies;
+- relevant tests and results, remaining findings/limitations, assessor and rationale;
+- one disposition: applicable unchanged, partially applicable with named gaps, or invalidated.
+
+Reuse an actual independent verdict when the assessment shows its coverage and phase still satisfy the candidate's obligations. The applicability record is not a new reviewer vote and must not claim the reviewer inspected a SHA they did not. The assessor records why existing coverage remains valid but cannot extend it to unreviewed changes, change the original verdict, dismiss its findings or grant a missing approval. Uncovered relevant changes, changed evidence in scope, unresolved material findings or uncertain applicability need affected independent review, including when the assessor is the author/driver; a new hash alone does not.
+
+Classify by the actual delta and claim, never by path category. A production behavior change still needs fresh evidence for affected claims and appropriate independent review of that change. A changed assertion, driver or behavioral instruction invalidates the evidence that depends on it, while unrelated claims can stay valid; tests, prompts, schemas, CI, configuration and skill instructions can invalidate proof even when classified non-production. There is no blanket category carry-forward. For affected proof, use the lowest sufficient layer while keeping stricter real-service and native requirements. If the diff or provenance cannot be inspected, applicability stays unverified.
+
+Current-candidate /green, mergeability and head-matching merge protection always need fresh verification, and a base-only move also needs assessment of the changed context and complete-diff size. Do not infer readiness from a stale CI result or unresolved conflict. Never weaken assertions or waive quorum to make an old approval appear valid.
+
+Behavior-blocking findings must be fixed and reverified; style, nit and documentation feedback may be tracked as follow-ups.
