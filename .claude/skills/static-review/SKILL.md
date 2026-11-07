@@ -21,8 +21,9 @@ Each source approver reads the complete pinned diff and every changed path at
 both revisions, or verifies absence. Include binary, mode, symlink, submodule
 and LFS payloads. Verify unchanged spans before reusing a fully read version;
 changed hunks with small context do not establish full-file coverage. Missing
-or truncated required content means WITHHELD. Never combine partial reviewers
-into one complete vote.
+or unretrievable required content means WITHHELD; recover truncated tool outputs
+with narrower ranges within the attempt deadline before concluding. Never combine
+partial reviewers into one complete vote.
 
 ## 1. Cold input and access mode
 
@@ -51,8 +52,13 @@ Review <PR URL> at head <SHA> (base <BASE SHA>). Assess the changed claims under
 the /prw stages; prior approval or a completed review is not a prerequisite. Read
 the complete base-to-head diff and full
 content of every changed path at both revisions, or verify its absence, including
-binary, mode, symlink, submodule and LFS payloads. If required content cannot be
-retrieved completely, report incomplete COVERAGE and withhold.
+binary, mode, symlink, submodule and LFS payloads. Retrieve via bounded per-file or
+range requests; if tool output truncates, recover remaining content with narrower
+ranges within the original attempt deadline (truncation alone is not inaccessibility;
+no timer reset). The model must directly read all content (fetching bytes into a
+script variable or reading a subset is not coverage). If required content is missing
+or cannot be retrieved completely by the deadline, report incomplete COVERAGE and
+withhold.
 Report P0/P1/P2 with file:line and MODEL: for the reviewer's actual
 runtime/model when exposed, or `unreported` when hidden. Never name the
 reviewed system or scope as the model. Add COVERAGE: naming all files and the diff read. Approve source only with
@@ -68,9 +74,13 @@ Review the attached change packet for <PR URL> at head <SHA> (base <BASE SHA>),
 bundle sha256:<BUNDLE HASH>. Read its complete diff and full changed-path content
 at both revisions, or verified absence, including special-object payloads.
 Assess the changed claims under /prw; prior approval or a completed review is not
-a prerequisite.
-If required content is missing, truncated or unreadable, report incomplete
-COVERAGE and withhold. Report P0/P1/P2 with file:line and MODEL: for the reviewer's actual
+a prerequisite. Retrieve via bounded per-file or range requests; if tool output
+truncates, recover remaining content with narrower ranges within the original
+attempt deadline (truncation alone is not inaccessibility; no timer reset). The
+model must directly read all content (fetching bytes into a script variable or
+reading a subset is not coverage). If required content is missing, unreadable or
+cannot be retrieved completely by the deadline, report incomplete COVERAGE and
+withhold. Report P0/P1/P2 with file:line and MODEL: for the reviewer's actual
 runtime/model when exposed, or `unreported` when hidden. Never name the
 reviewed system or scope as the model. Add COVERAGE: naming every file and diff actually read. Approve source only with
 no P0 and full coverage; P1/P2 are nonblocking. Keep readiness, quorum and merge
@@ -90,8 +100,13 @@ use an abbreviated SHA or mutable HEAD. Read only the complete declared files an
 approval or a completed review is not a prerequisite. If the
 packet claims revision binding, also read its complete base-to-head diff and
 changed-path content at both revisions, including special objects or verified
-absence. Missing or truncated required content means incomplete COVERAGE and
-WITHHELD. Report P0/P1/P2 with file:line and MODEL: for the reviewer's actual
+absence. Retrieve via bounded per-file or range requests; if tool output
+truncates, recover remaining content with narrower ranges within the original
+attempt deadline (truncation alone is not inaccessibility; no timer reset). The
+model must directly read all content (fetching bytes into a script variable or
+reading a subset is not coverage). If required content is missing or cannot be
+retrieved completely by the deadline, report incomplete COVERAGE and WITHHELD.
+Report P0/P1/P2 with file:line and MODEL: for the reviewer's actual
 runtime/model when exposed, or `unreported` when hidden. Never name the reviewed
 system or scope as the model. Add COVERAGE: naming the files and diff actually read.
 Approve only with no P0 and full coverage;
