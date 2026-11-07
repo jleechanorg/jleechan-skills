@@ -89,7 +89,7 @@ Task({
 
 ### **9. `opencode-pair-coder.md` - OpenCode CLI Coder (Wafer)**
 - **Focus**: Delegates implementation to OpenCode CLI via `opencodew()` wrapper
-- **Backend**: Wafer API (`https://pass.wafer.ai/v1`), model `wafer.ai/GLM-5.1`
+- **Backend**: Wafer API (`https://pass.wafer.ai/v1`), model `wafer.ai/GLM-5.2`
 - **CLI Routing**: Mirrors `opencodew()` case statement — subcommands pass through, `run` mode uses `--dangerously-skip-permissions`, flags use interactive mode
 - **Requires**: `WAFER_API_KEY` env var, `opencode` binary at `~/.opencode/bin/`
 - **When to Use**: Pair programming with Wafer-powered OpenCode as coder teammate
@@ -102,7 +102,7 @@ Task({
 
 ### **11. `openw-pair-coder.md` - OpenCode CLI Coder via openw()**
 - **Focus**: Delegates implementation to OpenCode CLI via `openw()` / `opencodew()` wrapper
-- **Backend**: Wafer API (`https://pass.wafer.ai/v1`), model `wafer.ai/GLM-5.1`
+- **Backend**: Wafer API (`https://pass.wafer.ai/v1`), model `wafer.ai/GLM-5.2`
 - **CLI Routing**: Mirrors `openw()` / `opencodew()` case statement from `~/.bashrc` exactly
 - **Requires**: `WAFER_API_KEY` env var, `opencode` binary at `~/.opencode/bin/`
 - **When to Use**: Pair programming with Wafer-powered OpenCode — prefer this over `opencode-pair-coder` for bashrc-native routing

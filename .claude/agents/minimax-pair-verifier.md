@@ -69,14 +69,14 @@ Required fixes (if FAIL):
 PROMPT_EOF
 
 # Launch Claude CLI with MiniMax backend
-# Model overridable via MINIMAX_MODEL env var (default: MiniMax-M2.5)
+# Model overridable via MINIMAX_MODEL env var (default: MiniMax-M3.1-Flash)
 ANTHROPIC_API_KEY=$MINIMAX_API_KEY \
 ANTHROPIC_BASE_URL=https://api.minimax.io/anthropic \
-ANTHROPIC_MODEL=${MINIMAX_MODEL:-MiniMax-M2.5} \
-ANTHROPIC_SMALL_FAST_MODEL=${MINIMAX_MODEL:-MiniMax-M2.5} \
+ANTHROPIC_MODEL=${MINIMAX_MODEL:-MiniMax-M3.1-Flash} \
+ANTHROPIC_SMALL_FAST_MODEL=${MINIMAX_MODEL:-MiniMax-M3.1-Flash} \
 API_TIMEOUT_MS=600000 \
 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
-claude --model ${MINIMAX_MODEL:-MiniMax-M2.5} -p @"$PROMPT_FILE" \
+claude --model ${MINIMAX_MODEL:-MiniMax-M3.1-Flash} -p @"$PROMPT_FILE" \
   --output-format stream-json --verbose \
   --dangerously-skip-permissions
 
@@ -178,7 +178,7 @@ echo "[$(date '+%Y-%m-%d %H:%M:%S')] [PHASE_TAG] message" >> $LOG
 |------|-----------|----------------|
 | IMPLEMENTATION_READY received | `[RECEIVED]` | `IMPLEMENTATION_READY from coder: <summary>` |
 | After choosing engine | `[ENGINE]` | `Using MiniMax (Claude CLI + MiniMax API)` or `MiniMax unavailable (reason), falling back to native` |
-| CLI started | `[CLI_START]` | `claude --model MiniMax-M2.5 (ANTHROPIC_BASE_URL=minimax)` |
+| CLI started | `[CLI_START]` | `claude --model MiniMax-M3.1-Flash (ANTHROPIC_BASE_URL=minimax)` |
 | CLI completed | `[CLI_RESULT]` | `MiniMax CLI exit code: X` |
 | After running tests | `[TESTS]` | Pipe: `python3 -m pytest ... 2>&1 \| tail -5 >> $LOG` |
 | After lint check | `[LINT]` | `ruff result: clean` or paste errors |

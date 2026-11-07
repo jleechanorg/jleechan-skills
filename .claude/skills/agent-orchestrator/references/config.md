@@ -28,7 +28,7 @@ projects:
 
     agentConfig:
       permissions: default
-      model: claude-sonnet-4-20250514
+      model: claude-sonnet-5-5
 
     worker:
       agentConfig:
@@ -37,7 +37,7 @@ projects:
     orchestrator:
       agent: claude-code
       agentConfig:
-        orchestratorModel: claude-opus-4-1
+        orchestratorModel: claude-opus-5-5
 
     reactions:
       ci-failed:

@@ -10,6 +10,22 @@ If you fork or refresh these files, run the path-scan in the "Refreshing" sectio
 |------|---------------------|------------|
 | `AGENTS.shared.md` | `${CODEX_HOME:-$HOME/.codex}/AGENTS.md` | The **canonical shared global policy** loaded by every Codex/Claude session. Edit shared rules here once. |
 | `CLAUDE.adapter.md` | `~/.claude/CLAUDE.md` | The thin Claude adapter that imports the shared policy via `@~/.codex/AGENTS.md`. |
+| [`../.codex/agents/`](../.codex/agents/) | `${CODEX_HOME:-$HOME/.codex}/agents/` | Native Codex role configurations, including their effective model pins. |
+
+Native agent TOMLs use the Codex configuration owner rather than the skill-sync
+mapper. Compare each destination first, copy only the reviewed role files, and
+verify the parsed model and remaining configuration. Do not replace a host's
+entire `config.toml` to update a model default.
+
+### Model-default migration contract
+
+- Outcome: new agent launches select current supported models within their existing role and tier.
+- Non-goals: credential, permission, endpoint, transport, pricing or application-model changes.
+- Acceptance: native roles parse, provider IDs are supported, and scoped live copies match the reviewed selections.
+- User story: model upgrades reach named reviewers and workers as well as top-level defaults.
+- Proof: parsed configuration, provider inventories, fresh native-role canaries and per-file host comparison.
+- Mock: no application UI or paid-generation proof is claimed by this configuration migration.
+- Risk: retain provider compatibility aliases, explicit overrides and historical evidence as such.
 
 ## How the "shared file setup" wires together
 

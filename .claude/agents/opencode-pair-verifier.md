@@ -3,7 +3,7 @@ name: opencode-pair-verifier
 description: |
   OpenCode CLI-powered pair programming verifier via opencodew(). Delegates verification
   to OpenCode CLI with Wafer API backend (OPENAI_BASE_URL=https://pass.wafer.ai/v1,
-  model wafer.ai/GLM-5.1). Works with any pair-coder teammate.
+  model wafer.ai/GLM-5.2). Works with any pair-coder teammate.
   Reference: ~/.bashrc opencodew() / openw alias
 ---
 
@@ -41,11 +41,11 @@ The `opencodew()` function routes by first argument:
 | First arg | Behavior |
 |-----------|----------|
 | `models`, `providers`, `debug`, `completion`, `acp`, `mcp`, `attach`, `upgrade`, `uninstall`, `serve`, `web`, `stats`, `export`, `import`, `github`, `session`, `plugin`, `db`, `pr` | Pass through to `opencode` with Wafer env vars |
-| `run` | `opencode run --model wafer.ai/GLM-5.1 --dangerously-skip-permissions "$@"` |
-| `-c`, `--continue`, `-s`, `--session`, `--fork`, `--prompt`, `--agent` | `opencode --model wafer.ai/GLM-5.1 "$@"` |
-| `""` (empty) | `opencode --model wafer.ai/GLM-5.1 .` |
-| `/*` (path) | `opencode --model wafer.ai/GLM-5.1 "$@"` |
-| `*` (any other text) | `opencode run --model wafer.ai/GLM-5.1 --dangerously-skip-permissions "$@"` |
+| `run` | `opencode run --model wafer.ai/GLM-5.2 --dangerously-skip-permissions "$@"` |
+| `-c`, `--continue`, `-s`, `--session`, `--fork`, `--prompt`, `--agent` | `opencode --model wafer.ai/GLM-5.2 "$@"` |
+| `""` (empty) | `opencode --model wafer.ai/GLM-5.2 .` |
+| `/*` (path) | `opencode --model wafer.ai/GLM-5.2 "$@"` |
+| `*` (any other text) | `opencode run --model wafer.ai/GLM-5.2 --dangerously-skip-permissions "$@"` |
 
 **Fallback: Direct CLI** (if `opencodew` is not available)
 ```bash
@@ -90,7 +90,7 @@ if [ -z "${WAFER_API_KEY:-}" ]; then
 fi
 OPENAI_API_KEY="${WAFER_API_KEY}" \
 OPENAI_BASE_URL="https://pass.wafer.ai/v1" \
-  opencode run --model wafer.ai/GLM-5.1 \
+  opencode run --model wafer.ai/GLM-5.2 \
   --dangerously-skip-permissions \
   --file "$PROMPT_FILE" \
   "Read and execute the verification instructions in the attached file."
@@ -103,7 +103,7 @@ rm -f "$PROMPT_FILE"
 - Requires `WAFER_API_KEY` env var (exported in `~/.bashrc`)
 - `opencode` binary at `~/.opencode/bin/opencode` (on `PATH` via `~/.bashrc`)
 - Wafer endpoint: `https://pass.wafer.ai/v1` (OpenAI-compatible)
-- Model: `wafer.ai/GLM-5.1`
+- Model: `wafer.ai/GLM-5.2`
 
 ## CLI Profile Detection
 
@@ -196,7 +196,7 @@ echo "[$(date '+%Y-%m-%d %H:%M:%S')] [PHASE_TAG] message" >> "$LOG"
 |------|-----------|----------------|
 | IMPLEMENTATION_READY received | `[RECEIVED]` | `IMPLEMENTATION_READY from coder: <summary>` |
 | After choosing engine | `[ENGINE]` | `Using OpenCode (opencodew + Wafer API)` or `OpenCode CLI unavailable (reason), falling back to native` |
-| CLI started | `[CLI_START]` | `opencode run --model wafer.ai/GLM-5.1 (OPENAI_BASE_URL=wafer)` |
+| CLI started | `[CLI_START]` | `opencode run --model wafer.ai/GLM-5.2 (OPENAI_BASE_URL=wafer)` |
 | CLI completed | `[CLI_RESULT]` | `OpenCode CLI exit code: X` |
 | After running tests | `[TESTS]` | Pipe: `python3 -m pytest ... 2>&1 \| tail -5 >> $LOG` |
 | After lint check | `[LINT]` | `ruff result: clean` or paste errors |

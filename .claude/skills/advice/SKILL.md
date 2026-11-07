@@ -76,7 +76,7 @@ rules for in-flight attempts. Delivery, acknowledgement and assignment are not a
 
 | Seat | Machine-local command override or default |
 |---|---|
-| Codex | `ADVICE_CODEX_CMD`, else `codex exec --yolo -m gpt-6-sol --config model_reasoning_effort=high` |
+| Codex | `ADVICE_CODEX_CMD`, else `codex exec --yolo -m gpt-6.1-sol --config model_reasoning_effort=high` |
 | Claude | `ADVICE_CLAUDE_CMD`, else `claude -p --model opus --dangerously-skip-permissions` |
 | Claude alternate | `ADVICE_CLAUDE_ALT_CMD`, else the Claude argv with `--model <actual-model>` |
 | Cursor | `cursor agent -p --force` |
@@ -182,7 +182,7 @@ obligation. Review votes never replace missing substantive evidence.
   exposed model/account fields as `attested.` values; never invent a hidden runtime SKU. A verified Dot account is its
   own CLI/model identity under the one-Dot cap. Missing public fields do not invalidate a privately verified session;
   an actually unverified account is unavailable. Keep its frozen expected binding, positive identity probe and source-
-  author independence proof. Codex models may be only `gpt-6-astra`, `gpt-6-luna`, `gpt-6-sol` or `gpt-6.1-sol`.
+  author independence proof. Codex models may be only `gpt-6-astra`, `gpt-6-luna`, `gpt-6.1-terra` or `gpt-6.1-sol`.
 - Neither the author nor the orchestrator awards itself a vote, and no verdict counts twice: a Dot account whose verdict fills the
   pr-lifecycle `/dot` leg at this head is not also an `/advice` vote.
 - Run every seat with full permissions and record its actual command, model, account and transport.

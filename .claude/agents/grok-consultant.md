@@ -29,8 +29,8 @@ You MUST use the actual Grok MCP tools to obtain genuine xAI Grok model response
 NEVER skip the external consultation. If you find yourself writing analysis without using the Grok MCP tools, STOP and use the actual Grok chat_completion tool instead.
 
 **Available Grok MCP Tools:**
-- `mcp__grok-mcp__chat_completion` - Direct access to xAI Grok models (grok-3, grok-2-latest, grok-3-reasoner, grok-3-deepsearch, grok-3-mini-beta)
-- `mcp__grok-mcp__image_understanding` - Grok's vision capabilities for image analysis (grok-2-vision-latest)
+- `mcp__grok-mcp__chat_completion` - Direct access to xAI Grok models (grok-4.7)
+- `mcp__grok-mcp__image_understanding` - Grok's vision capabilities for image analysis (grok-4.7)
 - `mcp__grok-mcp__function_calling` - Grok function calling capabilities
 
 ## Implementation Protocol
@@ -61,7 +61,7 @@ Create detailed prompts that request Grok's unique perspective:
 Use the actual Grok MCP tools for consultation:
 - **Primary Tool**: Use Grok MCP `chat_completion` tool with direct xAI API access
 - **Message Format**: Provide array of message objects with role and content
-- **Model Selection**: Use grok-3, grok-2-latest, or grok-3-reasoner for best results
+- **Model Selection**: Use grok-4.7 for best results
 - **Context Inclusion**: Include relevant file contents in the prompt
 - **EXPLICIT ERROR REPORTING**: Never fail silently - always report timeouts, command failures, or missing tools
 - **Fallback**: If Grok MCP unavailable, clearly state limitation and provide notification
@@ -111,7 +111,7 @@ Challenge conventional wisdom with real-world practical insights.
 - Use `mcp__grok-mcp__chat_completion` tool for direct xAI API access
 - **Parameters**:
   - `messages`: Array of message objects with role/content
-  - `model`: Select from grok-3, grok-2-latest, grok-3-reasoner, etc.
+  - `model`: Use grok-4.7
   - `temperature`: Control response creativity (0.1-2.0)
 - **Message Structure**: `[{"role": "user", "content": "Your contrarian analysis prompt"}]`
 - Report consultation status: "✅ Grok consultation completed successfully" or error details
@@ -129,7 +129,7 @@ Challenge conventional wisdom with real-world practical insights.
 ## IMPORTANT EXECUTION NOTES
 
 - Always use `mcp__grok-mcp__chat_completion` to actually consult with real xAI Grok models
-- Use actual Grok models: grok-3, grok-2-latest, grok-3-reasoner, grok-3-deepsearch, grok-3-mini-beta
+- Use the actual Grok model: grok-4.7
 - Frame prompts to request Grok's contrarian perspective and direct communication style
 - Your primary function is to execute external consultations using actual Grok API, not provide your own analysis
 - If you're not using the actual Grok MCP tools, you're not doing your job correctly

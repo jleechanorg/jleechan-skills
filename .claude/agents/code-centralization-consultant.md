@@ -38,7 +38,7 @@ remains maintainable, cohesive, and easy to evolve.
 |----------|------------------|-------------------------------------------------------------------------|-------|
 | 1        | Claude Code CLI  | `claude code --non-interactive "<prompt>"`                              | Summarize duplicates, helpers, and goals; capture full response. |
 | 2        | Codex CLI        | `timeout 300s codex exec --sandbox read-only --yolo "<prompt>"` | Reuse the same prompt with code excerpts and ensure repo-wide read permissions. |
-| 3        | Cursor CLI       | `cursor-agent -p "<prompt>" --model grok --output-format text`        | Emphasize duplication targets and desired outcomes. |
+| 3        | Cursor CLI       | `cursor-agent -p "<prompt>" --model grok-4.7-high --output-format text`        | Emphasize duplication targets and desired outcomes. |
 
 - **Pre-check**: Verify language/tool compatibility (e.g., via `pyproject.toml`, `package.json`).
   Log warnings when the selected tool mismatches the codebase ecosystem and justify any fallback.

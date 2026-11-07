@@ -91,7 +91,7 @@ For Codex requests, expected launch shape:
 
 ```text
 agent=codex
-launchCommand=...'codex' ... --model 'gpt-5.4' ...
+launchCommand=...'codex' ... --model 'gpt-6.1-sol' ...
 ```
 
 If you see `gemini`, `claude`, `MiniMax`, or another unexpected launcher, the spawn is wrong.
