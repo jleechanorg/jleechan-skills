@@ -5,7 +5,7 @@ description: Create or revise an executable engineering plan by writing one full
 
 # Plan micro
 
-Turn the current goal into a dependency-ordered bead plan and a durable `~/roadmap/` handoff. Plan only; do not implement the code. Use `/e` for execution only when authorized. Ironclad rules referenced below live in [ironclad](../ironclad/SKILL.md); this skill adds plan-micro obligations and does not restate them.
+Turn the current goal into a dependency-ordered bead plan and a durable `${ROADMAP_DIR:-$HOME/roadmap}/` handoff (skip the handoff and say so when that directory is absent). Plan only; do not implement the code. Use `/e` for execution only when authorized. Ironclad rules referenced below live in [ironclad](../ironclad/SKILL.md); this skill adds plan-micro obligations and does not restate them.
 
 ## Timeline, parallel lanes, and milestones (mandatory)
 
@@ -28,7 +28,7 @@ Before decomposition, run the full `/ironclad` document workflow for the overall
 Run discovery in parallel per `/p` (planning only, no execution), with a single coordinating writer for Bead and roadmap mutations. Prefer cheaper parallel read-only subagents (for example the canonical Luna wrapper, when capable of the bounded task) for discovery, code-path tracing, evidence inventory, and adversarial contract review. Lanes:
 
 1. Repo instructions, the active goal, recent commits, changed files, open PRs.
-2. Relevant chat or memory history and the newest `~/roadmap/` plans.
+2. Relevant chat or memory history and the newest `${ROADMAP_DIR:-$HOME/roadmap}/` plans.
 3. Open beads, with each candidate's full description and dependencies.
 4. The real code path and existing test entry points; prefer an existing integration harness over a new unit-test seam.
 
@@ -71,7 +71,7 @@ Create another pair for the next behavior; never group several RED/GREEN cycles 
 Define every bead's goal (test, implementation, docs, migration, evidence) through the full `/ironclad` document workflow. The ironclad [Executor-grade contracts](../ironclad/SKILL.md#executor-grade-contracts-when-a-weaker-model-will-execute) block set is the only contract shape; the subsections below add obligations, never a second template. If a bead's Goal, Steps, and criteria disagree, the bead is not finished.
 
 1. Draft the exact bead goal and boundaries.
-2. Write the dedicated document where the repository keeps plans (for example `docs/superpowers/plans/ironclad/<bead-id>-goal-ironclad-<PST-date>.md` on the PR branch) and leave a pointer at `~/roadmap/<project-slug>/ironclad/<bead-id>-goal-ironclad-<PST-date>.md`. With no repository convention, the roadmap path is canonical.
+2. Write the dedicated document where the repository keeps plans (for example `docs/superpowers/plans/ironclad/<bead-id>-goal-ironclad-<PST-date>.md` on the PR branch) and leave a pointer at `${ROADMAP_DIR:-$HOME/roadmap}/<project-slug>/ironclad/<bead-id>-goal-ironclad-<PST-date>.md`. With no repository convention, the roadmap path is canonical.
 3. Persist the full contract in the bead description and link the dedicated document. Preserve its prior-failure warning and criteria meeting all six [ironclad requirements](../ironclad/SKILL.md#what-ironclad-means-all-six-required-per-criterion) (count per the `/ironclad` count rule).
 4. Add the bead-specific proof commands, independent verifier, failure condition, LOC budget, owned files, dependency IDs, and the executor blocks.
 
@@ -108,7 +108,7 @@ Rules the bead table must satisfy:
 
 ## Write and sync the plan
 
-Prefer updating the newest relevant plan. Otherwise write `~/roadmap/YYYY-MM-DD-<scope>-plan-micro.md` with:
+Prefer updating the newest relevant plan. Otherwise write `${ROADMAP_DIR:-$HOME/roadmap}/YYYY-MM-DD-<scope>-plan-micro.md` with:
 
 1. Goal, recommended decision, assumptions, and non-goals.
 2. Current branch, PR, and bead state.
@@ -128,4 +128,4 @@ After the beads and plan are written and re-read, run `/nextsteps` (default mode
 
 Return the roadmap path and a compact table of bead IDs, TEST or IMPL type, goal, dependency, files, line budget, and proof command. Report counts of beads created, beads reused, TDD pairs, integration tests, unit-test exceptions, and ironclad contracts (the one overall contract separate from per-bead contracts), plus weak-executor readiness as `N/N beads at zero GUESS on readback`, naming the executor and verifier tier per bead. Name the nextsteps doc updated. List only true blockers that require human authority.
 
-The three-day baseline that informed these rules is in [references/history-baseline-2026-08-04-06.md](references/history-baseline-2026-08-04-06.md).
+These rules came from a three-day baseline of one roadmap: about half (48%) of the Markdown additions were executable planning artifacts, while 15 of 16 sampled formal plans met the six-field granularity rubric.

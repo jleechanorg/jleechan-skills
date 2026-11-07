@@ -26,15 +26,6 @@ class WorkflowCommandPairTest(unittest.TestCase):
                     command.read_text(encoding="utf-8"),
                 )
 
-        self.assertTrue(
-            (
-                SKILLS
-                / "plan-micro"
-                / "references"
-                / "history-baseline-2026-08-04-06.md"
-            ).is_file()
-        )
-
     def test_plan_micro_exports_its_required_command_dependencies(self):
         plan_micro = (SKILLS / "plan-micro" / "SKILL.md").read_text(
             encoding="utf-8"

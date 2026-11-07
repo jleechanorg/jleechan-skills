@@ -16,7 +16,7 @@ Assess any wiki directory against Karpathy pattern:
 - Index: Curated summaries, not raw content
 - Frontmatter: YAML frontmatter with type field
 
-`--wiki <wiki_dir>` or a bare positional path both override the default (`~/llm_wiki/wiki`).
+`--wiki <wiki_dir>` or a bare positional path both override the configured wiki (`.wiki-default`, then `~/.wiki-default`, then `$WIKI_ROOT/wiki`; with none set, stop with "WIKI_ROOT not configured").
 
 ## Execution
 
@@ -27,14 +27,18 @@ if [ -f ".wiki-default" ]; then
   WIKI=$(cat .wiki-default)
 elif [ -f "$HOME/.wiki-default" ]; then
   WIKI=$(cat "$HOME/.wiki-default")
-else
-  WIKI="$HOME/llm_wiki/wiki"
+elif [ -n "${WIKI_ROOT:-}" ]; then
+  WIKI="$WIKI_ROOT/wiki"
 fi
 # Accept either positional arg or --wiki flag (both override .wiki-default)
 if first positional arg is a path (not a flag); then
   WIKI="<first positional arg>"
 elif args contain "--wiki <path>"; then
   WIKI="<path>"
+fi
+if [ -z "${WIKI:-}" ]; then
+  echo "WIKI_ROOT not configured: your wiki checkout (contains wiki/ and raw/). Example: export WIKI_ROOT=\$HOME/llm_wiki (or pass --wiki <wiki_dir>)" >&2
+  exit 1
 fi
 ```
 
@@ -56,12 +60,14 @@ CONCEPTS=$(find "$WIKI/concepts" -name "*.md" 2>/dev/null | wc -l | tr -d ' ')
 
 ### Phase 5: Check oracle backlink density
 ```bash
-ORACLE="$WIKI/syntheses/jeffrey-oracle.md"
+# The owner/oracle synthesis page, if the wiki has one; skip this phase when absent.
+ORACLE=$(ls "$WIKI"/syntheses/*-oracle.md 2>/dev/null | head -1)
+ORACLE_SLUG=$(basename "${ORACLE:-none}" .md)
 # Count outbound links (both [[wikilink]] and markdown link [Name](../concepts/Name.md) formats)
 OUTBOUND_WIKI=$(grep -oE '\[\[[^]]+\]\]' "$ORACLE" 2>/dev/null | grep -v '|' | sort -u | wc -l | tr -d ' ')
 OUTBOUND_MD=$(grep -oE '\[[^]]+\]\(\.\./(concepts|entities)/[^)]+\)' "$ORACLE" 2>/dev/null | sort -u | wc -l | tr -d ' ')
 OUTBOUND=$((OUTBOUND_WIKI + OUTBOUND_MD))
-INBOUND=$(grep -rn 'jeffrey-oracle' "$WIKI"/ 2>/dev/null | cut -d: -f1 | sort -u | wc -l | tr -d ' ')
+INBOUND=$(grep -rn "$ORACLE_SLUG" "$WIKI"/ 2>/dev/null | cut -d: -f1 | sort -u | wc -l | tr -d ' ')
 ```
 Target: outbound ≥15, inbound ≥10.
 
@@ -93,6 +99,6 @@ Target: outbound ≥15, inbound ≥10.
 ```
 
 ## Example usage
-- `/wiki-assess` — assess default llm_wiki
+- `/wiki-assess` — assess the configured wiki (`$WIKI_ROOT/wiki`)
 - `/wiki-assess ~/memory/wiki` — assess memory wiki
-- `/wiki-assess --wiki $HOME/agent-f/jleechan_llm_wiki/wiki` — assess agent-f wiki
+- `/wiki-assess --wiki <path-to-other-wiki>/wiki` — assess another wiki

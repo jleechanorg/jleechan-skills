@@ -21,19 +21,19 @@ Run a goal as a **swarm**: a deterministic Workflow-tool fan-out (ultracode) or 
 | Durability | ALL swarm work runs INSIDE a sidekick — no inline exception |
 | Verification | 3-lens refute-by-default, ≥2/3 to survive; audit dead-verifier false kills (rules 2-3) |
 | Models | HARD INVARIANT: explicit `model` on every `Agent()`/`agent()` spawn (rule 1) |
-| Output | narrative under `~/roadmap/`; unique `/tmp` capture dirs; authorized evidence publication (rules 6-7) |
+| Output | narrative under `${ROADMAP_DIR:-$HOME/roadmap}/`; unique `/tmp` capture dirs; authorized evidence publication (rules 6-7) |
 | Close-out | recipe step 6 (rules 10-12) |
 
 ## Examples
 
 ```text
 /swarm design retrospective for last month --shape retro                      # Collect→Verify→Synthesize→Plan
-/swarm code quality audit of mvp_site --shape review                          # Review→Verify→Innovate→Docs
+/swarm code quality audit of src/ --shape review                              # Review→Verify→Innovate→Docs
 /swarm one smartest addition per design doc in docs/plans/<dir> --shape innov  # Innovate→Challenge
 /swarm fix CI health then drive all open PRs to green --sidekick fable        # crash-recoverable overnight fleet drive
 ```
 
-**Domain-general by design.** The same shapes (mine → adversarially verify → synthesize → gate) run research, retros, audits, planning, content pipelines; "repo" → any durable shared destination (repo docs, ~/roadmap, wiki, gist), "PR" → whatever review surface the artifact ships to. Invariants that must survive substitution: refute-by-default verification against primary sources, disjoint writer outputs, commit-early durability, false-empty detection, a whole-artifact publishability gate, and cross-model cold review (rule 12).
+**Domain-general by design.** Nothing here is coding-specific: the same shapes (mine → adversarially verify → synthesize → gate) run market research, incident retros, literature reviews, ops audits, planning exercises, content pipelines. Substitute freely: "repo" → any durable shared destination (repo docs, a roadmap repo, wiki, gist); "PR" → whatever review surface the artifact ships to. The invariants that must survive substitution: refute-by-default verification against primary sources, disjoint writer outputs, commit-early durability, false-empty detection, a whole-artifact publishability gate, and cross-model cold review (rule 12).
 
 ## Engine selection
 
@@ -106,7 +106,7 @@ Before fan-out or CLI delegation, apply the measured CPU/RAM/host-selection gate
 3. **Audit verifier-death false kills — and detect false-empty completions.** A dead verifier (rate limit, API error) is NOT a refutation; re-verify findings it "killed". **A run returning 0 confirmed findings is a VOID, not a verdict, if `failures[]` shows mass agent death** (every `rejected[].why` reads `DEAD_VERIFIER`/`verifier died`, or failures dominated by `Server is temporarily limiting requests`). 0 findings + healthy agents = real "nothing here"; 0 findings + mass 429/error failures = the stage never ran — re-run it, don't ship or record the empty result. (Real cases 2026-07-07: `pr-retro-gapfill` and `code-quality` Verify stages fully died, falsely zeroing 5 and 20 real findings.)
 4. **Rate-limit resilience — concurrency is aggregate, not per-workflow.** Provider 429s kill whole fan-outs, triggered by **total agents in flight across ALL concurrently-running swarms on the account** (2026-07-07: two workflows hit 429 together at ~75 combined). (a) Don't launch a fan-out while another large workflow is mid-fan-out — serialize big stages across sibling swarms. (b) On mass 429: stop, start a ~20-min background cool-down (`sleep 1200` run_in_background or `ScheduleWakeup`), then probe with a **sibling-workflow-as-canary** — a tiny throwaway 1-agent workflow (not "the smallest affected workflow"); relaunch/resume the real workflow(s) only after it succeeds. (c) While cooling down, keep any other running lane to ≤4 concurrent sub-agents. (d) **Stagger — bursts kill, ramps don't.** 429 storms coincided with INSTANT N-wide `parallel()` cold starts (16-60 wide); `pipeline()` ramps and serial work were never throttled. Chunk thunk arrays into batches of ~8 with a few seconds between batches; treat ~16 simultaneous cold starts as the survived ceiling, not a target; never start two workflows' fan-out stages within the same minute.
 5. **Resume semantics.** Persist scripts to the session scratchpad (`cp` from the returned Script file path). To resume: TaskStop the run, edit only NOT-yet-completed `agent()` calls (touching a completed call's prompt/opts invalidates its cache), relaunch with `{scriptPath, resumeFromRunId}`. Journals are same-session only — after a crash, re-run fresh from the persisted script; cross-session/cross-reboot recovery needs the P1 bead (Bead runbook).
-6. **Disjoint outputs per lane.** Each narrative writer gets an explicit file under `~/roadmap/`; each capture/dataset lane its own `mktemp` directory under `/tmp`. Parallel workflows never share a mutable file.
+6. **Disjoint outputs per lane.** Each narrative writer gets an explicit file under `${ROADMAP_DIR:-$HOME/roadmap}/`; each capture/dataset lane its own `mktemp` directory under `/tmp`. Parallel workflows never share a mutable file.
 7. **Persist completed units.** One integration owner stages exact authorized files, commits and pushes green units using the owning repository's workflow; concurrent writers do not share an index. Publish durable evidence through the evidence owner, and verify the published artifact and final commit. Never commit raw captures or temporary datasets into a code repository or leave durable findings only in `/tmp`.
 8. **Pre-build datasets in the main loop.** Miners read a static dataset JSON (e.g. `prs-last-month.json` built once via gh) instead of making live API calls — deterministic, cheap, rate-limit-proof.
 9. **Heartbeats + time-box, cadence scaled to what you're waiting for.** ~270s wakeups suit tight external polling (CI, deploys); poll long multi-agent fan-outs on a 1200-1800s cadence (270s there just burns cache misses). Obey the eight-hour autonomy time-box (user-scope rule) regardless of cadence.

@@ -28,7 +28,7 @@
 set -uo pipefail
 
 TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-LOG="/tmp/host-di[REDACTED_OPENAI_KEY]"
+LOG="${HOST_DISK_GUARDIAN_LOG:-/tmp/host-di[REDACTED_OPENAI_KEY]}"
 DRY_RUN=0
 
 # Bead rev-g5bwl's stated thresholds.
@@ -36,11 +36,14 @@ WARN_THRESHOLD_GB="${HOST_DISK_GUARDIAN_WARN_GB:-50}"
 CRITICAL_THRESHOLD_GB="${HOST_DISK_GUARDIAN_CRITICAL_GB:-20}"
 
 # Bead rev-g5bwl's stated safe-cleanup targets, in order of least-to-most risky.
-EVIDENCE_DIR="${HOST_DISK_GUARDIAN_EVIDENCE_DIR:-/tmp/your-project.com}"
+# The evidence and worktree roots are project-specific, so they have no default:
+# an unset root skips that cleanup target. The scratchpad root is derived from the
+# Claude Code per-user temp folder.
+EVIDENCE_DIR="${HOST_DISK_GUARDIAN_EVIDENCE_DIR:-}"
 EVIDENCE_MAX_AGE_DAYS=2
-SCRATCHPAD_DIR="${HOST_DISK_GUARDIAN_SCRATCHPAD_DIR:-/private/tmp/claude-501}"
+SCRATCHPAD_DIR="${HOST_DISK_GUARDIAN_SCRATCHPAD_DIR:-/tmp/claude-$(id -u)}"
 SCRATCHPAD_MAX_AGE_DAYS=3
-WORKTREE_GLOB="${HOST_DISK_GUARDIAN_WORKTREE_GLOB:-/private/tmp/wa-*}"
+WORKTREE_GLOB="${HOST_DISK_GUARDIAN_WORKTREE_GLOB:-}"
 
 # These 3 roots are env-var overridable (see bead rev-9qxkm). Reject the most
 # catastrophic misconfigurations -- empty, "/", or exactly "$HOME" -- before
@@ -115,14 +118,14 @@ send_slack_alert() {
   fi
 }
 
-refuse_if_catastrophic_root "HOST_DISK_GUARDIAN_EVIDENCE_DIR" "$EVIDENCE_DIR"
+[[ -z "$EVIDENCE_DIR" ]] || refuse_if_catastrophic_root "HOST_DISK_GUARDIAN_EVIDENCE_DIR" "$EVIDENCE_DIR"
 refuse_if_catastrophic_root "HOST_DISK_GUARDIAN_SCRATCHPAD_DIR" "$SCRATCHPAD_DIR"
-refuse_if_catastrophic_root "HOST_DISK_GUARDIAN_WORKTREE_GLOB" "$(dirname -- "$WORKTREE_GLOB")"
+[[ -z "$WORKTREE_GLOB" ]] || refuse_if_catastrophic_root "HOST_DISK_GUARDIAN_WORKTREE_GLOB" "$(dirname -- "$WORKTREE_GLOB")"
 
 # df -g is BSD/macOS-specific (1-command GB output, no awk math needed).
 # This script is explicitly Mac-host-scoped per bead rev-g5bwl ("Host disk
-# guardrail for Mac runner host") — the Linux fleet (jeff-ubuntu) has its
-# own separate hardening tracked under bead rev-runn001.
+# guardrail for Mac runner host") — Linux runner hosts have their own
+# separate hardening tracked under bead rev-runn001.
 free_gb() {
   df -g / 2>/dev/null | awk 'NR==2 {print $4}'
 }
@@ -150,6 +153,7 @@ log "CRITICAL: ${FREE_GB}GB free, below critical threshold (${CRITICAL_THRESHOLD
 send_slack_alert "host-di[REDACTED_OPENAI_KEY] CRITICAL: ${FREE_GB}GB free on $(hostname) (threshold ${CRITICAL_THRESHOLD_GB}GB). Running auto-clean now (evidence bundles, scratchpads, merged-PR worktrees)."
 
 clean_evidence_bundles() {
+  [[ -n "$EVIDENCE_DIR" ]] || { log "  HOST_DISK_GUARDIAN_EVIDENCE_DIR not configured: evidence-bundle root to prune. Example: export HOST_DISK_GUARDIAN_EVIDENCE_DIR=/tmp/<repo>-evidence -- skipping"; return; }
   [[ -d "$EVIDENCE_DIR" ]] || { log "  evidence dir $EVIDENCE_DIR does not exist, skipping"; return; }
   local count=0
   while IFS= read -r -d '' path; do
@@ -178,10 +182,10 @@ clean_scratchpads() {
     fi
     count=$((count + 1))
   done < <(find "$SCRATCHPAD_DIR" -mindepth 1 -maxdepth 1 -type d -mtime "+${SCRATCHPAD_MAX_AGE_DAYS}" -print0 2>/dev/null)
-  log "  scratchpads processed: $count (older than ${SCRATCHPAD_MAX_AGE_DAYS}d)"
+  log "  scratchpads processed in $SCRATCHPAD_DIR: $count (older than ${SCRATCHPAD_MAX_AGE_DAYS}d)"
 }
 
-is_worldarchitect_origin() {
+is_expected_origin() {
   case "$1" in
     https://github.com/$GITHUB_REPOSITORY | \
     https://github.com/$GITHUB_REPOSITORY.git | \
@@ -217,6 +221,8 @@ is_worldarchitect_origin() {
 #      (bead rev-9qxkm) -- if git refuses, log and skip, never escalate to a
 #      raw rm -rf.
 clean_merged_pr_worktrees() {
+  [[ -n "$WORKTREE_GLOB" ]] || { log "  HOST_DISK_GUARDIAN_WORKTREE_GLOB not configured: glob of disposable worktrees. Example: export HOST_DISK_GUARDIAN_WORKTREE_GLOB='/tmp/<repo>-*' -- skipping worktree cleanup"; return; }
+  [[ -n "${GITHUB_REPOSITORY:-}" ]] || { log "  GITHUB_REPOSITORY not configured: owner/repo whose merged-PR worktrees may be removed. Example: export GITHUB_REPOSITORY=owner/repo -- skipping worktree cleanup"; return; }
   command -v gh >/dev/null 2>&1 || { log "  gh CLI not available, skipping worktree cleanup"; return; }
   local count=0
 
@@ -236,7 +242,7 @@ clean_merged_pr_worktrees() {
 
     local wt_remote
     wt_remote="$(git -C "$wt_path" remote get-url origin 2>/dev/null)"
-    if ! is_worldarchitect_origin "$wt_remote"; then
+    if ! is_expected_origin "$wt_remote"; then
       log "  skip $wt_path (branch $branch): origin remote is not $GITHUB_REPOSITORY, refusing branch-name-only trust"
       continue
     fi
@@ -250,7 +256,7 @@ clean_merged_pr_worktrees() {
     wt_head="$(git -C "$wt_path" rev-parse HEAD 2>/dev/null)"
 
     local merged_sha
-    merged_sha="$(gh pr list --repo $GITHUB_REPOSITORY --head "$branch" --state merged --json headRefOid --jq '.[0].headRefOid // empty' 2>/dev/null)"
+    merged_sha="$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$branch" --state merged --json headRefOid --jq '.[0].headRefOid // empty' 2>/dev/null)"
     if [[ -z "$merged_sha" ]]; then
       log "  skip $wt_path (branch $branch): no merged PR found for this branch"
       continue

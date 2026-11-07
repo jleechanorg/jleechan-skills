@@ -26,7 +26,7 @@ how to coordinate) lives in `SKILL.md` and the calling agent, never in code.
    lifecycle only. Agent judgment belongs in the coordinator skill. Combined
    launcher glue must stay within 150 physical lines; do not hide code in a
    generated file or compress statements to evade the count.
-3. **Raising a cap requires the operator** (`jleechan`). Any PR that exceeds a
+3. **Raising a cap requires the repository maintainer** (see CODEOWNERS). Any PR that exceeds a
    cap fails CI; fixing it means either shrinking the scripts or getting the
    operator to bump the cap in this file with a stated reason.
 4. **CI** (jleechan-skills `.github/workflows/tests.yml`): on PRs and pushes touching
@@ -37,7 +37,7 @@ how to coordinate) lives in `SKILL.md` and the calling agent, never in code.
 ## History
 
 - 2026-10-14: canonical home is `jleechanorg/jleechan-skills` `.claude/skills/dot/`;
-   the interim `jleechanorg/dot-skill` repo was archived after consolidation.
+   the interim standalone repo was archived after consolidation.
    Budgets set at current size + headroom after the peer-draft contention incident
    (45+ min stuck draft); policy moved from a code default (auto-clear) to SKILL.md
    (check back ≤5 min, then submit sensible drafts / clear half-typed junk) with

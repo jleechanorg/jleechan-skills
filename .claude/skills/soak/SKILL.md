@@ -57,7 +57,7 @@ for f in ~/.local/share/soak/*.json; do
 done
 ```
 
-`soakctl watch` checks the three "is the box up" conditions, updates the bead status, and appends a log line. Do not silently swallow a failure — surface it.
+`soakctl` is a machine-local helper this package does not ship: check `command -v soakctl` first and, if it is absent, run the three checks by hand. `soakctl watch` checks the three "is the box up" conditions, updates the bead status, and appends a log line. Do not silently swallow a failure — surface it.
 
 ## Anti-patterns
 
@@ -72,6 +72,6 @@ done
 
 1. Read pstore: `sudo cat /var/lib/systemd/pstore/<latest>/*/dmesg.txt` — confirm you've analyzed any prior crash
 2. Record pstore fingerprint: `find /var/lib/systemd/pstore -type f | sort | md5sum`
-3. Confirm config is what you think: e.g. `systemctl is-enabled jleechanorg-org-runners.service`, `uname -r`, `nvidia-smi --query-gpu=driver_version`
+3. Confirm config is what you think: e.g. `systemctl is-enabled <service-under-test>.service`, `uname -r`, `nvidia-smi --query-gpu=driver_version`
 4. Confirm unattended-upgrades is paused OR blacklisted for kernel/nvidia: `grep -E "Package-Blacklist|kernel|nvidia" /etc/apt/apt.conf.d/50unattended-upgrades /etc/apt/apt.conf.d/51*`
 5. Pick `target_hours >= max(longest_known_crash, 24)` — explain the choice in the bead description

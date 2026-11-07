@@ -3,7 +3,7 @@ name: crash
 description: Canonical triage order for crash investigation reports to surface panic traces, rank variables, and propose next steps.
 ---
 
-# Jeff-Ubuntu crash investigation recipe
+# Linux host crash investigation recipe
 
 A canonical triage order for "the box crashed again" reports. Runs end-to-end in <2 min; surfaces the panic trace, ranks the new variables, and proposes a single concrete next step.
 
@@ -65,15 +65,15 @@ For each variable, ask: **was it changed since the last known-stable state?**
 | microcode | `grep microcode /proc/cpuinfo` | memory `current_soak_matrix_*` |
 | GSP firmware | `cat /proc/cmdline \| grep NVreg_EnableGpuFirmware` | nvidia.NVreg_EnableGpuFirmware=0 in cmdline = GSP off |
 | power cap | `nvidia-smi -q -d POWER \| head -10` | remember: don't validate under load only |
-| Runners | `systemctl is-enabled jleechanorg-org-runners.service; docker ps --filter name=org-runner` | memory `runners_primary_trigger_*` |
-| Hermes | `systemctl is-enabled hermes-prod hermes-staging` | memory `workload_trigger_isolation_*` |
+| Runners | `systemctl is-enabled <runner-service>.service; docker ps --filter name=<runner-container-prefix>` | memory `runners_primary_trigger_*` |
+| Workload services | `systemctl is-enabled <workload-service>...` | memory `workload_trigger_isolation_*` |
 | Bootable kernels | `ls /boot/vmlinuz-*` | GRUB will offer all installed |
 | Apt history | `grep -B1 "Start-Date" /var/log/apt/history.log \| tail -40` | shows auto-upgrades |
 
 ```bash
 # One-liner: list auto-upgraded kernel/driver/microcode in the last 60 days
 zcat /var/log/apt/history.log.*.gz /var/log/apt/history.log 2>/dev/null \
-  | awk '/Start-Date/{ts=$0} /Install|Upgrade/ && /linux-image-|nvidia-driver-595|microcode/ {print ts; print $0; print ""}' \
+  | awk '/Start-Date/{ts=$0} /Install|Upgrade/ && /linux-image-|nvidia-driver-|microcode/ {print ts; print $0; print ""}' \
   | tail -40
 ```
 
@@ -99,10 +99,10 @@ The 2026-04-27 feedback `use_secondo_against_confirmation_bias` says: if the pan
 
 Common single actions, ranked by reversibility:
 
-1. **Disable a service** (e.g., `sudo systemctl disable --now jleechanorg-org-runners.service` and stop the 10 containers) — reversible, 30s
+1. **Disable a service** (e.g., `sudo systemctl disable --now <runner-service>.service` and stop its containers) — reversible, 30s
 2. **Roll back kernel** via GRUB advanced → boot into previous `vmlinuz-*` → 24h soak — reversible, 2 min
 3. **Cap GPU power** (e.g., `sudo nvidia-smi -pl 250`) — reversible, 1 min
-4. **Downgrade nvidia driver** via `apt install nvidia-driver-595=595.58.03-...` — reversible, 10 min
+4. **Downgrade nvidia driver** via `apt install nvidia-driver-<ver>=<last-known-good-version>` — reversible, 10 min
 5. **Run memtest86+** from GRUB — irreversible (no work for 6-8h), 1 min to start
 6. **Swap hardware** (RAM stick, PSU, GPU reseat) — invasive, hours
 
@@ -112,11 +112,11 @@ Prefer the highest-evidence cheapest action. If 1-2 are inconclusive, move to 3-
 
 ```bash
 # Update the active bead
-br update bd-12v --description "<new findings>"
+br update <bead-id> --description "<new findings>"
 
 # Write a memory snapshot
-# Path: ~/.claude/projects/-home-$USER-projects-other-user-scope/memory/project_YYYY-MM-DD_<short-slug>.md
-# Frontmatter: name, description, type=project, bead=bd-12v
+# Path: ${CLAUDE_HOME:-$HOME/.claude}/projects/<encoded-project-path>/memory/project_YYYY-MM-DD_<short-slug>.md
+# Frontmatter: name, description, type=project, bead=<bead-id>
 # Body: status, why, how to apply — link with [[other-memory-name]]
 
 # Add a one-line entry to MEMORY.md
@@ -127,5 +127,5 @@ br update bd-12v --description "<new findings>"
 - **Don't open 4 investigative threads at once.** Pick ONE next step, run it, see the result.
 - **Don't suggest the kernel was exonerated by the previous stability window** without re-checking what auto-upgraded since. The 2026-05-01 kernel-falsified conclusion was overridden on 2026-06-09 by the 6.17.0-35 auto-upgrade.
 - **Don't validate PCIe link speed at idle.** Validate under load.
-- **Don't trust that "Hermes is off" implies "runners are off"** — they are independent services. Check both.
+- **Don't trust that "the workload is off" implies "runners are off"** — they are independent services. Check both.
 - **Don't recommend memtest86+ as the first action.** It takes 6-8h with no other progress; reserve for hardware-path escalation.

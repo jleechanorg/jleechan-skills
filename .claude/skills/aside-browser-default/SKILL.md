@@ -165,14 +165,14 @@ If the Aside CLI or app is not installed, use isolated headless Chromium; instal
 - ❌ Using `listBrowserTabs()` synchronously — it's a Promise; entries are `{url, title}` plain-property objects, not callables. See `references/aside-repl-api-gotchas.md`.
 - ❌ Using `require('fs')` or `process.stdout` inside the REPL — only `Buffer` and the Aside functions are in scope. Save files by emitting base64 to stdout and decoding in the caller.
 
-## Path / tool availability matrix (as of 2026-06-27)
+## Path / tool availability matrix (macOS defaults; verify at run time)
 
 | Component | Path / URL | Verified? |
 |---|---|---|
 | Aside GUI app | `/Applications/Aside.app` | ✅ |
-| Aside CLI binary | `$HOME/.local/bin/aside` → `~/.aside/cli/Aside CLI.app/Contents/MacOS/aside` | ✅ |
-| Aside CLI version | `1.26.626.1517` | ✅ |
-| Aside daemon | `~/Library/Application Support/Aside/AsideDaemon/mac-arm64/1.26.627.1553/Aside Daemon.app` | ✅ |
+| Aside CLI binary | `command -v aside` (stop with "aside not installed" if absent) | verify at run time |
+| Aside CLI version | `aside --version` | verify at run time |
+| Aside daemon | `~/Library/Application Support/Aside/AsideDaemon/<arch>/<version>/Aside Daemon.app` | verify at run time |
 | Aside account | `* u0 '<account-email>'` Google provider, `Profile 0` | ✅ |
 | Aside MCP (HTTP) | `http://127.0.0.1:8013/mcp` | ✅ (in `~/.claude/mcp-strict.json` + `~/.claude.json`) |
 | Aside MCP (stdio) | `aside mcp` | ✅ |
@@ -187,7 +187,7 @@ Aside and Chrome use separate macOS Keychain entries. This is portability backgr
 
 ```bash
 # 1. CLI alive
-aside --version       # 1.26.626.1517
+aside --version       # prints the installed version
 aside account list    # * u0  '<account-email>'  signed in
 aside host profiles --account <agent-account>   # agent profile must show connected
 
@@ -209,15 +209,11 @@ When reporting browser work, include `browser_mode: aside-cli` (or `aside-mcp` /
 
 ## Administrative rollback
 
-`~/.hermes/scripts/rollback-aside-default.sh` changes user-wide agent configuration and resets the macOS default browser. It is not a browser-recovery fallback and must not be run during ordinary browser work. Any configuration migration requires a separate, explicitly scoped task.
+A machine-local rollback script (for example one under `${HERMES_HOME:-$HOME/.hermes}/scripts/`, if present) changes user-wide agent configuration and resets the macOS default browser. It is not a browser-recovery fallback and must not be run during ordinary browser work. Any configuration migration requires a separate, explicitly scoped task.
 
 ## References
 
 - `references/aside-repl-api-gotchas.md` — verified REPL API surface (2026-07-05): `screenshot()` doesn't exist, `fs`/`require`/`process` not available, `listBrowserTabs()` is a Promise, `openTab()` returns CDP target object. Must-read before writing any `aside repl` automation.
 - `references/oauth-capture-and-drive.md` — retired OAuth recipe notice. Do not execute the former opener-shadowing, desktop-browser, or direct API-probe flow.
-- `/learn` capture for this switch: `~/.claude/projects/-Users-$USER--hermes/memory/feedback_2026-06-27_aside-browser-default-switch.md`
-- Wiki source page: `~/llm_wiki/wiki/sources/aside-browser-default-switch-2026-06-27.md`
-- Wiki entity: `~/llm_wiki/wiki/entities/AsideBrowser.md`
-- Wiki concept: `~/llm_wiki/wiki/concepts/ReversibleFacadePattern.md`
-- Roadmap learnings: `~/roadmap/learnings-2026-06.md` (2026-06-27 entry)
+- If `WIKI_ROOT` is set, related notes may exist under `$WIKI_ROOT/wiki/` (for example an `AsideBrowser` entity page); skip when unset.
 - Aside docs: <https://docs.aside.com/help/developers>

@@ -45,16 +45,20 @@ Use this skill when a user wants a reproducible artifact bundle for an agent fai
 
 ## Commands
 
+Paths may use `$VARS` and `~`; the script expands them. Session stores default to
+`${CLAUDE_HOME:-$HOME/.claude}` and `${CODEX_HOME:-$HOME/.codex}`; `--repo` defaults to
+the current directory.
+
 Create a bundle (replace every `<...>` placeholder with the incident's real paths):
 
 ```bash
-python3 ~/.claude/skills/repro-developer/scripts/collect_repro.py \
-  --repo <path/to/repo> \
+python3 "${CLAUDE_HOME:-$HOME/.claude}"/skills/repro-developer/scripts/collect_repro.py \
+  --repo "$(git rev-parse --show-toplevel)" \
   --incident <incident-slug> \
   --out /tmp \
   --claim "<one-sentence failure claim>" \
-  --claude-session ~/.claude/projects/<project-slug>/<session-id>.jsonl \
-  --claude-session-dir ~/.claude/projects/<project-slug>/<session-id> \
+  --claude-session '$CLAUDE_HOME/projects/<project-slug>/<session-id>.jsonl' \
+  --claude-session-dir '$CLAUDE_HOME/projects/<project-slug>/<session-id>' \
   --codex-session /path/to/codex-parent.jsonl \
   --codex-session /path/to/codex-subagent.jsonl \
   --repo-file docs/<review-doc>.md \
@@ -71,6 +75,25 @@ Create git/LFS-ready artifacts by adding `--sanitize`,
 git lfs track "artifacts/repro-developer/**"
 git add .gitattributes artifacts/repro-developer/<incident-slug>
 ```
+
+To rerun a recorded incident, keep its inputs in a profile JSON file and pass
+`--incident-profile <file>`. Keys: `incident`, `claim`, `incident_commit`,
+`artifact_commit`, and lists `claude_sessions`, `claude_session_dirs`,
+`codex_sessions`, `repo_files`, `beads`. Explicit flags win over profile values.
+
+```json
+{
+  "incident": "<incident-slug>",
+  "claim": "<one-sentence failure claim>",
+  "claude_sessions": ["$CLAUDE_HOME/projects/<encoded-repo-path>/<session-uuid>.jsonl"],
+  "codex_sessions": ["$CODEX_HOME/sessions/YYYY/MM/DD/rollout-<id>.jsonl"],
+  "repo_files": ["docs/<review-doc>.md"],
+  "beads": ["<bead-id>"]
+}
+```
+
+The sanitizer redacts the literal sealed-holdout tokens and, when
+`DARK_FACTORY_HOLDOUTS` is set, that checkout's path.
 
 The script writes:
 

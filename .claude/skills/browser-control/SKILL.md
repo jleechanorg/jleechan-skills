@@ -166,6 +166,16 @@ TMP_COOKIES="$(mktemp -t browserclaw-XXXXXX.json)"
 TMP_PAGE="$(mktemp -t browserclaw-page-XXXXXX.txt)"
 chmod 600 "$TMP_COOKIES" "$TMP_PAGE"
 
+# Resolve browserclaw from the caller's PATH. Never let a missing tool turn
+# `dirname ""` into `.` on the isolated PATH used below (that would execute
+# binaries from the current directory inside `env -i`).
+BROWSERCLAW_BIN="$(command -v browserclaw || true)"
+if [ -n "$BROWSERCLAW_BIN" ]; then
+  BROWSERCLAW_DIR="$(dirname "$BROWSERCLAW_BIN")"
+else
+  BROWSERCLAW_DIR="/usr/local/bin"
+fi
+
 # 1. Decrypt exactly one explicitly authorized agent-owned source. The
 #    caller must set these values to the task-owned profile/DB and its
 #    matching Safe Storage entry; placeholders fail closed rather than
@@ -183,7 +193,7 @@ if [ ! -f "$SOURCE_DB" ]; then
   source_status=11
 else
   env -i HOME="$HOME" \
-    PATH="$HOME/.local/orch-venv/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
+    PATH="$BROWSERCLAW_DIR:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
     browserclaw cookies decrypt --db "$SOURCE_DB" \
       --output "$TMP_COOKIES" \
       --keychain-service "$SOURCE_KEYCHAIN_SERVICE" \
@@ -211,7 +221,7 @@ fi
 #    Do not write a screenshot by default; capture one only when the user
 #    explicitly requested visual evidence AND the page is known not to
 #    display secrets.
-env -i HOME="$HOME" PATH="$HOME/.local/orch-venv/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
+env -i HOME="$HOME" PATH="$BROWSERCLAW_DIR:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
   browserclaw cookies inject \
     --cookies "$TMP_COOKIES" \
     --goto "<full-authenticated-url>" \
@@ -284,6 +294,16 @@ TMP_PAGE="$(mktemp -t browserclaw-page-XXXXXX.txt)"
 SECRET_STDOUT_BUF="$(mktemp -t browserclaw-secret-out-XXXXXX.txt)"
 chmod 600 "$TMP_COOKIES" "$TMP_PAGE" "$SECRET_STDOUT_BUF"
 
+# Resolve browserclaw from the caller's PATH. Never let a missing tool turn
+# `dirname ""` into `.` on the isolated PATH used below (that would execute
+# binaries from the current directory inside `env -i`).
+BROWSERCLAW_BIN="$(command -v browserclaw || true)"
+if [ -n "$BROWSERCLAW_BIN" ]; then
+  BROWSERCLAW_DIR="$(dirname "$BROWSERCLAW_BIN")"
+else
+  BROWSERCLAW_DIR="/usr/local/bin"
+fi
+
 # 1. Decrypt exactly one explicitly authorized agent-owned source.
 SOURCE_DB='<agent-owned-source-db>'
 SOURCE_KEYCHAIN_SERVICE='<agent-owned-keychain-service>'
@@ -298,7 +318,7 @@ if [ ! -f "$SOURCE_DB" ]; then
   source_status=11
 else
   env -i HOME="$HOME" \
-    PATH="$HOME/.local/orch-venv/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
+    PATH="$BROWSERCLAW_DIR:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
     browserclaw cookies decrypt --db "$SOURCE_DB" \
       --output "$TMP_COOKIES" \
       --keychain-service "$SOURCE_KEYCHAIN_SERVICE" \
@@ -326,7 +346,8 @@ fi
 # reverse, persisted DOM, screenshots. The URL is defined on its own
 # line so `set -u` does not trip when we expand it on the next.
 BROWSE_TARGET_URL="<full-secret-bearing-url>"
-"$HOME/.local/orch-venv/bin/python" - "$TMP_COOKIES" "$BROWSE_TARGET_URL" <<'PY'
+# Requires a python3 with Playwright installed first on PATH (activate its venv).
+python3 - "$TMP_COOKIES" "$BROWSE_TARGET_URL" <<'PY'
 import json, sys
 from playwright.sync_api import sync_playwright
 

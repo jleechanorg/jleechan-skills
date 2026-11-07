@@ -63,8 +63,9 @@ Outside cmux, skip this UI step and return the GitHub link normally.
 
 ## Output document
 
-Path convention: `~/roadmap/pr-inflight-YYYY-MM-DD.md` (update the same day's file
-instead of creating a second one). Repo: `jleechanorg/roadmap`.
+Path convention: `${ROADMAP_DIR:-$HOME/roadmap}/pr-inflight-YYYY-MM-DD.md` (update the same day's file
+instead of creating a second one). Repo: `$ROADMAP_GITHUB_REPO` (derive with
+`gh repo view --json nameWithOwner -q .nameWithOwner` inside `$ROADMAP_DIR`).
 
 Required structure, in this order:
 

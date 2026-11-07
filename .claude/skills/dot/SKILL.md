@@ -74,7 +74,7 @@ Every turn advances one safe, authorized unit. Waiting is a state you must justi
    this rule exists to stop;
 3. a read-only probe from this turn showing the capability is genuinely absent (no DevTools, no mobile viewport,
    no credential);
-4. a verified one-writer conflict on the *same mutable target* — same campaign/document id, account-wide setting,
+4. a verified one-writer conflict on the *same mutable target* — same record/document id, account-wide setting,
    browser profile dir, or simulator UDID. Another lane merely being alive is not a conflict;
 5. an approval the skill system withholds until the operator gives it — merge, destructive action, credential
    creation or rotation, spending — for **that specific action only**;
