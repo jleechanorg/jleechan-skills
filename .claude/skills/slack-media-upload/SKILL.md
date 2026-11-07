@@ -11,9 +11,8 @@ type: automation
 The configured Slack MCP server (`korotovsky/slack-mcp-server`, pinned
 v1.2.2, verified against latest v1.3.0 too) exposes `conversations_add_message`
 for **text only** — it has no `files.upload`/attach tool, and neither does any
-other actively-maintained Slack MCP server surveyed. Full findings, citations,
-and the alternative-server survey:
-`worldarchitect.ai/docs/research/2026-09-01-slack-mcp-file-upload-support.md`.
+other actively-maintained Slack MCP server surveyed (2026-09-01 survey; the
+original research note is not exported with this skill).
 Pasting a raw GitHub/CDN link into `conversations_add_message` does **not**
 render inline in Slack — the operator has to click through. If the ask is to
 have media actually visible in the Slack thread, use this skill instead of
@@ -37,7 +36,7 @@ python3 ~/.claude/skills/slack-media-upload/scripts/slack_upload.py \
 ```
 
 For a DM to the operator, use `--dm` instead of `--channel` (reads
-`$JLEECHAN_DM_CHANNEL`, not the MCP `users_search` DM-channel lookup — see
+`$SLACK_OPERATOR_DM_CHANNEL`, not the MCP `users_search` DM-channel lookup — see
 pitfall below):
 
 ```bash
@@ -53,7 +52,7 @@ entirely (falls back to each file's basename).
 - **`mcp__slack__users_search`'s `DMChannelID` for this operator
   (`<SLACK_ID>`) returns `channel_not_found`** when posted to via the MCP
   tool or the bot token. The channel that actually works is
-  `$JLEECHAN_DM_CHANNEL` (`<SLACK_ID>` at time of writing) — verified live
+  `$SLACK_OPERATOR_DM_CHANNEL` — verified live
   with a real `chat.postMessage` call. Always use `--dm` (env-driven), never
   hardcode or re-derive a DM channel ID from `users_search`.
 - **Token choice matters.** `korotovsky/slack-mcp-server` silently prefers
@@ -61,9 +60,8 @@ entirely (falls back to each file's basename).
   both are set (its own startup log says so). This script deliberately never
   touches that pair — it reads `SLACK_BOT_TOKEN` directly, which is the token
   independently verified (2026-09-01) to carry `files:write`.
-- **`files:write` scope has regressed before.** The `mcp_agent_mail` Slack
-  app lost `files:write` at least 4 times between 2026-07-13 and 2026-07-19
-  (PRs #7953, #8139, #8337, #8455). If this script returns
+- **`files:write` scope has regressed before.** A bot's Slack app has lost
+  `files:write` repeatedly in the past. If this script returns
   `missing_scope: files:write`, report the exact scope error and stop. Use
   only an already-authorized connector/uploader with its configured scope; do
   not access a personal browser profile or cookies, inject credentials, run an
@@ -75,5 +73,5 @@ entirely (falls back to each file's basename).
 ## Verification
 
 Confirmed live 2026-09-01: 6 real files (4 MP4s, 2 PNGs) uploaded and posted
-inline into `#all-jleechan-ai` via this exact 3-step flow, and a live DM test
-message via `$JLEECHAN_DM_CHANNEL` returned `"ok": true`.
+inline into a workspace channel via this exact 3-step flow, and a live DM test
+message via `$SLACK_OPERATOR_DM_CHANNEL` returned `"ok": true`.

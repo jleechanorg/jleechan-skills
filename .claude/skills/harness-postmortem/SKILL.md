@@ -36,7 +36,7 @@ Full protocol at `~/.hermes/skills/harness-postmortem/SKILL.md` (canonical — r
 - **Scope guardrail** — top of SKILL.md.
 - **Phase 0** — MAST taxonomy (Cemri et al., arXiv:2503.13657) + ETCLOVG layer model (arXiv:2606.06324) classification.
 - **Phase 1** — Observe → Isolate → Simulate → Evaluate 4-step spine, with 5-Whys inside Simulate as a prompt heuristic.
-- **Phase 2/3 apply + land** — via `hermes-deploy-pipeline` self-merge flow on `jleechanclaw`.
+- **Phase 2/3 apply + land** — via the `hermes-deploy-pipeline` self-merge flow on the repository that tracks your Hermes harness.
 - **Anti-patterns** — end of SKILL.md.
 - **Prior art** — Refinex-Space harness-fix, HarnessFix paper, MAST, Reflexion, Observe→Isolate→Simulate→Evaluate pattern.
 
@@ -44,7 +44,7 @@ Full protocol at `~/.hermes/skills/harness-postmortem/SKILL.md` (canonical — r
 
 - `/meta` — auto-detect from last conversation; if none, prompt for input.
 - `/meta hermes stopped halfway again` — freeform.
-- `/meta https://jleechanai.slack.com/archives/C0AH3RY3DK6/p1782941155305869` — Slack thread.
+- `/meta https://<workspace>.slack.com/archives/<channel-id>/p<ts>` — Slack thread.
 - `/meta --fix <description>` — analyze AND apply harness fix without confirmation.
 
 ## Output

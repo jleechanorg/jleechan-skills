@@ -69,7 +69,7 @@ class TestCountCommandUsageUnified(unittest.TestCase):
 
     def test_readme_export_prompt_not_counted(self):
         msg = (
-            "You are updating the README for jleechanorg/claude-commands\n"
+            "You are updating the README for example-org/claude-commands\n"
             "- /copilot: Autonomous PR pairing orchestrator\n"
             "- /fixpr: Automated PR remediation agent\n"
             "- /es: Evidence standards"

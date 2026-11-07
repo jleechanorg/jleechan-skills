@@ -57,13 +57,13 @@ this regardless of how autonomously it was produced.
 
 - The operator asking questions about the PR in Slack (observation, not intervention)
 - Bot-to-bot interactions (CR, Bugbot, Skeptic, evidence-review-bot)
-- Jeffrey approving the AO spawn itself (dispatch is expected; execution must be autonomous)
+- The operator approving the AO spawn itself (dispatch is expected; execution must be autonomous)
 
 ## Measurement — GitHub actor audit
 
 A PR is zero-touch if, **from AO spawn until immediately before the merge
 action**, the only GitHub actors (commits, reviews, comments) are:
-- `jleechan2015` (AO agent GitHub identity)
+- `$AO_AGENT_GH_LOGIN` (AO agent GitHub identity)
 - `github-actions[bot]` (CI)
 - `coderabbitai[bot]` (code review)
 - `cursor[bot]` (Bugbot)
@@ -75,7 +75,7 @@ Only actions before the merge command are audited. A human fix or review after
 the PR first reaches `/green` still makes it operator-assisted; the current
 merge candidate must remain green at its live head.
 
-If `$USER` (Jeffrey's personal account) or any other human/terminal identity
+If `$OPERATOR_GH_LOGIN` (the operator's personal account, default `gh api user -q .login`) or any other human/terminal identity
 appears as a commit author, reviewer, or commenter before the merge, it's
 **operator-assisted**.
 
@@ -95,5 +95,5 @@ Previously planned to run via `skeptic-cron.yml`; that workflow no longer exists
 ## Reference
 
 (No external doc currently exists — this SKILL.md is the sole source of truth.
-A prior reference to `~/.openclaw/docs/ZERO_TOUCH.md`/`.html` pointed to files
-that do not exist on disk; removed rather than left as a dead link.)
+A prior external doc reference pointed to files that do not exist; it was
+removed rather than left as a dead link.)

@@ -7,6 +7,7 @@ metadata, public documentation, and the installer.
 - Put reusable scripts in `scripts/`, not the repository root.
 - **Portability & Zero-PII Invariant**: Enforce strict exclusion of non-portable, user-specific data including personal email addresses, personal names, account identifiers, and machine-specific personal home paths (`/home/<user>/...`, `/Users/<user>/...`).
 - Exported skills and tools must rely on generic interfaces, environment variables, or machine-local configuration files (`~/.config/<tool>/config.json`) rather than hardcoded personal configuration.
+- `docs/portability-env-vars.md` is the single registry of those variable names: reuse a name from it before inventing one, and add the new name there in the same change that first reads it.
 - **Fresh-machine, any-developer invariant**: Every exported skill, command, script, and doc must work for a different developer on a brand-new machine working in any repository. Do not assume:
   - a specific machine, OS install, hostname, LAN/tailnet address, SSH alias, or companion host (for example "the Mac mini" or "the Ubuntu box");
   - a specific checkout location (`~/projects/<repo>`, `$HOME/projects_other/...`) or that any particular repository is cloned locally;

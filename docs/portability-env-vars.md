@@ -27,6 +27,10 @@ but never writes.
   . "${XDG_CONFIG_HOME:-$HOME/.config}/jleechan-skills/env"
 ```
 
+An operator who wants to scan for their own leaks keeps a never-committed list of personal
+host aliases, names and paths at `${XDG_CONFIG_HOME:-$HOME/.config}/jleechan-skills/personal-tokens.txt`
+(one fixed string per line) and runs `grep -rn -F -f <that file> <paths>`.
+
 ## Repository and workspace
 
 | Variable | Meaning | Derived from | Default |
@@ -74,20 +78,20 @@ registry.
 
 | Variable | Meaning | Default |
 |---|---|---|
-| `SLACK_OPERATOR_DM_CHANNEL` | Slack DM channel ID for operator notifications (explicit; no legacy personal-named variable is read) | required where used |
+| `SLACK_OPERATOR_DM_CHANNEL` | Slack DM channel ID for operator notifications (explicit; no legacy personal-named variable and no fallback is read) | required where used |
 | `SLACK_TEST_CHANNEL` | Slack channel for test posts | required where used |
 | `SLACK_AUDIT_CHANNELS` | Comma-separated channel IDs `slack-audit` reads | required |
 | `SLACK_WORKSPACE_DOMAIN` | Workspace domain for permalinks (prefer `chat.getPermalink`) | unset |
 | `CLAW_CHANNEL` / `CLAW_BOT_ID` | Channel and bot user for `/claw` dispatch | required |
 | `GMAIL_ACCOUNT` | Gmail address for the `gmail` skill | required |
-| `CREDENTIAL_BLOCKLIST_FILE` | Machine-local list of identifiers that must never be pasted | `${XDG_CONFIG_HOME:-$HOME/.config}/credential-discipline/blocklist.txt` |
+| `CREDENTIAL_BLOCKLIST_FILE` | Machine-local list of identifiers that must never be pasted | `${XDG_CONFIG_HOME:-$HOME/.config}/jleechan-skills/credential-blocklist.txt` |
 
 ## Cloud projects (plugin skills only)
 
 | Variable | Meaning | Derived from | Default |
 |---|---|---|---|
-| `GCP_PROJECT_ID` | Google Cloud project. Required for skills that read or write production data; other skills may derive it | `gcloud config get-value project` (non-production skills only) | — |
-| `FIREBASE_PROJECT_ID` | Firebase project. Required, never derived: a skill that touches production data must not pick up whatever project gcloud has active | — | required |
+| `GCP_PROJECT_ID` | Google Cloud project. Required for a skill that reads or writes production data; other skills may derive it | `gcloud config get-value project` (non-production skills only) | — |
+| `FIREBASE_PROJECT_ID` | Firebase project the task's data lives in. Required, never derived or inferred from `GCP_PROJECT_ID`, a GCP project number, or the current `gcloud` project: a production write must not pick up whatever project gcloud has active | — | required where used |
 | `LLM_FORENSICS_DATASET` | BigQuery dataset for LLM request logs | — | required |
 | `AI_UNIVERSE_MCP_URL` | AI Universe MCP server URL | — | required |
 

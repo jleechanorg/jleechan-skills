@@ -48,7 +48,7 @@ class ScratchRoutingContracts(unittest.TestCase):
             "files": [],
         }
         with mock.patch.object(audit_prs, "run_cmd", return_value=json.dumps(payload)):
-            result = audit_prs.inspect_pr_status({"number": 7})
+            result = audit_prs.inspect_pr_status({"number": 7}, repo="acme/widgets")
         self.assertEqual(result["category"], "PENDING_OR_BLOCKED")
         self.assertEqual(result["pending_checks"], ["required-ci"])
 
@@ -63,7 +63,7 @@ class ScratchRoutingContracts(unittest.TestCase):
             "files": [],
         }
         with mock.patch.object(audit_prs, "run_cmd", return_value=json.dumps(payload)):
-            result = audit_prs.inspect_pr_status({"number": 8})
+            result = audit_prs.inspect_pr_status({"number": 8}, repo="acme/widgets")
         self.assertEqual(result["category"], "CLEAN_GREEN")
         self.assertEqual(result["pending_checks"], [])
 
@@ -85,7 +85,7 @@ class ScratchRoutingContracts(unittest.TestCase):
                     "files": [],
                 }
                 with mock.patch.object(audit_prs, "run_cmd", return_value=json.dumps(payload)):
-                    result = audit_prs.inspect_pr_status({"number": 9})
+                    result = audit_prs.inspect_pr_status({"number": 9}, repo="acme/widgets")
                 self.assertEqual(result["category"], "PENDING_OR_BLOCKED")
                 self.assertIn(entry["name"], result["pending_checks"])
 
@@ -105,7 +105,7 @@ class ScratchRoutingContracts(unittest.TestCase):
                     "files": [],
                 }
                 with mock.patch.object(audit_prs, "run_cmd", return_value=json.dumps(payload)):
-                    result = audit_prs.inspect_pr_status({"number": 10})
+                    result = audit_prs.inspect_pr_status({"number": 10}, repo="acme/widgets")
                 self.assertEqual(result["category"], "CLEAN_GREEN")
                 self.assertEqual(result["pending_checks"], [])
 
@@ -122,7 +122,7 @@ class ScratchRoutingContracts(unittest.TestCase):
                     "files": [],
                 }
                 with mock.patch.object(audit_prs, "run_cmd", return_value=json.dumps(payload)):
-                    result = audit_prs.inspect_pr_status({"number": 11})
+                    result = audit_prs.inspect_pr_status({"number": 11}, repo="acme/widgets")
                 self.assertEqual(result["category"], "PENDING_OR_BLOCKED")
 
     def test_luna_admits_report_scratch_before_provider_dispatch(self):
@@ -144,7 +144,7 @@ class ScratchRoutingContracts(unittest.TestCase):
             side_effect=AssertionError("provider must not be called"),
         ) as provider:
             with self.assertRaisesRegex(RuntimeError, "configured Scratch unavailable"):
-                audit_prs.review_single_pr(item)
+                audit_prs.review_single_pr(item, repo="acme/widgets")
         provider.assert_not_called()
 
     def test_comment_fetch_and_reply_roundtrip_uses_same_non_tmp_root(self):

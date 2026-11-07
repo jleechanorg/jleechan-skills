@@ -17,7 +17,7 @@ worker model = project.modelByCli[agent].model
             ?? defaults.agentConfig.model
 ```
 
-To override at spawn time **without touching the user's config**, point `AO_CONFIG_PATH` at a temp YAML that copies the user's config and patches the target project. The bashrc default `AO_CONFIG_PATH=~/.hermes/agent-orchestrator.yaml` is overridden for one process tree only.
+To override at spawn time **without touching the user's config**, point `AO_CONFIG_PATH` at a temp YAML that copies the user's config and patches the target project. Any `AO_CONFIG_PATH` exported by the shell profile is overridden for one process tree only.
 
 ## When to Use
 
@@ -110,7 +110,7 @@ Without `yq`, edit by hand under the project block:
 AO_CONFIG_PATH="$DST" ao spawn -p "$PROJECT" --agent claude-code "<task description>"
 ```
 
-The bashrc's `export AO_CONFIG_PATH=$HOME/.hermes/agent-orchestrator.yaml` is overridden for this single command's process tree only.
+Any shell-profile `AO_CONFIG_PATH` export is overridden for this single command's process tree only.
 
 ### Step 4: Verify Sonnet actually landed
 
@@ -165,8 +165,8 @@ The script handles the temp config build + cleanup automatically and prints the 
 
 ## Related Files
 
-- AO spawn options: `~/project_agento/agent-orchestrator/packages/cli/src/commands/spawn.ts`
-- Model resolution: `~/project_agento/agent-orchestrator/packages/core/src/agent-selection.ts:103-111`
-- claude-code plugin routing: `~/project_agento/agent-orchestrator/packages/plugins/agent-claude-code/src/index.ts:771-890`
-- Config schema: `~/project_agento/agent-orchestrator/packages/core/src/config.ts:287-330`
+- AO spawn options: `$AO_REPO_ROOT/packages/cli/src/commands/spawn.ts`
+- Model resolution: `$AO_REPO_ROOT/packages/core/src/agent-selection.ts:103-111`
+- claude-code plugin routing: `$AO_REPO_ROOT/packages/plugins/agent-claude-code/src/index.ts:771-890`
+- Config schema: `$AO_REPO_ROOT/packages/core/src/config.ts:287-330`
 - Sibling skills: [[ao-operator-discipline]], [[ao-spawn-gate]], [[ao-worker-dispatch]]

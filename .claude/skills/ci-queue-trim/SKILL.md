@@ -206,10 +206,12 @@ python3 ~/.claude/skills/ci-queue-trim/scripts/ci_queue_trim.py \
 
 ### 5. Customize Report Age Threshold and Target Repo
 The age threshold affects reporting only; cancellation still requires proven
-supersession and an explicitly allowed workflow.
+supersession and an explicitly allowed workflow. Without `--repo`, the target is
+`$GITHUB_REPOSITORY`, else the repository `gh repo view` resolves from the current
+directory; with neither, the script exits non-zero naming `GITHUB_REPOSITORY`.
 ```bash
 python3 ~/.claude/skills/ci-queue-trim/scripts/ci_queue_trim.py \
-    --repo jleechanorg/worldarchitect.ai --max-age-hours 4 \
+    --repo <owner>/<repo> --max-age-hours 4 \
     --allow-workflow .github/workflows/ci.yml --cancel
 ```
 

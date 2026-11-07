@@ -26,15 +26,20 @@ Do not use this skill for tiny read-only checks like a one-off `ao status`.
 **Before evaluating any `--agent` value**, read the active AO config:
 
 ```bash
-head -20 ~/.hermes/agent-orchestrator.yaml   # check defaults.agent and installed plugins
+AO_CONFIG_PATH="${AO_CONFIG_PATH:-${HERMES_HOME:-$HOME/.hermes}/agent-orchestrator.yaml}"
+if [ -f "$AO_CONFIG_PATH" ]; then
+  head -20 "$AO_CONFIG_PATH"   # check defaults.agent and installed plugins
+else
+  echo "AO_CONFIG_PATH not configured: AO config file to read agent defaults. Example: export AO_CONFIG_PATH=\$HOME/.hermes/agent-orchestrator.yaml"
+fi
 ```
 
 `--agent` values are resolved against the config, not against AO package plugin directories. If `<X>` in `--agent <X>` is not a well-known CLI name (codex, claude, claude-code, gemini), look it up in the config before concluding it's unsupported.
 
-Known shorthands on this machine:
-- `agy` / `antigravity` → `~/.local/bin/agy` (Google Antigravity / Gemini CLI) — **this is the default agent**
-- `minimax` → claude CLI + MiniMax API redirect
-- `wafer` → claude CLI + Wafer API redirect
+Resolve shorthands from the config's `agents:` entries and `defaults.agent`, not
+from memory of another machine. A custom name often wraps another CLI (for
+example an alias that runs the claude CLI against a different API provider);
+`command -v <name>` shows whether it is installed on this host.
 
 **Never scan `packages/agent-*/` as a substitute for reading the config.**
 

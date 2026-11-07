@@ -31,8 +31,8 @@ When a dot assigns another dot work on the authorized operator's behalf:
 - The gateway only ignores messages from **its own bot account** (`$OPENCLAW_BOT_USER_ID`) to prevent self-loops
 - `mcp__slack__conversations_add_message` posts as the openclaw bot (`$OPENCLAW_BOT_USER_ID`) — it will NOT trigger Hermes (self-loop prevention)
 - **For canary / health checks**: use the mcp_mail bot token (`~/.mcp_mail/credentials.json: SLACK_BOT_TOKEN`). Do NOT use `$SLACK_USER_TOKEN` for automated tests
-- **To post as $USER specifically** outside dot-to-dot assignments: preserve the existing authorized user delivery route; when the user requests human identity, use the profile-verified connected Slack route above with the AI prefix. Assignments must follow that connector route, not manual token loading. Ordinary bot updates remain unchanged.
-- DM channel to $USER: `$JLEECHAN_DM_CHANNEL`. Test channel: `#ai-slack-test` (`$SLACK_TEST_CHANNEL`)
+- **To post as the operator specifically** outside dot-to-dot assignments: preserve the existing authorized user delivery route; when the user requests human identity, use the profile-verified connected Slack route above with the AI prefix. Assignments must follow that connector route, not manual token loading. Ordinary bot updates remain unchanged.
+- DM channel to the operator: `$SLACK_OPERATOR_DM_CHANNEL`. Test channel: `$SLACK_TEST_CHANNEL`
 
 ## Hermes/OpenClaw operator messages — bot, not human
 

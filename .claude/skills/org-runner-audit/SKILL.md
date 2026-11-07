@@ -22,8 +22,7 @@ context:
   - "gh api repos/.../actions/runners only returns REPO-level runners (insufficient for org-wide audit)"
   - "gh api orgs/.../actions/runners returns ALL org-level self-hosted runners — always use this for org runner queries"
   - "Confusion: using repo API instead of org API causes 'only 2 runners visible' problem"
-  - "Memory: memory/MEMORY.md has 3 prior incidents of org-runner visibility failures (mem IDs: 0.73, 0.77, 0.78)"
-  - "Current fleet (mac-1..mac-6) use ARM64 label — X64 runners are legacy and should be removed"
+  - "Runner names, counts, architectures, and label policy come from the org's API response and runner config, never from this file"
   - "Always verify current state at query time — do not embed runner counts or status in context"
 ---
 
@@ -31,7 +30,7 @@ context:
 
 ## Purpose
 
-Query and audit all org-level self-hosted runners for jleechanorg. Avoids the common mistake of querying repo-level runners which only shows a subset.
+Query and audit all org-level self-hosted runners for `$GITHUB_ORG`. Avoids the common mistake of querying repo-level runners which only shows a subset.
 
 ## Trigger Detection
 
@@ -39,15 +38,29 @@ Any user message containing: `runner`, `self-hosted`, `org runners`, `see runner
 
 ## Audit Procedure
 
+**Step 0: Resolve the org**
+
+```bash
+GITHUB_ORG="${GITHUB_ORG:-${GITHUB_REPOSITORY%%/*}}"
+[ -n "$GITHUB_ORG" ] || GITHUB_ORG="$(gh repo view --json owner -q .owner.login 2>/dev/null || true)"
+[ -n "$GITHUB_ORG" ] || { echo "GITHUB_ORG not configured: GitHub org that owns the runners. Example: export GITHUB_ORG=my-org" >&2; exit 1; }
+```
+
 **Step 1: Query org-level runners (NOT repo-level)**
 
 ```bash
-gh api orgs/jleechanorg/actions/runners --jq '.runners[] | {name, status, labels: [.labels[].name]}'
+gh api --paginate "orgs/$GITHUB_ORG/actions/runners" --jq '.runners[] | {name, status, os, labels: [.labels[].name]}'
 ```
 
 **Step 2: Identify stale/offline runners**
 
-Offline runners (org-runner-3, org-runner-4 = X64) need investigation.
+Every runner whose `status` is not `online` needs investigation. Compare
+architecture labels against the org's own runner policy rather than a fleet
+list remembered from an earlier audit:
+
+```bash
+gh api --paginate "orgs/$GITHUB_ORG/actions/runners" --jq '.runners[] | select(.status != "online") | .name' | LC_ALL=C sort
+```
 
 **Step 3: Report in table format**
 
@@ -59,9 +72,8 @@ Offline runners (org-runner-3, org-runner-4 = X64) need investigation.
 ## Common Failure Mode
 
 - `gh api repos/$GITHUB_REPOSITORY/actions/runners` → only 2 repo runners
-- `gh api orgs/jleechanorg/actions/runners` → all 8 org runners (correct)
+- `gh api "orgs/$GITHUB_ORG/actions/runners"` → all org runners (correct; `.total_count` is the fleet size)
 
 ## Files Referenced
 
 - `.claude/skills/org-runner-audit/SKILL.md` (this file)
-- `memory/MEMORY.md` — prior incidents of org-runner visibility failures (mem IDs: 0.73, 0.77, 0.78)

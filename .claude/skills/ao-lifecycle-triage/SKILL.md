@@ -18,26 +18,26 @@ When `lifecycle.backfill.claim_failed` errors appear in the lifecycle-worker log
 ## Two distinct root causes (same error surface)
 
 ### Cause A: Main repo on wrong branch
-**Symptom**: `checked out at '$HOME/project_agento/agent-orchestrator-ts'`
-**Diagnosis**: `git -C $HOME/project_agento/agent-orchestrator-ts branch --show-current`
+**Symptom**: `checked out at '<main AO checkout>'` (the main checkout, `$AO_REPO_ROOT`)
+**Diagnosis**: `git -C "$AO_REPO_ROOT" branch --show-current`
 **Safe recovery**:
 ```bash
-git -C "$HOME/project_agento/agent-orchestrator-ts" branch --show-current
-git -C "$HOME/project_agento/agent-orchestrator-ts" status --short
-git -C "$HOME/project_agento/agent-orchestrator-ts" worktree list --porcelain
+git -C "$AO_REPO_ROOT" branch --show-current
+git -C "$AO_REPO_ROOT" status --short
+git -C "$AO_REPO_ROOT" worktree list --porcelain
 ```
 Do not switch branches or pull in the active main checkout automatically. If it
 is dirty or another worker owns it, preserve it and continue diagnosis through
 an approved isolated worktree.
 
 ### Cause B: Ghost worktrees (dead AO worktrees with branches still checked out)
-**Symptom**: `checked out at '$HOME/.worktrees/agent-orchestrator/ao-NNN'`
+**Symptom**: `checked out at '<worktree root>/<project>/ao-NNN'` (an AO session worktree; use the exact path from the error as `WT` below)
 **Diagnosis**: `git worktree list | grep ao-NNN` — if present with no live tmux session, it's a ghost
 **Safe recovery**:
 ```bash
 ao session ls
-git -C "$HOME/projects/agent-orchestrator" worktree list --porcelain
-git -C "$HOME/.worktrees/agent-orchestrator/ao-NNN" status --short
+git -C "$AO_REPO_ROOT" worktree list --porcelain
+git -C "$WT" status --short
 ```
 Confirm the session/process owner and inspect the exact worktree before any
 cleanup. A missing tmux session alone does not prove that the checkout is safe
@@ -48,7 +48,7 @@ authorization.
 ## Triage order (always check A first)
 
 1. Look at the path in the error: if it's the main repo path → Cause A
-2. If it's `~/.worktrees/...` → Cause B
+2. If it's an `ao-NNN` session worktree → Cause B
 3. If backfill is aborted (`claim_failed_abort` after 3 consecutive failures), check both
 
 ## Prevention

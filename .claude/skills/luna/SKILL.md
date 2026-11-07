@@ -6,7 +6,7 @@ description: "Audit and review open, non-draft PRs unmodified for >8 hours using
 # /luna: Automated Stale PR Review & Remediation Skill
 
 The `/luna` skill orchestrates automated reviews of open, non-draft pull requests that have stalled or remained unmodified for 8 or more hours. It uses a tri-engine architecture:
-- **`codexl`** (`codex-luna`, OpenAI native `gpt-6-luna` with high reasoning effort): For deep architectural analysis, test-harness failures, game-state logic, and complex multi-file reviews where 80%+ prompt caching hit rates and deep reasoning are essential.
+- **`codexl`** (`codex-luna`, OpenAI native `gpt-6-luna` with high reasoning effort): For deep architectural analysis, test-harness failures, state-machine logic, and complex multi-file reviews where 80%+ prompt caching hit rates and deep reasoning are essential.
 - **`pil`** (`pi --provider lunaroute --model deepseek-4.1-flash`): For rapid diagnostic passes, diff scanning, lint verification, and fast triage using DeepSeek V4 Flash with zero CLI initialization overhead.
 - **`pig`** (`pi --provider lunaroute --model glm-5.3`): For long-horizon agentic task planning, tool recovery, and GLM-5.3 semantic evaluations.
 
@@ -29,6 +29,10 @@ Run the `/luna` automated audit script:
 ```bash
 ~/.claude/skills/luna/scripts/audit_prs.py
 ```
+
+The target repository is `--repo <owner>/<repo>`, else `$GITHUB_REPOSITORY`, else the
+repository `gh repo view` resolves from the current directory; with none of these the
+script exits non-zero naming `GITHUB_REPOSITORY`.
 
 This immediately parses all open non-draft PRs older than 8 hours, evaluates their CI status via GitHub check rollups and mergeability in parallel, and categorizes them into:
 1. **CI Failed**: Dispatches `codexl` for test failure diagnosis.
@@ -66,7 +70,7 @@ For every audited PR, output a structured summary table:
 
 | PR # | Title | Stale Age | CI Status | Mergeable | Primary Blocker | Recommended Action | Engine |
 |---|---|---|---|---|---|---|---|
-| #10312 | fix(streaming): map Gemini 429... | 28h | ❌ Failed | CONFLICT | CI test failure & rebase needed | Rebase on main, fix exception mapping | `codexl` |
+| #1234 | fix: <title>... | 28h | ❌ Failed | CONFLICT | CI test failure & rebase needed | Rebase on main, fix exception mapping | `codexl` |
 
 Each item must specify:
 1. **Root Cause**: Why the PR stalled or failed.
@@ -79,5 +83,5 @@ Each item must specify:
 
 1. **`codexl` Resolution**: Always maps to `codex-luna` (`codex --yolo --search -m gpt-6-luna --config model_reasoning_effort=high`).
 2. **`pil` Resolution**: Uses LunaRoute gateway `deepseek-4.1-flash` (`pi --provider lunaroute --model deepseek-4.1-flash`).
-3. **Evidence Hygiene**: All review artifacts and logs must be stored under the canonical scratch directory via `"$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh "worldarchitect.ai/luna-reviews")"` (referencing `~/.claude/skills/scratch-space/SKILL.md`). Never litter repository workspaces.
+3. **Evidence Hygiene**: All review artifacts and logs must be stored under the canonical scratch directory via `"$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh "<repo-name>/luna-reviews")"`, where `<repo-name>` is the name part of the target `owner/repo` (referencing `~/.claude/skills/scratch-space/SKILL.md`). Never litter repository workspaces.
 4. **Absolute Paths**: Always cite full absolute paths for modified or inspected files.
