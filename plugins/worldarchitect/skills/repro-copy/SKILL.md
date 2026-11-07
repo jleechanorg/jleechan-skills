@@ -23,16 +23,16 @@ with the destination test user (`<test-user-email>`).
 
 ```bash
 # Step 1: resolve source campaign owner UID (required for any production campaign)
-SOURCE_EMAIL="${SOURCE_USER_EMAIL:-<source-user-email>}"
-SOURCE_UID=$(./vpython -c "
-import firebase_admin; from firebase_admin import auth, credentials; import os
-cred = credentials.Certificate(os.environ['WORLDAI_GOOGLE_APPLICATION_CREDENTIALS'])
+SOURCE_UID=$(./vpython -c '
+import firebase_admin, os, sys
+from firebase_admin import auth, credentials
+cred = credentials.Certificate(os.environ["WORLDAI_GOOGLE_APPLICATION_CREDENTIALS"])
 try:
     firebase_admin.get_app()
 except ValueError:
     firebase_admin.initialize_app(cred)
-print(auth.get_user_by_email('$SOURCE_EMAIL').uid)
-")
+print(auth.get_user_by_email(sys.argv[1]).uid)
+' "<source-user-email>")
 if [ -z "$SOURCE_UID" ]; then
   echo "Failed to resolve source Firebase UID" >&2
   exit 1
@@ -40,10 +40,9 @@ fi
 # → <SOURCE_UID>
 
 # Step 2: run repro copy to destination test user
-DEST_TEST_EMAIL="${WORLDAI_TEST_USER_EMAIL:-<test-user-email>}"
 ./vpython scripts/repro_copy_campaign.py <campaign_id> \
   --source-user-id "$SOURCE_UID" \
-  --test-user-email "$DEST_TEST_EMAIL" \
+  --test-user-email "<test-user-email>" \
   --issue "short issue description" \
   --start-local
 ```
