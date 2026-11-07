@@ -75,7 +75,7 @@ Audits pull request throughput, lifecycle duration, and stage dwell across exact
 
 ### 2. Throughput & Cohort Metrics
 - **Equal weekly window stratification**:
-  * Compare equal weekly windows stratified by **repository**, **selected route/risk** (e.g. instruction-only, bounded-code, UI/evidence), and **size** (e.g. small/compact vs medium/large).
+  * Compare equal weekly windows stratified by **repository**, **selected route/risk** (e.g. instruction-only, bounded-code, UI/evidence; extracted mechanically from the PR Review Ledger's declared route or repository file-path classification via repo tooling, recording `UNKNOWN` when neither is present), and **size** (e.g. small/compact vs medium/large).
   * For each stratum, report **median**, **p75**, sample count (**n**), observational telemetry **coverage** (percentage of PRs with complete event telemetry), and **still-open work** (in-flight PRs at window cutoff).
   * Keep **backlog separate** from intra-window delivery to avoid confounding historical backlog aging with current-window execution velocity.
 - **Separate event counts & explicit denominators**:
@@ -96,7 +96,7 @@ Audits pull request throughput, lifecycle duration, and stage dwell across exact
     - *PR lead time*: `merged_at` minus `created_at`.
     - *Pre-publication time*: PR `created_at` minus task `accepted_at`.
     - *Task-to-merge*: `merged_at` minus task `accepted_at` (exposes delays hidden by late PR creation).
-    - *Authorized closeout delay*: `merged_at` minus the timestamp when all readiness obligations and merge authority were simultaneously satisfied.
+    - *Authorized closeout delay*: `merged_at` minus `authority_ready_at` (or `UNKNOWN` when `authority_ready_at` is `null` or unrecorded).
 - **No mixed-event conversion claims**: Do not compute a naive "merge rate" by dividing merged PRs by created PRs within the same window. PRs merged during a window include backlog items created earlier, while PRs created near the window end are right-censored (still in flight). Never present mixed event counts as a causal speed or cohort conversion rate.
 - **No unsupported productivity or causal claims**: Do not attribute duration or throughput changes to tooling or developer speed without controlled task mix, backlog normalization, and explicit confounding factor documentation.
 
@@ -107,9 +107,9 @@ Audits pull request throughput, lifecycle duration, and stage dwell across exact
   * Extract granular handoff metrics from observational Scratch runtime telemetry (`run.stats.json`) and review receipts:
     - *Evidence dispatch delay*: `review_requested_at` minus `evidence_ready_at` (interval between required proof being complete, readable, and available at candidate SHA and actual review dispatch).
     - *Reviewer pickup delay*: `actual_review_started_at` minus `review_requested_at` (time until the reviewer actually initiates substantive inspection; an acknowledged message is not review start).
-    - *Review execution time*: `review_returned_at` minus `actual_review_started_at`.
-    - *Driver response delay*: `next_substantive_action_started_at` minus `review_returned_at` (time from review receipt to driver resuming substantive action).
-    - *Eligible unattended interval*: Observed interval with an executable authorized action, no executing owner or job, and no legitimate hold; otherwise record as `UNKNOWN` or an identified waiting category.
+    - *Review execution time*: `review_return_at` minus `actual_review_started_at`.
+    - *Driver response delay*: `next_substantive_action_started_at` minus `review_return_at` (time from review return to driver resuming substantive action).
+    - *Eligible unattended interval*: Derived classification column computed only from recorded receipt/process timestamps (`review_return_at` to `next_substantive_action_started_at` when an executable authorized action existed with no active owner/job or legitimate hold; otherwise `UNKNOWN` or an identified waiting category).
 - **Censoring and waiting rules**:
   * **Interval censoring on invalidation**: If proof is invalidated before reviewer pickup (e.g. candidate head SHA moved or claims changed), close/censor that interval with the explicit reason rather than counting the whole period as reviewer neglect.
   * **Waiting category separation**: Treat active execution, CI/provider waits, explicit user holds, authority waits, and unknown periods separately.
