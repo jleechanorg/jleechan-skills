@@ -293,23 +293,23 @@ fi
 # Check skills documentation
 echo -e "\nChecking skills documentation..."
 
-SKILLS_DIR=".claude/skills"
+SKILLS_DIR="plugins/ai-universe/skills"
 if [ -d "$SKILLS_DIR" ]; then
     echo -e "${GREEN}✅ Skills directory exists${NC}"
 
-    if [ -f "$SKILLS_DIR/ai-universe-auth.md" ]; then
+    if [ -f "$SKILLS_DIR/ai-universe-auth/SKILL.md" ]; then
         echo -e "${GREEN}   ✅ ai-universe-auth.md${NC}"
     else
         echo -e "${RED}   ❌ ai-universe-auth.md missing${NC}"
     fi
 
-    if [ -f "$SKILLS_DIR/ai-universe-httpie.md" ]; then
+    if [ -f "$SKILLS_DIR/ai-universe-httpie/SKILL.md" ]; then
         echo -e "${GREEN}   ✅ ai-universe-httpie.md${NC}"
     else
         echo -e "${RED}   ❌ ai-universe-httpie.md missing${NC}"
     fi
 
-    if [ -f "$SKILLS_DIR/secondo-dependencies.md" ]; then
+    if [ -f "$SKILLS_DIR/secondo-dependencies/SKILL.md" ]; then
         echo -e "${GREEN}   ✅ secondo-dependencies.md${NC}"
     else
         echo -e "${RED}   ❌ secondo-dependencies.md missing${NC}"

@@ -12,7 +12,8 @@ same change that first reads them.
 3. **Documented default**, only where one is listed. A default must be valid on a fresh
    machine for any developer; personal hosts, checkout paths, and accounts are never defaults.
    A conventional tool location (`$HOME/.hermes`, `$HOME/roadmap`) may be a default only when
-   the skill checks that it exists and skips the dependent steps when it does not.
+   the skill checks that it exists and skips only the dependent steps when it does not; a
+   missing optional tool never blocks an unrelated task.
 4. Otherwise stop with: `<VAR> not configured: <meaning>. Example: export <VAR>=<example>`.
    Never guess a host, path, repository, or account.
 
@@ -34,7 +35,7 @@ host aliases, names and paths at `${XDG_CONFIG_HOME:-$HOME/.config}/jleechan-ski
 
 | Variable | Meaning | Derived from | Default |
 |---|---|---|---|
-| `PROJECT_ROOT` | Root of the repository the task targets. `REPO_ROOT` is an accepted alias; when both are set, `PROJECT_ROOT` wins | `git rev-parse --show-toplevel` | — |
+| `PROJECT_ROOT` / `REPO_ROOT` | Root of the repository the task targets. `REPO_ROOT` is an accepted alias; `PROJECT_ROOT` wins when both are set | `git rev-parse --show-toplevel` | — |
 | `GITHUB_REPOSITORY` | `owner/repo` the task targets | `gh repo view --json nameWithOwner -q .nameWithOwner` | — |
 | `GITHUB_ORG` | GitHub org/owner for org-wide queries | `${GITHUB_REPOSITORY%%/*}` | — |
 | `CLAUDE_HOME` | Claude Code home | — | `$HOME/.claude` |
@@ -65,17 +66,18 @@ host aliases, names and paths at `${XDG_CONFIG_HOME:-$HOME/.config}/jleechan-ski
 | `AO_NPM_PACKAGE` | AO CLI npm package | — | the tool's published package name |
 | `AO_AGENT_GH_LOGIN` | GitHub login used by AO workers/bots | — | required where used |
 | `OPERATOR_GH_LOGIN` | GitHub login of the human operator | `gh api user -q .login` | — |
-| `DARK_FACTORY_HOME` / `DARK_FACTORY_HOLDOUTS` | dark-factory checkout / holdouts checkout | — | required where used |
-| `DARK_FACTORY_REPO_URL` | Clone URL for dark-factory | — | required for install steps |
-| `DARK_FACTORY_LOG_DIR` | dark-factory log directory | — | `${XDG_STATE_HOME:-$HOME/.local/state}/dark-factory` |
 | `MEM0_HOOKS_DIR` / `MEM0_PYTHON` | mem0 hook directory / interpreter | — | unset: skip mem0 steps / `python3` |
 | `COMFYUI_HOME` | ComfyUI install | — | required where used |
+
+The retired dark-factory and auto-factory tooling is gone from the catalog
+(`docs/specs/2026-11-06-factory-tool-retirement.md`); its variables are not part of this
+registry.
 
 ## Messaging and accounts
 
 | Variable | Meaning | Default |
 |---|---|---|
-| `SLACK_OPERATOR_DM_CHANNEL` | Slack DM channel ID for operator notifications (replaces an older personal-named variable; no fallback is read) | required where used |
+| `SLACK_OPERATOR_DM_CHANNEL` | Slack DM channel ID for operator notifications (explicit; no legacy personal-named variable and no fallback is read) | required where used |
 | `SLACK_TEST_CHANNEL` | Slack channel for test posts | required where used |
 | `SLACK_AUDIT_CHANNELS` | Comma-separated channel IDs `slack-audit` reads | required |
 | `SLACK_WORKSPACE_DOMAIN` | Workspace domain for permalinks (prefer `chat.getPermalink`) | unset |
@@ -87,8 +89,8 @@ host aliases, names and paths at `${XDG_CONFIG_HOME:-$HOME/.config}/jleechan-ski
 
 | Variable | Meaning | Derived from | Default |
 |---|---|---|---|
-| `GCP_PROJECT_ID` | Google Cloud project | `gcloud config get-value project` | — |
-| `FIREBASE_PROJECT_ID` | Firebase project the task's data lives in | — | required where used — never inferred from `GCP_PROJECT_ID`, a GCP project number, or the current `gcloud` project |
+| `GCP_PROJECT_ID` | Google Cloud project. Required for a skill that reads or writes production data; other skills may derive it | `gcloud config get-value project` (non-production skills only) | — |
+| `FIREBASE_PROJECT_ID` | Firebase project the task's data lives in. Required, never derived or inferred from `GCP_PROJECT_ID`, a GCP project number, or the current `gcloud` project: a production write must not pick up whatever project gcloud has active | — | required where used |
 | `LLM_FORENSICS_DATASET` | BigQuery dataset for LLM request logs | — | required |
 | `AI_UNIVERSE_MCP_URL` | AI Universe MCP server URL | — | required |
 
@@ -101,6 +103,8 @@ host aliases, names and paths at `${XDG_CONFIG_HOME:-$HOME/.config}/jleechan-ski
 | `RUNNER_COMPOSE_DIR` | docker-compose directory for containerized runners | required where used |
 | `RUNNER_EXPECTED_LINUX` / `RUNNER_EXPECTED_MAC` | Expected online runner counts | required for health thresholds |
 | `RUNNER_LAUNCHD_LABEL` / `RUNNER_SYSTEMD_UNIT` | Service names supervising runners | required where used |
+| `RUNNER_HOST_TIMEOUT` / `RUNNER_HOST_DOCKER_SOCK` | SSH connect timeout (seconds) and the remote Docker socket | `5` / `unix:///var/run/docker.sock` |
+| `RUNNER_HEALTH_EXTRA_REPOS` | Extra `owner/repo` values `runner-health` includes besides `GITHUB_REPOSITORY` | unset: only `GITHUB_REPOSITORY` |
 | `RUNNER_CROSSCHECK_SLACK_CHANNEL_ID` / `RUNNER_CROSSCHECK_SLACK_USER_ID` | Optional Slack cross-check | unset: cross-check disabled |
 
 ## Values that are deleted, not parameterized

@@ -227,7 +227,7 @@ When babysitting active testing or evidence generation:
 1. **Poll evidence traces**: Verify that the testing framework writes traces under the task's unique `/tmp/<repo>/evidence/...` directory, as specified by `~/.codex/AGENTS.md` § Workspace and method fidelity. Confirm `.jsonl` files are non-empty.
 2. **Publish durable evidence**: When the workflow requires evidence to outlive the task, use the authorized gist or GCS publication process in `~/.claude/skills/evidence-standards/SKILL.md`. Never copy capture bundles into the source repository.
 3. **Testing Gap Close Integration**: If evidence bundles fail to generate (empty `.jsonl` files, missing checksums, server timeout errors, or `EvidenceSignatureGuard` rejections), immediately invoke the `/testing-gap-close` skill to harden the server lifecycle and resolve the failure.
-4. **Stop task-owned processes**: If a task-owned process hangs, verify its PID still belongs to the expected task and worktree, then follow that service's cleanup owner. For local development servers, use [local-dev-server](../local-dev-server/SKILL.md) § Stopping Servers. Never kill processes by port or name, signal an unverified process group, or use broad `pkill` fallbacks.
+4. **Stop task-owned processes**: If a task-owned process hangs, verify its PID still belongs to the expected task and worktree, then follow that service's cleanup owner. For local development servers, use the stop procedure from the product plugin's `local-dev-server` skill or the repository's own server docs, if one is installed. Never kill processes by port or name, signal an unverified process group, or use broad `pkill` fallbacks.
 
 ## Anti-Patterns (BANNED)
 

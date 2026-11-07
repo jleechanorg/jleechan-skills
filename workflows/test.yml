@@ -237,7 +237,7 @@ jobs:
           ref: ${{ github.event_name == 'pull_request' && format('refs/heads/{0}', github.event.pull_request.head.ref) || github.sha }}
           persist-credentials: false
       - name: Run ezgha restart-gate harness
-        run: bash .claude/skills/ezgha-watchdog/scripts/test_restart_gate.sh
+        run: bash plugins/self-hosted-runners/skills/ezgha-watchdog/scripts/test_restart_gate.sh
       - name: Run scripts/tests/test_ezgha_watchdog.sh
         run: bash scripts/tests/test_ezgha_watchdog.sh
       - name: Run scripts/tests/test_host_disk_guardian.sh

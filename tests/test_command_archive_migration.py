@@ -8,6 +8,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 COMMANDS_DIR = REPO_ROOT / ".claude" / "commands"
 EXTENDED_LIBRARY_DIR = COMMANDS_DIR / "extended-library"
+PLUGIN_COMMANDS_GLOB = "plugins/*/commands/*.md"
 
 # 26 seed commands from top-20 human ∪ top-20 agent union, less the retired /f (hard floor; 'innov' is an extra include)
 SEED_COMMANDS: tuple[str, ...] = (
@@ -45,8 +46,14 @@ class CommandArchiveMigrationTest(unittest.TestCase):
         self.assertEqual(
             len(SEED_COMMANDS), 26, f"SEED_COMMANDS must have 26 entries, got {len(SEED_COMMANDS)}"
         )
-        missing_files = [s for s in sorted(SEED_COMMANDS) if not (COMMANDS_DIR / f"{s}.md").is_file()]
-        self.assertEqual(missing_files, [], f"Seed files missing from {COMMANDS_DIR}: {missing_files}")
+        # A seed command stays active when it is installed from the default export or
+        # from an opt-in plugin whose skill it dispatches to; /levelup moved into the
+        # worldarchitect plugin with its skill, so the export path alone is not the
+        # whole active surface.
+        active = {p.stem for p in COMMANDS_DIR.glob("*.md")}
+        active |= {p.stem for p in REPO_ROOT.glob(PLUGIN_COMMANDS_GLOB)}
+        missing_files = [s for s in sorted(SEED_COMMANDS) if s not in active]
+        self.assertEqual(missing_files, [], f"Seed commands missing from the active surface: {missing_files}")
 
 
 if __name__ == "__main__":

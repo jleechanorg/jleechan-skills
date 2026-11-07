@@ -18,8 +18,13 @@ not implement application runtime CI guards or prove actual CLI support.
 
 - The exact candidate test file fails its new instruction assertions against
   baseline 69bce8f4d47d325dfd58343682bdff0ce3903670 and passes on the candidate.
-- The existing installer copies both candidate skills byte-identically into an
-  isolated temporary CLAUDE_HOME; a 30-second timeout fails with diagnostics.
+- Installer copy fidelity in an isolated temporary CLAUDE_HOME is owned by
+  `tests/test_installer.py::InstallerIntegrationTest.test_clean_install_copies_every_source_file_and_validates_manifest`,
+  which drives the real installer over a synthetic source tree. (Updated
+  2026-11-07: the former two-skill `shutil.copyfile` round-trip in
+  `test_failure_boundary_skill_contract.py` only re-read the bytes it had copied
+  itself, so it proved nothing about the installer, and it named
+  `self-hosted-runner-preflight`, which is now an opt-in plugin skill.)
 - Existing CI discovery includes the new test without a new workflow or live job.
 - Review verifies no fabricated fixture provenance, executable capability claim,
   personal data, new host operation or unrelated legacy-recipe rewrite.
