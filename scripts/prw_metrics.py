@@ -292,9 +292,11 @@ class Collector:
         Collect PRs for a repository across multiple pages.
         Maps both GitHub API snake_case and gh camelCase attributes.
         Preserves all open PRs even if >14d old, and includes reopened PRs.
-        Stops when page returned has fewer than per_page items.
+        Stops when page returned has fewer than per_page items, or in live mode once
+        updated_at falls before w1_start_dt (plus all open PRs).
         """
         all_prs = []
+        w1_start_dt = self.cutoff_dt - timedelta(days=14)
         page = 1
         while True:
             if fetch_page_fn:
@@ -316,14 +318,43 @@ class Collector:
             if not raw_items:
                 break
 
+            reached_before_w1 = False
             for item in raw_items:
                 norm = self.normalize_pr_record(item, default_repo=repo)
                 all_prs.append(norm)
+                if not fetch_page_fn:
+                    upd_dt = parse_iso_utc(item.get("updated_at") or item.get("updatedAt") or norm.get("createdAt"))
+                    if upd_dt and upd_dt < w1_start_dt:
+                        reached_before_w1 = True
 
-            if len(raw_items) < per_page:
+            if len(raw_items) < per_page or (not fetch_page_fn and reached_before_w1):
                 break
 
             page += 1
+
+        # In live mode, also fetch state=open pages so right-censored open PRs (>14d without updates) are always included
+        if not fetch_page_fn:
+            open_page = 1
+            while True:
+                cmd = [
+                    "gh", "api",
+                    f"repos/{repo}/pulls?state=open&per_page={per_page}&page={open_page}",
+                ]
+                proc = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    timeout=60,
+                )
+                open_items = json.loads(proc.stdout)
+                if not open_items:
+                    break
+                for item in open_items:
+                    all_prs.append(self.normalize_pr_record(item, default_repo=repo))
+                if len(open_items) < per_page:
+                    break
+                open_page += 1
 
         return self.deduplicate_prs(all_prs)
 
@@ -453,10 +484,11 @@ class Collector:
             for repo in target_repos:
                 try:
                     repo_prs = self.collect_repo_prs_paginated(repo, fetch_page_fn=fetch_page_fn)
-                    all_prs.extend(repo_prs)
+                    combined_repo_prs = self.deduplicate_prs(repo_prs + cached_prs_by_repo.get(repo, []))
+                    all_prs.extend(combined_repo_prs)
                     sources[repo] = {
                         "status": "COMPLETE",
-                        "count": len(repo_prs),
+                        "count": len(combined_repo_prs),
                         "cutoff": format_iso_utc(self.cutoff_dt),
                     }
                 except Exception as e:
