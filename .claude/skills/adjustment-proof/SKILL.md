@@ -16,7 +16,7 @@ This skill extends:
 
 - `.claude/skills/zfc-adjuster/SKILL.md`
 - `.claude/skills/evidence-standards/SKILL.md`
-- `.claude/skills/zfc-leveling-roadmap/SKILL.md` for level-up/rewards changes
+- for level-up/rewards changes, if an installed product plugin provides a companion `zfc-leveling-roadmap` skill, read it
 
 ## Verdicts
 

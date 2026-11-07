@@ -1,0 +1,12 @@
+{
+  "name": "ai-universe",
+  "description": "Opt-in AI Universe MCP server skills: authentication, HTTPie calls, and the multi-model second-opinion workflow",
+  "version": "0.1.0",
+  "author": {
+    "name": "WorldArchitect.AI Team",
+    "email": "team@worldarchitect.ai"
+  },
+  "homepage": "https://github.com/jleechanorg/jleechan-skills",
+  "repository": "https://github.com/jleechanorg/jleechan-skills",
+  "license": "MIT"
+}

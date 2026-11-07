@@ -1,7 +1,8 @@
 """Batch1 conversion contract: these 8 skills must be <name>/SKILL.md directories.
 
-Integration test against the live .claude/skills/ tree, not a fixture — the point
-is to track the real conversion state of these specific skills.
+Integration test against the live skill roots, not a fixture — the point is to
+track the real conversion state of these specific skills across the default
+export and the opt-in plugins that now own some of them.
 """
 
 import importlib
@@ -12,8 +13,6 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
-
-SKILLS_ROOT = REPO_ROOT / ".claude" / "skills"
 
 BATCH1 = (
     "agento-report",
@@ -29,7 +28,7 @@ BATCH1 = (
 
 class SkillPortabilityBatch1Test(unittest.TestCase):
     def test_batch1_skills_are_proper(self):
-        result = importlib.import_module("scripts.skill_portability_scan").scan(SKILLS_ROOT)
+        result = importlib.import_module("scripts.skill_portability_scan").scan_owners(REPO_ROOT)
         unconverted = sorted(name for name in BATCH1 if name not in result["proper"])
         self.assertEqual(unconverted, [], f"batch1 skills not yet converted to <name>/SKILL.md: {unconverted}")
 
