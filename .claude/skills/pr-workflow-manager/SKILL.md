@@ -11,6 +11,13 @@ scope: project
 
 An unqualified `/prw` (`/pr-workflow`) defaults to driving the PR to **`FINAL_READY`** across all applicable gates under one continuous session goal, unless the user explicitly requests an earlier milestone. Intermediate checkpoints (opening draft, pushes, initial approval, undrafting, stage labels) are not task completion; merge authority remains separate. For the canonical completion contract and exit conditions, follow [pr-lifecycle](../pr-lifecycle/SKILL.md#terminal-goal-and-first-screen-contract).
 
+- **Automatic native goal activation:** When `/prw` starts, detect the current CLI's goal capability through its supported interface (native goal tool/API when available, or [cmux-goal](../cmux-goal/SKILL.md) when hosted in cmux; do not build a new controller, stop hook, scheduler, or deterministic policy engine):
+  - **Supported & absent:** Automatically create one task-scoped native session goal covering the requested PR(s) and accepted session PR work through `FINAL_READY` (or an explicit earlier user endpoint).
+  - **Already-active:** Reuse a matching existing goal without recreating it; preserve an unrelated active goal unless the user explicitly authorizes replacement. Do not create per-PR duplicate goals.
+  - **User-cleared / paused / stopped:** Never revive or re-install a goal the user cleared, paused, or stopped without a fresh explicit instruction.
+  - **Unsupported or unavailable:** Retain the existing driver and PR obligation/execution record without claiming native goal activation or blocking authorized work.
+  - **Verification:** Verify actual persisted goal state/readback and functioning ownership/resumption separately; goal prose, a printed `/goal` line, or command delivery alone is not proof of an active goal.
+
 ## One operational contract
 
 Before selecting a branch, stage, or gate, inspect the target repository's `AGENTS.md`, `CLAUDE.md`, and scoped instructions. Local repository instructions take precedence within their domain. Where local instructions are silent, apply the canonical [pr-lifecycle](../pr-lifecycle/SKILL.md) completion loop.
@@ -45,7 +52,7 @@ Apply these compact defaults where explicit repository instructions are silent; 
 
 ## Autonomous execution and boundaries
 
-Drive the PR through the [pr-lifecycle completion loop](../pr-lifecycle/SKILL.md#the-autonomous-completion-loop):
+Drive the PR through the [pr-lifecycle completion loop](../pr-lifecycle/SKILL.md#the-autonomous-completion-loop) (activating or reusing one task-scoped native session goal when supported per the entry contract above):
 1. Default to opening PRs as DRAFT (`gh pr create --draft`).
 2. Select route from [review-routing.md](../pr-lifecycle/review-routing.md).
 3. Maintain the single current record in the PR description ([Review Ledger and Execution Record](../pr-lifecycle/review-records.md#unified-obligation-and-review-ledger)).
