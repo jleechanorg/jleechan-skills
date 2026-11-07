@@ -398,11 +398,28 @@ class Collector:
             source_status["timeline"] = {"status": "NOT_FOUND", "path": timeline_path}
 
         # 3. Handoff metrics file
+        handoffs = []
         handoff_path = os.path.join(input_dir, "actionable_handoff_metrics.json")
         if os.path.exists(handoff_path):
             try:
                 with open(handoff_path, "r", encoding="utf-8") as f:
-                    handoffs = json.load(f)
+                    raw_handoffs = json.load(f)
+                if isinstance(raw_handoffs, list):
+                    handoffs = raw_handoffs
+                elif isinstance(raw_handoffs, dict):
+                    if "records" in raw_handoffs and isinstance(raw_handoffs["records"], list):
+                        handoffs = raw_handoffs["records"]
+                    elif "handoffs" in raw_handoffs and isinstance(raw_handoffs["handoffs"], list):
+                        handoffs = raw_handoffs["handoffs"]
+                    elif "representative_prs" in raw_handoffs and isinstance(raw_handoffs["representative_prs"], dict):
+                        for pr_id, pr_data in raw_handoffs["representative_prs"].items():
+                            if isinstance(pr_data, dict):
+                                m = pr_data.get("metrics", {})
+                                if isinstance(m, dict):
+                                    if isinstance(m.get("task_to_merge_sec"), (int, float)):
+                                        handoffs.append({"name": "task_accepted -> merged", "duration_sec": m["task_to_merge_sec"]})
+                                    if isinstance(m.get("closure_sprint_to_merge_sec"), (int, float)):
+                                        handoffs.append({"name": "closure_sprint_accepted -> merged", "duration_sec": m["closure_sprint_to_merge_sec"]})
                 source_status["handoffs"] = {"status": "COMPLETE", "path": handoff_path, "count": len(handoffs)}
             except Exception as e:
                 source_status["handoffs"] = {"status": "FAILED", "error": str(e)}
@@ -445,7 +462,10 @@ class Collector:
                 if cached.get("timeline"):
                     cached_timeline.extend(cached["timeline"])
                 if cached.get("handoff_records"):
-                    cached_handoffs.extend(cached["handoff_records"])
+                    if isinstance(cached["handoff_records"], list):
+                        cached_handoffs.extend(cached["handoff_records"])
+                    elif isinstance(cached["handoff_records"], dict):
+                        cached_handoffs.append(cached["handoff_records"])
                 manifest_path = os.path.join(directory, "source_manifest.json")
                 if os.path.exists(manifest_path):
                     try:
@@ -905,11 +925,34 @@ class MetricsAggregator:
 
         # 2. From handoff_records
         if handoff_records:
-            for rec in handoff_records:
+            records_to_process = []
+            if isinstance(handoff_records, list):
+                records_to_process = handoff_records
+            elif isinstance(handoff_records, dict):
+                if "records" in handoff_records and isinstance(handoff_records["records"], list):
+                    records_to_process = handoff_records["records"]
+                elif "handoffs" in handoff_records and isinstance(handoff_records["handoffs"], list):
+                    records_to_process = handoff_records["handoffs"]
+                elif "representative_prs" in handoff_records and isinstance(handoff_records["representative_prs"], dict):
+                    for pr_id, pr_data in handoff_records["representative_prs"].items():
+                        if isinstance(pr_data, dict):
+                            m = pr_data.get("metrics", {})
+                            if isinstance(m, dict):
+                                if isinstance(m.get("task_to_merge_sec"), (int, float)):
+                                    records_to_process.append({"name": "task_accepted -> merged", "duration_sec": m["task_to_merge_sec"]})
+                                if isinstance(m.get("closure_sprint_to_merge_sec"), (int, float)):
+                                    records_to_process.append({"name": "closure_sprint_accepted -> merged", "duration_sec": m["closure_sprint_to_merge_sec"]})
+
+            for rec in records_to_process:
+                if not isinstance(rec, dict):
+                    continue
                 t_name = rec.get("name") or rec.get("transition")
                 d_sec = rec.get("duration_sec")
                 if t_name in trans_durations and d_sec is not None:
-                    trans_durations[t_name].append(float(d_sec))
+                    try:
+                        trans_durations[t_name].append(float(d_sec))
+                    except (ValueError, TypeError):
+                        pass
 
         tot = total_cohort_n or len(prs)
 
