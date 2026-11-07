@@ -97,6 +97,16 @@ class CiQueueTrimRepoTest(StubGhMixin, unittest.TestCase):
         self.assertIn("GITHUB_REPOSITORY", result.stderr)
         self.assertNotIn("run list", self.gh_calls())
 
+    def test_host_preflight_runs_even_when_repo_is_unconfigured(self):
+        # A host-only preflight must not require a repository: only the
+        # dependent queue-audit step may be blocked.
+        result = self.run_script(CI_QUEUE_TRIM, "--check-host")
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("Host & Colima Preflight", result.stdout)
+        self.assertIn("Disk space", result.stdout)
+        self.assertIn("GITHUB_REPOSITORY", result.stderr)
+        self.assertNotIn("run list", self.gh_calls())
+
 
 class LunaRepoTest(StubGhMixin, unittest.TestCase):
     def test_github_repository_wins_over_derived_repo(self):

@@ -26,7 +26,12 @@ Do not use this skill for tiny read-only checks like a one-off `ao status`.
 **Before evaluating any `--agent` value**, read the active AO config:
 
 ```bash
-head -20 "${AO_CONFIG_PATH:-${HERMES_HOME:-$HOME/.hermes}/agent-orchestrator.yaml}"   # check defaults.agent and installed plugins
+AO_CONFIG_PATH="${AO_CONFIG_PATH:-${HERMES_HOME:-$HOME/.hermes}/agent-orchestrator.yaml}"
+if [ -f "$AO_CONFIG_PATH" ]; then
+  head -20 "$AO_CONFIG_PATH"   # check defaults.agent and installed plugins
+else
+  echo "AO_CONFIG_PATH not configured: AO config file to read agent defaults. Example: export AO_CONFIG_PATH=\$HOME/.hermes/agent-orchestrator.yaml"
+fi
 ```
 
 `--agent` values are resolved against the config, not against AO package plugin directories. If `<X>` in `--agent <X>` is not a well-known CLI name (codex, claude, claude-code, gemini), look it up in the config before concluding it's unsupported.

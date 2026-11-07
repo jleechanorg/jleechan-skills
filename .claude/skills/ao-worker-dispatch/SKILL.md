@@ -6,7 +6,7 @@ type: skill
 
 # AO Worker Dispatch Checklist
 
-**Canonical copy:** this file in your agent-harness repository (for example `skills/ao-worker-dispatch/SKILL.md` in the repository that tracks `${HERMES_HOME:-$HOME/.hermes}`), if you keep one. Mirror to `~/.claude/skills/ao-worker-dispatch/SKILL.md` on machines that spawn AO workers (Cursor/Claude Code discover skills from `~/.claude/skills/`). See `docs/VERIFICATION_RULES_PLACEMENT.md` for why verification rules live here rather than only in global CLAUDE.md or per-repo CLAUDE.
+**Canonical copy:** this file in your agent-harness repository, if you keep one (for example `skills/ao-worker-dispatch/SKILL.md` there). Mirror to `~/.claude/skills/ao-worker-dispatch/SKILL.md` on machines that spawn AO workers (Cursor/Claude Code discover skills from `~/.claude/skills/`). See `docs/VERIFICATION_RULES_PLACEMENT.md` for why verification rules live here rather than only in global CLAUDE.md or per-repo CLAUDE.
 
 ## Mandatory prompt elements (add to EVERY ao spawn call)
 

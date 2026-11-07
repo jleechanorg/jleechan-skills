@@ -920,6 +920,14 @@ def main() -> int:
     args = parser.parse_args()
     report_stream = sys.stderr if args.json_output else sys.stdout
 
+    # Host preflight is local to this machine and needs no repository, so it
+    # runs before target resolution: only the dependent queue audit is blocked.
+    if args.check_host:
+        print("=== Host & Colima Preflight ===", file=report_stream)
+        for note in check_host_health().get("notes", []):
+            print(f"  • {note}", file=report_stream)
+        print(file=report_stream)
+
     args.repo = resolve_repo(args.repo)
     if not args.repo:
         print(
@@ -928,12 +936,6 @@ def main() -> int:
             file=sys.stderr,
         )
         return 2
-
-    if args.check_host:
-        print("=== Host & Colima Preflight ===", file=report_stream)
-        for note in check_host_health().get("notes", []):
-            print(f"  • {note}", file=report_stream)
-        print(file=report_stream)
 
     allowed_workflows = set()
     for path in args.allow_workflow:
