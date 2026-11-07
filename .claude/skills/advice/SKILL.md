@@ -266,9 +266,7 @@ retains the original clocks.
 
 **Counting a vote.** A counted reviewer returns full-scope `COVERAGE:` and a nonempty `VERDICT:`. Its receipt shows
 a zero exit, a present and parseable receipt, no mutation of the original checkout, no surviving reviewer process,
-and no cleanup failure. The pre-dispatch prompt/SHA256 and actual completion timestamp govern the attempt receipt;
-later sanitized PR/gist publication and protected/encrypted session archive files do not alter the completion clock or
-invalidate a verified plaintext dispatch receipt. Non-mandatory bookkeeping must never delay an authorized merge.
+and no cleanup failure (receipt timing, archive handling, and non-mandatory bookkeeping follow §3).
 A static-review receipt replaces only the exit field; an outside-route receipt (`remote` or
 `packet`) replaces the exit, process and cleanup fields with that row's evidence. When a seat returns nonzero, ignore its
 whole receipt, since a failed late rewrite can leave an older success-looking one. If clone setup timed out,
@@ -296,4 +294,3 @@ For visual follow-up, use [visual-verification's reuse and scoped follow-up](../
 Repair mechanically verifiable receipt fields yourself rather than dispatching a
 reviewer for bookkeeping; preserve §3 eligibility and original clocks. Such a
 repair cannot supply missing coverage, alter a verdict or revive a void vote.
-Non-mandatory bookkeeping must never delay an authorized merge once required pre-merge receipts and checks are verified.

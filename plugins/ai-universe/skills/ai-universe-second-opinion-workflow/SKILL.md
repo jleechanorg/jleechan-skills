@@ -48,6 +48,11 @@ Use this same verified `AUTH_NODE` executable for every command below.
    call. Only after both fail may you report the physical authentication
    dependency; do not ask for login from status output alone.
 4. Ensure `http` (HTTPie), `jq`, and `python3` are installed.
+5. **Configure AI Universe MCP endpoint** (resolve from `.mcp.json` or `~/.claude.json` under `mcpServers["ai-universe"].url` if unset, then validate):
+   ```bash
+   AI_UNIVERSE_MCP_URL="${AI_UNIVERSE_MCP_URL:-$(jq -r '.mcpServers["ai-universe"].url // empty' .mcp.json ~/.claude.json 2>/dev/null | head -1)}"
+   export AI_UNIVERSE_MCP_URL="${AI_UNIVERSE_MCP_URL:?Set AI_UNIVERSE_MCP_URL to the AI Universe MCP endpoint, e.g. https://<ai-universe-host>/mcp}"
+   ```
 
 > ℹ️ **Seamless Auto-Refresh**: The `/secondo` command uses the exact same auth-cli.mjs from AI Universe repo. If your token is valid, it does nothing. If expired, it auto-refreshes using your refresh token (silent, no browser popup). Only prompts for login if refresh token expires (30+ days).
 
@@ -82,10 +87,12 @@ Use this same verified `AUTH_NODE` executable for every command below.
    ```
    Adjust `SECOND_OPINION_MAX_FILES`, `SECOND_OPINION_MAX_DIFF_CHARS`, or `SECOND_OPINION_MAX_PATCH_CHARS` if you need more/less context.
 2. **(Optional) Inspect/tweak** `"$REQUEST_FILE"` to refine the natural-language question while keeping the attached git context intact.
-3. **Get authentication token** through the existing auth CLI (auto-refresh only from its designated credential store):
+3. **Get authentication token & verify endpoint** through the existing auth CLI (auto-refresh only from its designated credential store):
    ```bash
    # Get token (auto-refreshes if expired, does nothing if valid)
    TOKEN=$("$AUTH_NODE" ${CLAUDE_HOME:-$HOME/.claude}/scripts/auth-cli.mjs token)
+   AI_UNIVERSE_MCP_URL="${AI_UNIVERSE_MCP_URL:-$(jq -r '.mcpServers["ai-universe"].url // empty' .mcp.json ~/.claude.json 2>/dev/null | head -1)}"
+   export AI_UNIVERSE_MCP_URL="${AI_UNIVERSE_MCP_URL:?Set AI_UNIVERSE_MCP_URL to the AI Universe MCP endpoint}"
    ```
 4. **Send request** (allowing up to 180s for cold starts):
    ```bash

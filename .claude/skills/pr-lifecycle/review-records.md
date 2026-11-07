@@ -18,11 +18,11 @@ Maintain a structured obligation ledger in the PR description under `## Review L
 | CI and conflicts | Repository policy | PASS / OPEN | Live check run results | Current candidate |
 | Closing coverage | Final phase | PASS / OPEN | Closing validation record | Current candidate |
 
-For every review type that runs, including `/es`, `/er`, `/advice`, `/wa`, `/cs`, other named lanes and native reviews, record in the PR body the exact reviewed SHA, review type/phase, verdict or status, timestamp, and reviewer/coverage. Document reviews also retain document hashes; their context SHA does not turn document approval into code approval.
+For every review type that runs, including `/es`, `/er`, `/advice`, `/wa`, `/cs`, other named lanes and native reviews, record in the PR body the exact reviewed SHA, review type/phase, verdict or status, timestamp, and reviewer/coverage. Document reviews also retain document hashes; their context SHA does not turn document approval into code approval. At each unfinished (`OPEN` or `PENDING`) obligation in the ledger, explicitly expose `owner`, `next_action`, and the actual resumption handle (`job_handle` + `wake_condition`), retaining candidate/claim applicability and recorded clocks. An unfinished obligation must never remain a bare unresolved status without an accountable owner, specific next action, and verified resumption handle.
 
 ### Execution record
 
-Track the active execution state in the PR description or task context:
+Track the active execution state in the PR description or task context. Every unfinished obligation (`OPEN` or `PENDING`) maps directly to an active execution record exposing `owner`, `next_action`, and the actual resumption handle (`job_handle` + `wake_condition`), retaining candidate/claim applicability:
 
 ```text
 endpoint: FINAL_READY
@@ -54,12 +54,32 @@ Structure of `run.stats.json`:
   "endpoint": "FINAL_READY",
   "candidate_sha": "<40-char-sha>",
   "timestamps": {
+    "accepted_at": "<ISO-timestamp-or-null>",
     "created_at": "<ISO-timestamp-or-null>",
-    "pushed_at": "<ISO-timestamp-or-null>",
+    "evidence_ready_at": "<ISO-timestamp-or-null>",
+    "review_requested_at": "<ISO-timestamp-or-null>",
+    "review_dispatch_at": "<ISO-timestamp-or-null>",
+    "actual_review_started_at": "<ISO-timestamp-or-null>",
     "review_return_at": "<ISO-timestamp-or-null>",
+    "review_returned_at": "<ISO-timestamp-or-null>",
+    "next_substantive_action_started_at": "<ISO-timestamp-or-null>",
+    "next_action_start_at": "<ISO-timestamp-or-null>",
+    "authority_ready_at": "<ISO-timestamp-or-null>",
+    "pushed_at": "<ISO-timestamp-or-null>",
     "green_at": "<ISO-timestamp-or-null>",
     "merged_at": "<ISO-timestamp-or-null>"
   },
+  "rounds": [
+    {
+      "round": 1,
+      "candidate_sha": "<40-char-sha>",
+      "evidence_ready_at": "<ISO-timestamp-or-null>",
+      "review_requested_at": "<ISO-timestamp-or-null>",
+      "actual_review_started_at": "<ISO-timestamp-or-null>",
+      "review_returned_at": "<ISO-timestamp-or-null>",
+      "next_substantive_action_started_at": "<ISO-timestamp-or-null>"
+    }
+  ],
   "model_usage": {
     "cached_input_tokens": null,
     "uncached_input_tokens": null,
@@ -68,6 +88,30 @@ Structure of `run.stats.json`:
   }
 }
 ```
+
+### Derived Scratch metrics
+
+Extend existing PR/task and attempt receipts, retaining original clocks, candidate/claim applicability and owner. Derive Scratch metrics from them; no second authoritative ledger or new enforcement gate:
+
+| Metric | Definition |
+|---|---|
+| PR lead time | `merged_at` minus `created_at` |
+| Pre-publication time | PR `created_at` minus task `accepted_at` |
+| Task-to-merge | `merged_at` minus task `accepted_at`; exposes delays hidden by late PR creation |
+| Evidence dispatch delay | `review_requested_at` minus `evidence_ready_at` |
+| Reviewer pickup delay | `actual_review_started_at` minus `review_requested_at` |
+| Review execution time | `review_returned_at` minus `actual_review_started_at` |
+| Driver response delay | `next_substantive_action_started_at` minus `review_returned_at` |
+| Authorized closeout delay | `merged_at` minus the time all readiness obligations and merge authority are simultaneously satisfied |
+| Eligible unattended interval | Observed interval with an executable authorized action, no executing owner/job and no legitimate hold; otherwise UNKNOWN or an identified waiting category |
+
+### Evidence readiness, censoring, and waiting rules
+
+- **Evidence readiness**: Required proof is complete, readable, and available to the reviewer at its recorded candidate SHA.
+- **Actual review start**: An acknowledged message is not actual review start; `actual_review_started_at` records when the reviewer actually initiates substantive inspection.
+- **Interval censoring on invalidation**: If proof is invalidated before pickup (e.g. candidate head SHA moved or changed claims), close/censor that interval with the explicit reason rather than counting the whole period as reviewer neglect.
+- **Waiting category separation**: Treat active execution, CI/provider waits, explicit user holds, authority waits, and unknown periods separately.
+- **No inferred idleness from quiet periods**: Never infer uninterrupted idleness from missing GitHub writes (e.g. periods without comment or push events).
 
 ## Publication and receipt integrity
 
