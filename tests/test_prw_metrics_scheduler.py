@@ -72,14 +72,18 @@ class PRWMetricsSchedulerTests(unittest.TestCase):
         test_plist = self.scratch_dir / "com.jleechan.prw-metrics.plist"
         test_plist.write_text(rendered, encoding="utf-8")
 
-        result = subprocess.run(
-            ["/usr/bin/plutil", "-lint", str(test_plist)],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        self.assertEqual(result.returncode, 0, f"plutil lint failed: {result.stderr}")
-        self.assertIn("OK", result.stdout)
+        parsed = plistlib.loads(rendered.encode("utf-8"))
+        self.assertEqual(parsed.get("Label"), "com.jleechan.prw-metrics")
+
+        if os.path.exists("/usr/bin/plutil"):
+            result = subprocess.run(
+                ["/usr/bin/plutil", "-lint", str(test_plist)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, f"plutil lint failed: {result.stderr}")
+            self.assertIn("OK", result.stdout)
 
     def test_no_embedded_credentials_or_personal_paths(self):
         """Ensures template and scripts contain zero credentials, tokens, or hardcoded personal paths."""

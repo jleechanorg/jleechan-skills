@@ -392,11 +392,13 @@ class TestPublisher(unittest.TestCase):
         self.remote_dir = os.path.join(self.temp_dir, "remote.git")
         self.local_dir = os.path.join(self.temp_dir, "local")
 
-        # Initialize bare remote repo
+        # Initialize bare remote repo with default branch main
         subprocess.run(["git", "init", "--bare", self.remote_dir], check=True, capture_output=True)
+        subprocess.run(["git", "-C", self.remote_dir, "symbolic-ref", "HEAD", "refs/heads/main"], check=True, capture_output=True)
 
-        # Clone to local
+        # Clone to local and ensure branch is main across git versions
         subprocess.run(["git", "clone", self.remote_dir, self.local_dir], check=True, capture_output=True)
+        subprocess.run(["git", "-C", self.local_dir, "checkout", "-B", "main"], check=True, capture_output=True)
 
         # Configure user
         env = os.environ.copy()
