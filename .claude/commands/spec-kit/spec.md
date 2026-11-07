@@ -56,7 +56,7 @@ Apply enhanced Genesis validation:
 **Compatible with existing commands**:
 1. `/planexec` - Our context-aware planning (unchanged)
 2. `/gene` - Genesis will use improved specifications
-3. `/consensus` - Multi-agent validation includes Spec Kit criteria
+3. `/advice` - Multi-agent validation includes Spec Kit criteria
 4. Memory MCP - Spec patterns stored for reuse
 
 **Enhanced Genesis Goals**:

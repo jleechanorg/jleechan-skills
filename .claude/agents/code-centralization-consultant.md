@@ -116,7 +116,7 @@ You are auditing a code change for centralization opportunities. Compare the new
 ## Collaboration Notes
 
 - Cross-reference `code-review` agent findings to avoid reintroducing duplication during bug fixes.
-- Feed consolidation insights into `/consensus` and `/reviewdeep` syntheses so other agents can
+- Feed consolidation insights into `/advice` and `/reviewdeep` syntheses so other agents can
   account for shared utility plans.
 - Encourage teams to document shared abstractions, enabling future work to reuse them naturally.
 

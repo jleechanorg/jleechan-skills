@@ -63,5 +63,5 @@ authorized verification rather than presenting the workflow as finished.
 
 Report RED, CODE, GREEN, and remaining uncertainty with sanitized evidence paths. Do not
 invoke a fixed provider, branch, remote, or interpreter by name when the repository
-offers discovery. `/consensus` or an integration-verification skill is an optional
+offers discovery. `/advice` or an integration-verification skill is an optional
 review dependency, not an automatic command or approval gate.

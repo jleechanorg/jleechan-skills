@@ -261,13 +261,13 @@ echo "========================"
 
 # Only proceed with review if both have implementations
 if [[ $GENESIS_LINES -gt 0 ]] && [[ $RALPH_LINES -gt 0 ]]; then
-    echo "📋 Initiating comprehensive code review using /cons command..."
+    echo "📋 Initiating comprehensive code review using /advice command..."
     echo ""
 
-    # Execute consensus review
-    /cons
+    # Execute advice review
+    /advice
 
-    echo "✅ Consensus review completed"
+    echo "✅ Advice review completed"
 else
     echo "⚠️ Skipping consensus review - missing implementations:"
     echo "  Genesis lines: $GENESIS_LINES"
@@ -455,7 +455,7 @@ echo "✅ Benchmark completed successfully!"
 - **Live Testing**: Actual build and run validation
 
 ### 🔍 Code Quality Review
-- **Integrated /cons**: Automatic consensus review of both implementations
+- **Integrated /advice**: Automatic advice review of both implementations
 - **Architecture Analysis**: Design patterns, maintainability, scalability
 - **Best Practices**: Code standards, testing approaches, documentation
 
@@ -474,7 +474,7 @@ echo "✅ Benchmark completed successfully!"
 This command leverages:
 - **Genesis orchestration** via `/gene` command
 - **Ralph orchestration** via `ai_orch --async`
-- **Consensus review** via `/cons` command
+- **Advice review** via `/advice` command
 - **tmux session management** for parallel execution
 - **Comprehensive validation** with live testing
 
