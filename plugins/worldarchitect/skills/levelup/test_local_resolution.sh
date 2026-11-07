@@ -14,6 +14,7 @@ LOCAL_SH="$SKILL_DIR/local.sh"
 FAIL=0
 
 WORK="$(mktemp -d)"
+WORK="$(cd "$WORK" && pwd -P)"
 trap 'rm -rf "$WORK"' EXIT
 
 make_repo() {
