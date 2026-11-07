@@ -46,8 +46,9 @@ Use this skill when a user wants a reproducible artifact bundle for an agent fai
 ## Commands
 
 Paths may use `$VARS` and `~`; the script expands them. Session stores default to
-`${CLAUDE_HOME:-$HOME/.claude}` and `${CODEX_HOME:-$HOME/.codex}`; `--repo` defaults to
-the current directory.
+`${CLAUDE_HOME:-$HOME/.claude}` and `${CODEX_HOME:-$HOME/.codex}`; the script applies those
+defaults itself when the variable is unset or empty, for both command-line values and
+profile files. Explicit values still win. `--repo` defaults to the current directory.
 
 Create a bundle (replace every `<...>` placeholder with the incident's real paths):
 
@@ -57,8 +58,8 @@ python3 "${CLAUDE_HOME:-$HOME/.claude}"/skills/repro-developer/scripts/collect_r
   --incident <incident-slug> \
   --out /tmp \
   --claim "<one-sentence failure claim>" \
-  --claude-session '$CLAUDE_HOME/projects/<project-slug>/<session-id>.jsonl' \
-  --claude-session-dir '$CLAUDE_HOME/projects/<project-slug>/<session-id>' \
+  --claude-session "${CLAUDE_HOME:-$HOME/.claude}/projects/<project-slug>/<session-id>.jsonl" \
+  --claude-session-dir "${CLAUDE_HOME:-$HOME/.claude}/projects/<project-slug>/<session-id>" \
   --codex-session /path/to/codex-parent.jsonl \
   --codex-session /path/to/codex-subagent.jsonl \
   --repo-file docs/<review-doc>.md \
@@ -79,7 +80,10 @@ git add .gitattributes artifacts/repro-developer/<incident-slug>
 To rerun a recorded incident, keep its inputs in a profile JSON file and pass
 `--incident-profile <file>`. Keys: `incident`, `claim`, `incident_commit`,
 `artifact_commit`, and lists `claude_sessions`, `claude_session_dirs`,
-`codex_sessions`, `repo_files`, `beads`. Explicit flags win over profile values.
+`codex_sessions`, `repo_files`, `beads`. An explicit non-empty flag list replaces the
+corresponding profile list; the other profile lists still apply. A profile does not turn on
+`--include-dirty-diff`, `--include-beads-jsonl`, `--write-env-report`, or `--verify`; pass
+those capture flags explicitly.
 
 ```json
 {

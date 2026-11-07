@@ -27,10 +27,29 @@ PROFILE_LIST_KEYS = {
 }
 PROFILE_TEXT_KEYS = ("incident", "claim", "incident_commit", "artifact_commit")
 
+# Documented conventional defaults for the session stores (docs/portability-env-vars.md).
+SESSION_STORE_DEFAULTS = {"CLAUDE_HOME": ".claude", "CODEX_HOME": ".codex"}
+_URL_USERINFO_RE = re.compile(r"([A-Za-z][A-Za-z0-9+.\-]*://)[^/@\s]+@")
+
+
+def _apply_session_store_defaults(raw: str) -> str:
+    """Substitute the documented $HOME default when a session-store variable is unset or empty."""
+    for var, dirname in SESSION_STORE_DEFAULTS.items():
+        if os.environ.get(var):
+            continue
+        default = str(pathlib.Path.home() / dirname)
+        raw = re.sub(rf"\$\{{{var}\}}|\${var}(?![A-Za-z0-9_])", lambda _match, value=default: value, raw)
+    return raw
+
 
 def expand_path(raw: str) -> pathlib.Path:
     """Expand $VARS and ~ the way a shell would, so profiles and args can say $CLAUDE_HOME."""
-    return pathlib.Path(os.path.expanduser(os.path.expandvars(raw)))
+    return pathlib.Path(os.path.expanduser(os.path.expandvars(_apply_session_store_defaults(raw))))
+
+
+def scrub_url_credentials(text: str) -> str:
+    """Strip userinfo (`user:password@`) from URL-shaped tokens so captured or published text cannot leak it."""
+    return _URL_USERINFO_RE.sub(r"\1", text)
 
 
 def load_profile(path_s: str) -> dict[str, object]:
@@ -55,8 +74,8 @@ def run(cmd: list[str], cwd: pathlib.Path | None = None) -> dict[str, object]:
         return {
             "cmd": cmd,
             "returncode": proc.returncode,
-            "stdout": proc.stdout,
-            "stderr": proc.stderr,
+            "stdout": scrub_url_credentials(proc.stdout or ""),
+            "stderr": scrub_url_credentials(proc.stderr or ""),
         }
     except Exception as exc:
         return {"cmd": cmd, "error": repr(exc)}
@@ -291,6 +310,7 @@ REDACTIONS: list[tuple[re.Pattern[str], str]] = [
         re.compile(r"(dark-factory-holdouts|\$DARK_FACTORY_HOLDOUTS|DARK_FACTORY_HOLDOUTS)"),
         "[REDACTED_HOLDOUT_PATH]",
     ),
+    (_URL_USERINFO_RE, r"\1"),
 ]
 
 
@@ -453,13 +473,11 @@ def main() -> int:
             if not getattr(args, key) and profile.get(key):
                 setattr(args, key, str(profile[key]))
         for key, dest in PROFILE_LIST_KEYS.items():
+            if getattr(args, dest):
+                continue  # an explicit non-empty CLI selection replaces that profile list
             raw_list = profile.get(key, [])
             if isinstance(raw_list, list):
                 getattr(args, dest).extend(str(v) for v in raw_list)
-        args.include_dirty_diff = True
-        args.include_beads_jsonl = True
-        args.write_env_report = True
-        args.verify = True
 
     if not args.incident:
         parser.error("--incident is required unless the --incident-profile file sets it")
@@ -618,7 +636,7 @@ def main() -> int:
             publish_dir = repo / publish_dir
         publish_dir.mkdir(parents=True, exist_ok=True)
         origin = run(["git", "remote", "get-url", "origin"], repo)
-        clone_url = str(origin.get("stdout") or "").strip() or "<repo-clone-url>"
+        clone_url = scrub_url_credentials(str(origin.get("stdout") or "")).strip() or "<repo-clone-url>"
         clone_dir = clone_url.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git") or repo.name
         if sanitized_archive:
             shutil.copy2(sanitized_archive, publish_dir / sanitized_archive.name)
