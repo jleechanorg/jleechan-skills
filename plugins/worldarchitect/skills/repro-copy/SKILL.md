@@ -18,27 +18,32 @@ If the user requires **two full copies** from production — **first copy never 
 Without `--source-user-id`, the script uses `_find_campaign_owner` to scan users
 for the campaign, which is slow. If the owner cannot be resolved, you get a
 **ValueError** with an explicit message. Pass `--source-user-id` whenever you
-already know the owner UID to skip the scan.
+already know the owner UID to skip the scan. Do not confuse the source campaign owner
+with the destination test user (`<test-user-email>`).
 
 ```bash
-# Step 0: resolve UID (required for any production campaign)
-UID=$(./vpython -c "
+# Step 1: resolve source campaign owner UID (required for any production campaign)
+SOURCE_EMAIL="${SOURCE_USER_EMAIL:-<source-user-email>}"
+SOURCE_UID=$(./vpython -c "
 import firebase_admin; from firebase_admin import auth, credentials; import os
 cred = credentials.Certificate(os.environ['WORLDAI_GOOGLE_APPLICATION_CREDENTIALS'])
 try:
     firebase_admin.get_app()
 except ValueError:
     firebase_admin.initialize_app(cred)
-print(auth.get_user_by_email('<test-user-email>').uid)
+print(auth.get_user_by_email('$SOURCE_EMAIL').uid)
 ")
-if [ -z "$UID" ]; then
-  echo "Failed to resolve Firebase UID" >&2
+if [ -z "$SOURCE_UID" ]; then
+  echo "Failed to resolve source Firebase UID" >&2
   exit 1
 fi
-# → <YOUR_UID>
+# → <SOURCE_UID>
 
+# Step 2: run repro copy to destination test user
+DEST_TEST_EMAIL="${WORLDAI_TEST_USER_EMAIL:-<test-user-email>}"
 ./vpython scripts/repro_copy_campaign.py <campaign_id> \
-  --source-user-id "$UID" \
+  --source-user-id "$SOURCE_UID" \
+  --test-user-email "$DEST_TEST_EMAIL" \
   --issue "short issue description" \
   --start-local
 ```
@@ -64,7 +69,7 @@ Destructive variant mutation is opt-in:
 
 ## What it does
 
-1. Resolves the destination UID for `<test-user-email>`.
+1. Resolves the source owner UID (`--source-user-id`) and destination test user (`--test-user-email`).
 2. Creates two copies of the source campaign:
    - canonical copy
    - variant copy

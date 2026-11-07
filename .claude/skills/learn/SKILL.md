@@ -17,7 +17,7 @@ Every confirmed learning must produce or update all of these:
 2. Optional mem0 save when the configured helper and mem0 package are available (see step 3 gates).
 3. Monthly roadmap log at `${ROADMAP_DIR:-$HOME/roadmap}/learnings-YYYY-MM.md` (skip and report when that directory is absent).
 4. A closed or referenced bead in `.beads/issues.jsonl` when the current repo has beads.
-5. LLM wiki ingest under the configured wiki (`$WIKI_ROOT`; report "WIKI_ROOT not configured" and skip when no wiki is configured): raw source copy, source page, index entry, log entry, and relevant concept/entity updates.
+5. LLM wiki ingest under the configured wiki (resolved via `$WIKI_ROOT`, then `.wiki-default` in repo root, then `~/.wiki-default`; report "WIKI_ROOT not configured" and skip when no wiki is configured): raw source copy, source page, index entry, log entry, and relevant concept/entity updates.
 
 If a persistence target is unavailable, report the exact blocker and continue
 with the remaining targets. Do not silently skip wiki ingest.
@@ -187,13 +187,28 @@ Claude-specific Skill tool or a second CLI is never a prerequisite. Writes
 performed as part of the complete wiki-ingest procedure are authorized; do
 not substitute a partial copy that skips entity/concept extraction or validation.
 
-After execution, verify the required side effects:
+Resolve the wiki root following the canonical `wiki-ingest` order (`$WIKI_ROOT`, then `.wiki-default` in repo root, then `~/.wiki-default`):
 
-- `$WIKI_ROOT/raw/<basename>` exists
-- `$WIKI_ROOT/wiki/sources/<slug>.md` exists with the canonical frontmatter
+```bash
+if [ -n "${WIKI_ROOT:-}" ]; then
+  WIKI_DIR="$WIKI_ROOT/wiki"
+elif [ -f ".wiki-default" ]; then
+  WIKI_DIR=$(cat .wiki-default)
+  WIKI_ROOT=$(dirname "$WIKI_DIR")
+elif [ -f "$HOME/.wiki-default" ]; then
+  WIKI_DIR=$(cat "$HOME/.wiki-default")
+  WIKI_ROOT=$(dirname "$WIKI_DIR")
+fi
+```
+
+After execution, verify the required side effects using the resolved root:
+
+- `${WIKI_ROOT:-$(dirname "$WIKI_DIR")}/raw/<basename>` exists
+- `$WIKI_DIR/sources/<slug>.md` exists with the canonical frontmatter
   (`title`, `type`, `tags`, `sources`, `last_updated`) and `[[wikilinks]]`
-- `$WIKI_ROOT/wiki/index.md` was updated under `## Sources`
-- `$WIKI_ROOT/wiki/log.md` was appended with `## [YYYY-MM-DD] ingest | <title>`
+- `$WIKI_DIR/index.md` was updated under `## Sources` (verify with `ls "$WIKI_DIR/index.md"`)
+- `$WIKI_DIR/log.md` was appended with `## [YYYY-MM-DD] ingest | <title>` (verify with `tail -20 "$WIKI_DIR/log.md"`)
+- Git commit created on publish branch (verify with `git -C "$WIKI_ROOT" log --oneline -3`)
 - Relevant entity/concept updates exist and the wiki's link lint passes.
 
 If the full procedure cannot be completed, report the exact missing step and
@@ -203,8 +218,8 @@ continue independent persistence; never present a partial ingest as complete.
 itself is the source. The skill's classifier decides what is wiki-bearing.
 
 **Working-directory caveat**: if the current session cwd is not
-`$WIKI_ROOT` (e.g. an `/integrate` flow running in a feature worktree),
-resolve the source by its absolute path and pass an explicit `--wiki` path
+the resolved `$WIKI_ROOT` (e.g. an `/integrate` flow running in a feature worktree),
+resolve the source by its absolute path and pass an explicit `--wiki "$WIKI_DIR"` path
 when the destination must not depend on a current-directory override.
 
 ### 7. Validate and report

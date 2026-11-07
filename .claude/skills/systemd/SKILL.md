@@ -185,8 +185,10 @@ TimeoutStartSec=600
 # on its own cadence. Restart=on-failure would re-run inside the same
 # OnCalendar slot, violating the launchd ThrottleInterval contract that
 # the macOS twin plist already documents.
-StandardOutput=append:@HOME@/.local/state/<service>/logs/<job>.log
-StandardError=append:@HOME@/.local/state/<service>/logs/<job>.err.log
+# Log destination must match the resolved STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}".
+# Use @STATE_DIR@ placeholder (expanding to ${XDG_STATE_HOME:-@HOME@/.local/state}).
+StandardOutput=append:@STATE_DIR@/<service>/logs/<job>.log
+StandardError=append:@STATE_DIR@/<service>/logs/<job>.err.log
 
 [Install]
 WantedBy=default.target
@@ -208,8 +210,9 @@ KillSignal=SIGINT
 TimeoutStopSec=30s
 Environment=HOME=@HOME@
 Environment=PATH=@HOME@/.local/bin:@HOME@/.cargo/bin:/usr/bin:/bin
-StandardOutput=append:@HOME@/.local/state/<service>/logs/rust-daemon.out.log
-StandardError=append:@HOME@/.local/state/<service>/logs/rust-daemon.err.log
+# Log destination must match the resolved STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}".
+StandardOutput=append:@STATE_DIR@/<service>/logs/rust-daemon.out.log
+StandardError=append:@STATE_DIR@/<service>/logs/rust-daemon.err.log
 ```
 
 ---
@@ -271,9 +274,11 @@ OnUnitActiveSec=60
 1. Write the target script (the worker) under `daemon/scripts/<job>.sh` and ensure it is executable (`chmod 0755 daemon/scripts/<job>.sh`).
 2. Write the sourced wrapper script (`systemd-wrapper.sh`) to
    `~/.local/libexec/systemd-wrapper.sh` and `chmod 0755` it.
-3. Ensure the log directory exists: `mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/<service>/logs"`.
-4. Write the minimal unit template files using `@HOME@` / `@REPO@`
-   placeholders (not hardcoded paths), commit them under
+3. Ensure the log directory exists using the resolved state directory:
+   `STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}" && mkdir -p "$STATE_DIR/<service>/logs"`.
+4. Write the minimal unit template files using `@HOME@` / `@REPO@` / `@STATE_DIR@`
+   placeholders (not hardcoded paths), targeting `@STATE_DIR@/<service>/logs/...`
+   (matching the step 3 resolved `$STATE_DIR`), commit them under
    `daemon/systemd/<unit>.service.template` and
    `daemon/systemd/<unit>.timer.template`.
 5. **Commit the templates to the owning repo.** A unit with no repo template
@@ -281,10 +286,10 @@ OnUnitActiveSec=60
    mandatory before install (same rule as `/launchd` step 4).
 5. Ensure linger is on so user services survive logout/reboot:
    `loginctl enable-linger $USER` (one-time; idempotent).
-6. Render the template(s), write to `~/.config/systemd/user/<unit>`,
-   `systemctl --user daemon-reload`, then `enable --now` (timer only —
-   `enable --now` on the service alone does not start the cadence).
-   Verify with `systemctl --user list-timers --no-pager | grep <job>`.
+6. Render the template(s) expanding `@HOME@`, `@REPO@`, and `@STATE_DIR@` (`${XDG_STATE_HOME:-$HOME/.local/state}`),
+   write to `~/.config/systemd/user/<unit>`, `systemctl --user daemon-reload`,
+   then `enable --now` (timer only — `enable --now` on the service alone does not
+   start the cadence). Verify with `systemctl --user list-timers --no-pager | grep <job>`.
 
 > **Why step 5 is mandatory on Linux**: macOS launchd starts agents on
 > demand regardless of session state. systemd --user services stop when the
@@ -301,7 +306,7 @@ OnUnitActiveSec=60
 | Daily 03:00 audit timer | `<repo>/daemon/systemd/<daily-audit>.{timer,service}.template` | Best template for a G10–G13 audit timer |
 | Sub-minute polling | `~/.config/systemd/user/<job>.{timer,service}` | `OnUnitActiveSec=60s` for a 60s sweep |
 | Long-running daemon | `daemon/systemd/ai.example.daemon.service.template` | `Type=notify` + `WatchdogSec=7200` — the right shape when the job isn't timer-fired |
-| Installer | `daemon/systemd/install-systemd-user.sh` | `--dry-run`, `--render-only`, `--uninstall` flags; expands `@HOME@`/`@REPO@`; verifies linger |
+| Installer | `daemon/systemd/install-systemd-user.sh` | `--dry-run`, `--render-only`, `--uninstall` flags; expands `@HOME@`/`@REPO@`/`@STATE_DIR@`; verifies linger |
 | Wrapper | `daemon/launchd/launchd-wrapper.sh` | Linux twin lives at `~/.local/libexec/systemd-wrapper.sh` |
 
 ---
