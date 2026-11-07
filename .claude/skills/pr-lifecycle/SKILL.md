@@ -13,15 +13,15 @@ This is the self-contained generic lifecycle contract. [PR Workflow Manager](../
 
 ## Continuation through the requested endpoint
 
-During an authorized `/prw`, execute the current PR's next unmet required action before optional coordination. Answer status questions briefly, then resume. Own started jobs and delegated lanes through their results under `parallelize-to-ceiling`; integrate and verify their artifacts. Stop only at the requested endpoint, a user scope change or stop, or a genuine scoped blocker or user-only decision.
+During an authorized `/prw`, execute the current PR's next unmet required action before optional coordination. A status reply does not end the request: refresh live state, answer briefly, then resume. Own started jobs and delegated lanes through their results under `parallelize-to-ceiling`; integrate and verify their artifacts. Stop only at the requested endpoint, a user scope change or stop, or a genuine scoped blocker or user-only decision.
 
 Turn each returned review into its next action:
 
 - A concrete blocking finding returns to coding: batch the accepted fixes, then regenerate affected proof and review under the SHA-binding rule.
 - Unsupported, contradictory or unclear data goes back to that reviewer for the exact source or reproduction; do not code against an unverified claim.
-- A qualified approval is retained; run only the remaining applicable gates. Record P1/P2 findings as nonblocking follow-ups.
+- Retain eligible approvals under the SHA-binding rule and run only the remaining applicable gates. Record nonblocking findings as follow-ups.
 
-When merge is requested and authorized, complete required receipt publication, final markers and current-candidate green/conflict checks, then merge before optional reports, roadmap polishing, new audits or batch expansion. A phase change, status reply or completed checkpoint is not a new planning or review phase. Preserve fulfilled gates through claim-scoped delta assessment; do not restart them. Parallel work continues when it does not delay the user's current P0.
+When merge is requested and authorized, finish the remaining applicable gates, required receipt publication, final markers and current-candidate green/conflict checks, then merge before optional reports, roadmap polishing, new audits or batch expansion. A phase change, status reply or completed checkpoint is not a new planning or review phase. Preserve fulfilled gates through claim-scoped delta assessment; do not restart them. Parallel work continues when it does not delay the user's current P0.
 
 ## Precedence and scope
 
