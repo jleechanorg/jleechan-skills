@@ -4,4 +4,4 @@ type: skill
 execution_mode: immediate
 ---
 
-Read `${CLAUDE_HOME:-$HOME/.claude}/skills/levelup/SKILL.md` completely, then execute it with `$ARGUMENTS`.
+Read this plugin's `skills/levelup/SKILL.md` (resolve it from the plugin that provides this command) completely, then execute it with `$ARGUMENTS`.

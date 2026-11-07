@@ -11,6 +11,9 @@ same change that first reads them.
 2. **Derived value** from the current repository or tool (column "Derived from").
 3. **Documented default**, only where one is listed. A default must be valid on a fresh
    machine for any developer; personal hosts, checkout paths, and accounts are never defaults.
+   A conventional tool location (`$HOME/.hermes`, `$HOME/roadmap`) may be a default only when
+   the skill checks that it exists and skips only the dependent steps when it does not; a
+   missing optional tool never blocks an unrelated task.
 4. Otherwise stop with: `<VAR> not configured: <meaning>. Example: export <VAR>=<example>`.
    Never guess a host, path, repository, or account.
 
@@ -28,12 +31,12 @@ but never writes.
 
 | Variable | Meaning | Derived from | Default |
 |---|---|---|---|
-| `PROJECT_ROOT` / `REPO_ROOT` | Root of the repository the task targets | `git rev-parse --show-toplevel` | — |
+| `PROJECT_ROOT` / `REPO_ROOT` | Root of the repository the task targets. `REPO_ROOT` is an accepted alias; `PROJECT_ROOT` wins when both are set | `git rev-parse --show-toplevel` | — |
 | `GITHUB_REPOSITORY` | `owner/repo` the task targets | `gh repo view --json nameWithOwner -q .nameWithOwner` | — |
 | `GITHUB_ORG` | GitHub org/owner for org-wide queries | `${GITHUB_REPOSITORY%%/*}` | — |
 | `CLAUDE_HOME` | Claude Code home | — | `$HOME/.claude` |
 | `CODEX_HOME` | Codex home | — | `$HOME/.codex` |
-| `ROADMAP_DIR` | Durable planning/report repository | — | `$HOME/roadmap` (skip when absent) |
+| `ROADMAP_DIR` | Durable planning/report repository | — | `$HOME/roadmap` if it exists and is a git repository; otherwise skip roadmap steps |
 | `ROADMAP_GITHUB_REPO` | GitHub `owner/repo` of `ROADMAP_DIR` | `gh repo view` inside `ROADMAP_DIR` | — |
 | `WIKI_ROOT` | Personal knowledge wiki checkout | — | unset: skip wiki steps |
 | `PROJECTS_DIR` | Parent directory scanned for multiple checkouts (history search only) | — | unset: scan only `PROJECT_ROOT` |
@@ -49,27 +52,28 @@ but never writes.
 
 ## Agent tooling
 
-| Variable | Meaning | Default |
-|---|---|---|
-| `HERMES_HOME` | Hermes agent home | `$HOME/.hermes` (skip Hermes steps when absent) |
-| `AO_CONFIG_PATH` | Agent Orchestrator config file | `${HERMES_HOME:-$HOME/.hermes}/agent-orchestrator.yaml` when it exists, else required |
-| `AO_REPO_ROOT` | Local Agent Orchestrator checkout | required where used |
-| `AO_GITHUB_REPO` | GitHub `owner/repo` of Agent Orchestrator | required where used |
-| `AO_PROJECT` | AO project name for `ao spawn --project` | required where used |
-| `AO_NPM_PACKAGE` | AO CLI npm package | the tool's published package name |
-| `AO_AGENT_GH_LOGIN` | GitHub login used by AO workers/bots | required where used |
-| `OPERATOR_GH_LOGIN` | GitHub login of the human operator | `gh api user -q .login` |
-| `DARK_FACTORY_HOME` / `DARK_FACTORY_HOLDOUTS` | dark-factory checkout / holdouts checkout | required where used |
-| `DARK_FACTORY_REPO_URL` | Clone URL for dark-factory | required for install steps |
-| `DARK_FACTORY_LOG_DIR` | dark-factory log directory | `${XDG_STATE_HOME:-$HOME/.local/state}/dark-factory` |
-| `MEM0_HOOKS_DIR` / `MEM0_PYTHON` | mem0 hook directory / interpreter | unset: skip mem0 steps / `python3` |
-| `COMFYUI_HOME` | ComfyUI install | required where used |
+| Variable | Meaning | Derived from | Default |
+|---|---|---|---|
+| `HERMES_HOME` | Hermes agent home | — | `$HOME/.hermes` if it exists; otherwise skip Hermes steps |
+| `AO_CONFIG_PATH` | Agent Orchestrator config file | — | `${HERMES_HOME:-$HOME/.hermes}/agent-orchestrator.yaml` when it exists, else required |
+| `AO_REPO_ROOT` | Local Agent Orchestrator checkout | — | required where used |
+| `AO_GITHUB_REPO` | GitHub `owner/repo` of Agent Orchestrator | — | required where used |
+| `AO_PROJECT` | AO project name for `ao spawn --project` | — | required where used |
+| `AO_NPM_PACKAGE` | AO CLI npm package | — | the tool's published package name |
+| `AO_AGENT_GH_LOGIN` | GitHub login used by AO workers/bots | — | required where used |
+| `OPERATOR_GH_LOGIN` | GitHub login of the human operator | `gh api user -q .login` | — |
+| `MEM0_HOOKS_DIR` / `MEM0_PYTHON` | mem0 hook directory / interpreter | — | unset: skip mem0 steps / `python3` |
+| `COMFYUI_HOME` | ComfyUI install | — | required where used |
+
+The retired dark-factory and auto-factory tooling is gone from the catalog
+(`docs/specs/2026-11-06-factory-tool-retirement.md`); its variables are not part of this
+registry.
 
 ## Messaging and accounts
 
 | Variable | Meaning | Default |
 |---|---|---|
-| `SLACK_OPERATOR_DM_CHANNEL` | Slack DM channel ID for operator notifications (scripts also read the deprecated legacy name for one release) | required where used |
+| `SLACK_OPERATOR_DM_CHANNEL` | Slack DM channel ID for operator notifications (explicit; no legacy personal-named variable is read) | required where used |
 | `SLACK_TEST_CHANNEL` | Slack channel for test posts | required where used |
 | `SLACK_AUDIT_CHANNELS` | Comma-separated channel IDs `slack-audit` reads | required |
 | `SLACK_WORKSPACE_DOMAIN` | Workspace domain for permalinks (prefer `chat.getPermalink`) | unset |
@@ -79,12 +83,12 @@ but never writes.
 
 ## Cloud projects (plugin skills only)
 
-| Variable | Meaning | Default |
-|---|---|---|
-| `GCP_PROJECT_ID` | Google Cloud project | `gcloud config get-value project` |
-| `FIREBASE_PROJECT_ID` | Firebase project | `GCP_PROJECT_ID` |
-| `LLM_FORENSICS_DATASET` | BigQuery dataset for LLM request logs | required |
-| `AI_UNIVERSE_MCP_URL` | AI Universe MCP server URL | required |
+| Variable | Meaning | Derived from | Default |
+|---|---|---|---|
+| `GCP_PROJECT_ID` | Google Cloud project. Required for skills that read or write production data; other skills may derive it | `gcloud config get-value project` (non-production skills only) | — |
+| `FIREBASE_PROJECT_ID` | Firebase project. Required, never derived: a skill that touches production data must not pick up whatever project gcloud has active | — | required |
+| `LLM_FORENSICS_DATASET` | BigQuery dataset for LLM request logs | — | required |
+| `AI_UNIVERSE_MCP_URL` | AI Universe MCP server URL | — | required |
 
 ## Self-hosted runners (plugin `self-hosted-runners`)
 
@@ -95,6 +99,8 @@ but never writes.
 | `RUNNER_COMPOSE_DIR` | docker-compose directory for containerized runners | required where used |
 | `RUNNER_EXPECTED_LINUX` / `RUNNER_EXPECTED_MAC` | Expected online runner counts | required for health thresholds |
 | `RUNNER_LAUNCHD_LABEL` / `RUNNER_SYSTEMD_UNIT` | Service names supervising runners | required where used |
+| `RUNNER_HOST_TIMEOUT` / `RUNNER_HOST_DOCKER_SOCK` | SSH connect timeout (seconds) and the remote Docker socket | `5` / `unix:///var/run/docker.sock` |
+| `RUNNER_HEALTH_EXTRA_REPOS` | Extra `owner/repo` values `runner-health` includes besides `GITHUB_REPOSITORY` | unset: only `GITHUB_REPOSITORY` |
 | `RUNNER_CROSSCHECK_SLACK_CHANNEL_ID` / `RUNNER_CROSSCHECK_SLACK_USER_ID` | Optional Slack cross-check | unset: cross-check disabled |
 
 ## Values that are deleted, not parameterized

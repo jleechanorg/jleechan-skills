@@ -102,6 +102,33 @@ class PluginFoldersTest(unittest.TestCase):
             overlap = export & {p.name for p in skill_dirs(d)}
             self.assertFalse(overlap, f"{d.name}: {sorted(overlap)}")
 
+    def test_moved_skills_are_not_referenced_at_the_export_path(self):
+        """A moved skill lives in its plugin; `.claude/skills/<name>/` is a dead path."""
+        self.assertTrue(PLUGINS.is_dir(), "plugins/ missing")
+        moved = {s.name for d in plugin_dirs() for s in skill_dirs(d)}
+        # `${CLAUDE_HOME:-$HOME/.claude}/skills/x/`, `~/.claude/skills/x/`,
+        # `.claude/skills/x/` and `$CLAUDE_HOME/skills/x/` all resolve through the
+        # generic export; a plugin-relative `skills/x/` has no leading path prefix.
+        export_ref = re.compile(r"([^\s`\"'()]*)/skills/([A-Za-z0-9._-]+)/")
+        offenders = []
+        for d in plugin_dirs():
+            for path in sorted(d.rglob("*")):
+                if not path.is_file() or path.suffix not in {".md", ".sh", ".py", ".json", ".mjs"}:
+                    continue
+                text = path.read_text(encoding="utf-8", errors="replace")
+                for prefix, name in export_ref.findall(text):
+                    if name in moved and any(
+                        marker in prefix.lower() for marker in ("claude", "codex", "hermes")
+                    ):
+                        offenders.append(f"{path.relative_to(ROOT)} -> {prefix}/skills/{name}/")
+        self.assertEqual(
+            offenders,
+            [],
+            "A plugin must resolve its own skills inside the plugin, not at the "
+            "generic export path that no longer holds them. Offenders:\n  "
+            + "\n  ".join(offenders),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

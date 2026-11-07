@@ -1,53 +1,51 @@
 # Portable skills: plugin folders and environment variables (design)
 
-Status: approved by `/sq` auto-pick (2026-11-04). Implementation authorized by the
-live request ("make PRs to fix").
+Status: design auto-picked by `/sq` (2026-11-04). The plugin-layout slice is implemented;
+independent source review is owned by the PR reviewers, not by this document.
 
 ## Problem
 
 `AGENTS.md` requires every exported skill to work for another developer on a
-brand-new machine, in any repository. A four-way audit of `.claude/skills/`
-(116 skills matched a portability grep) found that the export does not meet
-that bar:
+brand-new machine, in any repository. An audit of `.claude/skills/` found that the
+export does not meet that bar: some skills only make sense inside one product
+(WorldArchitect.AI, AI Universe, or the author's self-hosted runner fleet), and many
+generic skills hardcode a machine, checkout path, repository, Slack/GCP identifier,
+personal name, or product example.
 
-| Category | Count | Meaning |
-|---|---|---|
-| Product-only | 29 | The skill only makes sense inside one product: WorldArchitect.AI, AI Universe, or the author's self-hosted runner fleet |
-| Parameterize | 81 | A generic skill that hardcodes a machine, checkout path, repository, Slack/GCP identifier, personal name, or product example |
-| Clean | 6 | Matches were placeholders only |
-
-The per-leak audit records (file, line, text, kind, proposed replacement) are
-inputs to the implementation, not shipped artifacts.
+The per-leak audit records (file, line, text, kind, proposed replacement) are inputs
+to implementation, not shipped artifacts.
 
 Typical leaks:
 
-- **Machine.** Host aliases such as `jeff-ubuntu`; `~/projects/<repo>` and
-  `~/projects_other/...` checkouts; `/opt/homebrew`, `~/.local/bin/<tool>`,
-  pinned nvm paths; macOS `~/Library/Logs` paths inside Linux units.
-- **Account.** `--repo jleechanorg/worldarchitect.ai` defaults; Slack channel,
-  user, and bot IDs; GCP project ids and numbers; Firebase UIDs and campaign
-  IDs; personal names.
-- **Product.** `mvp_site/`, `testing_mcp`, D&D level-up rules, and Firestore
-  schemas embedded in generic testing, evidence, and harness skills.
+- **Machine.** Personal SSH host aliases for companion machines; `~/projects/<repo>` and
+  `~/projects_other/...` checkouts; `/opt/homebrew`, `~/.local/bin/<tool>`, pinned nvm
+  paths; macOS `~/Library/Logs` paths inside Linux units.
+- **Account.** `--repo <owner>/<product-repo>` defaults; Slack channel, user, and bot
+  IDs; GCP project ids and numbers; Firebase UIDs and campaign IDs; personal names.
+- **Product.** `mvp_site/`, `testing_mcp`, D&D level-up rules, and Firestore schemas
+  embedded in generic testing, evidence, and harness skills.
 
 ## Goals
 
-1. `.claude/skills/` (the default export and `--all` install) contains no
-   product-only skills and no hardcoded machine, account, or product values.
+1. `.claude/skills/` (the default export and `--all` install) contains no product-only
+   skills and no hardcoded machine, account, or product values.
 2. Product-only skills stay available as opt-in Claude Code plugins in
    `plugins/<name>/`, installable through the existing marketplace.
-3. Machine and account values come from one documented set of environment
-   variables. Each has a safe default or fails with a "not configured" message.
-4. The fresh-machine rule is stated in `AGENTS.md` and `CLAUDE.md`, and a
-   mechanical ratchet test stops new product-token leaks in `.claude/skills/`.
+3. Machine and account values come from one documented set of environment variables.
+   Each has a safe default or fails with a "not configured" message.
+4. The fresh-machine rule is stated in `AGENTS.md` and `CLAUDE.md`, and the existing
+   zero-PII/portability scanners cover the plugin folders too.
 
 ## Non-goals
 
 - Rewriting `.claude/skills_archive/`, `.beads/`, or `shared/comparison-decisions.json`
   history entries. These are archival and are not installed.
-- Changing `install-claude-commands.sh`. Plugin skills install through Claude
-  Code's native plugin system (see Decision D3).
+- Changing `install-claude-commands.sh`. Plugin skills install through Claude Code's
+  native plugin system (see D3).
 - Changing what any skill does, beyond resolving its values at run time.
+- Parameterizing every generic skill's host, path, and account values. That work is
+  split across separate, independently reviewable slices; this document records the
+  contracts they must follow, not their contents.
 
 ## Approaches considered
 
@@ -65,45 +63,55 @@ Typical leaks:
 plugins/
   worldarchitect/                     # WorldArchitect.AI product skills
     .claude-plugin/plugin.json
-    README.md                         # purpose, install, required env vars
-    skills/<skill>/SKILL.md (+ references/, scripts/)
-    commands/<cmd>.md                 # only commands that point to moved skills
-    scripts/                          # e.g. auth-worldai.mjs moved with worldai-auth
+    skills/<skill>/SKILL.md (+ references/, scripts/, local.sh)
+    commands/<cmd>.md                 # only commands whose target skill moved here
   ai-universe/                        # AI Universe MCP server skills
+    .claude-plugin/plugin.json
+    skills/<skill>/SKILL.md
   self-hosted-runners/                # runner-fleet operations (parameterized)
+    .claude-plugin/plugin.json
+    skills/<skill>/SKILL.md (+ scripts/, tests/fixtures/)
 ```
 
-- Each `plugin.json` has `name`, `description`, `version`, and `author`. The
-  author is the repository's existing team identity, the same one the root
-  plugin uses. Each also lists `skills`, plus `commands` when present.
+- Each `plugin.json` has `name`, `description`, `version`, `author`, `homepage`,
+  `repository`, and `license`. The author is the repository's existing team identity,
+  the same one the root plugin uses. Manifests do **not** list `skills` or `commands`:
+  Claude Code discovers a plugin's default `skills/` and `commands/` folders, and
+  listing them again can load them twice.
 - `.claude-plugin/marketplace.json` gets one `plugins[]` entry per folder, with
   `"source": "./plugins/<name>"`. Install with
-  `/plugin marketplace add jleechanorg/jleechan-skills` and then
-  `/plugin install <name>@jleechan-skills`.
+  `/plugin marketplace add <owner>/<repo>` (this repository's own public location) and
+  then `/plugin install <name>@<marketplace-name>`.
 - Plugin skills follow the same zero-PII rules as the main export. Real UIDs,
   campaign IDs, project numbers, and Slack IDs become placeholders or plugin
   variables (`FIREBASE_PROJECT_ID`, `GCP_PROJECT_ID`, `AI_UNIVERSE_MCP_URL`).
   Moving a skill to a plugin does not license keeping secrets or personal data.
+- Required variables and install details live in `docs/portability-env-vars.md` and in
+  the marketplace entry description; plugins do not ship a second copy of either.
 
-**What moves.** A skill moves wholesale when its name and purpose are
-product-only and it has no generic callers:
+**What moves.** A skill moves wholesale when its name and purpose are product-only,
+no generic skill depends on it as a required read, and no curated install profile in
+`shared/install-profiles.json` selects it:
 
-- **worldarchitect:** agents (renamed `worldai-agent-routing` so it no longer
-  collides with `.claude/agents/`), bq-evidence-reading,
-  character-creation-modal-exit, dice-roll-audit, field-ownership-contracts,
-  firebase-prod-campaigns, generatetest, level-up-validation, levelup,
-  local-dev-server, mobile-investigations, pr-preview-servers, repro-copy,
-  repro-twin-clone-evidence, smoke-local, smoke-test-local,
-  testing-infrastructure, user-story-worldai, worldai-auth,
-  worldarchitect-codebase-sherpa, zfc-leveling-roadmap.
+- **worldarchitect:** bq-evidence-reading, character-creation-modal-exit,
+  dice-roll-audit, field-ownership-contracts, firebase-prod-campaigns, generatetest,
+  level-up-validation, levelup, local-dev-server, mobile-investigations,
+  pr-preview-servers, repro-copy, repro-twin-clone-evidence, smoke-local,
+  smoke-test-local, testing-infrastructure, user-story-worldai, worldai-agent-routing
+  (renamed from `agents` so it no longer collides with `.claude/agents/`),
+  worldai-auth, worldarchitect-codebase-sherpa, zfc-leveling-roadmap.
 - **ai-universe:** ai-universe-auth, ai-universe-httpie,
   ai-universe-second-opinion-workflow, secondo-dependencies.
 - **self-hosted-runners:** ezgha-watchdog, runner-health,
-  self-hosted-runner-preflight, repo-and-infra-locations (rewritten as a
-  template that reads machine-local configuration).
+  self-hosted-runner-preflight, repo-and-infra-locations (rewritten as a template that
+  reads machine-local configuration).
 
-**What splits.** When a product-flavored skill has a generic name, generic
-callers, or a place in an install profile, a generic skill stays behind and the
+Other mentions of a moved skill (`closure_excluded`, `shared/retain-local.json`,
+non-curated profile entries, references, workflow paths) are removed or reworded in the
+same change, so nothing points at a path that no longer exists.
+
+**What splits (not in this slice).** When a product-flavored skill has a generic name,
+generic callers, or a place in an install profile, a generic skill stays behind and the
 product content becomes a plugin companion named `worldai-<skill>`:
 
 | Skill | Callers | Result |
@@ -112,13 +120,22 @@ product content becomes a plugin companion named `worldai-<skill>`:
 | smoke | pr-babysit, `/smoke` command | Generic version stays; product content goes to `worldai-smoke` |
 | harness-guardrails, evidence-review, evidence-standards, ui-video-evidence, llm-testing | Several generic callers | Each skill's product section moves to one `worldai-<skill>` companion |
 
-**References.** Generic skills never link to plugin files by relative path,
-because the plugin may not be installed. They name the companion by convention,
-for example: "if a `worldai-*` or repo-local `user-story-*` skill is installed,
-read it." Commands whose only target moved go with the skill into
-`plugins/<name>/commands/`. Tests, `shared/install-profiles.json`, and
-`shared/retain-local.json` entries that named a moved skill get updated in the
-same change.
+**References.** Generic skills never link to plugin files by relative path, because the
+plugin may not be installed. They name the companion by convention instead, for
+example: "if an installed product plugin provides a companion for this skill, read it",
+or "a product plugin's `<skill>` skill, if installed". Commands whose only skill target
+moved move with the skill into `plugins/<name>/commands/`.
+
+**Dependencies and link closure.** An installed plugin may depend on the declared
+generic core it is installed alongside: it may name a core skill by name, and it may
+read a repository-relative script only when the skill states that the repository is a
+prerequisite. It must not resolve a moved skill through the generic export path
+(`.claude/skills/<moved-skill>/…`) or through any personal or absent-repository path.
+A plugin command that dispatches to its own skill points at that skill inside the
+plugin, not at a copy in the default export. Do not duplicate a canonical shared skill
+inside a plugin to satisfy a literal reading of "self-contained": duplication creates
+two drifting copies, and `tests/test_plugin_folders.py` asserts links stay within the
+plugin or its declared dependencies.
 
 ### D2. Environment variable registry
 
@@ -126,20 +143,28 @@ same change.
 
 1. Resolution order: an explicit env var, then a value derived from the current
    repository or tool, then the documented default. If none applies, fail with
-   `<VAR> not configured: <what to set>`. Never guess a host, path, or
-   repository.
-2. Existing names win over new ones (`PROJECT_ROOT`, `REPO_ROOT`,
+   `<VAR> not configured: <what to set>`. Never guess a host, path, or repository.
+2. Existing names win over new ones (`PROJECT_ROOT`, its accepted alias `REPO_ROOT`,
    `${CLAUDE_HOME:-$HOME/.claude}`, `ROADMAP_DIR`, `WIKI_ROOT`, `HERMES_HOME`,
-   `DARK_FACTORY_HOME`, `AO_CONFIG_PATH`). Where the audits proposed duplicate
-   names (`WIKI_DIR`, `WIKI_PATH`), the registry keeps one (`WIKI_ROOT`).
-3. Tools resolve through `command -v <tool>`. A `*_BIN` override exists only
-   where a script needs one.
-4. Users set their values in their shell profile or in the optional sourced file
-   `${XDG_CONFIG_HOME:-$HOME/.config}/jleechan-skills/env`. Skills never write
-   that file.
-5. Removed personal names and identifiers are not replaced with variables. They
-   are deleted, or become generic wording such as "the operator" or
-   `<campaign-id>`.
+   `AO_CONFIG_PATH`). Where the audits proposed duplicate names (`WIKI_DIR`,
+   `WIKI_PATH`), the registry keeps one (`WIKI_ROOT`).
+3. Conventional home-based locations (`$HOME/.hermes`, `$HOME/roadmap`) may be defaults
+   only when the skill checks that they exist and skips only the dependent steps when
+   they do not. Missing optional tooling is "unavailable/skipped" for an unrelated task,
+   not a universal blocker.
+4. Production cloud targets are explicit: `FIREBASE_PROJECT_ID` is required and never
+   derived from `GCP_PROJECT_ID`, so a skill that touches production data cannot target
+   whatever project gcloud happens to consider active.
+5. Removed personal identifiers are not replaced with variables or legacy fallbacks.
+   `SLACK_OPERATOR_DM_CHANNEL` is explicit and no personal-named legacy variable is
+   read; existing users rename their own export in their machine-local shell profile.
+   Values that were personal names, IDs, or paths are deleted or become generic wording
+   such as "the operator" or `<campaign-id>`.
+6. Tools resolve through `command -v <tool>`. A `*_BIN` override exists only where a
+   script needs one. Users set values in their shell profile or in the optional sourced
+   file `${XDG_CONFIG_HOME:-$HOME/.config}/jleechan-skills/env`. Skills never write
+   that file, and no capability gains a mandatory new credential just because it is
+   unused.
 
 ### D3. Install surface
 
@@ -154,29 +179,43 @@ same change.
 
 - **Rules.** `AGENTS.md` states the fresh-machine, any-developer invariant;
   `CLAUDE.md` points to it.
-- **Plugin structure test** (`tests/test_plugin_folders.py`). Every marketplace
-  source exists. Every `plugins/*/.claude-plugin/plugin.json` parses and its
-  name matches the folder. Every plugin skill has frontmatter whose `name`
-  matches its folder. No name exists in both `.claude/skills/` and a plugin.
-- **Product-token ratchet** (`tests/test_product_token_ratchet.py`). This scans
-  `.claude/skills/**` for `worldarchitect|worldai|mvp_site|your-project\.com|testing_mcp`.
-  Any file that matches must appear in `tests/fixtures/product_token_allowlist.txt`,
-  which is generated once from the post-move tree. Files may drop off the list;
-  new files fail. This follows the zero-PII scan category that `AGENTS.md`
-  permits, and it pins no prose.
+- **Plugin structure test** (`tests/test_plugin_folders.py`). Every marketplace source
+  exists. Every `plugins/*/.claude-plugin/plugin.json` parses and its name matches the
+  folder. Every plugin has at least one `skills/<name>/` whose frontmatter `name`
+  matches the folder. No name exists in both `.claude/skills/` and a plugin. Every
+  relative Markdown link inside a plugin resolves within that plugin.
+- **Privacy scans cover plugins.** `tests/test_skill_export_no_personal_paths.py` and
+  `tests/test_skill_personal_identifiers.py` (backed by
+  `scripts/skill_portability_scan.py`) scan `plugins/` as well as `.claude/skills/`, so
+  moving a skill never removes it from zero-PII enforcement.
+- **Installer and closure owners stay authoritative.** `tests/test_installer.py`,
+  `tests/test_command_closure.py`, `tests/test_thin_command_dispatchers.py`, and
+  `tests/test_portable_install.py` continue to define installer, closure, alias, and
+  dependency behavior; a moved skill updates them rather than adding a parallel check.
+- **CI triggers cover the new tree.** `.github/workflows/tests.yml` path filters include
+  `plugins/**` and `.claude-plugin/**`, so a plugin-only change runs the contract suite.
 
-### D5. Delivery as PRs
+### Retired proposals
 
-| PR | Branch | Base | Scope |
-|---|---|---|---|
-| 1 | `claude/elegant-einstein-gfcch1` | main | AGENTS.md/CLAUDE.md invariant, this spec, the plan, the env-var registry |
-| 2 | `claude/elegant-einstein-gfcch1-plugins` | PR 1 | D1 moves, manifests, references, plugin and ratchet tests |
-| 3 | `claude/elegant-einstein-gfcch1-env-machine` | PR 1 | Hosts, paths, tool locations, personal state directories |
-| 4 | `claude/elegant-einstein-gfcch1-env-accounts` | PR 1 | GitHub repo and org, Slack, AO, bot logins, personal names, credential blocklist |
-| 5 | `claude/elegant-einstein-gfcch1-product-examples` | PR 2 | D1 splits and product examples in generic skills |
+Explicitly not adopted, so a later reader does not restore them:
 
-PRs 3 and 4 touch disjoint skill sets. PR 2 edits only the reference lines that
-name moved skills, so text merges with PRs 3, 4, and 5 resolve hunk by hunk.
+- **Product-token ratchet plus a generated allowlist** (`test_product_token_ratchet.py`,
+  `tests/fixtures/product_token_allowlist.txt`). It duplicates the existing zero-PII
+  scanners, ships a machine-generated allowlist that grows silently, and is a
+  keyword-over-prose gate that the current `AGENTS.md` testing policy does not authorize.
+- **Scan-count tables and per-PR branch/ordering plans.** Counts and branch stacks go
+  stale as soon as one slice merges; this document states outcomes instead.
+- **A committed task-by-task implementation plan.** It is obsolete the moment the slice
+  lands, and the repository keeps the design as the spec.
+
+## Delivery
+
+This slice ships: the `AGENTS.md`/`CLAUDE.md` invariant, this design, the env-var
+registry, the plugin folders and marketplace entries, the moved-skill reference
+rewrites, and the plugin-inclusive privacy/structure checks. Generic-skill
+parameterization (hosts, paths, tool locations, accounts) and the product-companion
+splits above remain separate slices; each adds the variables it reads to the registry
+in its own change. No branch names or merge order are pinned here.
 
 ## Assumptions and Recommended Defaults
 
@@ -185,15 +224,18 @@ name moved skills, so text merges with PRs 3, 4, and 5 resolve hunk by hunk.
 | Q1 | Plugin folders or a single product section per skill? | Plugin folders (approach A) | The repository already ships a Claude Code marketplace, and the request names "plugin folders" |
 | Q2 | How many plugins? | Three: worldarchitect, ai-universe, self-hosted-runners | Each audit cluster is a separate product or system. One plugin per product keeps installs opt-in |
 | Q3 | Delete personal identifiers in plugins too? | Yes | The zero-PII invariant covers the whole repository, not just the default export |
-| Q4 | Default for host aliases? | None: required, with a "not configured" failure | A default host is a machine assumption. The existing cross-machine-ssh-tier placeholders (`mymac`, `mylinux`) stay as examples only |
+| Q4 | Default for host aliases? | None: required, with a "not configured" failure | A default host is a machine assumption. Cross-machine placeholders (`mymac`, `mylinux`) stay as examples only |
 | Q5 | Default for `~/projects`-style checkouts? | Derive from `git rev-parse --show-toplevel` or a required var; no `~/projects` default | A checkout location is a personal convention |
-| Q6 | Keep `JLEECHAN_DM_CHANNEL`? | Rename to `SLACK_OPERATOR_DM_CHANNEL`; scripts read the old name as a deprecated fallback for one release | Avoids breaking the author's live setup while removing the personal name from docs |
+| Q6 | Keep the legacy personal-named DM-channel variable? | No. `SLACK_OPERATOR_DM_CHANNEL`, explicit, no fallback; users rename their own export | A fallback would ship the personal name in exported scripts, which zero-PII forbids |
 | Q7 | Change the bash installer? | No; use native plugin install | Least risk; the installer has extensive tests |
-| Q8 | Where do the design documents live? | `docs/superpowers/{specs,plans}/` in this repository | `~/roadmap` does not exist in this ephemeral container. The repository already keeps `/sq` documents in this folder |
-| Q9 | Use one PR or several? | Five, as in D5 | The request says "PRs". Splitting by concern keeps each PR reviewable |
-| Q10 | Use a wording-pin test to prevent regressions? | No; a token ratchet over files instead | The AGENTS.md testing policy allows portability scans and forbids prose pins |
-| Q11 | Move generic-named skills (testing-layers, smoke)? | Split instead (generic stays, product goes to a companion) | They have profile and skill callers, and moving them would break the `prw` profile |
-| Q12 | `@jleechanorg/ao-cli` npm package name? | Keep it | It is the tool's real published package name, not a personal assumption. An `AO_NPM_PACKAGE` override is allowed |
+| Q8 | Where do the design documents live? | `docs/superpowers/specs/` in this repository | The repository already keeps `/sq` documents in this folder |
+| Q9 | One slice or several? | Several bounded slices, each independently reviewable | A single PR mixing layout, parameterization, and splits is unreviewable |
+| Q10 | Use a wording-pin test to prevent regressions? | No; reuse the existing zero-PII scanners | The `AGENTS.md` testing policy forbids prose pins and prefers existing mechanical owners |
+| Q11 | Move generic-named skills (testing-layers, smoke)? | Split later instead (generic stays, product goes to a companion) | They have profile and skill callers, and moving them would break the `prw` profile |
+| Q12 | The AO CLI's published npm package name? | Keep it, with an `AO_NPM_PACKAGE` override | It is the tool's real published package name, not a personal assumption |
+| Q13 | Conventional locations such as `$HOME/roadmap` or `$HOME/.hermes` as defaults? | Allowed only when probed for existence and skipped gracefully when absent | Matches existing `${ROADMAP_DIR:-$HOME/roadmap}` usage without breaking a fresh machine |
+| Q14 | Derive `FIREBASE_PROJECT_ID` from `GCP_PROJECT_ID`? | No: required, never derived | Silent derivation can point a production write at the wrong project |
+| Q15 | Literal personal tokens in shipped grep checks? | No; checks reference machine-local configuration, not shipped literals | The docs themselves are exported and fall under zero-PII |
 
 ## Error handling
 
@@ -202,25 +244,21 @@ name moved skills, so text merges with PRs 3, 4, and 5 resolve hunk by hunk.
   values.
 - A generic skill that looks for a product companion and finds none says so and
   continues with generic guidance only (the `user-story-worldai` pattern).
+- A plugin command whose skill is missing from the installed plugin reports the missing
+  skill and stops; it never reaches back into the default export for a copy.
 
 ## Testing
 
-- The plugin structure test and the product-token ratchet (D4).
-- The existing suites that must stay green, or differ from the base only by
-  their pre-existing failures: `test_skill_export_no_personal_paths.py`,
-  `test_skill_personal_identifiers.py`, the `test_skill_portability_*` tests,
-  `test_installer.py`, and `test_cross_host_catalog.py`.
-- Tests that name a moved or renamed skill path, or a removed personal default,
-  get updated or deleted per the AGENTS.md policy. Two examples:
-  `test_luna_report_containment.py` (the luna scratch folder name), and
-  `test_skill_portability_batch*` entries for skills that moved.
-- Three suite failures already exist in this container (two
-  `test_code_review_export` Hermes import tests and one `md_files` bootstrap
-  backup test). They are environmental and stay out of scope.
-
-## Implementation Preconditions
-
-- Pushing branches other than `claude/elegant-einstein-gfcch1` relies on the
-  request for multiple PRs. If a push to a suffixed branch is refused, that PR's
-  commits stack onto the designated branch instead, and the PR body lists the
-  combined scope.
+- Structural and privacy owners: `python3 -m pytest -q tests/test_plugin_folders.py
+  tests/test_skill_export_no_personal_paths.py tests/test_skill_personal_identifiers.py`
+- Installer and closure owners: `python3 -m pytest -q tests/test_installer.py
+  tests/test_portable_install.py tests/test_command_closure.py
+  tests/test_thin_command_dispatchers.py tests/test_cross_host_catalog.py`
+- Plugin script harnesses, run from the repository root:
+  `bash plugins/self-hosted-runners/skills/ezgha-watchdog/scripts/test_restart_gate.sh`,
+  `bash plugins/self-hosted-runners/skills/runner-health/scripts/test_check_api.sh`,
+  `bash plugins/self-hosted-runners/skills/runner-health/scripts/test_check_session_conflict.sh`,
+  `bash plugins/self-hosted-runners/skills/runner-health/scripts/test_read_json_or_default.sh`,
+  `python3 plugins/self-hosted-runners/skills/runner-health/scripts/test_parse_fields.py`.
+- No shipped test pins Markdown wording. Tests that name a moved skill path get updated
+  or deleted per the `AGENTS.md` policy.

@@ -17,10 +17,10 @@ design-system practice.
    before resolving local instructions. Do not infer the target from this
    exported skill's own location, a hardcoded machine path, or a remembered
    checkout path.
-2. In that target repository, look for a repo-local companion at
-   `.claude/skills/user-story-worldai/SKILL.md`. Read that companion when it
-   exists. It is the source for product-specific document locations, evidence
-   sources, historical findings, and known traps.
+2. In that target repository, look for a repo-local companion skill named
+   `user-story-worldai` in the repository's own `.claude/skills/` (or the plugin it
+   ships). Read that companion when it exists. It is the source for product-specific
+   document locations, evidence sources, historical findings, and known traps.
 3. Read the portable `user-story` skill from the active skill catalog as well.
    Apply its general story and visual rules together with the target
    repository's companion; neither replaces the other.

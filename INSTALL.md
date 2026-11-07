@@ -7,6 +7,21 @@ installs only its manifest scope, and leaves the canonical Claude workflows alon
 This export is skills-first: every canonical package is under
 `.claude/skills/<skill>/SKILL.md`; slash-command files are optional pointers.
 
+## Opt-in product plugins
+
+Product-specific skills are not part of the default export. They ship as opt-in Claude
+Code plugins under `plugins/<name>/`, registered in
+`.claude-plugin/marketplace.json`:
+
+```bash
+/plugin marketplace add jleechanorg/jleechan-skills
+/plugin install worldarchitect@jleechan-skills      # or: ai-universe, self-hosted-runners
+```
+
+`--all` installs every package in `.claude/skills/` and none of the plugin folders.
+The machine, account, and cloud variables that plugin skills read are listed in
+[docs/portability-env-vars.md](docs/portability-env-vars.md).
+
 The default is now a curated profile, not the full library. With no flag the
 installer copies the `highlights` profile: the six highlighted skills
 (`superpowers-quick`, `advice`, `redgreen`, `4layer`, `evidence-review`,
