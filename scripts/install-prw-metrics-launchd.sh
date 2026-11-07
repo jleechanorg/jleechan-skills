@@ -45,10 +45,9 @@ echo "Bootstrapping ${LABEL} into gui/${UID_NUM} ..."
 /bin/launchctl bootstrap "gui/${UID_NUM}" "$PLIST_DEST"
 
 echo "Verifying service registration ..."
-if /bin/launchctl list | grep -q "$LABEL"; then
-  echo "SUCCESS: $LABEL is registered with launchd"
-elif /bin/launchctl print "gui/${UID_NUM}/${LABEL}" >/dev/null 2>&1; then
+if /bin/launchctl print "gui/${UID_NUM}/${LABEL}" >/dev/null 2>&1; then
   echo "SUCCESS: $LABEL is registered with launchd (verified via launchctl print)"
 else
-  echo "WARNING: $LABEL not found in launchctl list or print output"
+  echo "ERROR: Failed to verify service registration for $LABEL" >&2
+  exit 1
 fi

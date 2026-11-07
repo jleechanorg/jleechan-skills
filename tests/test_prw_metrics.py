@@ -28,8 +28,10 @@ try:
         calculate_nearest_rank_p75,
         compute_disjoint_interval_union,
         filter_events_half_open,
+        format_iso_utc,
         normalize_markdown_for_comparison,
         parse_iso_utc,
+        parse_operational_title,
         publish_dashboard,
         render_dashboard,
         split_search_window_on_cap,
@@ -39,6 +41,7 @@ except ImportError:
     DashboardRenderer = None
     MetricsAggregator = None
     Publisher = None
+    parse_operational_title = None
     split_search_window_on_cap = None
 
 
@@ -775,6 +778,396 @@ class TestCLIEnvironmentDefaults(unittest.TestCase):
             self.assertIn("## 1. Header & Coverage", proc.stdout)
         finally:
             shutil.rmtree(temp_dir)
+
+
+class TestTimeSemanticsHumanInterventionsAndTitleParsing(unittest.TestCase):
+    """Test Task 4 time semantics, human intervention aggregation, retention readback, and title parsing."""
+
+    def test_overlapping_active_agents_union_vs_effort_sum(self):
+        """Union of parallel agents gives active wall time; arithmetic sum gives agent effort."""
+        agg = MetricsAggregator()
+        pr = {
+            "number": 1,
+            "repo": "example-org/repo-alpha",
+            "createdAt": "2026-11-05T09:00:00Z",
+            "mergedAt": "2026-11-05T14:00:00Z",
+            "initial_task_accepted_at": "2026-11-05T09:30:00Z",
+        }
+        # Two parallel agents: Agent 1 (10:00 - 12:00 = 2h), Agent 2 (11:00 - 13:00 = 2h)
+        events = [
+            {
+                "span_kind": "observed_active_execution",
+                "agent_id": "agent-1",
+                "start_at": "2026-11-05T10:00:00Z",
+                "end_at": "2026-11-05T12:00:00Z",
+            },
+            {
+                "span_kind": "observed_active_execution",
+                "agent_id": "agent-2",
+                "start_at": "2026-11-05T11:00:00Z",
+                "end_at": "2026-11-05T13:00:00Z",
+            },
+        ]
+        metrics = agg.compute_time_semantics(pr, pilot_events=events)
+        # Disjoint union: 10:00 to 13:00 = 3h = 10800s
+        self.assertEqual(metrics["observed_active_wall_sec"], 10800.0)
+        # Arithmetic effort sum: 2h + 2h = 4h = 14400s
+        self.assertEqual(metrics["agent_effort_sec"], 14400.0)
+        self.assertGreater(metrics["agent_effort_sec"], metrics["observed_active_wall_sec"])
+
+    def test_operation_elapsed_not_counted_as_pure_active_and_residual_not_waste(self):
+        """CLI/API span includes queue/setup time; residual elapsed is NOT classified as waste."""
+        agg = MetricsAggregator()
+        pr = {
+            "number": 2,
+            "repo": "example-org/repo-alpha",
+            "createdAt": "2026-11-05T10:00:00Z",
+            "mergedAt": "2026-11-05T12:00:00Z", # 2h = 7200s elapsed
+        }
+        events = [
+            # Operation elapsed includes setup / queue: 10:00 -> 10:30 (1800s)
+            {
+                "span_kind": "observed_operation_elapsed",
+                "start_at": "2026-11-05T10:00:00Z",
+                "end_at": "2026-11-05T10:30:00Z",
+            },
+            # Evidenced active execution: 10:05 -> 10:30 (1500s)
+            {
+                "span_kind": "observed_active_execution",
+                "start_at": "2026-11-05T10:05:00Z",
+                "end_at": "2026-11-05T10:30:00Z",
+            },
+        ]
+        metrics = agg.compute_time_semantics(pr, pilot_events=events)
+        self.assertEqual(metrics["observed_operation_elapsed_sec"], 1800.0)
+        self.assertEqual(metrics["observed_active_wall_sec"], 1500.0)
+        # Residual: 7200 - 1500 = 5700s
+        self.assertEqual(metrics["unattributed_or_waiting_residual_sec"], 5700.0)
+        self.assertEqual(metrics["residual_classification"], "UNATTRIBUTED_OR_WAITING_NOT_WASTE")
+
+    def test_absent_telemetry_and_cross_attempt_mismatch_remain_unknown(self):
+        """Missing telemetry or mismatched attempts must remain UNKNOWN (None), never 0."""
+        agg = MetricsAggregator()
+        pr = {
+            "number": 3,
+            "repo": "example-org/repo-alpha",
+            "createdAt": "2026-11-05T10:00:00Z",
+            "mergedAt": "2026-11-05T12:00:00Z",
+        }
+        metrics = agg.compute_time_semantics(pr, pilot_events=[])
+        self.assertIsNone(metrics["task_elapsed_sec"])
+        self.assertIsNone(metrics["observed_active_wall_sec"])
+        self.assertIsNone(metrics["agent_effort_sec"])
+        self.assertIsNone(metrics["avoidable_unattended_sec"])
+
+    def test_bot_origin_and_initial_assignment_excluded_from_episodes(self):
+        """Bots/automated prompts are excluded; initial task assignment is counted in raw human messages only."""
+        agg = MetricsAggregator()
+        episodes = [
+            # Human initial assignment: counted in raw_human_messages, but excluded from qualifying episodes
+            {
+                "episode_id": "ep-1",
+                "is_bot": False,
+                "origin": "user",
+                "raw_message_count": 2,
+                "is_initial_assignment": True,
+                "label": "good",
+            },
+            # Bot watchdog message: excluded completely
+            {
+                "episode_id": "ep-bot",
+                "is_bot": True,
+                "origin": "bot",
+                "raw_message_count": 5,
+                "is_initial_assignment": False,
+                "label": "unknown",
+            },
+            # Human qualifying intervention
+            {
+                "episode_id": "ep-2",
+                "is_bot": False,
+                "origin": "user",
+                "raw_message_count": 1,
+                "is_initial_assignment": False,
+                "label": "bad",
+            },
+        ]
+        summary = agg.compute_human_interventions(episodes)
+        # raw_human_messages: 2 (from initial) + 1 (from ep-2) = 3
+        self.assertEqual(summary["raw_human_messages"], 3)
+        # qualifying_episodes: only ep-2
+        self.assertEqual(summary["qualifying_episodes"], 1)
+        self.assertEqual(summary["label_breakdown"]["bad"], 1)
+
+    def test_mirrored_message_and_multi_pr_episode_deduplication(self):
+        """Mirrored transcripts and multi-PR mentions deduplicate to one episode and message count."""
+        agg = MetricsAggregator()
+        episodes = [
+            {
+                "episode_id": "ep-mirror",
+                "message_ids": ["msg-100", "msg-101"],
+                "is_bot": False,
+                "origin": "user",
+                "raw_message_count": 2,
+                "is_initial_assignment": False,
+                "label": "good",
+                "pr_attribution": "example-org/repo-alpha#1",
+            },
+            # Duplicate mirrored record with same episode_id / message_ids referring to repo-alpha#2
+            {
+                "episode_id": "ep-mirror",
+                "message_ids": ["msg-100", "msg-101"],
+                "is_bot": False,
+                "origin": "user",
+                "raw_message_count": 2,
+                "is_initial_assignment": False,
+                "label": "good",
+                "pr_attribution": "example-org/repo-alpha#2",
+            },
+        ]
+        summary = agg.compute_human_interventions(episodes)
+        self.assertEqual(summary["qualifying_episodes"], 1)
+        self.assertEqual(summary["raw_human_messages"], 2)
+
+    def test_unassigned_task_level_episode_and_changed_spec_vs_agent_miss_calibration(self):
+        """Unassigned task-level episodes are preserved, and differing annotators resolve to mixed."""
+        agg = MetricsAggregator()
+        episodes = [
+            # Unassigned task-level episode with differing annotators
+            {
+                "episode_id": "ep-task-unassigned",
+                "is_bot": False,
+                "origin": "user",
+                "raw_message_count": 1,
+                "is_initial_assignment": False,
+                "pr_attribution": "unassigned",
+                "annotator_a": {"label": "good", "rationale": "Changed spec"},
+                "annotator_b": {"label": "bad", "rationale": "Agent miss"},
+            }
+        ]
+        summary = agg.compute_human_interventions(episodes)
+        self.assertEqual(summary["unassigned_count"], 1)
+        self.assertEqual(summary["pr_attributed_count"], 0)
+        self.assertEqual(summary["label_breakdown"]["mixed"], 1)
+        self.assertEqual(summary["label_breakdown"]["good"], 0)
+        self.assertEqual(summary["label_breakdown"]["bad"], 0)
+
+    def test_post_merge_intervention_counted_not_hidden(self):
+        """Corrections occurring after merge are tracked as post-merge, never hidden."""
+        agg = MetricsAggregator()
+        episodes = [
+            {
+                "episode_id": "ep-post-merge",
+                "is_bot": False,
+                "origin": "user",
+                "raw_message_count": 1,
+                "is_initial_assignment": False,
+                "is_post_merge": True,
+                "label": "bad",
+                "pr_attribution": "example-org/repo-alpha#1",
+            }
+        ]
+        summary = agg.compute_human_interventions(episodes)
+        self.assertEqual(summary["post_merge_count"], 1)
+        self.assertEqual(summary["qualifying_episodes"], 1)
+
+    def test_retained_telemetry_readback_reconstructs_when_scratch_missing(self):
+        """Private retained telemetry store readback reconstructs pilot events when scratch is empty."""
+        temp_repo = tempfile.mkdtemp()
+        try:
+            telem_dir = os.path.join(temp_repo, "dashboards", "prw", "telemetry")
+            os.makedirs(telem_dir, exist_ok=True)
+
+            with open(os.path.join(telem_dir, "pilot_events.jsonl"), "w") as f:
+                f.write(json.dumps({"pr_number": 1, "span_kind": "observed_active_execution", "duration_sec": 1200}) + "\n")
+
+            with open(os.path.join(telem_dir, "human_episodes.jsonl"), "w") as f:
+                f.write(json.dumps({"episode_id": "ep-ret-1", "is_bot": False, "origin": "user", "raw_message_count": 1, "is_initial_assignment": False, "label": "good"}) + "\n")
+
+            with open(os.path.join(telem_dir, "calibration_audit.json"), "w") as f:
+                json.dump({"audit_status": "CALIBRATED", "disagreement_rate": 0.05}, f)
+
+            with open(os.path.join(telem_dir, "retention_manifest.json"), "w") as f:
+                json.dump({"retention_days": 90, "version": "1.0"}, f)
+
+            collector = Collector(repos=["example-org/repo-alpha"])
+            retained = collector.load_retained_telemetry(roadmap_repo=temp_repo)
+            self.assertEqual(len(retained["pilot_events"]), 1)
+            self.assertEqual(len(retained["human_episodes"]), 1)
+            self.assertEqual(retained["calibration_audit"]["audit_status"], "CALIBRATED")
+            self.assertEqual(retained["retention_manifest"]["retention_days"], 90)
+        finally:
+            shutil.rmtree(temp_repo)
+
+    def test_raw_timeline_dict_flattening_and_stage_dwell(self):
+        """Dict mapping in raw_timeline.json is flattened, aliases normalized, and stage dwell computed."""
+        temp_dir = tempfile.mkdtemp()
+        try:
+            raw_timeline_dict = {
+                "example-org/repo-alpha#10": [
+                    {"__typename": "LabeledEvent", "createdAt": "2026-11-05T10:00:00Z", "label": {"name": "stage:1-coding"}},
+                    # Legacy stage alias stage:4-ci-undraft -> stage:4-code-review
+                    {"__typename": "LabeledEvent", "createdAt": "2026-11-05T12:00:00Z", "label": {"name": "stage:4-ci-undraft"}},
+                ]
+            }
+            with open(os.path.join(temp_dir, "raw_timeline.json"), "w") as f:
+                json.dump(raw_timeline_dict, f)
+
+            collector = Collector(repos=["example-org/repo-alpha"])
+            data = collector.load_from_cached_scratch(temp_dir)
+            events = data["timeline"]
+            self.assertEqual(len(events), 2)
+            self.assertEqual(events[0]["pr_number"], 10)
+            self.assertEqual(events[0]["event"], "labeled")
+            self.assertEqual(events[0]["label"], "stage:1-coding")
+            self.assertEqual(events[1]["label"], "stage:4-code-review")
+
+            agg = MetricsAggregator()
+            prs = [{"repo": "example-org/repo-alpha", "number": 10, "mergedAt": "2026-11-05T14:00:00Z"}]
+            dwell = agg.compute_stage_dwell(prs, timeline_events=events)
+            coding_dwell = next(d for d in dwell if d["stage"] == "stage:1-coding")
+            # 10:00 to 12:00 = 2 hours
+            self.assertEqual(coding_dwell["median_h"], 2.0)
+            self.assertEqual(coding_dwell["n"], 1)
+        finally:
+            shutil.rmtree(temp_dir)
+
+    def test_parse_operational_title(self):
+        """parse_operational_title distinguishes [status][detail] from legacy stage prefixes."""
+        t1 = "[working][fixing review] Correct wiki destination [codex][gpt-6-luna]"
+        res1 = parse_operational_title(t1)
+        self.assertTrue(res1["is_operational"])
+        self.assertEqual(res1["status"], "working")
+        self.assertEqual(res1["detail"], "fixing review")
+        self.assertIn("Correct wiki destination", res1["substantive_title"])
+
+        t2 = "[waiting][CI] Correct wiki destination [codex][gpt-6-luna]"
+        res2 = parse_operational_title(t2)
+        self.assertTrue(res2["is_operational"])
+        self.assertEqual(res2["status"], "waiting")
+        self.assertEqual(res2["detail"], "CI")
+
+        t3 = "[cd] Implement feature [stage:1-coding]"
+        res3 = parse_operational_title(t3)
+        self.assertFalse(res3["is_operational"])
+        self.assertEqual(res3["legacy_stage"], "stage:1-coding")
+
+    def test_render_sections_4b_and_5b(self):
+        """DashboardRenderer renders sections 4b and 5b with explicit non-waste disclaimers."""
+        renderer = DashboardRenderer()
+        payload = {
+            "status": "FRESH",
+            "time_semantics_pilot": [
+                {
+                    "pr_url": "https://github.com/example-org/repo-alpha/pull/1",
+                    "pr_elapsed_sec": 7200,
+                    "task_elapsed_sec": 3600,
+                    "closure_sprint_to_merge_sec": 600,
+                    "observed_operation_elapsed_sec": 1800,
+                    "observed_active_wall_sec": 1500,
+                    "agent_effort_sec": 2400,
+                    "explicit_waiting_sec": 900,
+                    "avoidable_unattended_sec": None,
+                }
+            ],
+            "human_interventions": {
+                "raw_human_messages": 5,
+                "qualifying_episodes": 2,
+                "label_breakdown": {"good": 1, "bad": 1, "mixed": 0, "unknown": 0},
+                "pr_attributed_count": 2,
+                "unassigned_count": 0,
+                "post_merge_count": 0,
+                "channel_coverage": {"dot_history": "UNTESTED_ADAPTER_PENDING"},
+                "retention_status": "OK",
+            }
+        }
+        md = renderer.render(payload)
+        self.assertIn("## 4b. Time Semantics & Effort Breakdown (Pilot Cohort)", md)
+        self.assertIn("Residual elapsed minus observed active is NOT wasted time", md)
+        self.assertIn("## 5b. Human Interventions, Episode Calibration & Retention", md)
+        self.assertIn("UNTESTED_ADAPTER_PENDING", md)
+
+    def test_persisted_eligible_intervals_roundtrip_state_dir(self):
+        """Saving PRs with eligible_intervals as ISO string pairs roundtrips via state_dir without TypeError."""
+        temp_dir = tempfile.mkdtemp()
+        try:
+            # Seed state_dir with a PR that has string-based eligible_intervals
+            pr = {
+                "number": 42,
+                "repo": "example-org/repo-alpha",
+                "state": "OPEN",
+                "createdAt": "2026-11-05T10:00:00Z",
+                "has_continuous_observation": True,
+                "telemetry_coverage": 1.0,
+                "eligible_intervals": [
+                    ["2026-11-05T10:00:00Z", "2026-11-05T11:00:00Z"],
+                    {"start_at": "2026-11-05T11:30:00Z", "end_at": "2026-11-05T12:00:00Z"},
+                ],
+            }
+            collector = Collector(repos=["example-org/repo-alpha"])
+            # Save into temp_dir via collect_all with a dummy fetch_page_fn returning this pr
+            collector.collect_all(
+                state_dir=temp_dir,
+                fetch_page_fn=lambda r, p, pp: [pr] if p == 1 else [],
+            )
+
+            # Reload via offline mode
+            collector2 = Collector(repos=["example-org/repo-alpha"])
+            reloaded = collector2.collect_all(input_dir=temp_dir, offline=True)
+            self.assertEqual(len(reloaded["prs"]), 1)
+
+            # Aggregate dataset: compute_eligible_unattended_duration runs compute_disjoint_interval_union
+            agg = MetricsAggregator()
+            summary = agg.aggregate_full_dataset(reloaded["prs"], sources=reloaded["sources"])
+            self.assertEqual(len(summary["open_prs_known_idle"]), 1)
+            # 1 hour (3600) + 30 min (1800) = 5400s
+            self.assertEqual(summary["open_prs_known_idle"][0]["eligible_unattended_duration_sec"], 5400.0)
+        finally:
+            shutil.rmtree(temp_dir)
+
+    def test_publisher_rejects_public_repository(self):
+        """Publisher rejects publication to public repositories with PUBLIC_REPO_REJECTED."""
+        temp_dir = tempfile.mkdtemp()
+        try:
+            publisher = Publisher(repo_path=temp_dir)
+            res = publisher.publish(
+                markdown_text="# PRW Dashboard",
+                verify_private_fn=lambda repo: False,
+            )
+            self.assertEqual(res["action"], "PUBLIC_REPO_REJECTED")
+            self.assertFalse(res["committed"])
+            self.assertIn("Destination repository is public", res["reason"])
+        finally:
+            shutil.rmtree(temp_dir)
+
+    def test_stale_status_derived_from_old_source_cutoff(self):
+        """Passing sources with old cutoffs (>4.5h) derives STALE status and renders in Markdown."""
+        now = datetime.now(timezone.utc)
+        old_cutoff = now - timedelta(hours=6)
+        sources = {
+            "example-org/repo-alpha": {
+                "status": "COMPLETE",
+                "count": 5,
+                "cutoff": format_iso_utc(old_cutoff),
+            }
+        }
+        prs = [
+            {
+                "number": 1,
+                "repo": "example-org/repo-alpha",
+                "state": "MERGED",
+                "createdAt": format_iso_utc(old_cutoff - timedelta(hours=10)),
+                "mergedAt": format_iso_utc(old_cutoff - timedelta(hours=2)),
+            }
+        ]
+        agg = MetricsAggregator(cutoff_dt=now)
+        # Note: we do NOT pass status="STALE" into aggregate_full_dataset
+        summary = agg.aggregate_full_dataset(prs, sources=sources, now_dt=now, stale_threshold_hours=4.5)
+        self.assertEqual(summary["status"], "STALE")
+
+        renderer = DashboardRenderer()
+        md = renderer.render(summary)
+        self.assertIn("- **Status**: **STALE**", md)
 
 
 if __name__ == "__main__":

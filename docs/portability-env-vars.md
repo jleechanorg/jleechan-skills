@@ -108,6 +108,20 @@ registry.
 | `RUNNER_HEALTH_EXTRA_REPOS` | Extra `owner/repo` values `runner-health` includes besides `GITHUB_REPOSITORY` | unset: only `GITHUB_REPOSITORY` |
 | `RUNNER_CROSSCHECK_SLACK_CHANNEL_ID` / `RUNNER_CROSSCHECK_SLACK_USER_ID` | Optional Slack cross-check | unset: cross-check disabled |
 
+## PRW metrics and dashboard
+
+| Variable | Meaning | Derived from | Default |
+|---|---|---|---|
+| `PRW_METRICS_REPOS` | Comma-separated list of `owner/repo` repositories to monitor | — | unset: uses repositories from input directory or state |
+| `PRW_METRICS_ROADMAP_REPO` | Path to local clone of roadmap repository for dashboard publication | — | required where publication is enabled (fails closed if unset) |
+| `PRW_METRICS_STATE_DIR` | Directory for persistent metric state snapshots and locks | `${HOME}/.claude/skills/scratch-space/scripts/scratch-dir.sh prw-metrics` | `/tmp/prw-metrics` |
+| `PRW_METRICS_LOCK_DIR` | Path to active execution lock directory | — | `${PRW_METRICS_STATE_DIR}/lock` |
+| `PRW_METRICS_CONFIG_FILE` | Path to optional operator configuration file | — | unset (checks `${XDG_CONFIG_HOME:-$HOME/.config}/prw-metrics/config.env`) |
+| `PRW_METRICS_MIN_INTERVAL_SEC` | Minimum seconds between scheduled collection runs (sleep catch-up deduplication) | — | `900` |
+| `PRW_METRICS_FORCE_RUN` | Force execution, bypassing the interval check (`1` or `true`) | — | `0` |
+| `PRW_METRICS_COLLECTOR_CMD` | Collector command executed by `run_prw_metrics.sh` | — | `python3 $REPO_ROOT/scripts/prw_metrics.py --roadmap-repo $PRW_METRICS_ROADMAP_REPO --state-dir $STATE_DIR` |
+| `PRW_METRICS_INPUT_DIR` | Path to cached scratch dataset directory | — | unset |
+
 ## Values that are deleted, not parameterized
 
 Personal names, Firebase UIDs, campaign/document IDs, GCP project numbers, private

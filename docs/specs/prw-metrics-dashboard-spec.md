@@ -2,11 +2,14 @@
 
 ## 1. Outcome
 
-A lightweight, automated metrics collector and renderer that publishes a single, private GitHub Markdown dashboard at `dashboards/prw/README.md` in the private `roadmap` repository. The dashboard refreshes every four hours via macOS `launchd`, providing the operator with transparent visibility into:
+A lightweight, automated metrics collector and renderer that publishes a single, private GitHub Markdown dashboard at `dashboards/prw/README.md` in the private `roadmap` repository (`<org>/roadmap`). The dashboard refreshes every four hours via macOS `launchd`, providing the operator with transparent visibility into:
 1. Multi-repository delivery velocity and cycle times across rolling seven-day windows (`W1` preceding vs. `W2` recent).
 2. Labeled stage dwell time across Stages 0 through 5, explicitly separated from agent idle time.
-3. Granular, per-attempt handoff waiting delays derived from verified receipt and timeline events.
-4. An actionable Open PR Attention Table that connects open PRs to their earliest unmet required obligations, accountable owners, active job handles, and receipt links.
+3. Operational execution state via `[status][short detail]` titles (`working`, `waiting`, `blocked`, `queued`, `ready`, `unknown`), separating operational activity from lifecycle stages.
+4. Granular, per-attempt handoff waiting delays and strict time semantics (distinguishing operation elapsed, active wall time union, agent effort sum, and non-waste residuals).
+5. Human interaction and episode annotations (`good`, `bad`, `mixed`, `unknown`) with channel coverage auditing.
+6. An actionable Open PR Attention Table that connects open PRs to their earliest unmet required obligations, accountable owners, active job handles, and receipt links.
+7. Private telemetry retention under `dashboards/prw/telemetry/` in `<org>/roadmap`, enabling deterministic study readback and historical reconstruction when local Scratch directories are rotated.
 
 ---
 
@@ -14,9 +17,10 @@ A lightweight, automated metrics collector and renderer that publishes a single,
 
 1. **No Automatic State Changes**: The dashboard is strictly observational. It performs zero PR status mutations, label synchronizations, automatic approvals, merges, nudges, or comments.
 2. **No Public Site or GitHub Pages**: No public dashboard, GitHub Pages deployment, or external web service. All rendering uses GitHub's native Markdown viewer inside the private `roadmap` repo.
-3. **No Heavy Compute or Paid Models**: No LLM invocations, full test suite executions, or heavy browser automation inside the scheduled collector job.
+3. **No Heavy Compute or Paid Models**: No recurring LLM invocations, full test suite executions, or heavy browser automation inside the scheduled collector job.
 4. **No Fabricated Telemetry**: Unobserved intervals and missing telemetry are never estimated or reported as `0s`; they are strictly reported as `UNKNOWN` (`telemetry coverage 0%`).
 5. **No Credential Storage**: No secrets, personal tokens, or API keys are embedded in plist templates, scripts, or tracked repository files.
+6. **No Heuristic Keyword Classifiers**: Human intervention quality is evaluated via model review or human annotation citing explicit evidence, never keyword matching, regex rules, or crude sentiment scoring.
 
 ---
 
@@ -30,13 +34,43 @@ A lightweight, automated metrics collector and renderer that publishes a single,
 - **Backlog Partitioning**: Partitions PRs merged within each window into:
   - *Comparable Recent Merges* ($\le 7$ days from `createdAt` to `mergedAt`).
   - *Historical Backlog Merges* ($> 7$ days old at merge), preventing long-parked draft branches from skewing recent turnaround statistics.
+- **Private Telemetry Retention**: Raw event records and session receipts are stored under `dashboards/prw/telemetry/<window_slug>/` in `<org>/roadmap`, ensuring deterministic audit studies and dashboard rebuilds even after local host Scratch is cleared.
 
-### 3.2 Handoff & Idle Arithmetic
-- **Per-Attempt Timestamps**: Timestamp subtraction for review handoff intervals (`review_requested_at` to `actual_review_started_at`) must be computed strictly within the same review attempt. If multiple attempts occurred, each attempt is recorded separately; timestamps from different attempts are never combined.
-- **Honest Missing Data**: If owner, job, or hold observation is absent during an open interval, `eligible_unattended_interval` must evaluate to `UNKNOWN`, never `0s`.
-- **Pre-Change Window Independence**: Pre-change window cutoffs must be presented as historical baselines, not post-change causal improvements.
+### 3.2 Time Semantics & Active Work Model
+- **Per-Attempt Timestamps**: Timestamp subtraction for review handoff intervals (`review_requested_at` to `actual_review_started_at`) must be computed strictly within the same review attempt. Timestamps from different attempts are never combined.
+- **Strict Time Semantics**:
+  - `PR elapsed`: `merged_at - created_at` (open PRs right-censored at collection cutoff).
+  - `Task elapsed`: `endpoint_at - original_accepted_at` (missing acceptance is `UNKNOWN`; closure sprint duration is separate).
+  - `Observed operation elapsed`: `queued_at -> completed_at` for CLI or model operations, encompassing setup, provider queuing, and I/O. Labeled *operation elapsed*, never pure CPU or reasoning active time unless inner execution boundaries exist.
+  - `Observed active wall time`: Interval union ($\bigcup [t_{\text{start}}, t_{\text{end}}]$) of evidenced substantive agent/tool execution intervals for this PR. Never gap-filled from message timestamps.
+  - `Agent effort`: Sum ($\sum (t_{\text{end}} - t_{\text{start}})$) of per-agent evidenced active intervals across parallel agents. Can exceed active wall time and PR elapsed; never summed together with active wall time.
+  - `Waiting time`: Observed CI/provider/dependency/human-hold intervals; report category breakdown and interval union.
+  - `Avoidable unattended time`: Disjoint evidenced intervals with an executable authorized action, no executing owner/job, and no legitimate hold; requires positive eligibility and continuity evidence, otherwise `UNKNOWN`.
+- **Residual Rule**: Residual duration (`PR elapsed - observed_active_wall_time`) is NOT wasted time. It contains observed waiting times, human reflection, and unobserved periods.
+- **Honest Missing Data**: If owner, job, or hold observation is absent during an open interval, `eligible_unattended_interval` evaluates strictly to `UNKNOWN`, never `0s`.
 
-### 3.3 Dashboard Health States
+### 3.3 Operational Status Titles
+- **Parsing Operational Titles**: The collector supports PR titles formatted as `[status][short detail] <substantive change> [<cli>][<model>]`.
+- **Status Tokens**: Valid status tokens include `working`, `waiting`, `blocked`, `queued`, `ready`, and `unknown`.
+- **Decoupling Status from Stages**: Status tokens reflect present-moment execution activity or pending dependency. They must NEVER be reinterpreted as lifecycle stage transitions. Lifecycle stages remain tracked strictly by mechanical labels (`stage/*`) and PR review ledgers.
+- **Legacy Compatibility**: Historical PRs carrying two-letter stage prefixes (e.g. `[fa]`, `[sp]`) or trailing stage suffixes (e.g. `[final approval]`) are parsed for historical stage dwell without converting status tokens into stages.
+
+### 3.4 Human Interactions & Episode Annotation
+- **Deduplicated Episodes**: Raw message count is distinguished from deduplicated intervention episodes (one distinct human contribution/issue plus clarifying follow-ups = 1 episode). Record episode boundaries and source `message_id`s.
+- **Bot and Origin Filtering**: Exclude initial task assignment, automated bots, background agents, quota/resume watchdogs, and copied/mirrored transcripts (`role=user` alone is not human proof; inspect metadata and context; unclear origins remain `UNKNOWN`).
+- **Semantic Classification**: Four categories authored by driver, reviewer, or bounded model pass citing specific evidence (never keyword/regex rules):
+  - `good` (*value-adding*): Intended human review, new domain judgment, spec revision from valid video evidence, requested merge decision.
+  - `bad` (*avoidable*): Human effort caused by an evidenced agent error, rule miss, or unresumed authorized step. Root-cause `/harness` work belongs to the same episode.
+  - `mixed`: Episode contains both useful new domain judgment and correction of an agent miss.
+  - `unknown`: Insufficient context, unclear responsibility, or uncertain PR association.
+- **Attribution & Coverage Rules**:
+  - Preserve `pr_attribution: "unassigned"` for task-level episodes; never force assignment to a PR.
+  - Never divide an incident sample by total PR population to claim a failure rate.
+  - Never claim "zero-touch" unless all relevant human channels (including Dot history) are audited.
+  - Count post-merge corrections under `post_merge`.
+- **Cross-Annotator Calibration**: Evaluate sample episodes across independent annotators; retain disagreements as `mixed` or `unknown`.
+
+### 3.5 Dashboard Health States
 The dashboard must cleanly surface operational states in the header and tables:
 - `FRESH`: Refreshed within the last 4-hour cycle.
 - `STALE`: Prior collection preserved when a refresh was missed (e.g. machine offline/sleep), prominently displaying the last successful collection timestamp.
@@ -45,9 +79,9 @@ The dashboard must cleanly surface operational states in the header and tables:
 - `UNKNOWN`: Missing observational telemetry or unrecorded fields.
 - `CONFLICT`: Contradictory timeline events or out-of-order stage transitions.
 
-### 3.4 Scheduling & Publication
+### 3.6 Scheduling & Publication
 - **Calendar Intervals**: Scheduled via `launchd` in 4-hour calendar slots at `00:17`, `04:17`, `08:17`, `12:17`, `16:17`, `20:17` local time, writing all timestamps in UTC.
-- **Scoped Publication**: Publishes strictly to `dashboards/prw/README.md` in private `roadmap` using standard fast-forward git pushes with remote-head reconciliation. Never uses force-push.
+- **Scoped Publication**: Publishes strictly to `dashboards/prw/README.md` and `dashboards/prw/telemetry/` in private `roadmap` using standard fast-forward git pushes with remote-head reconciliation. Never uses force-push.
 - **Atomic Failure Handling**: On API or script failure, the existing dashboard is preserved; no partial or empty Markdown commit is published.
 
 ---
@@ -59,6 +93,7 @@ See [User Story: PRW Metrics Dashboard](../user-stories/prw-metrics-dashboard.md
 - Scenario 2: Sprint Velocity and Bottleneck Analysis.
 - Scenario 3: Respecting Parked and Unobserved States.
 - Scenario 4: Offline and Rate-Limit Resilience.
+- Scenario 5: Human Interaction Triage and Quality Calibration.
 
 ---
 
@@ -70,6 +105,9 @@ See [User Story: PRW Metrics Dashboard](../user-stories/prw-metrics-dashboard.md
    - Deduplication of overlapping search results across shards.
    - Half-open window partitioning (`W1` vs. `W2`).
    - Timestamp subtraction arithmetic within single attempts.
+   - Time semantics: active wall union vs agent effort sum; operation elapsed labeling.
+   - Parsing of `[status][short detail]` titles without reinterpreting them as stages.
+   - Human episode deduplication and bot origin filtering.
    - Assertion that missing telemetry outputs `UNKNOWN` instead of `0s`.
    - Markdown rendering across `FRESH`, `STALE`, `PARTIAL_FAILURE`, and `EMPTY` states.
 2. **`tests/test_prw_metrics_scheduler.py`**:
@@ -80,7 +118,7 @@ See [User Story: PRW Metrics Dashboard](../user-stories/prw-metrics-dashboard.md
 
 ### 5.2 Real Operational & Visual Verification
 1. **Launchd Job Verification**: Execute `launchctl print gui/$(id -u)/com.jleechan.prw-metrics` to confirm job registration, execute one manual test run, and verify generated output.
-2. **Private Publication Verification**: Verify clean push and readback of `dashboards/prw/README.md` on the private `roadmap` repository.
+2. **Private Publication Verification**: Verify clean push and readback of `dashboards/prw/README.md` and telemetry records on the private `roadmap` repository.
 3. **Browser Visual Inspection**: Open `https://github.com/<org>/roadmap/blob/main/dashboards/prw/README.md` in a verified headless browser session to ensure tables render cleanly on narrow and wide desktop viewports.
 
 ---
@@ -120,7 +158,19 @@ See [User Story: PRW Metrics Dashboard](../user-stories/prw-metrics-dashboard.md
 
 ---
 
-## 3. Handoff Delays (Granular Attempt Measurements)
+## 3. Time Semantics & Effort Breakdown
+
+| Metric | Sample (n) | Median | p75 | Definition / Notes |
+|---|:---:|:---:|:---:|---|
+| **Observed Operation Elapsed** | 42 | 4m 12s | 11m 30s | Queued to completed CLI/API span (includes setup & I/O) |
+| **Observed Active Wall Time** | 38 | 1.85h | 4.20h | Union of substantive agent/tool execution intervals |
+| **Agent Effort (Sum)** | 38 | 3.10h | 8.45h | Sum of parallel worker active intervals (can exceed wall time) |
+| **Observed Waiting Time** | 38 | 0.45h | 1.60h | Union of CI queues, provider limits, and human holds |
+| **Residual (Non-Wasted)** | 38 | 0.60h | 2.10h | Elapsed minus active wall time; includes reflection & unobserved spans |
+
+---
+
+## 4. Handoff Delays (Granular Attempt Measurements)
 
 | Metric | Sample (n) | Median Delay | p75 Delay | Telemetry Coverage | Status |
 |---|:---:|:---:|:---:|:---:|:---:|
@@ -131,18 +181,33 @@ See [User Story: PRW Metrics Dashboard](../user-stories/prw-metrics-dashboard.md
 
 ---
 
-## 4. Open PR Attention Table
+## 5. Human Interaction & Episode Breakdown
 
-| PR | Repo | Candidate SHA | Earliest Unmet Obligation | Next Action | Owner | Status / Hold | Waiting Duration | Receipts |
-|---|---|:---:|---|---|---|:---:|:---:|:---:|
-| **#742** | skills-repo | `a1b2c3d` | Source Review Quorum | Dispatch Seat 2 review | lane-b | ACTIVE | 12m | [Receipt](receipts/742.md) |
-| **#562** | frontend-repo | `d4e5f6a` | CI and Undraft | Re-run Jest test suite | lane-a | CI_WAIT | 18m | [Receipt](receipts/562.md) |
-| **#11205**| backend-repo | `b7c8d9e` | Merge Authority | Awaiting user approval | driver | HOLD:OPERATOR | 1h 45m | [Receipt](receipts/11205.md) |
-| **#738** | skills-repo | `e9f0a1b` | UNKNOWN | Design consensus | none | PARKED | 72h | UNKNOWN (0% coverage) |
+| Category | Episodes | Raw Messages | Share of Observed | Operational Meaning |
+|---|:---:|:---:|:---:|---|
+| **Good (Value-Adding)** | 14 | 22 | 70.0% | Spec refinement from video evidence, requested merge decision |
+| **Bad (Avoidable)** | 4 | 7 | 20.0% | Agent rule miss, unresumed authorized action |
+| **Mixed** | 2 | 5 | 10.0% | New guidance combined with error correction |
+| **Unknown** | 3 | 3 | - | Insufficient context or unclear channel attribution |
+| **Total Observed** | 20 | 34 | 100.0% | Channel audit: CLI (covered), Slack (covered), Dot (untested) |
+
+*Note: 2 task-level episodes retained as `pr_attribution: "unassigned"`. "Zero-touch" not claimed while Dot channel is untested.*
 
 ---
 
-## 5. Notes & Data Definitions
+## 6. Open PR Attention Table
+
+| PR | Title (Operational Status) | Candidate SHA | Earliest Unmet Obligation | Next Action | Owner | Waiting Duration | Receipts |
+|---|---|:---:|---|---|---|:---:|:---:|
+| **#742** | `[working][fixing review] Correct wiki path` | `a1b2c3d` | Source Review Quorum | Dispatch Seat 2 review | lane-b | 12m | [Receipt](receipts/742.md) |
+| **#562** | `[waiting][CI] Upgrade jest runner` | `d4e5f6a` | CI and Undraft | Re-run Jest test suite | lane-a | 18m | [Receipt](receipts/562.md) |
+| **#11205**| `[ready][needs approval] Migrate auth schema` | `b7c8d9e` | Merge Authority | Awaiting user approval | driver | 1h 45m | [Receipt](receipts/11205.md) |
+| **#738** | `[blocked][user pause] Design tokens RFC` | `e9f0a1b` | UNKNOWN | Design consensus | none | 72h | UNKNOWN (0% coverage) |
+
+---
+
+## 7. Notes & Data Definitions
+- **Operational Titles**: Format `[status][short detail]`. Operational status tokens reflect present-moment execution; never reinterpreted as stage advancement.
 - **Stage Dwell**: Calendar duration between observed stage labels; does NOT imply agent neglect.
 - **Eligible Idle**: Derived only when an authorized next action was executable without an active worker; unobserved periods evaluate to `UNKNOWN`.
 - **Backlog**: PRs merged $>7$ days after creation.
@@ -155,6 +220,8 @@ See [User Story: PRW Metrics Dashboard](../user-stories/prw-metrics-dashboard.md
 | Risk | Severity | Mitigation |
 |---|:---:|---|
 | **Accidental Credential Leakage** | Critical | Sourcing profile and ambient `gh` CLI credentials only. Zero tokens, passwords, or personal hostnames in plists, scripts, or tracked Markdown files. |
-| **Merge / Git Publication Conflict** | Medium | The publisher fetches the remote `roadmap` branch, attempts a clean fast-forward rebase, reconciles only `dashboards/prw/README.md`, and fails safely without force-pushing. |
-| **Misleading Idle Accusations** | High | Clear visual and lexical separation between stage dwell (elapsed calendar time) and eligible unattended delay. Unobserved telemetry is strictly displayed as `UNKNOWN (telemetry coverage 0%)`. |
-| **Host Sleep / Network Interruption** | Low | If the Mac is asleep or offline during a scheduled slot, the job runs on next wake; the previous dashboard remains intact and is explicitly stamped with its prior cutoff and `STALE` status. |
+| **Merge / Git Publication Conflict** | Medium | The publisher fetches the remote `roadmap` branch, attempts a clean fast-forward rebase, reconciles only `dashboards/prw/README.md` and telemetry files, and fails safely without force-pushing. |
+| **Misleading Idle Accusations** | High | Clear visual and lexical separation between stage dwell (elapsed calendar time) and eligible unattended delay. Residual duration (`elapsed - active`) is explicitly defined as non-waste. Unobserved telemetry is strictly displayed as `UNKNOWN (telemetry coverage 0%)`. |
+| **Telemetry Loss Across Host Rotations** | Medium | Raw event logs and receipts are committed under `dashboards/prw/telemetry/` in `<org>/roadmap`, guaranteeing reproducible audit studies and deterministic rebuilds even when local Scratch is rotated. |
+| **Subjective Human Intervention Scoring** | Medium | Grounded in four strict semantic categories authored by model/human evaluation with cited evidence rationales, origin metadata checks (excluding bots), cross-annotator calibration, and explicit preservation of `unassigned` task episodes. |
+| **Host Sleep / Network Interruption** | Low | If the host is asleep or offline during a scheduled slot, the job runs on next wake; the previous dashboard remains intact and is explicitly stamped with its prior cutoff and `STALE` status. |

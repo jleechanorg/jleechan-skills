@@ -7,7 +7,7 @@
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
-    <string>@HOME@/projects/jleechan-skills/scripts/run_prw_metrics.sh</string>
+    <string>@REPO_ROOT@/scripts/run_prw_metrics.sh</string>
   </array>
   <key>StartCalendarInterval</key>
   <array>

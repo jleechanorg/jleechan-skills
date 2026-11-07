@@ -20,6 +20,10 @@ INSTALL_SCRIPT = REPO_ROOT / "scripts" / "install-prw-metrics-launchd.sh"
 class PRWMetricsSchedulerTests(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
+        self.fake_home = Path(self.temp_dir.name) / "home"
+        self.fake_home.mkdir(parents=True, exist_ok=True)
+        self.xdg_config_home = self.fake_home / ".config"
+        self.xdg_config_home.mkdir(parents=True, exist_ok=True)
         self.state_dir = Path(self.temp_dir.name) / "prw-metrics"
         self.state_dir.mkdir(parents=True, exist_ok=True)
         self.scratch_dir = Path(self.temp_dir.name) / "scratch"
@@ -28,12 +32,24 @@ class PRWMetricsSchedulerTests(unittest.TestCase):
     def tearDown(self):
         self.temp_dir.cleanup()
 
+    def _base_env(self, **kwargs):
+        env = dict(
+            os.environ,
+            HOME=str(self.fake_home),
+            XDG_CONFIG_HOME=str(self.xdg_config_home),
+            PRW_METRICS_STATE_DIR=str(self.state_dir),
+            PRW_METRICS_ROADMAP_REPO=str(self.scratch_dir),
+        )
+        env.update(kwargs)
+        return env
+
     def test_plist_template_exists_and_calendar_intervals(self):
         """Verifies template exists and defines exactly six :17 slots (hours 0, 4, 8, 12, 16, 20)."""
         self.assertTrue(PLIST_TEMPLATE.exists(), f"Missing template: {PLIST_TEMPLATE}")
         raw_content = PLIST_TEMPLATE.read_text(encoding="utf-8")
-        # Ensure @HOME@ placeholders are used rather than hardcoded paths
+        # Ensure @HOME@ and @REPO_ROOT@ placeholders are used rather than hardcoded paths
         self.assertIn("@HOME@", raw_content)
+        self.assertIn("@REPO_ROOT@", raw_content)
 
         # Parse rendered template to inspect dictionary structure
         rendered = raw_content.replace("@HOME@", str(self.temp_dir.name)).replace(
@@ -60,6 +76,20 @@ class PRWMetricsSchedulerTests(unittest.TestCase):
             actual_hours.add(interval.get("Hour"))
 
         self.assertEqual(actual_hours, expected_hours, f"Unexpected hours: {actual_hours}")
+
+    def test_custom_repo_root_rendered_in_program_arguments(self):
+        """Verifies that rendering from a custom @REPO_ROOT@ substitutes that exact checkout path into ProgramArguments."""
+        self.assertTrue(PLIST_TEMPLATE.exists(), f"Missing template: {PLIST_TEMPLATE}")
+        raw_content = PLIST_TEMPLATE.read_text(encoding="utf-8")
+        self.assertIn("@REPO_ROOT@", raw_content)
+
+        custom_root = "/opt/custom/checkouts/prw-repo"
+        rendered = raw_content.replace("@HOME@", str(self.fake_home)).replace(
+            "@REPO_ROOT@", custom_root
+        )
+        plist_data = plistlib.loads(rendered.encode("utf-8"))
+        prog_args = plist_data.get("ProgramArguments", [])
+        self.assertIn(f"{custom_root}/scripts/run_prw_metrics.sh", prog_args)
 
     def test_rendered_plist_plutil_lint(self):
         """Validates rendered plist syntax via plutil -lint."""
@@ -135,17 +165,15 @@ class PRWMetricsSchedulerTests(unittest.TestCase):
         lock_dir = self.state_dir / "lock"
         lock_dir.mkdir(parents=True, exist_ok=True)
         pid_file = lock_dir / "pid"
+        comm_file = lock_dir / "comm"
 
         # Spawn a long-running background dummy process to simulate active lock holder
         proc = subprocess.Popen(["sleep", "30"])
         try:
             pid_file.write_text(str(proc.pid), encoding="utf-8")
+            comm_file.write_text("sleep", encoding="utf-8")
 
-            # Run wrapper in subshell with custom state dir and a failing collector
-            # (which should never be called)
-            env = dict(
-                os.environ,
-                PRW_METRICS_STATE_DIR=str(self.state_dir),
+            env = self._base_env(
                 PRW_METRICS_COLLECTOR_CMD="exit 99",
             )
             result = subprocess.run(
@@ -175,13 +203,13 @@ class PRWMetricsSchedulerTests(unittest.TestCase):
         lock_dir = self.state_dir / "lock"
         lock_dir.mkdir(parents=True, exist_ok=True)
         pid_file = lock_dir / "pid"
+        comm_file = lock_dir / "comm"
         # 99999999 is guaranteed dead
         pid_file.write_text("99999999", encoding="utf-8")
+        comm_file.write_text("bash", encoding="utf-8")
 
         output_marker = self.state_dir / "collector_ran.txt"
-        env = dict(
-            os.environ,
-            PRW_METRICS_STATE_DIR=str(self.state_dir),
+        env = self._base_env(
             PRW_METRICS_COLLECTOR_CMD=f"echo 'RAN' > '{output_marker}'",
         )
         result = subprocess.run(
@@ -195,6 +223,67 @@ class PRWMetricsSchedulerTests(unittest.TestCase):
         self.assertTrue(output_marker.exists(), "Collector should have executed after stale lock recovery")
         self.assertIn("Stale lock detected", result.stdout)
 
+    def test_recycled_pid_different_comm_treated_as_stale(self):
+        """Existing PID belongs to a different process command name -> treated as stale and recovered."""
+        self.assertTrue(RUN_SCRIPT.exists(), f"Missing run script: {RUN_SCRIPT}")
+        lock_dir = self.state_dir / "lock"
+        lock_dir.mkdir(parents=True, exist_ok=True)
+        pid_file = lock_dir / "pid"
+        comm_file = lock_dir / "comm"
+
+        # Spawn a live process with command name 'sleep'
+        proc = subprocess.Popen(["sleep", "30"])
+        try:
+            pid_file.write_text(str(proc.pid), encoding="utf-8")
+            # Write a different command name that cannot match sleep
+            comm_file.write_text("old_unrelated_daemon", encoding="utf-8")
+
+            output_marker = self.state_dir / "recycled_recovered.txt"
+            env = self._base_env(
+                PRW_METRICS_FORCE_RUN="1",
+                PRW_METRICS_COLLECTOR_CMD=f"echo 'RECOVERED' > '{output_marker}'",
+            )
+            result = subprocess.run(
+                ["bash", str(RUN_SCRIPT)],
+                capture_output=True,
+                text=True,
+                env=env,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, f"Script failed: {result.stderr}")
+            self.assertTrue(output_marker.exists(), "Collector should have executed after stale recovery")
+            self.assertIn("Stale lock detected", result.stdout)
+        finally:
+            proc.terminate()
+            proc.wait()
+
+    def test_concurrent_lock_race_no_overlap(self):
+        """Two processes racing on lock acquisition: exactly one runs, the other skips cleanly."""
+        self.assertTrue(RUN_SCRIPT.exists(), f"Missing run script: {RUN_SCRIPT}")
+        marker_file = self.state_dir / "ran_count.txt"
+        collector_cmd = f"echo 1 >> '{marker_file}'; sleep 0.5"
+
+        env = self._base_env(
+            PRW_METRICS_FORCE_RUN="1",
+            PRW_METRICS_COLLECTOR_CMD=collector_cmd,
+        )
+
+        p1 = subprocess.Popen(["bash", str(RUN_SCRIPT)], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        p2 = subprocess.Popen(["bash", str(RUN_SCRIPT)], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+        out1, err1 = p1.communicate(timeout=15)
+        out2, err2 = p2.communicate(timeout=15)
+
+        self.assertEqual(p1.returncode, 0, f"P1 failed: {err1}")
+        self.assertEqual(p2.returncode, 0, f"P2 failed: {err2}")
+
+        self.assertTrue(marker_file.exists(), "At least one process should run collector")
+        lines = marker_file.read_text().strip().splitlines()
+        self.assertEqual(len(lines), 1, f"Expected exactly 1 run, got {len(lines)}")
+
+        combined_out = out1 + out2
+        self.assertIn("Another prw-metrics instance", combined_out)
+
     def test_sleep_catch_up_deduplication(self):
         """Tests that a catch-up trigger within MIN_INTERVAL_SEC is deduplicated and exits 0."""
         self.assertTrue(RUN_SCRIPT.exists(), f"Missing run script: {RUN_SCRIPT}")
@@ -203,9 +292,7 @@ class PRWMetricsSchedulerTests(unittest.TestCase):
         last_success.write_text(str(int(time.time()) - 60), encoding="utf-8")
 
         output_marker = self.state_dir / "should_not_run.txt"
-        env = dict(
-            os.environ,
-            PRW_METRICS_STATE_DIR=str(self.state_dir),
+        env = self._base_env(
             PRW_METRICS_MIN_INTERVAL_SEC="900",
             PRW_METRICS_COLLECTOR_CMD=f"echo 'RAN' > '{output_marker}'",
         )
@@ -227,9 +314,7 @@ class PRWMetricsSchedulerTests(unittest.TestCase):
         last_success.write_text(str(int(time.time()) - 30), encoding="utf-8")
 
         output_marker = self.state_dir / "force_ran.txt"
-        env = dict(
-            os.environ,
-            PRW_METRICS_STATE_DIR=str(self.state_dir),
+        env = self._base_env(
             PRW_METRICS_MIN_INTERVAL_SEC="900",
             PRW_METRICS_COLLECTOR_CMD=f"echo 'FORCED' > '{output_marker}'",
         )
@@ -250,9 +335,7 @@ class PRWMetricsSchedulerTests(unittest.TestCase):
         initial_epoch = 1000000
         last_success.write_text(str(initial_epoch), encoding="utf-8")
 
-        env = dict(
-            os.environ,
-            PRW_METRICS_STATE_DIR=str(self.state_dir),
+        env = self._base_env(
             PRW_METRICS_FORCE_RUN="1",
             PRW_METRICS_COLLECTOR_CMD="echo 'Simulated collector failure' >&2; exit 42",
         )
@@ -294,9 +377,7 @@ class PRWMetricsSchedulerTests(unittest.TestCase):
             f"echo \"PRW_METRICS_PUBLISH=$PRW_METRICS_PUBLISH\" >> '{env_output_file}'"
         )
 
-        env = dict(
-            os.environ,
-            PRW_METRICS_STATE_DIR=str(self.state_dir),
+        env = self._base_env(
             PRW_METRICS_FORCE_RUN="1",
             PRW_METRICS_COLLECTOR_CMD=collector_cmd,
         )
@@ -313,6 +394,66 @@ class PRWMetricsSchedulerTests(unittest.TestCase):
         self.assertIn("CUSTOM_CONFIG_VAL=loaded_from_config", captured)
         self.assertIn("PRW_METRICS_ROADMAP_REPO=", captured)
         self.assertIn("PRW_METRICS_PUBLISH=0", captured)
+
+    def test_config_env_exports_to_child_process(self):
+        """Proves config.env assignments without export keyword reach child Python env via set -a."""
+        self.assertTrue(RUN_SCRIPT.exists(), f"Missing run script: {RUN_SCRIPT}")
+        cfg_dir = self.xdg_config_home / "prw-metrics"
+        cfg_dir.mkdir(parents=True, exist_ok=True)
+        config_file = cfg_dir / "config.env"
+        # Assignments WITHOUT export keyword
+        config_file.write_text(
+            "UNEXPORTED_CUSTOM_VAR=hello_world_from_config\n"
+            "PRW_METRICS_ROADMAP_REPO=" + str(self.scratch_dir) + "\n",
+            encoding="utf-8",
+        )
+
+        output_marker = self.state_dir / "received_env.txt"
+        collector_cmd = (
+            f"python3 -c \"import os; open('{output_marker}', 'w').write(os.environ.get('UNEXPORTED_CUSTOM_VAR', ''))\""
+        )
+        env = self._base_env(
+            PRW_METRICS_FORCE_RUN="1",
+            PRW_METRICS_COLLECTOR_CMD=collector_cmd,
+        )
+        result = subprocess.run(
+            ["bash", str(RUN_SCRIPT)],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, f"Script failed: {result.stderr}")
+        self.assertTrue(output_marker.exists(), "Collector should have executed")
+        self.assertEqual(output_marker.read_text().strip(), "hello_world_from_config")
+
+    def test_missing_roadmap_repo_fails_closed(self):
+        """When PRW_METRICS_ROADMAP_REPO is unset and not in config, exits non-zero (fails closed)."""
+        self.assertTrue(RUN_SCRIPT.exists(), f"Missing run script: {RUN_SCRIPT}")
+        env = dict(
+            os.environ,
+            HOME=str(self.fake_home),
+            XDG_CONFIG_HOME=str(self.xdg_config_home),
+            PRW_METRICS_STATE_DIR=str(self.state_dir),
+            PRW_METRICS_FORCE_RUN="1",
+            PRW_METRICS_COLLECTOR_CMD="echo 'SHOULD_NOT_RUN'",
+        )
+        # Explicitly remove PRW_METRICS_ROADMAP_REPO
+        env.pop("PRW_METRICS_ROADMAP_REPO", None)
+
+        result = subprocess.run(
+            ["bash", str(RUN_SCRIPT)],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+        )
+        self.assertNotEqual(result.returncode, 0, "Missing roadmap repo must fail closed (exit != 0)")
+        self.assertIn("PRW_METRICS_ROADMAP_REPO is not set", result.stderr)
+
+
+# Alias for test discovery
+TestSchedulerScript = PRWMetricsSchedulerTests
 
 
 if __name__ == "__main__":

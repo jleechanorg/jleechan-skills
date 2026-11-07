@@ -100,15 +100,19 @@ Audits pull request throughput, lifecycle duration, and stage dwell across exact
 - **No mixed-event conversion claims**: Do not compute a naive "merge rate" by dividing merged PRs by created PRs within the same window. PRs merged during a window include backlog items created earlier, while PRs created near the window end are right-censored (still in flight). Never present mixed event counts as a causal speed or cohort conversion rate.
 - **No unsupported productivity or causal claims**: Do not attribute duration or throughput changes to tooling or developer speed without controlled task mix, backlog normalization, and explicit confounding factor documentation.
 
-### 3. Stage Dwell & Timeline Analysis
-- **Mechanical stage tracking**: Extract stage entry and exit timestamps from existing mechanical labels (e.g. `stage/*`), PR title stage tags, or timeline commit events.
+### 3. Stage Dwell & Title Parsing
+- **Mechanical stage tracking**: Extract stage entry and exit timestamps from mechanical labels (e.g. `stage/*`), execution records in the PR description, or timeline commit events.
+- **Title parsing and operational status compatibility**:
+  * **Legacy stage titles**: Historical PRs may carry legacy two-letter stage prefixes (e.g. `[fa]`, `[sp]`, `[ev]`, `[cd]`, `[rv]`, `[cr]`) or trailing stage suffixes (e.g. `[final approval]`, `[spec]`). Preserve legacy stage-title parsing for historical PR dwell calculations.
+  * **Operational status titles**: Migrated repositories adopt `[status][short detail] <substantive change> [<cli>][<model>]` (e.g. `[working][fixing review]`, `[waiting][CI]`, `[queued][source review]`, `[ready][needs approval]`, `[blocked][user pause]`). Status tokens reflect the current active execution state or dependency; NEVER reinterpret operational status tokens like `[working]`, `[waiting]`, `[queued]`, `[ready]`, `[blocked]`, or `[unknown]` as stage transitions. Lifecycle stages remain tracked exclusively by mechanical labels (`stage/*`) and PR review ledgers.
 - **Stage event uncertainty**: When stage transitions are missing, non-linear, or contradictory across labels and commit timestamps, record stage dwell status as `UNKNOWN` or `CONFLICT` with explicit uncertainty notes rather than assuming sequence or guessing timestamps.
 - **Handoff metrics and interval analysis**:
   * Extract granular handoff metrics from observational Scratch runtime telemetry (`run.stats.json`) and review receipts:
-    - *Evidence dispatch delay*: `review_requested_at` minus `evidence_ready_at` (interval between required proof being complete, readable, and available at candidate SHA and actual review dispatch).
-    - *Reviewer pickup delay*: `actual_review_started_at` minus `review_requested_at` (time until the reviewer actually initiates substantive inspection; an acknowledged message is not review start).
+    - *Evidence dispatch delay*: `review_requested_at` minus `evidence_ready_at` (interval between required proof being complete, readable, and available at candidate SHA and actual review dispatch). Both endpoints and proof applicability required.
+    - *Reviewer pickup delay*: `actual_review_started_at` minus `review_requested_at` (time until the reviewer actually initiates substantive inspection; an acknowledged message or `queued_at` is not review start).
     - *Review execution time*: `review_return_at` minus `actual_review_started_at`.
-    - *Driver response delay*: `next_substantive_action_started_at` minus `review_return_at` (time from review return to driver resuming substantive action).
+    - *Driver response delay*: `next_substantive_action_started_at` minus `review_return_at` (time from review return to driver resuming substantive action; may contain legitimate work or waits).
+    - *Authorized closeout delay*: `merged_at` minus `authority_ready_at` (time between `FINAL_READY` + merge authority being verified and actual merge execution).
     - *Eligible unattended interval*: Derived classification column computed only from recorded receipt/process timestamps (`review_return_at` to `next_substantive_action_started_at` when an executable authorized action existed with no active owner/job or legitimate hold; otherwise `UNKNOWN` or an identified waiting category).
 - **Censoring and waiting rules**:
   * **Interval censoring on invalidation**: If proof is invalidated before reviewer pickup (e.g. candidate head SHA moved or claims changed), close/censor that interval with the explicit reason rather than counting the whole period as reviewer neglect.
@@ -119,7 +123,56 @@ Audits pull request throughput, lifecycle duration, and stage dwell across exact
   * Clearly distinguish **GitHub quiet time** (periods without comment or push events) from an agent being idle or forgotten.
   * Distinguish automated CI delays or human review holds from agent stall or neglect.
 
-### 4. Qualitative Duplicate & Code Classification
+### 4. Time Semantics & Active Effort Model
+
+To prevent conflating total elapsed calendar time with agent effort or wasted time, adhere strictly to the following semantic distinctions:
+
+| Metric | Definition | Measurement Constraints & Bounds |
+|---|---|---|
+| **PR elapsed** | `merged_at - created_at` | Total delivery cycle time; open PRs at collection cutoff are right-censored. Includes parked/draft time. |
+| **Task elapsed** | `endpoint_at - original_accepted_at` | Total task cycle from acceptance to verified completion. Missing original acceptance is strictly `UNKNOWN`. `closure_sprint_elapsed` is measured separately. |
+| **Observed operation elapsed** | `queued_at -> completed_at` for CLI or API operations | Span encompassing local setup, remote provider queue time, execution, and network I/O. When inner process/CPU boundaries are absent, this MUST be labeled *observed operation elapsed*, not pure model reasoning or CPU active time. |
+| **Observed active wall time** | Interval union ($\bigcup [t_{\text{start}}, t_{\text{end}}]$) of evidenced substantive agent/model/tool execution intervals for this PR | Wall-clock span where at least one agent or tool was actively executing on this PR. Never gap-filled from message timestamps; endpoint verification required. |
+| **Agent effort** | Sum ($\sum (t_{\text{end}} - t_{\text{start}})$) of per-agent evidenced active intervals | Cumulative worker execution time across all parallel agents/subagents. Can exceed *Observed active wall time* and *PR elapsed*. **Never sum agent effort together with active wall time.** |
+| **Waiting time** | Observed CI/provider/dependency/human-hold intervals | Segregated into distinct categories (CI queue, provider rate limit, external dependency, human review/hold); use interval union for aggregate waiting time. |
+| **Avoidable unattended time** | Disjoint evidenced intervals with an executable authorized action, no executing owner/job, and no legitimate hold | Requires positive eligibility, authority, and continuity evidence. If active worker or hold state is unobserved, evaluates strictly to `UNKNOWN`. |
+
+#### Essential Accounting Rules
+- **Residual Rule**: Residual duration (`PR elapsed - observed_active_wall_time`) is **NOT** wasted time. It contains observed waiting times (CI runs, external dependencies), legitimate human review and design reflection, authorized pauses, and unobserved periods. Incomplete telemetry yields observed lower bounds and explicit `UNKNOWN` duration, never a speculative decomposition into waste.
+- **Active Wall Time vs. Agent Effort**: Wall time answers "how long was the clock running while work occurred?" whereas agent effort answers "how many worker-hours were consumed across all lanes?". They answer orthogonal questions and must never be combined or confused.
+- **Four-Hour Sampling Uncertainty**: Four-hour snapshot cadences observe state periodically; they cannot certify continuous inactivity between samples. Snapshots must never fabricate continuous idleness between observations.
+
+### 5. Human Interactions per PR & Episode Annotation
+
+Human interventions must be tracked accurately to identify genuine agent failures versus routine collaboration and new product guidance.
+
+#### 1. Message Count vs. Deduplicated Episodes
+- **Raw human message count**: Total count of inbound human messages in the task/PR context.
+- **Deduplicated intervention episodes**: One distinct human contribution or issue plus its immediate clarifying follow-ups constitutes exactly **one episode** (e.g. three consecutive messages from the operator clarifying a single spec ambiguity count as 3 messages but 1 episode).
+- **Auditability**: For every episode, record the exact episode boundaries, source conversation runtime, and source `message_id`s so grouping is fully inspectable.
+
+#### 2. Rigorous Origin Filtering & Bot Exclusion
+- **Exclude Non-Human Triggers**: Initial task assignments, automated bots, background agents, quota/resume watchdogs, scheduled reminders, and copied/mirrored transcripts are strictly excluded from human intervention counts.
+- **Origin Verification**: A message delivered with `role=user` or in a user channel is not automatically a genuine human intervention. Inspect transport metadata, sender IDs, and context. Unclear origins MUST remain `UNKNOWN` and be excluded from confident human interaction counts.
+
+#### 3. Four Semantic Episode Categories
+Classification must be authored by the PR driver, an independent human reviewer, or a bounded retrospective model pass citing specific evidence, model/version, and confidence. **NEVER use keyword matching, substring rules, or regex heuristics to classify human interactions.**
+
+| Category | Operational Meaning | Evidenced Examples |
+|---|---|---|
+| **good** (*value-adding*) | Intended human review, domain judgment, design pivot, or changed requirement. | Human reviews valid visual video evidence and updates spec; operator supplies an authorized merge or scope decision upon request. |
+| **bad** (*avoidable*) | Human effort caused by an evidenced agent error, rule violation, or missed authorized follow-through. | Agent ignored existing repository rule; agent stopped with an executable, authorized next action and the human had to manually nudge/resume it. Root-cause investigations (`/harness`) to address the same failure belong to the same episode, not a separate `good` episode. |
+| **mixed** | One episode contains both useful new domain judgment and correction of an agent error. | Operator approves an architectural direction while also pointing out an agent test regression introduced in the same turn. |
+| **unknown** | Insufficient context, unclear responsibility, or uncertain PR association. | Bare prompt like `"continue"` or `"proceed"` with ambiguous prior task activity or absent hold state. |
+
+#### 4. Attribution, Population Rates & Calibration
+- **Preserve Unassigned Episodes**: Task-level episodes that cannot be definitively linked to a specific PR must be recorded with `pr_attribution: "unassigned"`. Never artificially force a task-level intervention into a specific PR.
+- **No Conflated Population Rates**: Never divide a selected incident sample by the total count of repository PRs to claim an overall human-intervention or error rate.
+- **Channel Coverage Invariant**: Never claim a PR or task is `"zero-touch"` unless all applicable human communication channels (e.g. Dot history, direct CLI sessions, Slack threads) were explicitly audited and covered.
+- **Post-Merge Corrections**: Interventions that address regressions after PR merge must be recorded with timing `post_merge`, not excluded or hidden from the PR's historical audit.
+- **Cross-Annotator Calibration**: When evaluating human interaction quality, run calibration on a shared sample of episodes across independent annotators. If annotators disagree on attribution or category, record the resolution as `mixed` or `unknown`; never resolve disagreements by arbitrary majority vote.
+
+### 6. Qualitative Duplicate & Code Classification
 - **Substantive duplicate detection**: Do not use naive title-string similarity heuristics. Flag duplicate or abandoned attempts only through agent inspection of actual evidence: identical goals, overlapping diffs, or explicit PR closure notes referencing superseding work.
 - **Duplicate full review tracking**:
   * Track duplicate full reviews only when unchanged claim coverage is established (e.g. re-running an entire review suite on a candidate where existing receipts already verified valid claim coverage without head or contract drift).
@@ -132,4 +185,5 @@ Audits pull request throughput, lifecycle duration, and stage dwell across exact
 - **Scheduled collection & dashboard:** `scripts/prw_metrics.py` (and `scripts/run_prw_metrics.sh`) implements the scheduled 4-hour rolling collector and private dashboard renderer following this skill's window, handoff, and `UNKNOWN` idle rules.
 - **Reuse existing records**: Leverage `history`, `ms`, and existing PR timeline receipts. Do not introduce new enforcement frameworks, background scorers, or ledgers.
 - **Audit reports**: Save human-readable summary reports to `~/roadmap/` (e.g. `~/roadmap/pr-efficiency-<repo>-<window>.md`).
-- **Bulky evidence**: Save large raw JSON dumps, event logs, and paginated query payloads to Scratch space (`diskm scratch-new` or host scratch), never in the repository tree.
+- **Private telemetry retention**: Retain underlying observational telemetry under `dashboards/prw/telemetry/` in the private `roadmap` repository (`<org>/roadmap`) to guarantee reproducible audit studies and deterministic rebuilds even when local Scratch directories are rotated.
+- **Bulky evidence**: Save large raw JSON dumps, event logs, and paginated query payloads to Scratch space (`diskm scratch-new` or host scratch), never in the primary repository tree.
