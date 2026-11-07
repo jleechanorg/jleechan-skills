@@ -24,10 +24,24 @@ Before selecting a branch, stage, or gate, inspect the target repository's `AGEN
 
 ## Verify ownership and exact branch
 
-- Verify head repository, branch, head SHA, and base from live PR metadata:
-  `gh pr view <N> --json url,headRefName,headRefOid,headRepository,baseRefName`.
-- Inspect remotes and status. Work in the incumbent checkout or an isolated worktree; preserve unrelated work.
-- Never use hard resets, force-pushes, or discarded work as routine verification. Re-read remote head before publication.
+- Read target repository `AGENTS.md`/`CLAUDE.md`, current user scope, existing PR, and source-owner/hold records. Reconcile with any sole writer before writing to prevent competing updates.
+- Verify actual head repository, head branch, head SHA, and base from live PR metadata:
+  `gh pr view <N> --json url,headRefName,headRefOid,headRepository,baseRefName`. Inspect remotes, local status, and upstream; a similarly named branch or a log grep is not source binding.
+- Fetch the verified branch using the existing authorized remote. Work in the incumbent checkout or an explicitly coordinated isolated worktree; preserve dirty state and unrelated changes.
+- Never use hard resets, force-pushes, deleted branches, or discarded work as routine verification; this skill grants none of those actions and no new writer. Re-read remote head before publication; unexpected remote movement requires reconciliation, not overwrite.
+- For upstream mechanics and branch tracking verification, follow [git-branch-tracking](../git-branch-tracking/SKILL.md).
+
+## Practical publication guidance
+
+Apply these compact defaults where explicit repository instructions are silent; existing global merge/push safety remains canonical:
+- **First branch push:** Verify target and upstream tracking (`git push -u <verified-remote> HEAD`), following [git-branch-tracking](../git-branch-tracking/SKILL.md).
+- **Same-repository PR creation:** Verify head and base repositories are identical, then bind explicitly:
+  `gh pr create --repo <verified-base-owner/repo> --draft --base <verified-base> --head <verified-branch>`.
+- **User-owned fork PR creation:** Use the same explicit `--repo` and `--base` with `--head <verified-head-user>:<verified-branch>`. If a tool cannot express the exact head repository (such as GitHub CLI fork or organization limitations), use an already-authorized capable interface or report the precise blocker; never guess from a same-name branch.
+- **After-create readback:** Read back both repository identities, head/base branches, and head SHA before updating or claiming the intended PR.
+- **Existing PR updates:** Scoped commit and ordinary push only through the PR's sole writer; re-read remote head SHA immediately afterward to verify publication.
+- **Missing upstream repair:** Verify the remote branch, then configure tracking: `git branch --set-upstream-to=<remote>/<branch>`.
+- **Connector updates:** Connector authorized expected-head non-forced updates and exact readback are distinct from native Git upstream; do not treat connector publication as establishing native Git upstream tracking.
 
 ## Autonomous execution and boundaries
 
