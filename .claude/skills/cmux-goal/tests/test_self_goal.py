@@ -63,6 +63,11 @@ class OwnSession(unittest.TestCase):
         self.session(self.cfgs[1], 111, "TWO")
         self.assertIsNone(g.session_jsonl([111]))
 
+    def test_no_tmux_pane_still_resolves_own_session(self):
+        os.environ.pop("TMUX_PANE")  # cmux host: no tmux involved
+        self.session(self.cfgs[0], 111, "MINE", tmux="")
+        self.assertEqual(g.session_jsonl([111]).stem, "MINE")
+
     def test_pane_mismatch_refuses(self):
         self.session(self.cfgs[0], 111, "MINE", tmux="s:@1.%9")
         self.assertIsNone(g.session_jsonl([111]))
