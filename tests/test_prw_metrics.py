@@ -39,6 +39,7 @@ try:
         split_search_window_on_cap,
         extract_github_repo_slug,
         sanitize_telemetry_file,
+        _project_summary,
     )
 except ImportError:
     Collector = None
@@ -46,6 +47,7 @@ except ImportError:
     MetricsAggregator = None
     Publisher = None
     sanitize_telemetry_file = None
+    _project_summary = None
     parse_operational_title = None
     split_search_window_on_cap = None
 
@@ -2325,6 +2327,80 @@ class TestRetentionRoundTripInvariant(unittest.TestCase):
             summary = self._summarize(refreshed)
             self.assertEqual(summary["open_prs_known_idle"], [])
             self.assertEqual(len(summary["open_prs_unknown_idle"]), 1)
+
+    def test_unknown_nested_fields_reach_no_committed_blob_or_rendered_markdown(self):
+        sentinel = "nested-transcript-sentinel"
+        with tempfile.TemporaryDirectory() as tmp:
+            remote, local = self._bare_remote_and_checkout(tmp)
+            pages = {self.REPO_A: [self._telemetry_pr("fff6666")]}
+            pages[self.REPO_A].append(self._pr(self.REPO_A, 1, "MERGED", "2026-11-04T20:00:00Z", "2026-11-04T20:00:00Z"))
+            pages[self.REPO_A].append(self._pr(self.REPO_A, 3, "OPEN", "2026-11-07T00:00:00Z", head="ggg7777"))
+            collected = self._collect(pages)
+            cutoff = parse_iso_utc(self.CUTOFF)
+            summary = MetricsAggregator(cutoff_dt=cutoff).aggregate_full_dataset(
+                prs=collected["prs"], timeline_events=collected["timeline"], sources=collected["sources"],
+                handoff_records=collected["handoff_records"], now_dt=cutoff,
+                # Precomputed pilot rows pass through the aggregator unchanged.
+                time_semantics_pilot=[{"pr_url": "https://example.org/pull/1", "pr_elapsed_sec": 5.0,
+                                       "raw_transcript": sentinel}],
+                human_episodes=[{"episode_id": "e", "origin": "user", "raw_message_count": 1, "label": "good"}],
+            )
+            injected = []
+
+            def inject(container, label):
+                container["raw_transcript"] = sentinel + "-" + label
+                injected.append(label)
+
+            for section in ("repo_comparison", "stage_dwell", "handoffs", "open_prs_known_idle",
+                            "open_prs_unknown_idle", "time_semantics_pilot"):
+                self.assertTrue(summary.get(section), section)
+                for row in summary[section]:
+                    inject(row, section)
+            for name, src in summary["sources"].items():
+                inject(src, "sources")
+            hi = summary["human_interventions"]
+            inject(hi, "human_interventions")
+            inject(hi["label_breakdown"], "label_breakdown")
+            inject(hi["channel_coverage"], "channel_coverage")
+            summary["raw_transcript"] = sentinel + "-top"
+            self.assertEqual(len(set(injected)), 10)
+
+            res = publish_dashboard(
+                markdown_text=DashboardRenderer().render(summary),
+                repo_path=local,
+                verify_private_fn=lambda _: True,
+                publish_telemetry=True,
+                summary_data=summary,
+                prs=collected["prs"], timeline=collected["timeline"],
+                handoff_records=collected["handoff_records"], sources=collected["sources"],
+            )
+            self.assertTrue(res["committed"], res)
+            tree = subprocess.run(
+                ["git", "-C", remote, "ls-tree", "-r", "--name-only", "main"],
+                check=True, capture_output=True, text=True,
+            ).stdout.split()
+            snapshot = [p for p in tree if p.endswith("summary_snapshot.json")]
+            self.assertEqual(len(snapshot), 1)
+            for path in tree:
+                blob = subprocess.run(
+                    ["git", "-C", remote, "show", "main:" + path], check=True, capture_output=True, text=True
+                ).stdout
+                self.assertNotIn(sentinel, blob, path)
+            kept = json.loads(subprocess.run(
+                ["git", "-C", remote, "show", "main:" + snapshot[0]], check=True, capture_output=True, text=True
+            ).stdout)
+            self.assertTrue(kept["repo_comparison"] and kept["repo_comparison"][0]["repo"])
+            self.assertEqual(kept["time_semantics_pilot"][0].get("pr_elapsed_sec"), 5.0)
+            self.assertEqual(set(kept["human_interventions"]["label_breakdown"]), {"good", "bad", "mixed", "unknown"})
+
+    def test_summary_schema_covers_every_key_the_aggregator_emits(self):
+        collected = self._collect({self.REPO_A: [self._telemetry_pr("fff6666")]})
+        summary = self._summarize(collected)
+        projected = json.loads(json.dumps(_project_summary(summary)))
+        self.assertEqual(set(projected), set(summary))
+        for section in ("repo_comparison", "stage_dwell", "handoffs", "open_prs_known_idle", "open_prs_unknown_idle"):
+            for original, kept in zip(summary[section], projected[section]):
+                self.assertEqual(set(kept), set(original), section)
 
 
 if __name__ == "__main__":

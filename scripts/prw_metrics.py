@@ -260,11 +260,6 @@ RETAINED_PR_FIELDS = frozenset({
     "earliest_unmet_obligation", "potential_handoff_waiting", "job_handle", "wake_condition",
     "receipt_links",
 })
-RETAINED_SUMMARY_FIELDS = frozenset({
-    "status", "generated_at", "data_through", "w1_bounds", "w2_bounds", "repo_comparison",
-    "stage_dwell", "handoffs", "open_prs_known_idle", "open_prs_unknown_idle",
-    "time_semantics_pilot", "human_interventions",
-})
 RETAINED_TIMELINE_FIELDS = frozenset({
     "id", "event", "event_type", "type", "label", "actor", "createdAt", "created_at", "occurred_at",
     "timestamp", "repo", "number", "pr_number", "pr_id", "stage", "entered_at", "exited_at",
@@ -319,13 +314,69 @@ def _retained_scalar(value):
     return None
 
 
+_SC = "scalar"
+_LABELS = {"good": _SC, "bad": _SC, "mixed": _SC, "unknown": _SC}
+_ATTENTION_ROW = {
+    "url": _SC, "sha": _SC, "stage": _SC, "title_status": _SC, "next_action": _SC, "owner": _SC,
+    "hold_status": _SC, "job_handle": _SC, "wake_condition": _SC, "receipt_links": [_SC],
+    "earliest_unmet_obligation": _SC, "potential_handoff_waiting": _SC, "quiet_time": _SC,
+    "eligible_unattended_duration_sec": _SC,
+}
+# Explicit schema for every record type nested in the summary: dict = allowed keys, [spec] = list of
+# records, ("map", spec) = dynamic keys. Anything not listed is dropped at every depth.
+SUMMARY_SCHEMA = {
+    "status": _SC, "generated_at": _SC, "data_through": _SC,
+    "w1_bounds": [_SC], "w2_bounds": [_SC],
+    "sources": ("map", {"status": _SC, "count": _SC, "cutoff": _SC}),
+    "repo_comparison": [{k: _SC for k in (
+        "repo", "created", "created_w1", "created_w2", "merged_w1", "merged_w2", "closed_unmerged_w1",
+        "closed_unmerged_w2", "current_closed_unmerged", "still_open", "w1_all_median_hours",
+        "w1_all_p75_hours", "all_median_hours", "all_p75_hours", "w1_comp_median_hours",
+        "w1_comp_p75_hours", "comp_median_hours", "comp_p75_hours", "w1_backlog_n",
+        "w1_backlog_median_hours", "backlog_n", "backlog_median_hours")}],
+    "stage_dwell": [{k: _SC for k in ("stage", "median_h", "p75_h", "n", "total_n", "conflicts")}],
+    "handoffs": [{k: _SC for k in ("name", "observed_n", "sample_n", "total_n", "median_sec", "p75_sec", "status")}],
+    "open_prs_known_idle": [_ATTENTION_ROW],
+    "open_prs_unknown_idle": [_ATTENTION_ROW],
+    "time_semantics_pilot": [{k: _SC for k in (
+        "pr_url", "pr_elapsed_sec", "task_elapsed_sec", "closure_sprint_to_merge_sec",
+        "observed_operation_elapsed_sec", "operation_elapsed_basis", "observed_active_wall_sec",
+        "agent_effort_sec", "unattributed_or_waiting_residual_sec", "residual_classification",
+        "explicit_waiting_sec", "avoidable_unattended_sec")}],
+    "human_interventions": {
+        "raw_human_messages": _SC, "initial_task_requests": _SC, "qualifying_episodes": _SC,
+        "unverified_origin_excluded": _SC, "dot_page_tail_partial_count": _SC, "label_breakdown": _LABELS,
+        "pr_attributed_count": _SC, "unassigned_count": _SC, "post_merge_count": _SC,
+        "channel_coverage": {"dot_history": _SC}, "retention_status": _SC,
+    },
+}
+
+
+def _project(value, spec):
+    """Recursively project value onto spec; unknown keys, wrong shapes and non-scalars are dropped."""
+    if spec == _SC:
+        if isinstance(value, str):
+            return redact_sensitive_excerpt(value, max_chars=len(value) + 4)
+        return value if value is None or isinstance(value, (bool, int, float)) else None
+    if isinstance(spec, list):
+        if not isinstance(value, (list, tuple)):
+            return []
+        items = [_project(v, spec[0]) for v in value if spec[0] == _SC or isinstance(v, dict)]
+        return [i for i in items if i is not None]
+    if isinstance(spec, tuple):
+        if not isinstance(value, dict):
+            return {}
+        return {str(k): _project(v, spec[1]) for k, v in value.items() if isinstance(v, dict)}
+    if not isinstance(value, dict):
+        return None
+    return {k: _project(value[k], sub) for k, sub in spec.items() if k in value}
+
+
 def _project_summary(summary):
-    """Fixed-field summary snapshot: known sections only, sources reduced to status/count/cutoff."""
+    """Fixed-schema summary snapshot: every nested record type is projected onto SUMMARY_SCHEMA."""
     if not isinstance(summary, dict):
         return {}
-    out = {k: _scrub_secrets(v) for k, v in summary.items() if k in RETAINED_SUMMARY_FIELDS}
-    out["sources"] = _sanitize_retained_sources(summary.get("sources"))
-    return out
+    return {k: _project(summary[k], sub) for k, sub in SUMMARY_SCHEMA.items() if k in summary}
 
 
 def _sanitize_retained_record(record, allowed, nested=False):
@@ -1458,9 +1509,7 @@ class Collector:
                                 sources[f"{repo}:timeline"] = {"status": "PARTIAL_FAILURE", "error": str(tle)}
                                 sources[repo]["status"] = "PARTIAL_FAILURE"
                                 sources[repo]["error"] = str(tle)
-                                sources[repo]["cutoff"] = prior_cutoffs.get(
-                                    repo, sources[repo]["cutoff"]
-                                )
+                                sources[repo]["cutoff"] = prior_cutoffs.get(repo)
                 except Exception as e:
                     # Live collection failed for this repo
                     prior = cached_prs_by_repo.get(repo, [])
@@ -1470,14 +1519,14 @@ class Collector:
                             "status": "PARTIAL_FAILURE",
                             "error": str(e),
                             "count": len(prior),
-                            "cutoff": prior_cutoffs.get(repo, format_iso_utc(self.cutoff_dt)),
+                            "cutoff": prior_cutoffs.get(repo),
                         }
                     else:
                         sources[repo] = {
                             "status": "FAILED",
                             "error": str(e),
                             "count": 0,
-                            "cutoff": format_iso_utc(self.cutoff_dt),
+                            "cutoff": None,
                         }
             all_timeline = self.deduplicate_events(live_timeline + cached_timeline)
             handoff_records = list(cached_handoffs)
@@ -2441,7 +2490,7 @@ class MetricsAggregator:
         elif source_cutoffs:
             data_through_dt = min(source_cutoffs)
         else:
-            data_through_dt = self.cutoff_dt
+            data_through_dt = None
 
         # Group by repository
         repos = sorted(list(set(p.get("repo") for p in prs if p.get("repo"))))
@@ -2565,6 +2614,7 @@ class MetricsAggregator:
                     "sha": sha,
                     "stage": stg_lbl,
                     "title_status": title_status,
+                    "earliest_unmet_obligation": earliest_unmet,
                     "next_action": next_action,
                     "owner": owner,
                     "hold_status": hold_status,
@@ -2683,6 +2733,7 @@ class DashboardRenderer:
     """Renders structured summary data into GitHub-flavored Markdown."""
 
     def render(self, data):
+        data = _project_summary(data)
         status = data.get("status", "UNKNOWN")
         gen_at = data.get("generated_at", "UNKNOWN")
         data_through = data.get("data_through", "UNKNOWN")
@@ -2819,10 +2870,10 @@ class DashboardRenderer:
         md.append("### 5A. Open PRs with Observed Eligible Unattended Duration")
         md.append("")
         if data.get("open_prs_known_idle"):
-            md.append("| PR | Head SHA | Stage | Title Status | Actionable Next Step | Owner | Hold Status | Job Handle | Wake Condition | Receipts | Eligible Unattended Duration |")
-            md.append("|---|---|---|---|---|---|---|---|---|---|---|")
+            md.append("| PR | Head SHA | Stage | Title Status | Earliest Unmet Obligation | Actionable Next Step | Owner | Hold Status | Job Handle | Wake Condition | Receipts | Eligible Unattended Duration |")
+            md.append("|---|---|---|---|---|---|---|---|---|---|---|---|")
             for pr in data.get("open_prs_known_idle"):
-                md.append(f"| [{pr['url']}]({pr['url']}) | `{pr['sha'][:7]}` | `{pr['stage']}` | {pr.get('title_status', 'UNKNOWN')} | {pr['next_action']} | `{pr['owner']}` | {pr['hold_status']} | {pr.get('job_handle', 'UNKNOWN')} | {pr.get('wake_condition', 'UNKNOWN')} | {render_receipt_links(pr.get('receipt_links'))} | **{format_duration(pr['eligible_unattended_duration_sec'])}** |")
+                md.append(f"| [{pr['url']}]({pr['url']}) | `{pr['sha'][:7]}` | `{pr['stage']}` | {pr.get('title_status', 'UNKNOWN')} | {pr.get('earliest_unmet_obligation', 'UNKNOWN')} | {pr['next_action']} | `{pr['owner']}` | {pr['hold_status']} | {pr.get('job_handle', 'UNKNOWN')} | {pr.get('wake_condition', 'UNKNOWN')} | {render_receipt_links(pr.get('receipt_links'))} | **{format_duration(pr['eligible_unattended_duration_sec'])}** |")
         else:
             md.append("*No open PRs currently exhibit proven eligible unattended duration.*")
         md.append("")
