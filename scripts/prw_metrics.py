@@ -2036,11 +2036,8 @@ class MetricsAggregator:
             if is_dot:
                 dot_has_structured = True
 
-            # Episode identity deduplicates semantic episodes; message identity is counted independently.
             ep_id = ep.get("episode_id")
             duplicate_episode = bool(ep_id and ep_id in seen_episode_ids)
-            if ep_id and not duplicate_episode:
-                seen_episode_ids.add(ep_id)
             if msg_ids:
                 new_message_ids = [message_id for message_id in msg_ids if message_id not in raw_message_ids]
                 raw_message_ids.update(new_message_ids)
@@ -2051,13 +2048,17 @@ class MetricsAggregator:
                 raw_msgs = 0 if duplicate_episode else ep.get("raw_message_count", 1)
                 raw_human_messages += raw_msgs
 
-            if duplicate_episode:
-                continue
-
             is_initial = bool(ep.get("is_initial_assignment") or ep.get("initial_task_request"))
             if is_initial:
                 initial_task_requests += raw_msgs
                 continue
+
+            if msg_ids and not new_message_ids:
+                continue
+            if duplicate_episode or (msg_ids and not ep_id):
+                continue
+            if ep_id:
+                seen_episode_ids.add(ep_id)
 
             qualifying_episodes += 1
 
