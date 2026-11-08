@@ -96,7 +96,8 @@ def composer_is_empty(pane):
 
 def do_set(cond, force_after_clear):
     if host() != "tmux":
-        return report("unsupported (host is %s; self-typing is tmux-only here)" % host())
+        hint = " - agent-side route: cmux-goal/SKILL.md section Warp" if host() == "warp" else ""
+        return report("unsupported (host is %s; self-typing is tmux-only here)%s" % (host(), hint))
     pane = os.environ["TMUX_PANE"]
     if not cond or len(cond) > MAX_LEN or re.search(r"[\x00-\x1f\x7f]", cond):
         return report("unsupported (condition must be one line, 1-%d chars)" % MAX_LEN)
