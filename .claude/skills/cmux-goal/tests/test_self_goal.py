@@ -126,8 +126,8 @@ elif cmd == "capture-pane":
 """
 
 
-class CmuxPath(unittest.TestCase):
-    """Offline: a fake `cmux` on PATH records argv; no real cmux is involved."""
+class FakeBase(unittest.TestCase):
+    """Offline: fake `cmux`/`tmux` on PATH record argv; no real terminal is involved."""
 
     def setUp(self):
         self.tmp = pathlib.Path(tempfile.mkdtemp())
@@ -161,6 +161,8 @@ class CmuxPath(unittest.TestCase):
         calls = [json.loads(x) for x in self.log.read_text().splitlines()] if self.log.exists() else []
         return rc, out.getvalue(), calls
 
+
+class CmuxPath(FakeBase):
     def test_types_into_own_surface_and_reads_back(self):
         rc, out, calls = self.run_set("c", [rec(met=False, sentinel=True, condition="c")])
         self.assertEqual(rc, 0)
@@ -186,6 +188,38 @@ class CmuxPath(unittest.TestCase):
         rc, out, calls = self.run_set("a\\nb", [])
         self.assertEqual(rc, 1)
         self.assertFalse(calls)
+
+
+FAKE_TMUX = FAKE_CMUX.replace('cmd == "identify"', 'cmd == "never"').replace(
+    'cmd == "send-key"', 'cmd == "send-keys" and sys.argv[-1] == "Enter"').replace(
+    'cmd == "capture-pane"', 'cmd == "capture-pane"').replace("FAKE_LOG", "FAKE_TLOG")
+
+
+class TmuxInsideCmux(FakeBase):
+    def test_innermost_tmux_wins_over_inherited_cmux(self):
+        exe = self.tmp / "bin" / "tmux"
+        exe.write_text(FAKE_TMUX)
+        exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
+        tlog = self.tmp / "tmux-argv.log"
+        os.environ.update(TMUX="sock,1,0", TMUX_PANE="%7", FAKE_TLOG=str(tlog))
+        rc, out, cm = self.run_set("c", [rec(met=False, sentinel=True, condition="c")])
+        calls = [json.loads(x) for x in tlog.read_text().splitlines()]
+        self.assertEqual(rc, 0)
+        self.assertIn("activated via tmux", out)
+        self.assertEqual(cm, [])  # the outer cmux surface is never touched
+        self.assertIn(["send-keys", "-t", "%7", "-l", "/goal c"], calls)
+        self.assertTrue(all(c[c.index("-t") + 1] == "%7" for c in calls))
+
+
+class EntryPointContract(unittest.TestCase):
+    def test_prw_goal_condition_follows_requested_endpoint(self):
+        text = (pathlib.Path(__file__).resolve().parents[2] / "prw" / "SKILL.md").read_text()
+        self.assertIn("the endpoint the user requested, default FINAL_READY", text)
+        self.assertNotIn("PR <N> at FINAL_READY,", text)
+
+    def test_helper_accepts_any_endpoint_wording(self):
+        for cond in ("repo PR 5 at stop after Stage 0, or stopped with the exact blocker only the user can clear",):
+            self.assertTrue(0 < len(cond) <= g.MAX_LEN)
 
 
 if __name__ == "__main__":

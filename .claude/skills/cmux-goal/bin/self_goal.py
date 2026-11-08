@@ -20,11 +20,12 @@ MAX_LEN = 180
 
 
 def host():
+    """Innermost host wins: a tmux pane inside cmux/Warp is typed into via tmux."""
     env = os.environ
-    if env.get("CMUX_SURFACE_ID") or env.get("CMUX_SOCKET_PATH"):
-        return "cmux"
     if env.get("TMUX") and env.get("TMUX_PANE"):
         return "tmux"
+    if env.get("CMUX_SURFACE_ID") or env.get("CMUX_SOCKET_PATH"):
+        return "cmux"
     if env.get("TERM_PROGRAM") == "WarpTerminal":
         return "warp"
     return "none"

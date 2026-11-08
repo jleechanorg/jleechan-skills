@@ -6,7 +6,9 @@ tmp="$(mktemp -d)"
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
 h() { env -i PATH="$PATH" "$@" python3 "$here/bin/self_goal.py" host; }
-[ "$(h CMUX_SURFACE_ID=x TMUX=a TMUX_PANE=%1)" = cmux ] || fail cmux
+[ "$(h CMUX_SURFACE_ID=x)" = cmux ] || fail cmux
+[ "$(h CMUX_SURFACE_ID=x TMUX=a TMUX_PANE=%1)" = tmux ] || fail tmux-inside-cmux
+[ "$(h TERM_PROGRAM=WarpTerminal TMUX=a TMUX_PANE=%1)" = tmux ] || fail tmux-inside-warp
 [ "$(h TMUX=a TMUX_PANE=%1)" = tmux ] || fail tmux
 [ "$(h TERM_PROGRAM=WarpTerminal)" = warp ] || fail warp
 [ "$(h)" = none ] || fail none
