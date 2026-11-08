@@ -258,7 +258,7 @@ RETAINED_HANDOFF_FIELDS = frozenset({
     "duration_sec", "start_at", "started_at", "end_at", "completed_at", "evidence_ready_at",
     "review_requested_at", "actual_review_started_at", "queued_at", "review_returned_at",
     "review_completed_at", "next_action_started_at", "authority_ready_at", "initial_task_accepted_at",
-    "closure_sprint_accepted_at", "agent_effort_sec", "avoidable_unattended_sec",
+    "closure_sprint_accepted_at", "timestamps", "rounds", "agent_effort_sec", "avoidable_unattended_sec",
     "closure_sprint_to_merge_sec", "explicit_waiting_sec", "observed_active_wall_sec",
     "observed_operation_elapsed_sec", "pr_elapsed_sec", "task_elapsed_sec", "median_sec",
     "observed_n", "total_n",
@@ -268,6 +268,11 @@ RETAINED_SOURCE_FIELDS = frozenset({"status", "count", "cutoff"})
 RETAINED_NESTED_KEYS = frozenset({
     "stage", "label", "name", "start", "end", "start_at", "end_at", "entered_at", "exited_at",
     "started_at", "completed_at", "duration_sec",
+    # canonical run.stats.json receipts: timestamps{} and rounds[]
+    "accepted_at", "merged_at", "created_at", "closure_sprint_accepted_at", "round", "candidate_sha",
+    "evidence_ready_at", "review_requested_at", "actual_review_started_at", "review_return_at",
+    "review_returned_at", "review_completed_at", "next_substantive_action_started_at",
+    "next_action_started_at",
 })
 
 
@@ -574,17 +579,30 @@ class Collector:
         self.source_manifest = {}
 
     def deduplicate_prs(self, prs):
-        """Deduplicate PRs by (repo, number)."""
-        seen = set()
-        deduped = []
+        """
+        Deduplicate PRs by (repo, number), keeping the most recently updated snapshot.
+        Ties keep the earliest-listed record, so callers list preferred sources first
+        (live, then scratch, then retained).
+        """
+        def recency(p):
+            for field in ("updatedAt", "mergedAt", "closedAt", "createdAt"):
+                dt = parse_iso_utc(p.get(field))
+                if dt:
+                    return dt
+            return None
+
+        best = {}
+        order = []
         for p in prs:
-            repo = p.get("repo")
-            num = p.get("number")
-            key = (repo, num)
-            if key not in seen:
-                seen.add(key)
-                deduped.append(p)
-        return deduped
+            key = (p.get("repo"), p.get("number"))
+            if key not in best:
+                best[key] = p
+                order.append(key)
+                continue
+            cur_dt, new_dt = recency(best[key]), recency(p)
+            if new_dt and (cur_dt is None or new_dt > cur_dt):
+                best[key] = p
+        return [best[k] for k in order]
 
     def deduplicate_events(self, events):
         """Deduplicate timeline events by event ID where available or (repo, pr_number, event, label, createdAt, actor)."""
@@ -1151,9 +1169,22 @@ class Collector:
         sources = {}
 
         cached_prs_by_repo = {}
+        retained_prs_by_repo = {}
         cached_timeline = []
         cached_handoffs = []
         prior_cutoffs = {}
+        prior_sources = {}
+
+        def remember_prior_source(key, entry):
+            """Record a saved source entry; its status and failure provenance survive reloads."""
+            if not isinstance(entry, dict):
+                return
+            cutoff = entry.get("cutoff") if parse_iso_utc(entry.get("cutoff")) else None
+            prior_sources[key] = {"status": entry.get("status"), "cutoff": cutoff}
+            if cutoff and entry.get("status") not in ("STALE", "FAILED"):
+                prior_cutoffs[key] = cutoff
+            else:
+                prior_cutoffs.pop(key, None)
 
         # Telemetry candidate discovery
         candidate_telem_dirs = []
@@ -1189,15 +1220,14 @@ class Collector:
             calibration_audit = retained.get("calibration_audit") or calibration_audit
             retention_manifest = retained.get("retention_manifest") or retention_manifest
             # Retained collections seed the same caches scratch state does; scratch (loaded next) wins.
-            for p in retained.get("prs", []):
+            for p in reversed(retained.get("prs", [])):
                 r = p.get("repo")
                 if r and (not self.repos or r in self.repos):
-                    cached_prs_by_repo.setdefault(r, []).append(self.normalize_pr_record(p))
+                    retained_prs_by_repo.setdefault(r, []).append(self.normalize_pr_record(p))
             cached_timeline.extend(retained.get("timeline", []))
             cached_handoffs.extend(retained.get("handoff_records", []))
             for k, v in retained.get("sources", {}).items():
-                if isinstance(v, dict) and v.get("cutoff"):
-                    prior_cutoffs[k] = v["cutoff"]
+                remember_prior_source(k, v)
 
         # 1. Attempt loading from state_dir or input_dir
         for directory in (state_dir, input_dir):
@@ -1220,14 +1250,13 @@ class Collector:
                         with open(manifest_path, "r", encoding="utf-8") as f:
                             m = json.load(f)
                             for k, v in m.items():
-                                if (
-                                    isinstance(v, dict)
-                                    and v.get("status") not in ("STALE", "FAILED")
-                                    and parse_iso_utc(v.get("cutoff"))
-                                ):
-                                    prior_cutoffs[k] = v["cutoff"]
+                                remember_prior_source(k, v)
                     except Exception:
                         pass
+
+        # Retained snapshots rank after scratch: dedupe keeps the newest updatedAt, ties go to scratch.
+        for r, retained_list in retained_prs_by_repo.items():
+            cached_prs_by_repo.setdefault(r, []).extend(retained_list)
 
         # 2. Determine repos to collect
         target_repos = list(self.repos)
@@ -1238,17 +1267,27 @@ class Collector:
             for repo in target_repos:
                 # Offline data is only as fresh as its verified cached cutoff; never
                 # substitute the current collection cutoff for an unknown one.
+                # Only a successful live fetch can mint COMPLETE; a saved FAILED/PARTIAL_FAILURE/STALE
+                # status is reloaded as-is.
                 prs = cached_prs_by_repo.get(repo, [])
                 prior_cutoff = prior_cutoffs.get(repo)
+                prior_status = prior_sources.get(repo, {}).get("status")
                 if prs:
                     all_prs.extend(prs)
-                    sources[repo] = {
-                        "status": "COMPLETE" if prior_cutoff else "STALE",
-                        "count": len(prs),
-                        "cutoff": prior_cutoff,
-                    }
+                    if prior_status == "COMPLETE" and prior_cutoff:
+                        status = "COMPLETE"
+                    elif prior_status in ("PARTIAL_FAILURE", "FAILED"):
+                        status = prior_status
+                    else:
+                        status = "STALE"
+                    sources[repo] = {"status": status, "count": len(prs), "cutoff": prior_cutoff}
+                elif prior_status in ("PARTIAL_FAILURE", "FAILED"):
+                    sources[repo] = {"status": prior_status, "count": 0, "cutoff": prior_cutoff}
                 else:
                     sources[repo] = {"status": "EMPTY", "count": 0, "cutoff": prior_cutoff}
+            for key, entry in prior_sources.items():
+                if key not in sources and entry.get("status") in ("PARTIAL_FAILURE", "FAILED", "STALE"):
+                    sources[key] = {"status": entry["status"], "cutoff": entry["cutoff"]}
             all_timeline = cached_timeline
             handoff_records = cached_handoffs
         else:
@@ -1320,7 +1359,7 @@ class Collector:
             overall_status = "FAILED"
         elif any(s.get("status") == "PARTIAL_FAILURE" for s in sources.values()):
             overall_status = "PARTIAL_FAILURE"
-        elif failed_count > 0 and complete_count > 0:
+        elif failed_count > 0:
             overall_status = "PARTIAL_FAILURE"
         elif not all_prs:
             overall_status = "EMPTY"

@@ -1982,5 +1982,136 @@ class TestRetainedBundleRebuildsAudit(unittest.TestCase):
             self.assertNotIn('"%s"' % key, joined)
 
 
+class TestRetentionRoundTripInvariant(unittest.TestCase):
+    """PR #742 r4: collect -> publish -> wipe scratch -> rebuild must reproduce the same audit."""
+
+    CUTOFF = "2026-11-08T00:00:00Z"
+    REPO_A = "example-org/repo-alpha"
+    REPO_B = "example-org/repo-beta"
+
+    def _pr(self, repo, number, state, updated, merged=None, head="aaa1111"):
+        return {
+            "number": number, "repo": repo, "state": state, "title": "[ready][done] Change %d" % number,
+            "createdAt": "2026-11-02T00:00:00Z", "updatedAt": updated, "mergedAt": merged,
+            "headRefOid": head, "labels": ["stage:3-review"],
+        }
+
+    def _receipt(self, receipts_dir):
+        os.makedirs(receipts_dir)
+        receipt = {
+            "repo": self.REPO_A, "pr_number": 1, "candidate_sha": "aaa1111",
+            "timestamps": {"accepted_at": "2026-11-02T00:00:00Z", "merged_at": "2026-11-04T20:00:00Z"},
+            "rounds": [{
+                "round": 1, "candidate_sha": "aaa1111",
+                "review_requested_at": "2026-11-03T10:00:00Z",
+                "actual_review_started_at": "2026-11-03T11:00:00Z",
+            }],
+        }
+        with open(os.path.join(receipts_dir, "run.stats.json"), "w", encoding="utf-8") as f:
+            json.dump(receipt, f)
+
+    def _collect(self, pages, receipts_dir=None, state_dir=None, fail_repos=(), roadmap=None, offline=False):
+        def fetch_page(repo, page, per_page):
+            if repo in fail_repos:
+                raise RuntimeError("synthetic API outage")
+            return pages.get(repo, []) if page == 1 else []
+
+        collector = Collector(repos=[self.REPO_A, self.REPO_B], cutoff_dt=parse_iso_utc(self.CUTOFF))
+        return collector.collect_all(
+            fetch_page_fn=fetch_page, fetch_timeline_fn=lambda r, n: [], receipts_dir=receipts_dir,
+            state_dir=state_dir, roadmap_repo=roadmap, offline=offline,
+        )
+
+    def _summarize(self, collected):
+        cutoff = parse_iso_utc(self.CUTOFF)
+        summary = MetricsAggregator(cutoff_dt=cutoff).aggregate_full_dataset(
+            prs=collected["prs"], timeline_events=collected["timeline"], sources=collected["sources"],
+            handoff_records=collected["handoff_records"], now_dt=cutoff,
+        )
+        summary.pop("generated_at", None)
+        return summary
+
+    def _write(self, roadmap, files):
+        for relpath, content in files.items():
+            path = os.path.join(roadmap, relpath)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(content)
+
+    def _publish(self, roadmap, collected, slug):
+        self._write(roadmap, Publisher(repo_path=roadmap).write_telemetry_bundle(
+            self._summarize(collected), prs=collected["prs"], timeline=collected["timeline"],
+            handoff_records=collected["handoff_records"], sources=collected["sources"], window_slug=slug,
+        ))
+
+    def test_canonical_receipt_nested_fields_survive_publish_and_reload(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            receipts, roadmap = os.path.join(tmp, "receipts"), os.path.join(tmp, "roadmap")
+            self._receipt(receipts)
+            pages = {self.REPO_A: [self._pr(self.REPO_A, 1, "MERGED", "2026-11-04T20:00:00Z", "2026-11-04T20:00:00Z")]}
+            before = self._collect(pages, receipts_dir=receipts)
+            handoff_before = self._summarize(before)["handoffs"]
+            self.assertTrue(any(r.get("observed_n") for r in handoff_before), handoff_before)
+            self._publish(roadmap, before, "20261104")
+            after = Collector(repos=[self.REPO_A], cutoff_dt=parse_iso_utc(self.CUTOFF)).collect_all(
+                roadmap_repo=roadmap, offline=True
+            )
+            self.assertEqual(self._summarize(after)["handoffs"], handoff_before)
+
+    def test_newer_merged_snapshot_beats_older_open_across_bundles_and_scratch_overrides(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            roadmap, state = os.path.join(tmp, "roadmap"), os.path.join(tmp, "state")
+            open_pages = {self.REPO_A: [self._pr(self.REPO_A, 1, "OPEN", "2026-11-03T00:00:00Z")]}
+            merged_pages = {self.REPO_A: [self._pr(self.REPO_A, 1, "MERGED", "2026-11-05T00:00:00Z", "2026-11-05T00:00:00Z")]}
+            # Bundle directory order must not decide precedence: try both assignments.
+            for open_slug, merged_slug in (("20261101", "20261109"), ("20261109", "20261101")):
+                shutil.rmtree(roadmap, ignore_errors=True)
+                self._publish(roadmap, self._collect(open_pages), open_slug)
+                self._publish(roadmap, self._collect(merged_pages), merged_slug)
+                rebuilt = Collector(repos=[self.REPO_A], cutoff_dt=parse_iso_utc(self.CUTOFF)).collect_all(
+                    roadmap_repo=roadmap, offline=True
+                )
+                states = [p["state"] for p in rebuilt["prs"] if p["number"] == 1]
+                self.assertEqual(states, ["MERGED"], (open_slug, merged_slug))
+
+            # A fresher scratch snapshot overrides retained; an equal-time one wins the tie.
+            os.makedirs(state)
+            scratch_pr = self._pr(self.REPO_A, 1, "CLOSED", "2026-11-06T00:00:00Z")
+            with open(os.path.join(state, "enriched_prs.json"), "w", encoding="utf-8") as f:
+                json.dump([scratch_pr], f)
+            with_scratch = Collector(repos=[self.REPO_A], cutoff_dt=parse_iso_utc(self.CUTOFF)).collect_all(
+                roadmap_repo=roadmap, state_dir=state, offline=True
+            )
+            self.assertEqual([p["state"] for p in with_scratch["prs"]], ["CLOSED"])
+
+    def test_full_round_trip_reproduces_summary_and_source_statuses(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            receipts, roadmap, state = (os.path.join(tmp, n) for n in ("receipts", "roadmap", "state"))
+            self._receipt(receipts)
+            pages = {
+                self.REPO_A: [self._pr(self.REPO_A, 1, "MERGED", "2026-11-04T20:00:00Z", "2026-11-04T20:00:00Z")],
+                self.REPO_B: [self._pr(self.REPO_B, 7, "OPEN", "2026-11-07T00:00:00Z", head="bbb2222")],
+            }
+            self._collect(pages, state_dir=state)  # seed scratch so REPO_B has prior data
+            before = self._collect(pages, receipts_dir=receipts, state_dir=state, fail_repos=(self.REPO_B,))
+            self.assertEqual(before["sources"][self.REPO_B]["status"], "PARTIAL_FAILURE")
+            self._publish(roadmap, before, "20261104")
+            shutil.rmtree(state)
+            shutil.rmtree(receipts)
+
+            after = Collector(repos=[self.REPO_A, self.REPO_B], cutoff_dt=parse_iso_utc(self.CUTOFF)).collect_all(
+                roadmap_repo=roadmap, offline=True
+            )
+            summary_before, summary_after = self._summarize(before), self._summarize(after)
+            for key in set(summary_before) - {"sources"}:
+                self.assertEqual(summary_after[key], summary_before[key], key)
+            for repo in (self.REPO_A, self.REPO_B):
+                self.assertEqual(
+                    {k: summary_after["sources"][repo].get(k) for k in ("status", "cutoff")},
+                    {k: summary_before["sources"][repo].get(k) for k in ("status", "cutoff")},
+                    repo,
+                )
+
+
 if __name__ == "__main__":
     unittest.main()
