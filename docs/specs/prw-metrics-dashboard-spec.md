@@ -34,7 +34,7 @@ A lightweight, automated metrics collector and renderer that publishes a single,
 - **Backlog Partitioning**: Partitions PRs merged within each window into:
   - *Comparable Recent Merges* ($\le 7$ days from `createdAt` to `mergedAt`).
   - *Historical Backlog Merges* ($> 7$ days old at merge), preventing long-parked draft branches from skewing recent turnaround statistics.
-- **Private Telemetry Retention**: Raw event records and session receipts are stored under `dashboards/prw/telemetry/<window_slug>/` in `<org>/roadmap`, ensuring deterministic audit studies and dashboard rebuilds even after local host Scratch is cleared.
+- **Private Telemetry Retention**: Sanitized event/episode records (fixed scalar fields only; raw message text, transcripts and excerpts are never retained) and session receipts are stored under `dashboards/prw/telemetry/<window_slug>/` in `<org>/roadmap`, ensuring deterministic audit studies and dashboard rebuilds even after local host Scratch is cleared.
 
 ### 3.2 Time Semantics & Active Work Model
 - **Per-Attempt Timestamps**: Timestamp subtraction for review handoff intervals (`review_requested_at` to `actual_review_started_at`) must be computed strictly within the same review attempt. Timestamps from different attempts are never combined.
@@ -52,7 +52,7 @@ A lightweight, automated metrics collector and renderer that publishes a single,
 ### 3.3 Operational Status Titles
 - **Parsing Operational Titles**: The collector supports PR titles formatted as `[status][short detail] <substantive change> [<cli>][<model>]`.
 - **Status Tokens**: Valid status tokens include `working`, `waiting`, `blocked`, `queued`, `ready`, and `unknown`.
-- **Decoupling Status from Stages**: Status tokens reflect present-moment execution activity or pending dependency. They must NEVER be reinterpreted as lifecycle stage transitions. Lifecycle stages remain tracked strictly by mechanical labels (`stage/*`) and PR review ledgers.
+- **Decoupling Status from Stages**: Status tokens reflect present-moment execution activity or pending dependency. They must NEVER be reinterpreted as lifecycle stage transitions. Lifecycle stages remain tracked strictly by mechanical labels (`stage:*`) and PR review ledgers.
 - **Legacy Compatibility**: Historical PRs carrying two-letter stage prefixes (e.g. `[fa]`, `[sp]`) or trailing stage suffixes (e.g. `[final approval]`) are parsed for historical stage dwell without converting status tokens into stages.
 
 ### 3.4 Human Interactions & Episode Annotation
@@ -222,6 +222,6 @@ See [User Story: PRW Metrics Dashboard](../user-stories/prw-metrics-dashboard.md
 | **Accidental Credential Leakage** | Critical | Sourcing profile and ambient `gh` CLI credentials only. Zero tokens, passwords, or personal hostnames in plists, scripts, or tracked Markdown files. |
 | **Merge / Git Publication Conflict** | Medium | The publisher fetches the remote `roadmap` branch, attempts a clean fast-forward rebase, reconciles only `dashboards/prw/README.md` and telemetry files, and fails safely without force-pushing. |
 | **Misleading Idle Accusations** | High | Clear visual and lexical separation between stage dwell (elapsed calendar time) and eligible unattended delay. Residual duration (`elapsed - active`) is explicitly defined as non-waste. Unobserved telemetry is strictly displayed as `UNKNOWN (telemetry coverage 0%)`. |
-| **Telemetry Loss Across Host Rotations** | Medium | Raw event logs and receipts are committed under `dashboards/prw/telemetry/` in `<org>/roadmap`, guaranteeing reproducible audit studies and deterministic rebuilds even when local Scratch is rotated. |
+| **Telemetry Loss Across Host Rotations** | Medium | Sanitized event logs (fixed scalar fields) and receipts are committed under `dashboards/prw/telemetry/` in `<org>/roadmap`, guaranteeing reproducible audit studies and deterministic rebuilds even when local Scratch is rotated. |
 | **Subjective Human Intervention Scoring** | Medium | Grounded in four strict semantic categories authored by model/human evaluation with cited evidence rationales, origin metadata checks (excluding bots), cross-annotator calibration, and explicit preservation of `unassigned` task episodes. |
 | **Host Sleep / Network Interruption** | Low | If the host is asleep or offline during a scheduled slot, the job runs on next wake; the previous dashboard remains intact and is explicitly stamped with its prior cutoff and `STALE` status. |

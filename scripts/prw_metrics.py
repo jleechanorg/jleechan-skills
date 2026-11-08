@@ -25,6 +25,7 @@ import sys
 import tempfile
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlsplit
 
 
 # -----------------------------------------------------------------------------
@@ -217,6 +218,95 @@ def redact_sensitive_excerpt(text, max_chars=200):
     if len(s) > max_chars:
         s = s[:max_chars].rstrip() + "..."
     return s
+
+
+TELEMETRY_RELDIR = "dashboards/prw/telemetry"
+_SLUG_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+# Minimal retained-publication schema: only these scalar fields leave the host.
+# Raw source text (messages, transcripts, excerpts, rationales) is never retained.
+RETAINED_EVENT_FIELDS = frozenset({
+    "event_type", "occurred_at", "pr_number", "number", "repo", "span_kind",
+    "start_at", "start", "started_at", "end_at", "end", "completed_at", "duration_sec",
+})
+RETAINED_EPISODE_FIELDS = frozenset({
+    "episode_id", "message_id", "message_ids", "timestamp", "created_at", "occurred_at",
+    "origin", "is_bot", "raw_message_count", "is_initial_assignment", "initial_task_request",
+    "is_post_merge", "pr_attribution", "pr_number", "repo", "label", "annotator_a",
+    "annotator_b", "retention_verified",
+})
+
+
+def _retained_scalar(value):
+    if isinstance(value, str):
+        return redact_sensitive_excerpt(value)
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    return None
+
+
+def _sanitize_retained_record(record, allowed):
+    """Project a record onto the allowed scalar fields, redacting credentials in string values."""
+    if not isinstance(record, dict):
+        return {}
+    out = {}
+    for key in allowed:
+        if key not in record:
+            continue
+        value = record[key]
+        if key == "message_ids" and isinstance(value, list):
+            out[key] = [_retained_scalar(v) for v in value if isinstance(v, (str, int))]
+        elif key in ("annotator_a", "annotator_b"):
+            label = value.get("label") if isinstance(value, dict) else value
+            out[key] = {"label": _retained_scalar(label)} if isinstance(value, dict) else _retained_scalar(label)
+        else:
+            out[key] = _retained_scalar(value)
+    return out
+
+
+def _scrub_secrets(obj):
+    """Recursively redact credentials in every string value without truncating."""
+    if isinstance(obj, str):
+        return redact_sensitive_excerpt(obj, max_chars=len(obj) + 4)
+    if isinstance(obj, dict):
+        return {k: _scrub_secrets(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_scrub_secrets(v) for v in obj]
+    return obj
+
+
+TELEMETRY_FILES = ("pilot_events.jsonl", "human_episodes.jsonl", "retention_manifest.json", "calibration_audit.json")
+
+
+def retained_telemetry_dirs(root):
+    """Directories holding retained telemetry: the root itself plus each <window_slug>/ the publisher writes."""
+    if not root or not os.path.isdir(root):
+        return []
+    dirs = [root] if any(os.path.exists(os.path.join(root, f)) for f in TELEMETRY_FILES) else []
+    for entry in sorted(os.listdir(root)):
+        sub = os.path.join(root, entry)
+        if os.path.isdir(sub) and any(os.path.exists(os.path.join(sub, f)) for f in TELEMETRY_FILES):
+            dirs.append(sub)
+    return dirs
+
+
+def sanitize_telemetry_file(relpath, content):
+    """Re-sanitize caller-supplied telemetry file content by file kind; reject unknown kinds."""
+    norm = os.path.normpath(relpath).replace(os.sep, "/")
+    if not norm.startswith(TELEMETRY_RELDIR + "/") or ".." in norm.split("/"):
+        raise ValueError(f"telemetry path outside {TELEMETRY_RELDIR}: {relpath}")
+    name = os.path.basename(norm)
+    if name in ("pilot_events.jsonl", "human_episodes.jsonl"):
+        allowed = RETAINED_EVENT_FIELDS if name == "pilot_events.jsonl" else RETAINED_EPISODE_FIELDS
+        lines = [
+            json.dumps(_sanitize_retained_record(json.loads(line), allowed))
+            for line in content.splitlines()
+            if line.strip()
+        ]
+        return "\n".join(lines) + "\n"
+    if name in ("summary_snapshot.json", "retention_manifest.json", "calibration_audit.json"):
+        return json.dumps(_scrub_secrets(json.loads(content)), indent=2)
+    raise ValueError(f"unsupported telemetry file: {relpath}")
 
 
 def parse_operational_title(title):
@@ -445,6 +535,8 @@ class Collector:
             "review_completed_at": p.get("review_completed_at"),
             "next_action_started_at": p.get("next_action_started_at"),
             "authority_ready_at": p.get("authority_ready_at"),
+            "final_ready": p.get("final_ready"),
+            "merge_authority": p.get("merge_authority"),
             "initial_task_accepted_at": p.get("initial_task_accepted_at"),
             "closure_sprint_accepted_at": p.get("closure_sprint_accepted_at"),
             "next_action": p.get("next_action"),
@@ -578,12 +670,21 @@ class Collector:
                 ]
                 proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
                 if proc.returncode != 0:
-                    break
+                    raise RuntimeError(
+                        f"timeline page {page} for {repo}#{pr_number} failed: "
+                        f"exit {proc.returncode}: {(proc.stderr or "").strip()[:200]}"
+                    )
                 try:
                     items = json.loads(proc.stdout)
-                except Exception:
-                    break
-                if not items or not isinstance(items, list):
+                except Exception as exc:
+                    raise RuntimeError(
+                        f"timeline page {page} for {repo}#{pr_number} is not valid JSON"
+                    ) from exc
+                if not isinstance(items, list):
+                    raise RuntimeError(
+                        f"timeline page {page} for {repo}#{pr_number} is not a list"
+                    )
+                if not items:
                     break
                 raw_events.extend(items)
                 if len(items) < 100:
@@ -819,32 +920,32 @@ class Collector:
         calibration_audit = {}
         retention_manifest = {}
 
-        if target_dir and os.path.isdir(target_dir):
-            pe_path = os.path.join(target_dir, "pilot_events.jsonl")
-            if os.path.exists(pe_path):
-                with open(pe_path, "r", encoding="utf-8") as f:
+        seen = {"pilot_events.jsonl": set(), "human_episodes.jsonl": set()}
+        for bundle_dir in retained_telemetry_dirs(target_dir):
+            for name, sink in (("pilot_events.jsonl", pilot_events), ("human_episodes.jsonl", human_episodes)):
+                path = os.path.join(bundle_dir, name)
+                if not os.path.exists(path):
+                    continue
+                with open(path, "r", encoding="utf-8") as f:
                     for line in f:
                         line = line.strip()
-                        if line:
-                            pilot_events.append(json.loads(line))
+                        if not line:
+                            continue
+                        record = json.loads(line)
+                        key = json.dumps(record, sort_keys=True)
+                        if key not in seen[name]:
+                            seen[name].add(key)
+                            sink.append(record)
 
-            he_path = os.path.join(target_dir, "human_episodes.jsonl")
-            if os.path.exists(he_path):
-                with open(he_path, "r", encoding="utf-8") as f:
-                    for line in f:
-                        line = line.strip()
-                        if line:
-                            human_episodes.append(json.loads(line))
-
-            ca_path = os.path.join(target_dir, "calibration_audit.json")
-            if os.path.exists(ca_path):
-                with open(ca_path, "r", encoding="utf-8") as f:
-                    calibration_audit = json.load(f)
-
-            rm_path = os.path.join(target_dir, "retention_manifest.json")
-            if os.path.exists(rm_path):
-                with open(rm_path, "r", encoding="utf-8") as f:
-                    retention_manifest = json.load(f)
+            for name in ("calibration_audit.json", "retention_manifest.json"):
+                path = os.path.join(bundle_dir, name)
+                if os.path.exists(path):
+                    with open(path, "r", encoding="utf-8") as f:
+                        loaded = json.load(f)
+                    if name == "calibration_audit.json":
+                        calibration_audit = loaded
+                    else:
+                        retention_manifest = loaded
 
         return {
             "pilot_events": pilot_events,
@@ -899,19 +1000,21 @@ class Collector:
         calibration_audit = {}
         retention_manifest = {}
 
+        seen_telem_dirs = set()
         for t_dir in candidate_telem_dirs:
-            if t_dir and os.path.isdir(t_dir):
-                has_telem = any(
-                    os.path.exists(os.path.join(t_dir, f))
-                    for f in ("pilot_events.jsonl", "human_episodes.jsonl", "retention_manifest.json")
-                )
-                if has_telem:
-                    retained = self.load_retained_telemetry(telemetry_dir=t_dir)
-                    pilot_events = retained.get("pilot_events", [])
-                    human_episodes = retained.get("human_episodes", [])
-                    calibration_audit = retained.get("calibration_audit", {})
-                    retention_manifest = retained.get("retention_manifest", {})
-                    break
+            real = os.path.realpath(t_dir) if t_dir else None
+            if not real or real in seen_telem_dirs or not retained_telemetry_dirs(t_dir):
+                continue
+            seen_telem_dirs.add(real)
+            retained = self.load_retained_telemetry(telemetry_dir=t_dir)
+            for ev in retained.get("pilot_events", []):
+                if ev not in pilot_events:
+                    pilot_events.append(ev)
+            for ep in retained.get("human_episodes", []):
+                if ep not in human_episodes:
+                    human_episodes.append(ep)
+            calibration_audit = retained.get("calibration_audit") or calibration_audit
+            retention_manifest = retained.get("retention_manifest") or retention_manifest
 
         # 1. Attempt loading from state_dir or input_dir
         for directory in (state_dir, input_dir):
@@ -987,6 +1090,11 @@ class Collector:
                                 live_timeline.extend(tl)
                             except Exception as tle:
                                 sources[f"{repo}:timeline"] = {"status": "PARTIAL_FAILURE", "error": str(tle)}
+                                sources[repo]["status"] = "PARTIAL_FAILURE"
+                                sources[repo]["error"] = str(tle)
+                                sources[repo]["cutoff"] = prior_cutoffs.get(
+                                    repo, sources[repo]["cutoff"]
+                                )
                 except Exception as e:
                     # Live collection failed for this repo
                     prior = cached_prs_by_repo.get(repo, [])
@@ -1072,6 +1180,17 @@ class Collector:
 # -----------------------------------------------------------------------------
 
 class MetricsAggregator:
+    VERIFIED_HUMAN_ORIGINS = frozenset({
+        "human",
+        "user",
+        "operator",
+        "user_prompt",
+        "codex_rollout",
+        "agy_transcript",
+        "claude_transcript",
+        "hermes_transcript",
+    })
+
     """Computes exact-window aggregations, stage dwell, and honest idle boundaries."""
 
     def __init__(self, cutoff_dt=None):
@@ -1156,8 +1275,11 @@ class MetricsAggregator:
     def derive_authority_ready(self, pr):
         """
         Reviews completing after merge cannot establish pre-merge authority readiness.
-        Requires explicit pr.get('authority_ready_at'); never substitutes review_completed_at.
+        Requires explicit final_ready and merge_authority facts plus authority_ready_at; a timestamp
+        alone is not evidence, and review_completed_at is never substituted.
         """
+        if pr.get("final_ready") is not True or pr.get("merge_authority") is not True:
+            return "UNKNOWN"
         auth_iso = pr.get("authority_ready_at")
         if not auth_iso:
             return "UNKNOWN"
@@ -1215,7 +1337,7 @@ class MetricsAggregator:
         orig_t = parse_iso_utc(pr.get("initial_task_accepted_at"))
         sprint_t = parse_iso_utc(pr.get("closure_sprint_accepted_at"))
 
-        # Match pilot_events for this PR by repo and pr_number (never match ev_pr is None)
+        # Match pilot_events by exact repo and pr_number; repo-less or number-less events stay unassigned
         matching_events = []
         pr_num = pr.get("number")
         pr_repo = pr.get("repo")
@@ -1352,16 +1474,7 @@ class MetricsAggregator:
         Aggregate human intervention episodes with bot exclusion, initial assignment separation,
         transcript deduplication, dual-annotator calibration, origin verification, and post-merge tracking.
         """
-        verified_origins = {
-            "human",
-            "user",
-            "operator",
-            "user_prompt",
-            "codex_rollout",
-            "agy_transcript",
-            "claude_transcript",
-            "hermes_transcript",
-        }
+        verified_origins = self.VERIFIED_HUMAN_ORIGINS
 
         raw_human_messages = 0
         initial_task_requests = 0
@@ -1401,13 +1514,14 @@ class MetricsAggregator:
                 dot_page_tail_partial_count += 1
                 continue
 
-            if origin.startswith("dot") and msg_ids and has_timestamp:
-                dot_has_structured = True
-
             # Verify origin is an explicit verified human origin
             if origin not in verified_origins:
                 unverified_origin_excluded += 1
                 continue
+
+            # Connector coverage comes only from a verified, structured Dot row.
+            if origin.startswith("dot"):
+                dot_has_structured = True
 
             # Deduplication
             ep_id = ep.get("episode_id")
@@ -1457,9 +1571,12 @@ class MetricsAggregator:
                 resolved_label = "unknown"
             label_breakdown[resolved_label] += 1
 
-        dot_coverage = "TESTED_CONNECTOR_OK" if dot_has_structured else (
-            "PARTIAL_PAGE_TAIL_NO_MESSAGE_IDS_OR_TIMESTAMPS" if dot_page_tail_partial_count > 0 else "UNTESTED_ADAPTER_PENDING"
-        )
+        if dot_page_tail_partial_count > 0:
+            dot_coverage = "PARTIAL_PAGE_TAIL_NO_MESSAGE_IDS_OR_TIMESTAMPS"
+        elif dot_has_structured:
+            dot_coverage = "TESTED_CONNECTOR_OK"
+        else:
+            dot_coverage = "UNTESTED_ADAPTER_PENDING"
 
         has_retention = bool(retention_manifest) or any(bool(ep.get("retention_verified")) for ep in (episodes or []))
         retention_status = "OK" if has_retention else "UNVERIFIED"
@@ -1702,51 +1819,35 @@ class MetricsAggregator:
             "task_accepted -> merged",
             "closure_sprint_accepted -> merged",
         ]
-        trans_durations = {t: [] for t in transitions}
+        # Observations keyed by full identity so a PR field and its receipt count once.
+        trans_obs = {t: {} for t in transitions}
+        pr_field_seen = set()
 
-        # 1. From PR fields
+        def add_pr_field(p, t_name, start, end):
+            if not (start and end):
+                return
+            res = self.compute_interval_duration(start, end)
+            if res["status"] != "OK":
+                return
+            cohort = (p.get("repo"), p.get("number"))
+            dur = res["duration_sec"]
+            key = (cohort, t_name, p.get("headRefOid") or "", 1)
+            trans_obs[t_name].setdefault(key, (cohort, dur))
+            pr_field_seen.add((cohort, t_name, round(float(dur), 3)))
+
         for p in prs:
-            # 1. evidence_ready -> review_requested
-            if p.get("evidence_ready_at") and p.get("review_requested_at"):
-                res = self.compute_interval_duration(p["evidence_ready_at"], p["review_requested_at"])
-                if res["status"] == "OK":
-                    trans_durations["evidence_ready -> review_requested"].append(res["duration_sec"])
-
-            # 2. review_requested -> actual_review_started (requires actual_review_started_at)
-            if p.get("review_requested_at") and p.get("actual_review_started_at"):
-                res = self.compute_interval_duration(p["review_requested_at"], p["actual_review_started_at"])
-                if res["status"] == "OK":
-                    trans_durations["review_requested -> actual_review_started"].append(res["duration_sec"])
-
-            # 3. review_return -> next_substantive_action
-            r_ret = p.get("review_returned_at") or p.get("review_completed_at")
-            next_act = p.get("next_action_started_at") or p.get("next_substantive_action_at")
-            if r_ret and next_act:
-                res = self.compute_interval_duration(r_ret, next_act)
-                if res["status"] == "OK":
-                    trans_durations["review_return -> next_substantive_action"].append(res["duration_sec"])
-
-            # 4. authority_ready -> merged
+            add_pr_field(p, "evidence_ready -> review_requested", p.get("evidence_ready_at"), p.get("review_requested_at"))
+            add_pr_field(p, "review_requested -> actual_review_started", p.get("review_requested_at"), p.get("actual_review_started_at"))
+            add_pr_field(
+                p, "review_return -> next_substantive_action",
+                p.get("review_returned_at") or p.get("review_completed_at"),
+                p.get("next_action_started_at") or p.get("next_substantive_action_at"),
+            )
             if self.derive_authority_ready(p) == "READY":
-                auth_at = p.get("authority_ready_at")
-                if auth_at and p.get("mergedAt"):
-                    res = self.compute_interval_duration(auth_at, p["mergedAt"])
-                    if res["status"] == "OK":
-                        trans_durations["authority_ready -> merged"].append(res["duration_sec"])
+                add_pr_field(p, "authority_ready -> merged", p.get("authority_ready_at"), p.get("mergedAt"))
+            add_pr_field(p, "task_accepted -> merged", p.get("initial_task_accepted_at"), p.get("mergedAt"))
+            add_pr_field(p, "closure_sprint_accepted -> merged", p.get("closure_sprint_accepted_at"), p.get("mergedAt"))
 
-            # 5. task_accepted -> merged (never closure_sprint_accepted_at)
-            if p.get("initial_task_accepted_at") and p.get("mergedAt"):
-                res = self.compute_interval_duration(p["initial_task_accepted_at"], p["mergedAt"])
-                if res["status"] == "OK":
-                    trans_durations["task_accepted -> merged"].append(res["duration_sec"])
-
-            # 6. closure_sprint_accepted -> merged
-            if p.get("closure_sprint_accepted_at") and p.get("mergedAt"):
-                res = self.compute_interval_duration(p["closure_sprint_accepted_at"], p["mergedAt"])
-                if res["status"] == "OK":
-                    trans_durations["closure_sprint_accepted -> merged"].append(res["duration_sec"])
-
-        # 2. From handoff_records
         if handoff_records:
             records_to_process = []
             if isinstance(handoff_records, list):
@@ -1759,46 +1860,33 @@ class MetricsAggregator:
 
             prs_by_key = {}
             for p in prs:
-                p_num = p.get("number")
-                p_repo = p.get("repo")
-                if p_num is not None:
-                    prs_by_key[(p_repo, p_num)] = p
-                    if p_repo is None:
-                        prs_by_key[(None, p_num)] = p
+                if p.get("repo") and p.get("number") is not None:
+                    prs_by_key[(p["repo"], p["number"])] = p
 
-            seen_handoff_keys = set()
             for rec in records_to_process:
                 if not isinstance(rec, dict):
                     continue
                 t_name = rec.get("name") or rec.get("transition")
-                if t_name not in trans_durations:
+                if t_name not in trans_obs:
                     continue
 
+                # Exact repo+number identity; repo-less or number-less records stay unmatched.
                 rec_pr_num = rec.get("pr_number") or rec.get("number")
-                if rec_pr_num is None:
-                    continue
-
                 rec_repo = rec.get("repo")
-                matched_pr = None
-                if rec_repo is not None:
-                    matched_pr = prs_by_key.get((rec_repo, rec_pr_num))
-                else:
-                    matched_pr = prs_by_key.get((None, rec_pr_num))
-                    if not matched_pr:
-                        matches = [p for (r, n), p in prs_by_key.items() if n == rec_pr_num]
-                        if len(matches) == 1:
-                            matched_pr = matches[0]
-
+                matched_pr = prs_by_key.get((rec_repo, rec_pr_num)) if rec_repo and rec_pr_num is not None else None
                 if not matched_pr:
-                    # Cohort membership required
                     continue
 
-                candidate_sha = rec.get("candidate_sha") or rec.get("head_sha") or matched_pr.get("headRefOid") or ""
-                attempt_num = rec.get("attempt_number") or rec.get("attempt") or 1
+                # Evidence-bound identity: never invent a candidate or attempt.
+                candidate_sha = rec.get("candidate_sha") or rec.get("head_sha")
+                attempt_num = rec.get("attempt_number") or rec.get("attempt")
+                if not candidate_sha or attempt_num is None:
+                    continue
                 source_receipt = rec.get("source_receipt") or rec.get("receipt_id") or ""
 
-                dedup_key = (rec_repo or matched_pr.get("repo"), rec_pr_num, t_name, candidate_sha, attempt_num)
-                if dedup_key in seen_handoff_keys:
+                cohort = (matched_pr.get("repo"), matched_pr.get("number"))
+                dedup_key = (cohort, t_name, candidate_sha, attempt_num)
+                if dedup_key in trans_obs[t_name]:
                     continue
 
                 if t_name == "authority_ready -> merged":
@@ -1823,21 +1911,25 @@ class MetricsAggregator:
                         and not isinstance(raw_dur, bool)
                         and math.isfinite(float(raw_dur))
                         and float(raw_dur) >= 0
-                        and (candidate_sha or source_receipt or (rec.get("start_at") and rec.get("end_at")))
+                        and source_receipt
                     ):
                         computed_sec = float(raw_dur)
 
-                if computed_sec is not None and math.isfinite(computed_sec) and computed_sec >= 0:
-                    seen_handoff_keys.add(dedup_key)
-                    trans_durations[t_name].append(computed_sec)
+                if computed_sec is None or not math.isfinite(computed_sec) or computed_sec < 0:
+                    continue
+                # The same PR-field measurement imported again through its receipt.
+                if (cohort, t_name, round(computed_sec, 3)) in pr_field_seen:
+                    continue
+                trans_obs[t_name][dedup_key] = (cohort, computed_sec)
 
         tot = total_cohort_n or len(prs)
 
         handoffs_data = []
         for t in transitions:
-            durs = sorted(trans_durations[t])
-            obs_n = len(durs)
-            if obs_n > 0:
+            durs = sorted(d for _, d in trans_obs[t].values())
+            sample_n = len(durs)
+            obs_n = len({c for c, _ in trans_obs[t].values()})
+            if sample_n > 0:
                 med_sec = round(calculate_median(durs), 1)
                 p75_sec = round(calculate_nearest_rank_p75(durs), 1)
                 status = "COMPLETE" if (tot > 0 and obs_n >= tot) else "PARTIAL"
@@ -1849,6 +1941,7 @@ class MetricsAggregator:
             handoffs_data.append({
                 "name": t,
                 "observed_n": obs_n,
+                "sample_n": sample_n,
                 "total_n": tot,
                 "median_sec": med_sec,
                 "p75_sec": p75_sec,
@@ -2072,12 +2165,10 @@ class MetricsAggregator:
                 pr_map = {}
                 for p in prs:
                     pr_map[(p.get("repo"), p.get("number"))] = p
-                    if p.get("number") is not None:
-                        pr_map[(None, p.get("number"))] = p
 
                 processed_pilot = []
                 for (r, n), ev_group in grouped.items():
-                    pr_obj = pr_map.get((r, n)) or pr_map.get((None, n))
+                    pr_obj = pr_map.get((r, n)) if r and n is not None else None
                     if not pr_obj:
                         pr_url = f"https://github.com/{r}/pull/{n}" if r and n else f"https://github.com/unknown/pull/{n or 0}"
                         pr_obj = {"repo": r, "number": n, "url": pr_url}
@@ -2357,15 +2448,34 @@ def extract_github_repo_slug(url):
     Extract owner/repo slug from GitHub URL without stripping valid name characters.
     e.g. 'git@github.com:acme/testing.git' -> 'acme/testing'
     """
-    if not url:
+    if not url or not isinstance(url, str):
         return None
-    match = re.search(r"github\.com[:/]([^/\s]+/[^/\s]+)", url)
-    if not match:
+    url = url.strip()
+    scp_match = re.fullmatch(r"(?:[\w.-]+@)?github\.com:(.+)", url)
+    if scp_match and "://" not in url:
+        path = scp_match.group(1)
+    else:
+        try:
+            parts = urlsplit(url)
+            port = parts.port
+        except ValueError:
+            return None
+        if parts.scheme not in ("https", "ssh") or port is not None:
+            return None
+        if (parts.hostname or "").lower() != "github.com":
+            return None
+        if parts.query or parts.fragment:
+            return None
+        path = parts.path.lstrip("/")
+    path = path.rstrip("/")
+    if path.endswith(".git"):
+        path = path[:-4]
+    components = path.split("/")
+    if len(components) != 2:
         return None
-    slug = match.group(1)
-    if slug.endswith(".git"):
-        slug = slug[:-4]
-    return slug
+    if not all(re.fullmatch(r"[A-Za-z0-9_.-]+", c) and c not in (".", "..") for c in components):
+        return None
+    return "/".join(components)
 
 
 class Publisher:
@@ -2376,66 +2486,37 @@ class Publisher:
         self.target_relpath = target_relpath
 
     def _get_remote_urls(self):
-        """Get fetch URL and push URL for origin, falling back gracefully."""
-        fetch_url = ""
-        push_url = ""
-        try:
-            r = subprocess.run(
-                ["git", "-C", self.repo_path, "remote", "get-url", "origin"],
-                capture_output=True,
-                text=True,
-            )
-            if r.returncode == 0 and r.stdout.strip():
-                fetch_url = r.stdout.strip()
-            else:
-                r2 = subprocess.run(
-                    ["git", "-C", self.repo_path, "config", "--get", "remote.origin.url"],
+        """Return (fetch_urls, push_urls) for origin with insteadOf rewriting applied, every URL listed."""
+        def _urls(*flags):
+            try:
+                r = subprocess.run(
+                    ["git", "-C", self.repo_path, "remote", "get-url", *flags, "--all", "origin"],
                     capture_output=True,
                     text=True,
                 )
-                if r2.returncode == 0:
-                    fetch_url = r2.stdout.strip()
-        except Exception:
-            pass
+            except Exception:
+                return []
+            if r.returncode != 0:
+                return []
+            return [line.strip() for line in r.stdout.splitlines() if line.strip()]
 
-        try:
-            rp = subprocess.run(
-                ["git", "-C", self.repo_path, "remote", "get-url", "--push", "origin"],
-                capture_output=True,
-                text=True,
-            )
-            if rp.returncode == 0 and rp.stdout.strip():
-                push_url = rp.stdout.strip()
-            else:
-                rp2 = subprocess.run(
-                    ["git", "-C", self.repo_path, "config", "--get", "remote.origin.pushurl"],
-                    capture_output=True,
-                    text=True,
-                )
-                if rp2.returncode == 0 and rp2.stdout.strip():
-                    push_url = rp2.stdout.strip()
-                else:
-                    push_url = fetch_url
-        except Exception:
-            push_url = fetch_url
-
-        return fetch_url, push_url
+        return _urls(), _urls("--push")
 
     def _verify_destination_is_private(self, verify_private_fn=None):
         """
         Verify destination repo is private; fail closed on local, public, or unverified remotes.
-        Checks BOTH fetch URL and push URL and requires BOTH to resolve to the exact same private
-        GitHub repository slug.
+        Requires exactly one effective fetch URL and one effective push URL (git pushes to every
+        configured pushurl), both resolving to the same private GitHub repository slug.
         """
         if verify_private_fn is not None:
             return bool(verify_private_fn(self.repo_path))
 
-        fetch_url, push_url = self._get_remote_urls()
-        if not fetch_url or not push_url:
+        fetch_urls, push_urls = self._get_remote_urls()
+        if len(fetch_urls) != 1 or len(push_urls) != 1:
             return False
 
-        fetch_slug = extract_github_repo_slug(fetch_url)
-        push_slug = extract_github_repo_slug(push_url)
+        fetch_slug = extract_github_repo_slug(fetch_urls[0])
+        push_slug = extract_github_repo_slug(push_urls[0])
 
         if not fetch_slug or not push_slug:
             return False
@@ -2470,22 +2551,23 @@ class Publisher:
             else:
                 window_slug = datetime.now(timezone.utc).strftime("%Y%m%d")
 
+        if not _SLUG_RE.fullmatch(str(window_slug)):
+            raise ValueError(f"invalid telemetry window slug: {window_slug!r}")
+        window_dir = f"{TELEMETRY_RELDIR}/{window_slug}"
+
         files = {}
         if summary_data:
-            snapshot_relpath = f"dashboards/prw/telemetry/{window_slug}/summary_snapshot.json"
-            files[snapshot_relpath] = json.dumps(summary_data, indent=2)
+            files[f"{window_dir}/summary_snapshot.json"] = json.dumps(_scrub_secrets(summary_data), indent=2)
 
         if pilot_events:
-            pe_relpath = f"dashboards/prw/telemetry/{window_slug}/pilot_events.jsonl"
-            lines = [json.dumps(ev) for ev in pilot_events]
-            files[pe_relpath] = "\n".join(lines) + "\n"
+            lines = [json.dumps(_sanitize_retained_record(ev, RETAINED_EVENT_FIELDS)) for ev in pilot_events]
+            files[f"{window_dir}/pilot_events.jsonl"] = "\n".join(lines) + "\n"
 
         if human_episodes:
-            he_relpath = f"dashboards/prw/telemetry/{window_slug}/human_episodes.jsonl"
-            lines = [json.dumps(ep) for ep in human_episodes]
-            files[he_relpath] = "\n".join(lines) + "\n"
+            lines = [json.dumps(_sanitize_retained_record(ep, RETAINED_EPISODE_FIELDS)) for ep in human_episodes]
+            files[f"{window_dir}/human_episodes.jsonl"] = "\n".join(lines) + "\n"
 
-        manifest_relpath = "dashboards/prw/telemetry/retention_manifest.json"
+        manifest_relpath = f"{TELEMETRY_RELDIR}/retention_manifest.json"
         files[manifest_relpath] = json.dumps({
             "version": "1.0",
             "retention_days": 90,
@@ -2528,7 +2610,15 @@ class Publisher:
 
         telemetry_staged_files = {}
         if telemetry_files:
-            telemetry_staged_files.update(telemetry_files)
+            try:
+                for t_relpath, t_content in telemetry_files.items():
+                    telemetry_staged_files[t_relpath] = sanitize_telemetry_file(t_relpath, t_content)
+            except (ValueError, TypeError) as e:
+                return {
+                    "action": "BLOCKED",
+                    "committed": False,
+                    "reason": f"Unsanitizable telemetry file rejected: {e}",
+                }
         if publish_telemetry and summary_data:
             tb = self.write_telemetry_bundle(
                 summary_data,

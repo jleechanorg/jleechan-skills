@@ -159,130 +159,133 @@ class PRWMetricsSchedulerTests(unittest.TestCase):
         self.assertTrue(RUN_SCRIPT.exists(), f"Missing run script: {RUN_SCRIPT}")
         self.assertTrue(os.access(RUN_SCRIPT, os.X_OK), "run script must be executable")
 
-    def test_locking_active_pid_exits_cleanly(self):
-        """Tests that a concurrent invocation exits cleanly (0) when lock is held by an active PID."""
-        self.assertTrue(RUN_SCRIPT.exists(), f"Missing run script: {RUN_SCRIPT}")
-        lock_dir = self.state_dir / "lock"
-        lock_dir.mkdir(parents=True, exist_ok=True)
-        pid_file = lock_dir / "pid"
-        comm_file = lock_dir / "comm"
-
-        # Spawn a long-running background dummy process to simulate active lock holder
-        proc = subprocess.Popen(["sleep", "30"])
-        try:
-            pid_file.write_text(str(proc.pid), encoding="utf-8")
-            comm_file.write_text("sleep", encoding="utf-8")
-
-            env = self._base_env(
-                PRW_METRICS_COLLECTOR_CMD="exit 99",
-            )
-            result = subprocess.run(
-                ["bash", str(RUN_SCRIPT)],
-                capture_output=True,
-                text=True,
-                env=env,
-                check=False,
-            )
-            self.assertEqual(
-                result.returncode,
-                0,
-                f"Concurrent run should exit 0 without colliding. Stderr: {result.stderr}",
-            )
-            self.assertIn(
-                str(proc.pid),
-                result.stdout,
-                "Expected output to mention the active lock PID",
-            )
-        finally:
-            proc.terminate()
-            proc.wait()
-
-    def test_locking_stale_pid_recovery(self):
-        """Tests that a dead PID in lock file is safely recovered and collector proceeds."""
-        self.assertTrue(RUN_SCRIPT.exists(), f"Missing run script: {RUN_SCRIPT}")
-        lock_dir = self.state_dir / "lock"
-        lock_dir.mkdir(parents=True, exist_ok=True)
-        pid_file = lock_dir / "pid"
-        comm_file = lock_dir / "comm"
-        # 99999999 is guaranteed dead
-        pid_file.write_text("99999999", encoding="utf-8")
-        comm_file.write_text("bash", encoding="utf-8")
-
-        output_marker = self.state_dir / "collector_ran.txt"
-        env = self._base_env(
-            PRW_METRICS_COLLECTOR_CMD=f"echo 'RAN' > '{output_marker}'",
+    def _hold_flock(self):
+        """Hold the wrapper's flock from a separate process; returns the Popen."""
+        lock_file = f"{self.state_dir / 'lock'}.flock"
+        holder = subprocess.Popen(
+            [
+                "python3",
+                "-c",
+                "import fcntl,os,sys,time;"
+                "fd=os.open(sys.argv[1],os.O_CREAT|os.O_RDWR);"
+                "fcntl.flock(fd,fcntl.LOCK_EX);print('held',flush=True);time.sleep(60)",
+                lock_file,
+            ],
+            stdout=subprocess.PIPE,
+            text=True,
         )
-        result = subprocess.run(
+        self.assertEqual(holder.stdout.readline().strip(), "held")
+        return holder
+
+    def _run_wrapper(self, **env_kwargs):
+        return subprocess.run(
             ["bash", str(RUN_SCRIPT)],
             capture_output=True,
             text=True,
-            env=env,
+            env=self._base_env(**env_kwargs),
             check=False,
+            timeout=30,
         )
-        self.assertEqual(result.returncode, 0, f"Failed stale recovery: {result.stderr}")
-        self.assertTrue(output_marker.exists(), "Collector should have executed after stale lock recovery")
-        self.assertIn("Stale lock detected", result.stdout)
 
-    def test_recycled_pid_different_comm_treated_as_stale(self):
-        """Existing PID belongs to a different process command name -> treated as stale and recovered."""
-        self.assertTrue(RUN_SCRIPT.exists(), f"Missing run script: {RUN_SCRIPT}")
-        lock_dir = self.state_dir / "lock"
-        lock_dir.mkdir(parents=True, exist_ok=True)
-        pid_file = lock_dir / "pid"
-        comm_file = lock_dir / "comm"
+    def test_locking_active_holder_exits_cleanly(self):
+        """A live lock holder makes a concurrent invocation exit 0 without collecting."""
+        marker = self.state_dir / "must_not_run.txt"
+        holder = self._hold_flock()
+        try:
+            result = self._run_wrapper(
+                PRW_METRICS_FORCE_RUN="1",
+                PRW_METRICS_COLLECTOR_CMD=f"echo ran > '{marker}'",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("Another prw-metrics instance", result.stdout)
+            self.assertFalse(marker.exists(), "collector must not run while lock is held")
+        finally:
+            holder.kill()
+            holder.wait()
 
-        # Spawn a live process with command name 'sleep'
+    def test_killed_holder_releases_lock(self):
+        """SIGKILL of the holder frees the lock with no recovery step (no dead-PID logic)."""
+        holder = self._hold_flock()
+        holder.kill()
+        holder.wait()
+        marker = self.state_dir / "after_kill.txt"
+        result = self._run_wrapper(
+            PRW_METRICS_FORCE_RUN="1",
+            PRW_METRICS_COLLECTOR_CMD=f"echo ran > '{marker}'",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(marker.exists(), "collector should run once the holder is dead")
+
+    def test_leftover_pid_of_live_unrelated_process_does_not_block(self):
+        """A reused PID in the lock file is irrelevant: only the kernel lock decides."""
         proc = subprocess.Popen(["sleep", "30"])
         try:
-            pid_file.write_text(str(proc.pid), encoding="utf-8")
-            # Write a different command name that cannot match sleep
-            comm_file.write_text("old_unrelated_daemon", encoding="utf-8")
-
-            output_marker = self.state_dir / "recycled_recovered.txt"
-            env = self._base_env(
+            Path(f"{self.state_dir / 'lock'}.flock").write_text(str(proc.pid), encoding="utf-8")
+            marker = self.state_dir / "pid_reuse.txt"
+            result = self._run_wrapper(
                 PRW_METRICS_FORCE_RUN="1",
-                PRW_METRICS_COLLECTOR_CMD=f"echo 'RECOVERED' > '{output_marker}'",
+                PRW_METRICS_COLLECTOR_CMD=f"echo ran > '{marker}'",
             )
-            result = subprocess.run(
-                ["bash", str(RUN_SCRIPT)],
-                capture_output=True,
-                text=True,
-                env=env,
-                check=False,
-            )
-            self.assertEqual(result.returncode, 0, f"Script failed: {result.stderr}")
-            self.assertTrue(output_marker.exists(), "Collector should have executed after stale recovery")
-            self.assertIn("Stale lock detected", result.stdout)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(marker.exists(), "unrelated live PID must not suppress collection")
         finally:
             proc.terminate()
             proc.wait()
 
-    def test_concurrent_lock_race_no_overlap(self):
-        """Two processes racing on lock acquisition: exactly one runs, the other skips cleanly."""
-        self.assertTrue(RUN_SCRIPT.exists(), f"Missing run script: {RUN_SCRIPT}")
-        marker_file = self.state_dir / "ran_count.txt"
-        collector_cmd = f"echo 1 >> '{marker_file}'; sleep 0.5"
-
-        env = self._base_env(
+    def test_orphaned_reclaim_dir_and_legacy_lock_dir_do_not_block(self):
+        """Crash leftovers from the old mkdir-based scheme (B4) never consume a permit."""
+        legacy = self.state_dir / "lock"
+        legacy.mkdir()
+        (legacy / "pid").write_text("99999999", encoding="utf-8")
+        (self.state_dir / "lock.reclaim").mkdir()
+        marker = self.state_dir / "orphan.txt"
+        result = self._run_wrapper(
             PRW_METRICS_FORCE_RUN="1",
-            PRW_METRICS_COLLECTOR_CMD=collector_cmd,
+            PRW_METRICS_COLLECTOR_CMD=f"echo ran > '{marker}'",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(marker.exists(), "collector should run despite orphaned reclaim dir")
+
+    def test_reacquisition_after_release_never_overlaps_live_owner(self):
+        """B3 interleaving: owner A releases, owner B acquires, late contender C must skip.
+
+        Under the old mv-based recovery, C could move B's live lock. With flock there is no
+        replacement step: C only ever tries a non-blocking exclusive lock.
+        """
+        marker = self.state_dir / "overlap.txt"
+        collector = f"echo start >> '{marker}'; sleep 2; echo end >> '{marker}'"
+        env = self._base_env(PRW_METRICS_FORCE_RUN="1", PRW_METRICS_COLLECTOR_CMD=collector)
+        a = subprocess.run(["bash", str(RUN_SCRIPT)], env=env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(a.returncode, 0, a.stderr)
+        b = subprocess.Popen(["bash", str(RUN_SCRIPT)], env=env, stdout=subprocess.PIPE, text=True)
+        deadline = time.time() + 10
+        while time.time() < deadline and len(marker.read_text().split()) < 3:
+            time.sleep(0.05)
+        c = subprocess.run(["bash", str(RUN_SCRIPT)], env=env, capture_output=True, text=True, timeout=30)
+        b.communicate(timeout=30)
+        self.assertEqual(c.returncode, 0, c.stderr)
+        self.assertIn("Another prw-metrics instance", c.stdout)
+        self.assertEqual(
+            marker.read_text().split(),
+            ["start", "end", "start", "end"],
+            "runs must be strictly serialized",
         )
 
+    def test_concurrent_lock_race_no_overlap(self):
+        """Two processes racing on lock acquisition: exactly one runs, the other skips cleanly."""
+        marker_file = self.state_dir / "ran_count.txt"
+        env = self._base_env(
+            PRW_METRICS_FORCE_RUN="1",
+            PRW_METRICS_COLLECTOR_CMD=f"echo 1 >> '{marker_file}'; sleep 0.5",
+        )
         p1 = subprocess.Popen(["bash", str(RUN_SCRIPT)], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         p2 = subprocess.Popen(["bash", str(RUN_SCRIPT)], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-
         out1, err1 = p1.communicate(timeout=15)
         out2, err2 = p2.communicate(timeout=15)
-
         self.assertEqual(p1.returncode, 0, f"P1 failed: {err1}")
         self.assertEqual(p2.returncode, 0, f"P2 failed: {err2}")
-
-        self.assertTrue(marker_file.exists(), "At least one process should run collector")
-        lines = marker_file.read_text().strip().splitlines()
-        self.assertEqual(len(lines), 1, f"Expected exactly 1 run, got {len(lines)}")
-
-        combined_out = out1 + out2
-        self.assertIn("Another prw-metrics instance", combined_out)
+        self.assertEqual(len(marker_file.read_text().split()), 1)
+        self.assertIn("Another prw-metrics instance", out1 + out2)
 
     def test_sleep_catch_up_deduplication(self):
         """Tests that a catch-up trigger within MIN_INTERVAL_SEC is deduplicated and exits 0."""
@@ -504,37 +507,6 @@ class PRWMetricsSchedulerTests(unittest.TestCase):
         captured = output_file.read_text(encoding="utf-8")
         self.assertIn(f"TELEMETRY_DIR={self.scratch_dir}/dashboards/prw/telemetry", captured)
         self.assertIn("STALE_HOURS=4.5", captured)
-
-    def test_competing_stale_lock_recovery_single_winner(self):
-        """When two processes race to recover a stale lock, exactly one reclaims and runs."""
-        self.assertTrue(RUN_SCRIPT.exists(), f"Missing run script: {RUN_SCRIPT}")
-        lock_dir = self.state_dir / "lock"
-        lock_dir.mkdir(parents=True, exist_ok=True)
-        pid_file = lock_dir / "pid"
-        comm_file = lock_dir / "comm"
-        # Plant dead stale PID
-        pid_file.write_text("999999", encoding="utf-8")
-        comm_file.write_text("bash", encoding="utf-8")
-
-        marker = self.state_dir / "stale_reclaim_runs.txt"
-        collector_cmd = f"echo 1 >> '{marker}'; sleep 1"
-        env = self._base_env(
-            PRW_METRICS_FORCE_RUN="1",
-            PRW_METRICS_COLLECTOR_CMD=collector_cmd,
-        )
-
-        p1 = subprocess.Popen(["bash", str(RUN_SCRIPT)], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        p2 = subprocess.Popen(["bash", str(RUN_SCRIPT)], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-
-        out1, err1 = p1.communicate(timeout=15)
-        out2, err2 = p2.communicate(timeout=15)
-
-        self.assertEqual(p1.returncode, 0, f"P1 failed: {err1}")
-        self.assertEqual(p2.returncode, 0, f"P2 failed: {err2}")
-
-        self.assertTrue(marker.exists(), "Collector should have executed")
-        lines = marker.read_text().strip().splitlines()
-        self.assertEqual(len(lines), 1, f"Expected exactly 1 collector execution across stale reclaim race, got {len(lines)}")
 
     def test_install_script_handles_ampersand_and_xml_metacharacters_in_repo_root(self):
         """Verifies installer handles ampersands and XML metacharacters in paths without corruption."""

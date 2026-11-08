@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 from datetime import datetime, timedelta, timezone
 
 # We will import from scripts.prw_metrics
@@ -37,12 +38,14 @@ try:
         render_dashboard,
         split_search_window_on_cap,
         extract_github_repo_slug,
+        sanitize_telemetry_file,
     )
 except ImportError:
     Collector = None
     DashboardRenderer = None
     MetricsAggregator = None
     Publisher = None
+    sanitize_telemetry_file = None
     parse_operational_title = None
     split_search_window_on_cap = None
 
@@ -583,7 +586,7 @@ class TestCollectorPaginationAndSearchCap(unittest.TestCase):
                 raise RuntimeError("API rate limit exceeded for repo-beta")
 
             collector = Collector(repos=["example-org/repo-alpha", "example-org/repo-beta"])
-            res = collector.collect_all(state_dir=temp_state, fetch_page_fn=fetch_mock)
+            res = collector.collect_all(state_dir=temp_state, fetch_page_fn=fetch_mock, fetch_timeline_fn=lambda r, n: [])
 
             self.assertEqual(res["status"], "PARTIAL_FAILURE")
             self.assertEqual(res["sources"]["example-org/repo-alpha"]["status"], "COMPLETE")
@@ -655,6 +658,8 @@ class TestStageDwellAndHandoffAggregation(unittest.TestCase):
                 "next_action_started_at": "2026-11-05T12:00:00Z",
                 "review_completed_at": "2026-11-05T11:45:00Z",
                 "authority_ready_at": "2026-11-05T12:00:00Z",
+                "final_ready": True,
+                "merge_authority": True,
                 "initial_task_accepted_at": "2026-11-05T08:00:00Z",
                 "closure_sprint_accepted_at": "2026-11-05T15:00:00Z",
             },
@@ -1422,9 +1427,9 @@ class TestRound2HermesAndCodexReviewFixes(unittest.TestCase):
             # 3. Foreign non-cohort PR -> must be rejected
             {"name": "task_accepted -> merged", "number": 999, "repo": "example-org/repo-alpha", "candidate_sha": "sha999", "duration_sec": 1000.0},
             # 4. Valid record
-            {"name": "task_accepted -> merged", "number": 20, "repo": "example-org/repo-alpha", "candidate_sha": "sha20", "duration_sec": 3600.0, "attempt_number": 1},
+            {"name": "task_accepted -> merged", "number": 20, "repo": "example-org/repo-alpha", "candidate_sha": "sha20", "duration_sec": 3600.0, "attempt_number": 1, "source_receipt": "r1"},
             # 5. Duplicate of record 4 -> deduplicated
-            {"name": "task_accepted -> merged", "number": 20, "repo": "example-org/repo-alpha", "candidate_sha": "sha20", "duration_sec": 3600.0, "attempt_number": 1},
+            {"name": "task_accepted -> merged", "number": 20, "repo": "example-org/repo-alpha", "candidate_sha": "sha20", "duration_sec": 3600.0, "attempt_number": 1, "source_receipt": "r1"},
         ]
         data = agg.compute_handoff_breakdown(cohort_prs, handoff_records=records)
         t_row = next(r for r in data if r["name"] == "task_accepted -> merged")
@@ -1552,6 +1557,230 @@ class TestRound2HermesAndCodexReviewFixes(unittest.TestCase):
         proc = subprocess.run(cmd, capture_output=True, text=True, env=env)
         self.assertEqual(proc.returncode, 1)
         self.assertIn("--roadmap-repo", proc.stderr)
+
+
+class TestPublicationPrivacyAndRetainedTelemetry(unittest.TestCase):
+    """PR #742 round-3 B1/B2/B5/B7: push-destination gate, URL parsing, retained layout, publication schema."""
+
+    CREDENTIAL = "Bearer " + "synthetic-credential-" + "0123456789"
+
+    def setUp(self):
+        self.temp_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.temp_dir, ignore_errors=True)
+
+    def _git(self, repo, *args):
+        return subprocess.run(["git", "-C", repo, *args], check=True, capture_output=True, text=True)
+
+    def _repo_with_origin(self, url, pushurls=()):
+        repo = os.path.join(self.temp_dir, "gate-repo")
+        shutil.rmtree(repo, ignore_errors=True)
+        os.makedirs(repo)
+        subprocess.run(["git", "init", "-q", repo], check=True, capture_output=True)
+        self._git(repo, "remote", "add", "origin", url)
+        for i, pushurl in enumerate(pushurls):
+            self._git(repo, "remote", "set-url", "--add" if i else "--push", *(["--push"] if i else []), "origin", pushurl)
+        return repo
+
+    def _gate(self, repo, private_slugs=("example-org/private-repo",)):
+        """Run the real gate with real git; only the `gh repo view` privacy response is stubbed."""
+        real_run = subprocess.run
+        gh_calls = []
+
+        def fake_run(cmd, *args, **kwargs):
+            if cmd and cmd[0] == "gh":
+                gh_calls.append(cmd[3])
+                is_private = cmd[3] in private_slugs
+                body = {"isPrivate": is_private, "visibility": "PRIVATE" if is_private else "PUBLIC"}
+                return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(body), stderr="")
+            return real_run(cmd, *args, **kwargs)
+
+        with mock.patch("scripts.prw_metrics.subprocess.run", side_effect=fake_run):
+            return Publisher(repo_path=repo)._verify_destination_is_private(), gh_calls
+
+    # B1
+    def test_b1_second_public_pushurl_blocks_gate(self):
+        repo = self._repo_with_origin(
+            "https://github.com/example-org/private-repo.git",
+            pushurls=(
+                "https://github.com/example-org/private-repo.git",
+                "https://github.com/example-org/public-repo.git",
+            ),
+        )
+        listed = self._git(repo, "remote", "get-url", "--push", "--all", "origin").stdout.split()
+        self.assertEqual(len(listed), 2)
+        ok, _ = self._gate(repo)
+        self.assertFalse(ok)
+
+    def test_b1_single_private_destination_still_passes(self):
+        repo = self._repo_with_origin("https://github.com/example-org/private-repo.git")
+        ok, gh_calls = self._gate(repo)
+        self.assertTrue(ok)
+        self.assertEqual(gh_calls, ["example-org/private-repo"])
+
+    # B2
+    def test_b2_adversarial_urls_do_not_parse_as_github_slug(self):
+        for url in (
+            "file:///var/tmp/github.com/example-org/private-repo.git",
+            "https://example.invalid/github.com/example-org/private-repo.git",
+            "https://github.com.example.invalid/example-org/private-repo.git",
+            "https://example.invalid:443/x/github.com:example-org/private-repo.git",
+            "ssh://git@example.invalid/github.com/example-org/private-repo.git",
+            "https://github.com/example-org",
+            "https://github.com/example-org/private-repo/extra",
+            "https://github.com/../private-repo",
+            "http://github.com/example-org/private-repo.git",
+        ):
+            self.assertIsNone(extract_github_repo_slug(url), url)
+        self.assertEqual(
+            extract_github_repo_slug("ssh://git@github.com/example-org/private-repo.git"),
+            "example-org/private-repo",
+        )
+
+    def test_b2_gate_rejects_file_and_foreign_remotes_without_asking_gh(self):
+        for url in (
+            "file:///var/tmp/github.com/example-org/private-repo.git",
+            "https://example.invalid/github.com/example-org/private-repo.git",
+        ):
+            repo = self._repo_with_origin(url)
+            ok, gh_calls = self._gate(repo)
+            self.assertFalse(ok, url)
+            self.assertEqual(gh_calls, [], url)
+
+    # B5
+    def _write_bundle(self, roadmap, slug, events, episodes):
+        files = Publisher(repo_path=roadmap).write_telemetry_bundle(
+            {"w2_bounds": ["2026-11-01T00:00:00Z", "2026-11-08T00:00:00Z"]},
+            pilot_events=events,
+            human_episodes=episodes,
+            window_slug=slug,
+        )
+        for relpath, content in files.items():
+            path = os.path.join(roadmap, relpath)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(content)
+        return files
+
+    def test_b5_publisher_output_round_trips_through_collector(self):
+        roadmap = os.path.join(self.temp_dir, "roadmap")
+        ev1 = {"event_type": "task_accepted", "repo": "example-org/repo-alpha", "pr_number": 1, "occurred_at": "2026-11-01T01:00:00Z"}
+        ev2 = {"event_type": "merged", "repo": "example-org/repo-alpha", "pr_number": 2, "occurred_at": "2026-11-02T01:00:00Z"}
+        ep = {"episode_id": "ep-1", "origin": "user", "is_bot": False, "raw_message_count": 1, "label": "good"}
+        self._write_bundle(roadmap, "20261101", [ev1], [ep])
+        self._write_bundle(roadmap, "20261102", [ev1, ev2], [ep])
+
+        collected = Collector(repos=[], cutoff_dt=parse_iso_utc("2026-11-08T00:00:00Z")).collect_all(
+            roadmap_repo=roadmap, offline=True
+        )
+        self.assertCountEqual(collected["pilot_events"], [ev1, ev2])
+        self.assertEqual(len(collected["human_episodes"]), 1)
+        self.assertEqual(collected["human_episodes"][0]["episode_id"], "ep-1")
+        self.assertIn("version", collected["retention_manifest"])
+
+    def test_b5_root_manifest_does_not_mask_later_telemetry_sources(self):
+        roadmap = os.path.join(self.temp_dir, "roadmap")
+        input_dir = os.path.join(self.temp_dir, "input")
+        ev_pub = {"event_type": "merged", "repo": "example-org/repo-alpha", "pr_number": 1, "occurred_at": "2026-11-02T01:00:00Z"}
+        ev_local = {"event_type": "merged", "repo": "example-org/repo-alpha", "pr_number": 2, "occurred_at": "2026-11-03T01:00:00Z"}
+        self._write_bundle(roadmap, "20261101", [ev_pub], None)
+        os.makedirs(os.path.join(input_dir, "telemetry"))
+        with open(os.path.join(input_dir, "telemetry", "pilot_events.jsonl"), "w") as f:
+            f.write(json.dumps(ev_local) + "\n")
+
+        collected = Collector(repos=[], cutoff_dt=parse_iso_utc("2026-11-08T00:00:00Z")).collect_all(
+            roadmap_repo=roadmap, input_dir=input_dir, offline=True
+        )
+        self.assertCountEqual(collected["pilot_events"], [ev_pub, ev_local])
+
+    def test_b5_window_slug_cannot_escape_telemetry_dir(self):
+        with self.assertRaises(ValueError):
+            Publisher(repo_path=self.temp_dir).write_telemetry_bundle({"a": 1}, window_slug="../../escape")
+
+    # B7
+    def test_b7_arbitrary_secret_bearing_fields_never_reach_bundle(self):
+        cred = self.CREDENTIAL
+        events = [{
+            "event_type": "task_accepted", "repo": "example-org/repo-alpha", "pr_number": 1,
+            "occurred_at": "2026-11-01T01:00:00Z", "message": cred, "pilot_text": cred, "nested": {"x": cred},
+        }]
+        episodes = [{
+            "episode_id": "ep-1", "origin": "user", "is_bot": False, "raw_message_count": 1, "label": "good",
+            "full_message": cred, "raw_transcript": cred, "excerpt": cred,
+            "annotator_a": {"label": "good", "rationale": cred}, "annotator_b": {"label": "good", "rationale": cred},
+        }]
+        files = Publisher(repo_path=self.temp_dir).write_telemetry_bundle(
+            {"headline": cred, "rows": [cred]}, pilot_events=events, human_episodes=episodes, window_slug="20261101"
+        )
+        for relpath, content in files.items():
+            self.assertNotIn("synthetic-credential", content, relpath)
+        persisted = json.loads(files["dashboards/prw/telemetry/20261101/human_episodes.jsonl"].splitlines()[0])
+        self.assertEqual(persisted["annotator_a"], {"label": "good"})
+        self.assertNotIn("full_message", persisted)
+        self.assertNotIn("excerpt", persisted)
+
+    def test_b7_credential_in_allowlisted_field_is_redacted(self):
+        files = Publisher(repo_path=self.temp_dir).write_telemetry_bundle(
+            None, pilot_events=[{"event_type": self.CREDENTIAL, "pr_number": 1}], window_slug="20261101"
+        )
+        content = files["dashboards/prw/telemetry/20261101/pilot_events.jsonl"]
+        self.assertNotIn("synthetic-credential", content)
+        self.assertIn("[REDACTED]", content)
+
+    def test_b7_supplied_telemetry_files_are_resanitized_or_rejected(self):
+        clean = Publisher(repo_path=self.temp_dir)
+        raw_line = json.dumps({"episode_id": "e", "full_message": self.CREDENTIAL}) + "\n"
+        sanitized = sanitize_telemetry_file("dashboards/prw/telemetry/20261101/human_episodes.jsonl", raw_line)
+        self.assertNotIn("synthetic-credential", sanitized)
+        self.assertNotIn("full_message", sanitized)
+        for bad in (
+            "dashboards/prw/telemetry/20261101/raw_transcript.txt",
+            "dashboards/prw/README.md",
+            "dashboards/prw/telemetry/../../../etc/x.json",
+        ):
+            with self.assertRaises(ValueError, msg=bad):
+                sanitize_telemetry_file(bad, "{}")
+        self.assertIsNotNone(clean)
+
+    def test_b7_cli_publication_channel_commits_only_sanitized_telemetry(self):
+        remote = os.path.join(self.temp_dir, "remote.git")
+        local = os.path.join(self.temp_dir, "local")
+        subprocess.run(["git", "init", "-q", "--bare", remote], check=True, capture_output=True)
+        self._git(remote, "symbolic-ref", "HEAD", "refs/heads/main")
+        subprocess.run(["git", "clone", "-q", remote, local], check=True, capture_output=True)
+        self._git(local, "checkout", "-B", "main")
+        self._git(local, "config", "user.name", "Test User")
+        self._git(local, "config", "user.email", "metrics-bot@test.local")
+        with open(os.path.join(local, "README.md"), "w") as f:
+            f.write("# Root\n")
+        self._git(local, "add", "README.md")
+        self._git(local, "commit", "-qm", "init")
+        self._git(local, "push", "-q", "origin", "main")
+
+        res = publish_dashboard(
+            markdown_text="# Dashboard\n",
+            repo_path=local,
+            verify_private_fn=lambda _: True,
+            publish_telemetry=True,
+            summary_data={"w2_bounds": ["2026-11-01T00:00:00Z", "x"], "note": self.CREDENTIAL},
+            pilot_events=[{"event_type": "merged", "pr_number": 1, "full_message": self.CREDENTIAL}],
+            human_episodes=[{"episode_id": "e", "origin": "user", "raw_transcript": self.CREDENTIAL}],
+            telemetry_files={"dashboards/prw/telemetry/20261101/pilot_events.jsonl": json.dumps({"full_message": self.CREDENTIAL}) + "\n"},
+        )
+        self.assertTrue(res["committed"], res)
+        tree = self._git(remote, "ls-tree", "-r", "--name-only", "main").stdout.split()
+        self.assertTrue(any(p.startswith("dashboards/prw/telemetry/20261101/") for p in tree))
+        for path in tree:
+            blob = self._git(remote, "show", f"main:{path}").stdout
+            self.assertNotIn("synthetic-credential", blob, path)
+
+        blocked = publish_dashboard(
+            markdown_text="# Dashboard 2\n",
+            repo_path=local,
+            verify_private_fn=lambda _: True,
+            telemetry_files={"dashboards/prw/telemetry/20261101/raw.txt": self.CREDENTIAL},
+        )
+        self.assertEqual(blocked["action"], "BLOCKED")
+        self.assertFalse(blocked["committed"])
 
 
 if __name__ == "__main__":
