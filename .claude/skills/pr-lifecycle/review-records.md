@@ -90,6 +90,8 @@ Top-level `timestamps` records the current candidate round while `rounds[]` pres
 
 ### Derived Scratch metrics
 
+Canonical measurement definitions, time semantics (active wall union vs. agent effort sum, residual != waste), and human interaction episode contracts are owned by [.claude/skills/pr-efficiency-audit/SKILL.md](../pr-efficiency-audit/SKILL.md).
+
 Extend existing PR/task and attempt receipts, retaining original clocks, candidate/claim applicability and owner. Derive Scratch metrics from them; no second authoritative ledger or new enforcement gate:
 
 | Metric | Definition |
@@ -103,6 +105,26 @@ Extend existing PR/task and attempt receipts, retaining original clocks, candida
 | Driver response delay | `next_substantive_action_started_at` minus `review_return_at` |
 | Authorized closeout delay | `merged_at` minus `authority_ready_at` |
 | Eligible unattended interval | Observed interval with an executable authorized action, no executing owner/job and no legitimate hold; otherwise UNKNOWN or an identified waiting category |
+
+### Optional Transition Receipts
+
+At already-observed transitions (e.g. evidence ready, review requested, review started, review returned, next action initiated), execution environments or drivers may optionally record minimal transition receipt objects into local telemetry (`run.stats.json` or scratch event streams) without adding any new required gate, background scorer, heartbeat daemon, or state controller:
+
+```json
+{
+  "event_id": "<uuid-or-unique-str>",
+  "origin": "<host-or-cli>",
+  "occurred_at": "<ISO-8601-timestamp>",
+  "observed_at": "<ISO-8601-timestamp>",
+  "pr_id": "<org/repo#number>",
+  "candidate_sha": "<40-char-sha>",
+  "attempt_number": 1,
+  "owner": "<owner-or-job>",
+  "event_type": "<evidence_ready | review_requested | actual_review_started | review_return | next_action_started>"
+}
+```
+
+Existing PR description ledgers and attempt receipts remain the single authoritative record; optional transition receipts are strictly observational projections used for offline dashboard aggregation.
 
 ### Evidence readiness, censoring, and waiting rules
 
