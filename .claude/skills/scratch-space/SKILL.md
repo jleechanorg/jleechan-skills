@@ -58,6 +58,12 @@ All temporary, disposable build, test scratch, and evidence paths resolve dynami
      LOG_DIR="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh "logs/${REPO_NAME}/${BRANCH_NAME}")"
      ```
 
+## Task-Scoped Teardown
+
+For an aged task-scratch container, preview with `diskm cleanup-task-scratch --dry-run --roots <exact-dedicated-task-parent>`. This scans eligible task-container names beneath the supplied root; use it only when that root is dedicated to this task and the preview identifies only its disposable container. Its safety checks preserve live/open paths, secret-like content, and containers with dirty or unpushed nested repositories, but it can remove clean, pushed linked worktrees, so do not use it where those are intentional. Add `--clean` only when the preview is correct and removal is authorized.
+
+`diskm scratch-prune` is a pool-wide C14 cleanup command, dry-run by default; it does not accept an arbitrary single-path target. Do not use it to tear down one task directory. If the existing scoped cleanup command cannot safely identify the task container, leave it in place and report that limitation; never substitute `rm -rf` on a variable path.
+
 ## What NOT to Put in Scratch
 
 - **Git worktrees**: Always use `~/.worktrees/<repo>/<name>` via `diskm worktree-new <repo-path> <branch>`. Never put git worktrees in Scratch or `/tmp`.

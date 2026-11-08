@@ -56,11 +56,40 @@ If `$CONTEXT` is empty, stop here before pushing or opening SSH. The remote laun
 
 Also resolve `$AGENT_CLI`: the CLI **that is calling this skill**, i.e. the operator's live runtime (pi → `pi`, Claude Code → `claude`, Codex → `codex`, Antigravity → `agy`). This skill deliberately has no default CLI. Launching a CLI the operator is not using hands the work to an agent with different tools, skills, model and quota — that is a substitution to state explicitly in the report, never a silent default. Only set a different `$AGENT_CLI` when the calling CLI is genuinely unusable on the target host (for example its seat is quota-walled), and say why.
 
+For Claude, preserve the selected profile without transferring credentials. Resolve `CLAUDE_LAUNCHER` before pushing: use `claudewa` when source `CLAUDE_CONFIG_DIR` explicitly ends in `.claude-wa`, and `claude` only when the profile is unset or selects the default `~/.claude`; stop for any other profile without a matching target wrapper. Keep `$AGENT_CLI=claude`. Before pushing, verify the selected target wrapper and intended profile/account; if unavailable or unverified, report the scoped blocker instead of falling back. Never copy credentials or silently switch profiles/accounts.
+
+```bash
+CLAUDE_LAUNCHER=claude
+if [ "$AGENT_CLI" = claude ]; then
+  case "${CLAUDE_CONFIG_DIR:-}" in
+    */.claude-wa|.claude-wa) CLAUDE_LAUNCHER=claudewa ;;
+    ""|"$HOME/.claude"|~/.claude) ;;
+    *) echo "ERROR: explicitly selected Claude profile has no known matching target wrapper; refusing profile fallback" >&2; exit 75 ;;
+  esac
+fi
+```
+
 If `$BRANCH` is empty (detached HEAD) or `$DIRTY` is non-empty, stop and tell the user — commit/name the branch first.
 
 If `$REMOTE_URL` is an HTTPS URL with an embedded credential (`https://<token>@host/...`), warn the user before continuing: that URL gets written verbatim into the remote clone's `.git/config` in step 4, so the credential ends up live on the target machine too. Prefer an SSH remote, or a credential helper that doesn't embed the token in the URL. (Step 4's base64 encoding is not a confidentiality measure for this value — it only prevents argv re-tokenization/injection. A trivially-decodable token is still visible in the remote host's `ps` output during the mirror.)
 
-### 2. Push the branch (make it visible to the Linux machine)
+### 2. Resolve the target and verify readiness
+
+Pick a connectivity tier — try in order, stop at first success. Carry the resolved connection forward into `SSH_ARGS`/`SSH_TARGET` for step 4 — don't just check reachability and then reconnect a different way. For a capacity-driven heavy handoff, the preflight immediately before proceeding must complete an authenticated SSH command roundtrip and return a contemporaneous CPU-idle sample in the same probe:
+
+```bash
+if [ "$CLAUDE_LAUNCHER" = claudewa ]; then
+  ssh "${SSH_ARGS[@]}" "$SSH_TARGET" 'command -v claudewa && top -bn2 -d1 | grep "%Cpu" | tail -1'
+else
+  ssh "${SSH_ARGS[@]}" "$SSH_TARGET" 'top -bn2 -d1 | grep "%Cpu" | tail -1'
+fi
+```
+
+Ping, TCP reachability, and dated CPU samples do not establish readiness. Apply the task's recorded admission criterion; keep host selection and thresholds out of this portable skill. When `CLAUDE_LAUNCHER=claudewa`, also verify that wrapper and its intended profile/account on the target.
+
+See [cross-machine-ssh-tier](../cross-machine-ssh-tier/SKILL.md) for the Tier 1→2→3 connectivity ladder (LAN SSH → SSH over Tailscale → messaging-gateway fallback), its debugging caveats, and the key-naming convention. Run that skill's ladder block with `PEER_LAN_ALIAS="mylinux"` (and the matching `PEER_TS_PATTERN`/`PEER_KEY`/`PEER_USER`) to resolve `SSH_ARGS`/`SSH_TARGET` before continuing to step 4. If `$SSH_TARGET` comes back empty, both Tier 1 and Tier 2 failed — fall through to that skill's Tier 3 (messaging-gateway handoff): post the exact repo/branch/commit and the steps from §4 below, asking it to execute them locally and reply when the tmux session is ready.
+
+### 3. Push the branch (make it visible to the Linux machine)
 
 ```bash
 if [ -n "$CONTEXT" ]; then
@@ -72,10 +101,6 @@ fi
 
 Confirm with the user before pushing if the branch has no upstream yet or diverges from origin (normal push-safety rules apply).
 
-### 3. Pick a connectivity tier — try in order, stop at first success. Carry the resolved connection forward into `SSH_ARGS`/`SSH_TARGET` for step 4 — don't just check reachability and then reconnect a different way.
-
-See [cross-machine-ssh-tier](../cross-machine-ssh-tier/SKILL.md) for the Tier 1→2→3 connectivity ladder (LAN SSH → SSH over Tailscale → messaging-gateway fallback), its debugging caveats, and the key-naming convention. Run that skill's ladder block with `PEER_LAN_ALIAS="mylinux"` (and the matching `PEER_TS_PATTERN`/`PEER_KEY`/`PEER_USER`) to resolve `SSH_ARGS`/`SSH_TARGET` before continuing to step 4. If `$SSH_TARGET` comes back empty, both Tier 1 and Tier 2 failed — fall through to that skill's Tier 3 (messaging-gateway handoff): post the exact repo/branch/commit and the steps from §4 below, asking it to execute them locally and reply when the tmux session is ready.
-
 ### 4. Remote checkout + tmux (Tier 1/2 only — skip if `$SSH_TARGET` is empty, that means Tier 3 applies instead)
 
 Arguments are base64-encoded before crossing the wire. This isn't just a quoting nicety: `ssh host command args...` does not preserve argv separation — the remote login shell re-joins and re-tokenizes the command line, so an unencoded branch name containing a space silently shifts which value lands in `$1`/`$2`/`$3`, and one containing shell metacharacters (`;`, `` ` ``, `$()`, `&&`, `|` — all valid in a git branch name) executes arbitrary commands on the remote host. Base64 output contains none of those characters, so encoding closes both problems regardless of what the original value contains.
@@ -86,9 +111,10 @@ BRANCH_B64=$(printf '%s' "$BRANCH" | base64 | tr -d '\n')
 REMOTE_URL_B64=$(printf '%s' "$REMOTE_URL" | base64 | tr -d '\n')
 CONTEXT_B64=$(printf 'x%s' "$CONTEXT" | base64 | tr -d '\n')
 AGENT_CLI_B64=$(printf '%s' "$AGENT_CLI" | base64 | tr -d '\n')
+CLAUDE_LAUNCHER_B64=$(printf '%s' "$CLAUDE_LAUNCHER" | base64 | tr -d '\n')
 INTENDED_SHA_B64=$(printf '%s' "$INTENDED_SHA" | base64 | tr -d '\n')
 
-ssh "${SSH_ARGS[@]}" "$SSH_TARGET" bash -s -- "$REL_PATH_B64" "$BRANCH_B64" "$REMOTE_URL_B64" "$CONTEXT_B64" "$AGENT_CLI_B64" "$INTENDED_SHA_B64" << 'EOF'
+ssh "${SSH_ARGS[@]}" "$SSH_TARGET" bash -s -- "$REL_PATH_B64" "$BRANCH_B64" "$REMOTE_URL_B64" "$CONTEXT_B64" "$AGENT_CLI_B64" "$CLAUDE_LAUNCHER_B64" "$INTENDED_SHA_B64" << 'EOF'
 set -e
 REL_PATH=$(printf '%s' "$1" | base64 -d)
 BRANCH=$(printf '%s' "$2" | base64 -d)
@@ -100,7 +126,8 @@ case "$CONTEXT_PAYLOAD" in
   *) echo "FAILED:$TARGET — invalid CONTEXT payload" >&2; exit 1 ;;
 esac
 AGENT_CLI=$(printf '%s' "$5" | base64 -d)
-INTENDED_SHA=$(printf '%s' "$6" | base64 -d)
+CLAUDE_LAUNCHER=$(printf '%s' "$6" | base64 -d)
+INTENDED_SHA=$(printf '%s' "$7" | base64 -d)
 if [[ ! "$INTENDED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
   echo "FAILED:$REL_PATH — invalid intended source SHA" >&2
   exit 75
@@ -238,7 +265,17 @@ HOST_BASH_ENV=${BASH_ENV:-}
 LAUNCH_ENV=(env "DISKM_SCRATCH=$SCRATCH_ROOT" "CLAUDE_CODE_TMPDIR=$OUTPUT_ROOT" "PYTEST_DEBUG_TEMPROOT=$OUTPUT_ROOT" "BASH_ENV=$SCOPED_BASH_ENV")
 case "$AGENT_CLI" in
   pi)     LAUNCH=("${LAUNCH_ENV[@]}" pi -- "Caller handoff context: $CONTEXT") ;;
-  claude) LAUNCH=("${LAUNCH_ENV[@]}" claude --dangerously-skip-permissions -- "$CONTEXT") ;;
+  claude)
+    case "$CLAUDE_LAUNCHER" in
+      claude) LAUNCH=("${LAUNCH_ENV[@]}" claude --dangerously-skip-permissions -- "$CONTEXT") ;;
+      claudewa)
+        if ! command -v claudewa >/dev/null 2>&1; then
+          echo "FAILED:$TARGET — source selected .claude-wa, but matching target wrapper claudewa is unavailable; refusing profile fallback" >&2
+          exit 75
+        fi
+        LAUNCH=("${LAUNCH_ENV[@]}" claudewa --dangerously-skip-permissions -- "$CONTEXT") ;;
+      *) echo "FAILED:$TARGET — unsupported Claude profile launcher '$CLAUDE_LAUNCHER'; refusing profile fallback" >&2; exit 75 ;;
+    esac ;;
   codex)  LAUNCH=("${LAUNCH_ENV[@]}" codex
             -c "shell_environment_policy.set.DISKM_SCRATCH=$SCRATCH_ROOT"
             -c "shell_environment_policy.set.CLAUDE_CODE_TMPDIR=$OUTPUT_ROOT"
