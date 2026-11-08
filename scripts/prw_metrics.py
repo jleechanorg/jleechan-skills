@@ -672,7 +672,7 @@ class Collector:
                 if proc.returncode != 0:
                     raise RuntimeError(
                         f"timeline page {page} for {repo}#{pr_number} failed: "
-                        f"exit {proc.returncode}: {(proc.stderr or "").strip()[:200]}"
+                        f"exit {proc.returncode}: {(proc.stderr or '').strip()[:200]}"
                     )
                 try:
                     items = json.loads(proc.stdout)
