@@ -3,6 +3,7 @@
 import json
 import subprocess
 import unittest
+from datetime import datetime, timezone
 from unittest import mock
 
 from scripts.prw_metrics import Collector, DashboardRenderer, MetricsAggregator
@@ -26,7 +27,7 @@ def _task_event(repo, number):
 
 class TestB6ExactRepoIdentity(unittest.TestCase):
     def test_collision_foreign_repoless_and_prless_events(self):
-        agg = MetricsAggregator()
+        agg = MetricsAggregator(cutoff_dt=datetime(2026, 11, 7, tzinfo=timezone.utc))
         prs = [
             {"repo": ALPHA, "number": 42, "state": "MERGED", "mergedAt": "2026-11-06T00:00:00Z"},
             {"repo": BETA, "number": 42, "state": "MERGED", "mergedAt": "2026-11-06T00:00:00Z"},
@@ -37,7 +38,7 @@ class TestB6ExactRepoIdentity(unittest.TestCase):
             _task_event(None, 42),
             _task_event(ALPHA, None),
         ]
-        data = agg.aggregate_full_dataset(prs=prs, time_semantics_pilot=events)
+        data = agg.aggregate_full_dataset(prs=prs, time_semantics_pilot=events, now_dt=agg.cutoff_dt)
         with_task = [r for r in data["time_semantics_pilot"] if r.get("task_elapsed_sec") is not None]
         self.assertEqual(len(with_task), 1)
         self.assertEqual(with_task[0]["task_elapsed_sec"], 432000.0)
@@ -45,9 +46,9 @@ class TestB6ExactRepoIdentity(unittest.TestCase):
         self.assertNotIn(f"{BETA}/pull/42", json.dumps(with_task[0]))
 
     def test_repo_less_event_alone_fabricates_nothing(self):
-        agg = MetricsAggregator()
+        agg = MetricsAggregator(cutoff_dt=datetime(2026, 11, 7, tzinfo=timezone.utc))
         prs = [{"repo": BETA, "number": 42, "state": "MERGED", "mergedAt": "2026-11-06T00:00:00Z"}]
-        data = agg.aggregate_full_dataset(prs=prs, time_semantics_pilot=[_task_event(None, 42)])
+        data = agg.aggregate_full_dataset(prs=prs, time_semantics_pilot=[_task_event(None, 42)], now_dt=agg.cutoff_dt)
         for row in data["time_semantics_pilot"]:
             self.assertIsNone(row.get("task_elapsed_sec"))
 

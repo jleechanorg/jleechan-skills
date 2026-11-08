@@ -1186,7 +1186,7 @@ class TestTimeSemanticsHumanInterventionsAndTitleParsing(unittest.TestCase):
 
     def test_raw_pilot_events_aggregation_and_parallel_overlap(self):
         """Passing raw pilot_events.jsonl records into aggregate_full_dataset groups by PR and computes disjoint active wall vs effort sum."""
-        agg = MetricsAggregator()
+        agg = MetricsAggregator(cutoff_dt=datetime(2026, 11, 7, tzinfo=timezone.utc))
         raw_events = [
             # PR 740 events
             {
@@ -1243,7 +1243,7 @@ class TestTimeSemanticsHumanInterventionsAndTitleParsing(unittest.TestCase):
                 "occurred_at": "2026-11-05T11:45:00Z",
             },
         ]
-        summary = agg.aggregate_full_dataset(prs=[], time_semantics_pilot=raw_events)
+        summary = agg.aggregate_full_dataset(prs=[], time_semantics_pilot=raw_events, now_dt=agg.cutoff_dt)
         pilot_rows = summary["time_semantics_pilot"]
         self.assertEqual(len(pilot_rows), 2)
 
@@ -2200,6 +2200,82 @@ class TestRetentionRoundTripInvariant(unittest.TestCase):
             self.assertIn("CI green on candidate", table)
             self.assertIn("https://example.org/receipts/742", table)
             self.assertEqual(attention(after), table)
+
+    def _bare_remote_and_checkout(self, tmp):
+        remote, local = os.path.join(tmp, "remote.git"), os.path.join(tmp, "local")
+        subprocess.run(["git", "init", "-q", "--bare", remote], check=True, capture_output=True)
+        subprocess.run(["git", "-C", remote, "symbolic-ref", "HEAD", "refs/heads/main"], check=True)
+        subprocess.run(["git", "clone", "-q", remote, local], check=True, capture_output=True)
+        for args in (["checkout", "-B", "main"], ["config", "user.name", "T"], ["config", "user.email", "t@test.local"]):
+            subprocess.run(["git", "-C", local, *args], check=True, capture_output=True)
+        with open(os.path.join(local, "README.md"), "w") as f:
+            f.write("# Root\n")
+        for args in (["add", "README.md"], ["commit", "-qm", "init"], ["push", "-q", "origin", "main"]):
+            subprocess.run(["git", "-C", local, *args], check=True, capture_output=True)
+        return remote, local
+
+    def test_readback_consumes_published_commit_from_unchanged_checkout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, local = self._bare_remote_and_checkout(tmp)
+            receipts, state = os.path.join(tmp, "receipts"), os.path.join(tmp, "state")
+            self._receipt(receipts)
+            pages = {
+                self.REPO_A: [self._pr(self.REPO_A, 1, "MERGED", "2026-11-04T20:00:00Z", "2026-11-04T20:00:00Z")],
+                self.REPO_B: [self._pr(self.REPO_B, 7, "OPEN", "2026-11-07T00:00:00Z", head="bbb2222")],
+            }
+            self._collect(pages, state_dir=state)
+            before = self._collect(pages, receipts_dir=receipts, state_dir=state)
+            summary_before = self._summarize(before)
+            with open(os.path.join(local, "dirty.txt"), "w") as f:
+                f.write("unrelated local edit\n")
+            res = publish_dashboard(
+                markdown_text=DashboardRenderer().render(summary_before),
+                repo_path=local,
+                verify_private_fn=lambda _: True,
+                publish_telemetry=True,
+                summary_data=summary_before,
+                prs=before["prs"], timeline=before["timeline"],
+                handoff_records=before["handoff_records"], sources=before["sources"],
+            )
+            self.assertTrue(res["committed"], res)
+            # The checkout never saw the published files.
+            self.assertFalse(os.path.exists(os.path.join(local, "dashboards", "prw", "telemetry")))
+            shutil.rmtree(state)
+            shutil.rmtree(receipts)
+
+            after = Collector(repos=[self.REPO_A, self.REPO_B], cutoff_dt=parse_iso_utc(self.CUTOFF)).collect_all(
+                roadmap_repo=local, offline=True
+            )
+            summary_after = self._summarize(after)
+            for key in set(summary_before) - {"sources"}:
+                self.assertEqual(summary_after[key], summary_before[key], key)
+            # Unrelated working-tree edits are untouched.
+            with open(os.path.join(local, "dirty.txt")) as f:
+                self.assertEqual(f.read(), "unrelated local edit\n")
+            self.assertFalse(os.path.exists(os.path.join(local, "dashboards", "prw", "telemetry")))
+
+    def test_absolute_paths_in_attention_fields_are_scrubbed_everywhere(self):
+        body = "\n".join([
+            "next_action: run /home/someone/private-dir/run.sh then ~/secret/notes",
+            "owner: /Users/someone/agent",
+            "job_handle: /var/tmp/job-4242/handle",
+            "wake_condition: see https://example.org/receipts/742 for CI",
+        ])
+        pr = self._pr(self.REPO_A, 9, "OPEN", "2026-11-07T00:00:00Z", head="ccc3333")
+        pr.update({"body": body, "has_continuous_observation": True, "telemetry_coverage": 1.0,
+                   "eligible_intervals": [["2026-11-07T01:00:00Z", "2026-11-07T04:00:00Z"]]})
+        with tempfile.TemporaryDirectory() as tmp:
+            collected = self._collect({self.REPO_A: [pr]})
+            summary = self._summarize(collected)
+            files = Publisher(repo_path=tmp).write_telemetry_bundle(
+                summary, prs=collected["prs"], window_slug="20261107"
+            )
+            sinks = list(files.values()) + [DashboardRenderer().render(summary)]
+            for sink in sinks:
+                for fragment in ("/home/someone", "private-dir", "~/secret", "/Users/someone", "/var/tmp/job-4242"):
+                    self.assertNotIn(fragment, sink)
+            self.assertIn("https://example.org/receipts/742", sinks[-1])
+            self.assertIn("[PATH]", sinks[-1])
 
 
 if __name__ == "__main__":

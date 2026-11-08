@@ -21,6 +21,7 @@ import json
 import math
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -224,6 +225,8 @@ def redact_sensitive_excerpt(text, max_chars=200):
     s = re.sub(r"Bearer\s+\S+", "Bearer [REDACTED]", s)
     # Redact OTP / verification codes
     s = re.sub(r"(?i)(otp|passcode|verification\s*code|auth\s*code)\s*[:=]?\s*\d{4,8}", r"\1: [REDACTED]", s)
+    # Absolute POSIX / home paths carry host and user identity; URLs and relative paths are untouched
+    s = re.sub(r"(?<![\w:/.~$-])(?:~|\$HOME)?(?:/[\w.@+%=,-]+){2,}/?", "[PATH]", s)
     if len(s) > max_chars:
         s = s[:max_chars].rstrip() + "..."
     return s
@@ -383,6 +386,40 @@ def retained_telemetry_dirs(root):
     return dirs
 
 
+def export_published_telemetry(roadmap_repo, dest_dir, ref="refs/remotes/origin/main", fetch=False):
+    """
+    Copy the telemetry tree of the PUBLISHED ref into dest_dir via git plumbing (no checkout, working
+    tree untouched). Returns True when the ref exists and held telemetry files.
+    """
+    def git(*args):
+        return subprocess.run(["git", "-C", roadmap_repo, *args], capture_output=True, timeout=60)
+
+    try:
+        if fetch:
+            git("fetch", "-q", "origin", "main")
+        if git("rev-parse", "--verify", "-q", ref + "^{commit}").returncode != 0:
+            return False
+        listing = git("ls-tree", "-r", "--name-only", ref, "--", TELEMETRY_RELDIR)
+        if listing.returncode != 0:
+            return False
+        exported = False
+        for rel in listing.stdout.decode("utf-8").splitlines():
+            parts = rel.split("/")
+            if ".." in parts or os.path.basename(rel) not in TELEMETRY_FILES:
+                continue
+            blob = git("show", f"{ref}:{rel}")
+            if blob.returncode != 0:
+                continue
+            out_path = os.path.join(dest_dir, *rel[len(TELEMETRY_RELDIR) + 1:].split("/"))
+            os.makedirs(os.path.dirname(out_path), exist_ok=True)
+            with open(out_path, "wb") as f:
+                f.write(blob.stdout)
+            exported = True
+        return exported
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def _sanitize_retained_sources(sources):
     """Keep only status/count/cutoff per source; error strings and paths are not retained."""
     if not isinstance(sources, dict):
@@ -534,7 +571,9 @@ def parse_operational_title(title):
 EXECUTION_RECORD_KEYS = ("endpoint", "candidate", "next_action", "owner", "job_handle", "wake_condition", "blocker")
 _EXECUTION_LINE_RE = re.compile(r"^\s*(" + "|".join(EXECUTION_RECORD_KEYS) + r"):[ \t]*(.+?)\s*$")
 _URL_RE = re.compile(r"https?://[^\s)|>\]]+")
-LEDGER_CLOSED_STATUSES = ("PASS", "N/A")
+# Documented terminal/exempt ledger statuses (pr-lifecycle/review-records.md); OPEN, PENDING,
+# FAILED, UNAVAILABLE and SUPERSEDED remain unmet.
+LEDGER_CLOSED_STATUSES = ("PASS", "NOT REQUIRED", "N/A")
 
 
 def _record_value(raw):
@@ -588,7 +627,7 @@ def parse_pr_body_record(body, head_sha=None):
         if header is None or len(cells) != len(header) or set("".join(cells)) <= set("-: "):
             continue
         row = dict(zip(header, cells))
-        status = row.get("status", "").strip("` *").upper()
+        status = " ".join(row.get("status", "").strip("` *").upper().split())
         if status not in LEDGER_CLOSED_STATUSES and "earliest_unmet_obligation" not in out:
             out["earliest_unmet_obligation"] = row.get("obligation") or "UNKNOWN"
         receipts.extend(_URL_RE.findall(row.get("receipt", "")))
@@ -1115,6 +1154,12 @@ class Collector:
         """
         target_dir = telemetry_dir
         if not target_dir and roadmap_repo:
+            published = tempfile.mkdtemp(prefix="prw_published_")
+            try:
+                if export_published_telemetry(roadmap_repo, published):
+                    return self.load_retained_telemetry(telemetry_dir=published)
+            finally:
+                shutil.rmtree(published, ignore_errors=True)
             target_dir = os.path.join(roadmap_repo, "dashboards", "prw", "telemetry")
 
         pilot_events = []
@@ -1219,8 +1264,14 @@ class Collector:
         candidate_telem_dirs = []
         if telemetry_dir:
             candidate_telem_dirs.append(telemetry_dir)
+        published_tmp = None
         if roadmap_repo:
-            candidate_telem_dirs.append(os.path.join(roadmap_repo, "dashboards", "prw", "telemetry"))
+            # Readback consumes the PUBLISHED ref; the working tree is only a fallback.
+            published_tmp = tempfile.mkdtemp(prefix="prw_published_")
+            if export_published_telemetry(roadmap_repo, published_tmp, fetch=not offline):
+                candidate_telem_dirs.append(published_tmp)
+            else:
+                candidate_telem_dirs.append(os.path.join(roadmap_repo, "dashboards", "prw", "telemetry"))
         if input_dir:
             candidate_telem_dirs.append(os.path.join(input_dir, "telemetry"))
             candidate_telem_dirs.append(input_dir)
@@ -1257,6 +1308,9 @@ class Collector:
             cached_handoffs.extend(retained.get("handoff_records", []))
             for k, v in retained.get("sources", {}).items():
                 remember_prior_source(k, v)
+
+        if published_tmp:
+            shutil.rmtree(published_tmp, ignore_errors=True)
 
         # 1. Attempt loading from state_dir or input_dir
         for directory in (state_dir, input_dir):
@@ -1449,8 +1503,9 @@ class MetricsAggregator:
 
     """Computes exact-window aggregations, stage dwell, and honest idle boundaries."""
 
-    def __init__(self, cutoff_dt=None):
+    def __init__(self, cutoff_dt=None, repos=None):
         self.cutoff_dt = cutoff_dt or datetime.now(timezone.utc)
+        self.configured_repos = frozenset(repos or ())
         self.w2_start_dt = self.cutoff_dt - timedelta(days=7)
         self.w1_start_dt = self.cutoff_dt - timedelta(days=14)
 
@@ -1738,6 +1793,15 @@ class MetricsAggregator:
             "explicit_waiting_sec": explicit_waiting_sec,
             "avoidable_unattended_sec": None,
         }
+
+    @staticmethod
+    def event_in_window(ev, start_dt, end_dt):
+        """Dated pilot events must fall in [start_dt, end_dt); undated duration-only events stay with their PR."""
+        for key in ("occurred_at", "start_at", "start", "started_at", "end_at", "end", "completed_at"):
+            ts = parse_iso_utc(ev.get(key))
+            if ts:
+                return start_dt <= ts < end_dt
+        return True
 
     @staticmethod
     def episode_in_scope(ep, start_dt, end_dt, repos):
@@ -2489,6 +2553,9 @@ class MetricsAggregator:
         elif source_cutoffs and any((now_dt - c) > timedelta(hours=stale_threshold_hours) for c in source_cutoffs):
             status = "STALE"
 
+        # Reporting scope: the configured repo list when given, else the repos present in the PR set.
+        scope_repos = set(self.configured_repos) or set(repos)
+
         # Pilot time semantics
         if time_semantics_pilot is None:
             time_semantics_pilot = []
@@ -2507,8 +2574,9 @@ class MetricsAggregator:
                 for ev in time_semantics_pilot:
                     r = ev.get("repo")
                     n = ev.get("pr_number") or ev.get("number")
-                    key = (r, n)
-                    grouped.setdefault(key, []).append(ev)
+                    if not r or (scope_repos and r not in scope_repos) or not self.event_in_window(ev, w1_s, cutoff):
+                        continue
+                    grouped.setdefault((r, n), []).append(ev)
 
                 pr_map = {}
                 for p in prs:
@@ -2528,7 +2596,7 @@ class MetricsAggregator:
         human_summary = None
         if human_episodes is not None:
             scoped_episodes = [
-                ep for ep in human_episodes if self.episode_in_scope(ep, w1_s, cutoff, set(repos))
+                ep for ep in human_episodes if self.episode_in_scope(ep, w1_s, cutoff, scope_repos)
             ]
             human_summary = self.compute_human_interventions(scoped_episodes, cohort_prs_count=len(all_merged_w2 or prs))
 
@@ -3281,7 +3349,7 @@ def main():
     pilot_events = collected.get("pilot_events") or None
     human_episodes = collected.get("human_episodes") or None
 
-    aggregator = MetricsAggregator(cutoff_dt=cutoff_dt)
+    aggregator = MetricsAggregator(cutoff_dt=cutoff_dt, repos=repos)
     summary_data = aggregator.aggregate_full_dataset(
         prs=prs,
         timeline_events=timeline,
