@@ -888,6 +888,7 @@ class TestTimeSemanticsHumanInterventionsAndTitleParsing(unittest.TestCase):
             {
                 "episode_id": "ep-1",
                 "is_bot": False,
+                "actor_status": "human",
                 "origin": "user",
                 "raw_message_count": 2,
                 "is_initial_assignment": True,
@@ -906,6 +907,7 @@ class TestTimeSemanticsHumanInterventionsAndTitleParsing(unittest.TestCase):
             {
                 "episode_id": "ep-2",
                 "is_bot": False,
+                "actor_status": "human",
                 "origin": "user",
                 "raw_message_count": 1,
                 "is_initial_assignment": False,
@@ -925,6 +927,7 @@ class TestTimeSemanticsHumanInterventionsAndTitleParsing(unittest.TestCase):
         episodes = [
             {
                 "episode_id": "ep-mirror",
+                "actor_status": "human",
                 "message_ids": ["msg-100", "msg-101"],
                 "is_bot": False,
                 "origin": "user",
@@ -936,6 +939,7 @@ class TestTimeSemanticsHumanInterventionsAndTitleParsing(unittest.TestCase):
             # Duplicate mirrored record with same episode_id / message_ids referring to repo-alpha#2
             {
                 "episode_id": "ep-mirror",
+                "actor_status": "human",
                 "message_ids": ["msg-100", "msg-101"],
                 "is_bot": False,
                 "origin": "user",
@@ -957,6 +961,7 @@ class TestTimeSemanticsHumanInterventionsAndTitleParsing(unittest.TestCase):
             {
                 "episode_id": "ep-task-unassigned",
                 "is_bot": False,
+                "actor_status": "human",
                 "origin": "user",
                 "raw_message_count": 1,
                 "is_initial_assignment": False,
@@ -979,6 +984,7 @@ class TestTimeSemanticsHumanInterventionsAndTitleParsing(unittest.TestCase):
             {
                 "episode_id": "ep-post-merge",
                 "is_bot": False,
+                "actor_status": "human",
                 "origin": "user",
                 "raw_message_count": 1,
                 "is_initial_assignment": False,
@@ -1002,7 +1008,7 @@ class TestTimeSemanticsHumanInterventionsAndTitleParsing(unittest.TestCase):
                 f.write(json.dumps({"pr_number": 1, "span_kind": "observed_active_execution", "duration_sec": 1200}) + "\n")
 
             with open(os.path.join(telem_dir, "human_episodes.jsonl"), "w") as f:
-                f.write(json.dumps({"episode_id": "ep-ret-1", "is_bot": False, "origin": "user", "raw_message_count": 1, "is_initial_assignment": False, "label": "good"}) + "\n")
+                f.write(json.dumps({"episode_id": "ep-ret-1", "is_bot": False, "actor_status": "human", "origin": "user", "raw_message_count": 1, "is_initial_assignment": False, "label": "good"}) + "\n")
 
             with open(os.path.join(telem_dir, "calibration_audit.json"), "w") as f:
                 json.dump({"audit_status": "CALIBRATED", "disagreement_rate": 0.05}, f)
