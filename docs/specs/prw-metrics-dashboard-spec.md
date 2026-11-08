@@ -34,7 +34,7 @@ A lightweight, automated metrics collector and renderer that publishes a single,
 - **Backlog Partitioning**: Partitions PRs merged within each window into:
   - *Comparable Recent Merges* ($\le 7$ days from `createdAt` to `mergedAt`).
   - *Historical Backlog Merges* ($> 7$ days old at merge), preventing long-parked draft branches from skewing recent turnaround statistics.
-- **Private Telemetry Retention**: Sanitized event/episode records (fixed scalar fields only; raw message text, transcripts and excerpts are never retained) and session receipts are stored under `dashboards/prw/telemetry/<window_slug>/` in `<org>/roadmap`, ensuring deterministic audit studies and dashboard rebuilds even after local host Scratch is cleared.
+- **Private Telemetry Retention**: Sanitized event/episode records, collected PR records, timeline events, handoff receipts and per-source cutoffs (fixed fields only; PR bodies, raw message text, transcripts, excerpts and error strings are never retained) are stored under `dashboards/prw/telemetry/<window_slug>/` in `<org>/roadmap`, ensuring deterministic audit studies and dashboard rebuilds even after local host Scratch is cleared.
 
 ### 3.2 Time Semantics & Active Work Model
 - **Per-Attempt Timestamps**: Timestamp subtraction for review handoff intervals (`review_requested_at` to `actual_review_started_at`) must be computed strictly within the same review attempt. Timestamps from different attempts are never combined.

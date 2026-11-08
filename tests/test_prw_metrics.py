@@ -1875,5 +1875,112 @@ class TestRound4RedactionAndWorkerIdentity(unittest.TestCase):
         self.assertIn("agent_id", content)
 
 
+class TestRetainedBundleRebuildsAudit(unittest.TestCase):
+    """PR #742 Codex round-3 P0 4: the published bundle alone must rebuild repository/stage/handoff tables."""
+
+    CUTOFF = "2026-11-08T00:00:00Z"
+    REPO = "example-org/repo-alpha"
+    CREDENTIAL = "Bearer " + "synthetic-credential-" + "0123456789"
+
+    def _seed_scratch(self, scratch):
+        prs = [
+            {
+                "number": 1, "repo": self.REPO, "state": "MERGED", "title": "[ready][done] Alpha change",
+                "createdAt": "2026-11-02T00:00:00Z", "mergedAt": "2026-11-04T00:00:00Z",
+                "updatedAt": "2026-11-04T00:00:00Z", "additions": 10, "deletions": 2, "changedFiles": 3,
+                "headRefOid": "aaa1111", "labels": ["stage:5-final-approval"],
+                "body": "raw private body " + self.CREDENTIAL,
+                "evidence_ready_at": "2026-11-02T10:00:00Z",
+                "review_requested_at": "2026-11-02T11:00:00Z",
+                "actual_review_started_at": "2026-11-02T12:30:00Z",
+                "initial_task_accepted_at": "2026-11-02T00:00:00Z",
+                "stage_transitions": [
+                    {"stage": "stage:1-coding", "entered_at": "2026-11-02T00:00:00Z", "exited_at": "2026-11-02T06:00:00Z", "note": self.CREDENTIAL},
+                    {"stage": "stage:2-evidence", "entered_at": "2026-11-02T06:00:00Z", "exited_at": "2026-11-02T10:00:00Z"},
+                ],
+            },
+            {
+                "number": 2, "repo": self.REPO, "state": "OPEN", "title": "[working][fixing] Beta change",
+                "createdAt": "2026-11-06T00:00:00Z", "updatedAt": "2026-11-07T00:00:00Z",
+                "has_continuous_observation": True, "telemetry_coverage": 1.0,
+                "eligible_intervals": [["2026-11-07T01:00:00Z", "2026-11-07T04:00:00Z"]],
+                "labels": ["stage:1-coding"], "headRefOid": "bbb2222",
+            },
+        ]
+        timeline = {
+            self.REPO + "#1": [
+                {"__typename": "LabeledEvent", "createdAt": "2026-11-02T00:00:00Z", "label": {"name": "stage:1-coding"}},
+                {"__typename": "LabeledEvent", "createdAt": "2026-11-03T00:00:00Z", "label": {"name": "stage:3-review"}},
+            ]
+        }
+        handoffs = [
+            {"repo": self.REPO, "pr_number": 1, "attempt": 1, "candidate_sha": "aaa1111",
+             "start_at": "2026-11-02T11:00:00Z", "end_at": "2026-11-02T12:30:00Z", "receipt_id": "r-1",
+             "reviewer_notes": self.CREDENTIAL},
+        ]
+        os.makedirs(scratch)
+        for name, payload in (
+            ("enriched_prs.json", prs), ("raw_timeline.json", timeline),
+            ("actionable_handoff_metrics.json", handoffs),
+            ("source_manifest.json", {self.REPO: {"status": "COMPLETE", "count": 2, "cutoff": self.CUTOFF}}),
+        ):
+            with open(os.path.join(scratch, name), "w", encoding="utf-8") as f:
+                json.dump(payload, f)
+
+    def _summarize(self, collected):
+        cutoff = parse_iso_utc(self.CUTOFF)
+        summary = MetricsAggregator(cutoff_dt=cutoff).aggregate_full_dataset(
+            prs=collected["prs"], timeline_events=collected["timeline"], sources=collected["sources"],
+            handoff_records=collected["handoff_records"], now_dt=cutoff,
+        )
+        summary.pop("generated_at", None)
+        return summary
+
+    def test_published_bundle_alone_reproduces_aggregates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            scratch, roadmap = os.path.join(tmp, "scratch"), os.path.join(tmp, "roadmap")
+            self._seed_scratch(scratch)
+            collector = Collector(repos=[self.REPO], cutoff_dt=parse_iso_utc(self.CUTOFF))
+            before = collector.collect_all(input_dir=scratch, offline=True)
+            self.assertEqual(len(before["prs"]), 2)
+            summary_before = self._summarize(before)
+
+            files = Publisher(repo_path=roadmap).write_telemetry_bundle(
+                summary_before, prs=before["prs"], timeline=before["timeline"],
+                handoff_records=before["handoff_records"], sources=before["sources"],
+                window_slug="20261101",
+            )
+            for relpath, content in files.items():
+                self.assertNotIn("synthetic-credential", content, relpath)
+                self.assertNotIn("raw private body", content, relpath)
+                path = os.path.join(roadmap, relpath)
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(content)
+
+            shutil.rmtree(scratch)
+            after = Collector(repos=[self.REPO], cutoff_dt=parse_iso_utc(self.CUTOFF)).collect_all(
+                roadmap_repo=roadmap, offline=True
+            )
+            self.assertEqual(len(after["prs"]), 2)
+            self.assertEqual(self._summarize(after), summary_before)
+
+    def test_retained_collection_files_are_fixed_field(self):
+        files = Publisher(repo_path=".").write_telemetry_bundle(
+            None,
+            prs=[{"number": 1, "repo": self.REPO, "body": self.CREDENTIAL, "extra": self.CREDENTIAL,
+                  "stage_transitions": [{"stage": "s", "note": self.CREDENTIAL}]}],
+            timeline=[{"id": "1", "event": "labeled", "raw": self.CREDENTIAL}],
+            handoff_records=[{"receipt_id": "r", "notes": self.CREDENTIAL}],
+            sources={self.REPO: {"status": "FAILED", "error": self.CREDENTIAL, "path": "/private/path"}},
+            window_slug="20261101",
+        )
+        joined = "\n".join(files.values())
+        self.assertNotIn("synthetic-credential", joined)
+        self.assertNotIn("/private/path", joined)
+        for key in ("body", "extra", "note", "raw", "notes", "error"):
+            self.assertNotIn('"%s"' % key, joined)
+
+
 if __name__ == "__main__":
     unittest.main()

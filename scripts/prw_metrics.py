@@ -237,6 +237,57 @@ RETAINED_EPISODE_FIELDS = frozenset({
 })
 
 
+RETAINED_PR_FIELDS = frozenset({
+    "number", "repo", "title", "operational_status", "operational_detail", "legacy_stage", "state",
+    "isDraft", "createdAt", "updatedAt", "mergedAt", "closedAt", "additions", "deletions",
+    "changedFiles", "headRefOid", "labels", "url", "stage_transitions", "has_continuous_observation",
+    "telemetry_coverage", "eligible_intervals", "evidence_ready_at", "review_requested_at",
+    "actual_review_started_at", "queued_at", "review_returned_at", "review_completed_at",
+    "next_action_started_at", "authority_ready_at", "final_ready", "merge_authority",
+    "initial_task_accepted_at", "closure_sprint_accepted_at", "next_action", "owner", "hold_status",
+    "earliest_unmet_obligation", "potential_handoff_waiting",
+})
+RETAINED_TIMELINE_FIELDS = frozenset({
+    "id", "event", "event_type", "type", "label", "actor", "createdAt", "created_at", "occurred_at",
+    "timestamp", "repo", "number", "pr_number", "pr_id", "stage", "entered_at", "exited_at",
+    "start_at", "start", "started_at", "end_at", "end", "completed_at", "duration_sec", "span_kind",
+})
+RETAINED_HANDOFF_FIELDS = frozenset({
+    "attempt", "attempt_number", "candidate_sha", "head_sha", "receipt_id", "source_receipt", "repo",
+    "number", "pr_number", "pr_url", "status", "transition", "name", "final_ready", "merge_authority",
+    "duration_sec", "start_at", "started_at", "end_at", "completed_at", "evidence_ready_at",
+    "review_requested_at", "actual_review_started_at", "queued_at", "review_returned_at",
+    "review_completed_at", "next_action_started_at", "authority_ready_at", "initial_task_accepted_at",
+    "closure_sprint_accepted_at", "agent_effort_sec", "avoidable_unattended_sec",
+    "closure_sprint_to_merge_sec", "explicit_waiting_sec", "observed_active_wall_sec",
+    "observed_operation_elapsed_sec", "pr_elapsed_sec", "task_elapsed_sec", "median_sec",
+    "observed_n", "total_n",
+})
+RETAINED_SOURCE_FIELDS = frozenset({"status", "count", "cutoff"})
+# Keys permitted inside nested structures (stage transitions, eligible intervals, label objects).
+RETAINED_NESTED_KEYS = frozenset({
+    "stage", "label", "name", "start", "end", "start_at", "end_at", "entered_at", "exited_at",
+    "started_at", "completed_at", "duration_sec",
+})
+
+
+def _retained_nested(value, depth=3):
+    """Keep scalars, ISO-formatted datetimes, and nested lists/dicts limited to RETAINED_NESTED_KEYS."""
+    if isinstance(value, datetime):
+        return format_iso_utc(value)
+    if isinstance(value, str):
+        return redact_sensitive_excerpt(value, max_chars=len(value) + 4)
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if depth <= 0:
+        return None
+    if isinstance(value, (list, tuple)):
+        return [_retained_nested(v, depth - 1) for v in value]
+    if isinstance(value, dict):
+        return {k: _retained_nested(v, depth - 1) for k, v in value.items() if k in RETAINED_NESTED_KEYS}
+    return None
+
+
 def _retained_scalar(value):
     if isinstance(value, str):
         return redact_sensitive_excerpt(value)
@@ -245,8 +296,8 @@ def _retained_scalar(value):
     return None
 
 
-def _sanitize_retained_record(record, allowed):
-    """Project a record onto the allowed scalar fields, redacting credentials in string values."""
+def _sanitize_retained_record(record, allowed, nested=False):
+    """Project a record onto the allowed fields, redacting credentials in string values."""
     if not isinstance(record, dict):
         return {}
     out = {}
@@ -259,6 +310,8 @@ def _sanitize_retained_record(record, allowed):
         elif key in ("annotator_a", "annotator_b"):
             label = value.get("label") if isinstance(value, dict) else value
             out[key] = {"label": _retained_scalar(label)} if isinstance(value, dict) else _retained_scalar(label)
+        elif nested:
+            out[key] = _retained_nested(value)
         else:
             out[key] = _retained_scalar(value)
     return out
@@ -275,7 +328,15 @@ def _scrub_secrets(obj):
     return obj
 
 
-TELEMETRY_FILES = ("pilot_events.jsonl", "human_episodes.jsonl", "retention_manifest.json", "calibration_audit.json")
+RETAINED_COLLECTION_FILES = {
+    "retained_prs.jsonl": RETAINED_PR_FIELDS,
+    "retained_timeline.jsonl": RETAINED_TIMELINE_FIELDS,
+    "retained_handoffs.jsonl": RETAINED_HANDOFF_FIELDS,
+}
+TELEMETRY_FILES = (
+    "pilot_events.jsonl", "human_episodes.jsonl", "retention_manifest.json", "calibration_audit.json",
+    "retained_sources.json", *RETAINED_COLLECTION_FILES,
+)
 
 
 def retained_telemetry_dirs(root):
@@ -288,6 +349,17 @@ def retained_telemetry_dirs(root):
         if os.path.isdir(sub) and any(os.path.exists(os.path.join(sub, f)) for f in TELEMETRY_FILES):
             dirs.append(sub)
     return dirs
+
+
+def _sanitize_retained_sources(sources):
+    """Keep only status/count/cutoff per source; error strings and paths are not retained."""
+    if not isinstance(sources, dict):
+        return {}
+    return {
+        str(k): _sanitize_retained_record(v, RETAINED_SOURCE_FIELDS)
+        for k, v in sources.items()
+        if isinstance(v, dict)
+    }
 
 
 def sanitize_telemetry_file(relpath, content):
@@ -304,6 +376,15 @@ def sanitize_telemetry_file(relpath, content):
             if line.strip()
         ]
         return "\n".join(lines) + "\n"
+    if name in RETAINED_COLLECTION_FILES:
+        lines = [
+            json.dumps(_sanitize_retained_record(json.loads(line), RETAINED_COLLECTION_FILES[name], nested=True))
+            for line in content.splitlines()
+            if line.strip()
+        ]
+        return "\n".join(lines) + "\n"
+    if name == "retained_sources.json":
+        return json.dumps(_sanitize_retained_sources(json.loads(content)), indent=2)
     if name in ("summary_snapshot.json", "retention_manifest.json", "calibration_audit.json"):
         return json.dumps(_scrub_secrets(json.loads(content)), indent=2)
     raise ValueError(f"unsupported telemetry file: {relpath}")
@@ -416,6 +497,72 @@ def parse_operational_title(title):
 # Task 1: Reusable Collection
 # -----------------------------------------------------------------------------
 
+EXECUTION_RECORD_KEYS = ("endpoint", "candidate", "next_action", "owner", "job_handle", "wake_condition", "blocker")
+_EXECUTION_LINE_RE = re.compile(r"^\s*(" + "|".join(EXECUTION_RECORD_KEYS) + r"):[ \t]*(.+?)\s*$")
+_URL_RE = re.compile(r"https?://[^\s)|>\]]+")
+LEDGER_CLOSED_STATUSES = ("PASS", "N/A")
+
+
+def _record_value(raw):
+    """Template placeholders such as <head-SHA> carry no information."""
+    value = raw.strip()
+    if not value or (value.startswith("<") and value.endswith(">")):
+        return None
+    return value
+
+
+def render_receipt_links(links):
+    if not links:
+        return "UNKNOWN"
+    return " ".join(f"[Receipt {i}]({u})" for i, u in enumerate(links, 1))
+
+
+def parse_pr_body_record(body, head_sha=None):
+    """
+    Structurally parse the documented PR-body Persistent Execution Record (`key: value` lines) and
+    the obligation ledger table. A record whose candidate names a different head is stale and ignored.
+    """
+    out = {}
+    if not isinstance(body, str) or not body:
+        return out
+
+    fields = {}
+    for line in body.splitlines():
+        m = _EXECUTION_LINE_RE.match(line)
+        if m and m.group(1) not in fields:
+            fields[m.group(1)] = _record_value(m.group(2))
+    cand = fields.get("candidate")
+    if cand and head_sha and not (head_sha.startswith(cand) or cand.startswith(head_sha)):
+        fields = {}
+    for key in ("next_action", "owner", "job_handle", "wake_condition"):
+        if fields.get(key):
+            out[key] = fields[key]
+    if fields.get("blocker"):
+        out["blocker"] = fields["blocker"]
+
+    header = None
+    receipts = []
+    for line in body.splitlines():
+        if not line.lstrip().startswith("|"):
+            header = None
+            continue
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        lowered = [c.lower() for c in cells]
+        if "obligation" in lowered and "status" in lowered:
+            header = lowered
+            continue
+        if header is None or len(cells) != len(header) or set("".join(cells)) <= set("-: "):
+            continue
+        row = dict(zip(header, cells))
+        status = row.get("status", "").strip("` *").upper()
+        if status not in LEDGER_CLOSED_STATUSES and "earliest_unmet_obligation" not in out:
+            out["earliest_unmet_obligation"] = row.get("obligation") or "UNKNOWN"
+        receipts.extend(_URL_RE.findall(row.get("receipt", "")))
+    if receipts:
+        out["receipt_links"] = receipts
+    return out
+
+
 class Collector:
     """Ingests PR and timeline events from live GitHub API or cached JSON scratch datasets."""
 
@@ -501,6 +648,7 @@ class Collector:
             is_draft = bool(p["isDraft"])
 
         parsed_title = parse_operational_title(p.get("title") or "")
+        body_record = parse_pr_body_record(p.get("body"), head_sha)
 
         return {
             "number": num,
@@ -539,10 +687,17 @@ class Collector:
             "merge_authority": p.get("merge_authority"),
             "initial_task_accepted_at": p.get("initial_task_accepted_at"),
             "closure_sprint_accepted_at": p.get("closure_sprint_accepted_at"),
-            "next_action": p.get("next_action"),
-            "owner": p.get("owner"),
-            "hold_status": p.get("hold_status"),
-            "earliest_unmet_obligation": p.get("earliest_unmet_obligation"),
+            "next_action": p.get("next_action") or body_record.get("next_action"),
+            "owner": p.get("owner") or body_record.get("owner"),
+            "hold_status": p.get("hold_status") or (
+                f"BLOCKER: {body_record['blocker']}" if body_record.get("blocker") else None
+            ),
+            "job_handle": p.get("job_handle") or body_record.get("job_handle"),
+            "wake_condition": p.get("wake_condition") or body_record.get("wake_condition"),
+            "receipt_links": p.get("receipt_links") or body_record.get("receipt_links") or [],
+            "earliest_unmet_obligation": (
+                p.get("earliest_unmet_obligation") or body_record.get("earliest_unmet_obligation")
+            ),
             "potential_handoff_waiting": p.get("potential_handoff_waiting"),
         }
 
@@ -920,9 +1075,21 @@ class Collector:
         calibration_audit = {}
         retention_manifest = {}
 
-        seen = {"pilot_events.jsonl": set(), "human_episodes.jsonl": set()}
+        prs = []
+        timeline = []
+        handoff_records = []
+        retained_sources = {}
+
+        jsonl_sinks = (
+            ("pilot_events.jsonl", pilot_events),
+            ("human_episodes.jsonl", human_episodes),
+            ("retained_prs.jsonl", prs),
+            ("retained_timeline.jsonl", timeline),
+            ("retained_handoffs.jsonl", handoff_records),
+        )
+        seen = {name: set() for name, _ in jsonl_sinks}
         for bundle_dir in retained_telemetry_dirs(target_dir):
-            for name, sink in (("pilot_events.jsonl", pilot_events), ("human_episodes.jsonl", human_episodes)):
+            for name, sink in jsonl_sinks:
                 path = os.path.join(bundle_dir, name)
                 if not os.path.exists(path):
                     continue
@@ -937,13 +1104,15 @@ class Collector:
                             seen[name].add(key)
                             sink.append(record)
 
-            for name in ("calibration_audit.json", "retention_manifest.json"):
+            for name in ("calibration_audit.json", "retention_manifest.json", "retained_sources.json"):
                 path = os.path.join(bundle_dir, name)
                 if os.path.exists(path):
                     with open(path, "r", encoding="utf-8") as f:
                         loaded = json.load(f)
                     if name == "calibration_audit.json":
                         calibration_audit = loaded
+                    elif name == "retained_sources.json":
+                        retained_sources.update(loaded)
                     else:
                         retention_manifest = loaded
 
@@ -952,6 +1121,10 @@ class Collector:
             "human_episodes": human_episodes,
             "calibration_audit": calibration_audit,
             "retention_manifest": retention_manifest,
+            "prs": prs,
+            "timeline": timeline,
+            "handoff_records": handoff_records,
+            "sources": retained_sources,
         }
 
     def collect_all(
@@ -1015,6 +1188,16 @@ class Collector:
                     human_episodes.append(ep)
             calibration_audit = retained.get("calibration_audit") or calibration_audit
             retention_manifest = retained.get("retention_manifest") or retention_manifest
+            # Retained collections seed the same caches scratch state does; scratch (loaded next) wins.
+            for p in retained.get("prs", []):
+                r = p.get("repo")
+                if r and (not self.repos or r in self.repos):
+                    cached_prs_by_repo.setdefault(r, []).append(self.normalize_pr_record(p))
+            cached_timeline.extend(retained.get("timeline", []))
+            cached_handoffs.extend(retained.get("handoff_records", []))
+            for k, v in retained.get("sources", {}).items():
+                if isinstance(v, dict) and v.get("cutoff"):
+                    prior_cutoffs[k] = v["cutoff"]
 
         # 1. Attempt loading from state_dir or input_dir
         for directory in (state_dir, input_dir):
@@ -1806,6 +1989,52 @@ class MetricsAggregator:
 
         return stage_dwell_data
 
+    ROUND_TRANSITIONS = (
+        ("evidence_ready -> review_requested", "evidence_ready_at", "review_requested_at"),
+        ("review_requested -> actual_review_started", "review_requested_at", "actual_review_started_at"),
+        ("review_return -> next_substantive_action", "review_return_at", "next_substantive_action_started_at"),
+    )
+
+    def adapt_run_stats_receipt(self, rec, prs):
+        """
+        Convert a canonical run.stats.json receipt (timestamps + rounds[]) into evidence-bound
+        handoff records. The PR is identified by an explicit repo/pr_number on the receipt, else by
+        the receipt's candidate_sha equalling exactly one PR head. Unidentified receipts yield nothing.
+        """
+        num = rec.get("pr_number") or rec.get("number")
+        repo = rec.get("repo")
+        pr = None
+        if repo and num is not None:
+            pr = next((p for p in prs if p.get("repo") == repo and p.get("number") == num), None)
+        elif rec.get("candidate_sha"):
+            heads = [p for p in prs if p.get("headRefOid") == rec["candidate_sha"] and p.get("repo")]
+            pr = heads[0] if len(heads) == 1 else None
+        if not pr:
+            return []
+
+        base = {
+            "repo": pr["repo"],
+            "number": pr["number"],
+            "source_receipt": rec.get("source_receipt") or "",
+        }
+        out = []
+        for rnd in rec.get("rounds") or []:
+            if not isinstance(rnd, dict) or not rnd.get("candidate_sha") or rnd.get("round") is None:
+                continue
+            for name, start_key, end_key in self.ROUND_TRANSITIONS:
+                if rnd.get(start_key) and rnd.get(end_key):
+                    out.append(dict(
+                        base, name=name, candidate_sha=rnd["candidate_sha"], attempt_number=rnd["round"],
+                        start_at=rnd[start_key], end_at=rnd[end_key],
+                    ))
+        ts = rec["timestamps"]
+        if rec.get("candidate_sha") and ts.get("accepted_at") and ts.get("merged_at"):
+            out.append(dict(
+                base, name="task_accepted -> merged", candidate_sha=rec["candidate_sha"], attempt_number=1,
+                start_at=ts["accepted_at"], end_at=ts["merged_at"],
+            ))
+        return out
+
     def compute_handoff_breakdown(self, prs, handoff_records=None, total_cohort_n=0):
         """
         Compute observed counts, medians, and telemetry coverage across the 6 transitions:
@@ -1826,7 +2055,6 @@ class MetricsAggregator:
         ]
         # Observations keyed by full identity so a PR field and its receipt count once.
         trans_obs = {t: {} for t in transitions}
-        pr_field_seen = set()
 
         def add_pr_field(p, t_name, start, end):
             if not (start and end):
@@ -1838,7 +2066,6 @@ class MetricsAggregator:
             dur = res["duration_sec"]
             key = (cohort, t_name, p.get("headRefOid") or "", 1)
             trans_obs[t_name].setdefault(key, (cohort, dur))
-            pr_field_seen.add((cohort, t_name, round(float(dur), 3)))
 
         for p in prs:
             add_pr_field(p, "evidence_ready -> review_requested", p.get("evidence_ready_at"), p.get("review_requested_at"))
@@ -1868,7 +2095,14 @@ class MetricsAggregator:
                 if p.get("repo") and p.get("number") is not None:
                     prs_by_key[(p["repo"], p["number"])] = p
 
+            expanded = []
             for rec in records_to_process:
+                if isinstance(rec, dict) and isinstance(rec.get("timestamps"), dict):
+                    expanded.extend(self.adapt_run_stats_receipt(rec, prs))
+                else:
+                    expanded.append(rec)
+
+            for rec in expanded:
                 if not isinstance(rec, dict):
                     continue
                 t_name = rec.get("name") or rec.get("transition")
@@ -1921,9 +2155,6 @@ class MetricsAggregator:
                         computed_sec = float(raw_dur)
 
                 if computed_sec is None or not math.isfinite(computed_sec) or computed_sec < 0:
-                    continue
-                # The same PR-field measurement imported again through its receipt.
-                if (cohort, t_name, round(computed_sec, 3)) in pr_field_seen:
                     continue
                 trans_obs[t_name][dedup_key] = (cohort, computed_sec)
 
@@ -2114,6 +2345,9 @@ class MetricsAggregator:
                     "next_action": next_action,
                     "owner": owner,
                     "hold_status": hold_status,
+                    "job_handle": p.get("job_handle") or "UNKNOWN",
+                    "wake_condition": p.get("wake_condition") or "UNKNOWN",
+                    "receipt_links": p.get("receipt_links") or [],
                     "eligible_unattended_duration_sec": idle["duration_sec"],
                 })
             else:
@@ -2129,6 +2363,9 @@ class MetricsAggregator:
                     "owner": owner,
                     "hold_status": hold_status,
                     "potential_handoff_waiting": p.get("potential_handoff_waiting") or "UNKNOWN",
+                    "job_handle": p.get("job_handle") or "UNKNOWN",
+                    "wake_condition": p.get("wake_condition") or "UNKNOWN",
+                    "receipt_links": p.get("receipt_links") or [],
                     "quiet_time": f"{quiet_hrs}h" if isinstance(quiet_hrs, (int, float)) else "UNKNOWN",
                 })
 
@@ -2352,10 +2589,10 @@ class DashboardRenderer:
         md.append("### 5A. Open PRs with Observed Eligible Unattended Duration")
         md.append("")
         if data.get("open_prs_known_idle"):
-            md.append("| PR | Head SHA | Stage | Title Status | Actionable Next Step | Owner | Hold Status | Eligible Unattended Duration |")
-            md.append("|---|---|---|---|---|---|---|---|")
+            md.append("| PR | Head SHA | Stage | Title Status | Actionable Next Step | Owner | Hold Status | Job Handle | Wake Condition | Receipts | Eligible Unattended Duration |")
+            md.append("|---|---|---|---|---|---|---|---|---|---|---|")
             for pr in data.get("open_prs_known_idle"):
-                md.append(f"| [{pr['url']}]({pr['url']}) | `{pr['sha'][:7]}` | `{pr['stage']}` | {pr.get('title_status', 'UNKNOWN')} | {pr['next_action']} | `{pr['owner']}` | {pr['hold_status']} | **{format_duration(pr['eligible_unattended_duration_sec'])}** |")
+                md.append(f"| [{pr['url']}]({pr['url']}) | `{pr['sha'][:7]}` | `{pr['stage']}` | {pr.get('title_status', 'UNKNOWN')} | {pr['next_action']} | `{pr['owner']}` | {pr['hold_status']} | {pr.get('job_handle', 'UNKNOWN')} | {pr.get('wake_condition', 'UNKNOWN')} | {render_receipt_links(pr.get('receipt_links'))} | **{format_duration(pr['eligible_unattended_duration_sec'])}** |")
         else:
             md.append("*No open PRs currently exhibit proven eligible unattended duration.*")
         md.append("")
@@ -2364,14 +2601,16 @@ class DashboardRenderer:
         md.append("> ℹ️ **Notice**: These PRs lack fine-grained active-worker/hold-state telemetry. They are reported transparently for operator attention and are NOT ranked as idle.")
         md.append("")
         if data.get("open_prs_unknown_idle"):
-            md.append("| PR | Head SHA | Stage | Title Status | Earliest Unmet Obligation | Next Action | Owner | Hold Status | Potential Handoff Waiting | GitHub Quiet Time (Proxy Only) |")
-            md.append("|---|---|---|---|---|---|---|---|---:|---:|")
+            md.append("| PR | Head SHA | Stage | Title Status | Earliest Unmet Obligation | Next Action | Owner | Hold Status | Job Handle | Wake Condition | Receipts | Potential Handoff Waiting | GitHub Quiet Time (Proxy Only) |")
+            md.append("|---|---|---|---|---|---|---|---|---|---|---|---:|---:|")
             for pr in data.get("open_prs_unknown_idle"):
                 md.append(
                     f"| [{pr['url']}]({pr['url']}) | `{pr['sha'][:7]}` | `{pr['stage']}` | "
                     f"{pr.get('title_status', 'UNKNOWN')} | "
                     f"{pr.get('earliest_unmet_obligation', 'UNKNOWN')} | {pr.get('next_action', 'UNKNOWN')} | "
                     f"`{pr.get('owner', 'UNKNOWN')}` | {pr.get('hold_status', 'UNKNOWN')} | "
+                    f"{pr.get('job_handle', 'UNKNOWN')} | {pr.get('wake_condition', 'UNKNOWN')} | "
+                    f"{render_receipt_links(pr.get('receipt_links'))} | "
                     f"{pr.get('potential_handoff_waiting', 'UNKNOWN')} | {pr.get('quiet_time', 'UNKNOWN')} |"
                 )
         else:
@@ -2552,7 +2791,17 @@ class Publisher:
 
         return False
 
-    def write_telemetry_bundle(self, summary_data, pilot_events=None, human_episodes=None, window_slug=None):
+    def write_telemetry_bundle(
+        self,
+        summary_data,
+        pilot_events=None,
+        human_episodes=None,
+        window_slug=None,
+        prs=None,
+        timeline=None,
+        handoff_records=None,
+        sources=None,
+    ):
         """Generate relative file paths and contents for telemetry publishing under dashboards/prw/telemetry/."""
         if not window_slug:
             w2_start = summary_data.get("w2_bounds", ["", ""])[0] if isinstance(summary_data, dict) else ""
@@ -2577,6 +2826,20 @@ class Publisher:
             lines = [json.dumps(_sanitize_retained_record(ep, RETAINED_EPISODE_FIELDS)) for ep in human_episodes]
             files[f"{window_dir}/human_episodes.jsonl"] = "\n".join(lines) + "\n"
 
+        for fname, records in (
+            ("retained_prs.jsonl", prs),
+            ("retained_timeline.jsonl", timeline),
+            ("retained_handoffs.jsonl", handoff_records),
+        ):
+            if isinstance(records, dict):
+                records = records.get("records") or records.get("handoffs") or []
+            if records:
+                allowed = RETAINED_COLLECTION_FILES[fname]
+                lines = [json.dumps(_sanitize_retained_record(r, allowed, nested=True)) for r in records]
+                files[f"{window_dir}/{fname}"] = "\n".join(lines) + "\n"
+        if sources:
+            files[f"{window_dir}/retained_sources.json"] = json.dumps(_sanitize_retained_sources(sources), indent=2)
+
         manifest_relpath = f"{TELEMETRY_RELDIR}/retention_manifest.json"
         files[manifest_relpath] = json.dumps({
             "version": "1.0",
@@ -2597,6 +2860,10 @@ class Publisher:
         pilot_events=None,
         human_episodes=None,
         telemetry_files=None,
+        prs=None,
+        timeline=None,
+        handoff_records=None,
+        sources=None,
     ):
         if status == "FAILED":
             return {
@@ -2636,6 +2903,10 @@ class Publisher:
                 summary_data,
                 pilot_events=pilot_events,
                 human_episodes=human_episodes,
+                prs=prs,
+                timeline=timeline,
+                handoff_records=handoff_records,
+                sources=sources,
             )
             telemetry_staged_files.update(tb)
 
@@ -2836,6 +3107,10 @@ def publish_dashboard(
     pilot_events=None,
     human_episodes=None,
     telemetry_files=None,
+    prs=None,
+    timeline=None,
+    handoff_records=None,
+    sources=None,
 ):
     """Functional helper for Publisher."""
     publisher = Publisher(repo_path=repo_path, target_relpath=target_relpath)
@@ -2848,6 +3123,10 @@ def publish_dashboard(
         pilot_events=pilot_events,
         human_episodes=human_episodes,
         telemetry_files=telemetry_files,
+        prs=prs,
+        timeline=timeline,
+        handoff_records=handoff_records,
+        sources=sources,
     )
 
 
@@ -2933,6 +3212,10 @@ def main():
             summary_data=summary_data,
             pilot_events=collected.get("pilot_events"),
             human_episodes=collected.get("human_episodes"),
+            prs=prs,
+            timeline=timeline,
+            handoff_records=handoff_records,
+            sources=sources,
         )
         print(f"Publication result: {pub_res}")
         if pub_res.get("action") in ("BLOCKED", "ERROR", "RETRY_EXHAUSTED", "PUBLIC_REPO_REJECTED", "AUTH_ERROR"):
