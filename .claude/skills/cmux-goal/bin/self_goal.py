@@ -118,13 +118,15 @@ def cmux(*args):
 
 
 def target(kind):
-    """(type_text, press_enter, read_screen) bound to this session's own pane/surface, or None."""
+    """(type_text, press_enter, read_screen(deep)) bound to this session's own pane/surface, or None."""
     if kind == "tmux":
         pane = os.environ["TMUX_PANE"]
         return (
             lambda t: tmux("send-keys", "-t", pane, "-l", t),
             lambda: tmux("send-keys", "-t", pane, "Enter"),
-            lambda: tmux("capture-pane", "-p", "-t", pane, "-S", "-200"),
+            lambda deep=False: tmux(
+                "capture-pane", "-p", "-t", pane, *(("-J", "-S", "-") if deep else ("-S", "-200"))
+            ),
         )
     caller = json.loads(cmux("identify")).get("caller") or {}
     ws, sf = caller.get("workspace_ref"), caller.get("surface_ref")
@@ -134,13 +136,15 @@ def target(kind):
     return (
         lambda t: cmux("send", *base, t),
         lambda: cmux("send-key", *base, "enter"),
-        lambda: cmux("capture-pane", *base, "--scrollback", "--lines", "200"),
+        lambda deep=False: cmux(
+            "capture-pane", *base, "--scrollback", "--lines", "1500" if deep else "200"
+        ),
     )
 
 
 def composer_empty(screen):
     """True only if every line between the last two composer borders is blank."""
-    lines = screen.splitlines()
+    lines = screen.rstrip().splitlines()[-40:]  # decide on the current screen of a full capture
     bars = [i for i, ln in enumerate(lines) if len(ln.strip()) >= 10 and set(ln.strip()) == {"─"}]
     if len(bars) < 2:
         return False
@@ -174,7 +178,7 @@ def do_set(cond, force_after_clear):
         return 0 if current == cond else 4
     if state == "cleared" and not force_after_clear:
         return report("not set (user cleared a goal; never revive without a fresh instruction)", 5)
-    if not composer_empty(read_screen()):
+    if not composer_empty(read_screen(deep=True)):
         return report("not set (composer holds a draft; refusing to append)", 6)
     offset = jsonl.stat().st_size
     type_text("/goal " + cond)

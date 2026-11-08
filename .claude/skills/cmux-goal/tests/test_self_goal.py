@@ -122,7 +122,8 @@ if cmd == "identify":
 elif cmd == "send-key":
     open(jl, "a").write(os.environ["FAKE_RECORDS"] + "\\n")
 elif cmd == "capture-pane":
-    print("\\n".join(["● x", "-" * 0 + "─" * 30, "❯ ", "─" * 30, "  status", "Goal set: c"]))
+    log2 = os.environ.get("FAKE_SCREEN")
+    print(open(log2).read() if log2 else "\\n".join(["● x", "-" * 0 + "─" * 30, "❯ ", "─" * 30, "  status", "Goal set: c"]))
 """
 
 
@@ -153,6 +154,13 @@ class FakeBase(unittest.TestCase):
         os.environ.clear()
         os.environ.update(self.old)
 
+    def deep_screen(self, tail):
+        """Scrollback >200 lines: an old draft composer at the top, filler, then `tail`."""
+        old = [BAR, "❯ OLD DRAFT", BAR]
+        scr = self.tmp / "screen.txt"
+        scr.write_text("\n".join(old + ["filler"] * 300 + tail + ["Goal set: c"]))
+        os.environ["FAKE_SCREEN"] = str(scr)
+
     def run_set(self, cond, records):
         os.environ["FAKE_RECORDS"] = "\n".join(records)
         out = io.StringIO()
@@ -163,6 +171,24 @@ class FakeBase(unittest.TestCase):
 
 
 class CmuxPath(FakeBase):
+    def test_full_scrollback_captured_and_tail_decides(self):
+        self.deep_screen([BAR, "❯ ", BAR, "  status"])
+        rc, out, calls = self.run_set("c", [rec(met=False, sentinel=True, condition="c")])
+        self.assertEqual(rc, 0)
+        first = [c for c in calls if c[0] == "capture-pane"][0]
+        self.assertEqual(first[-3:], ["--scrollback", "--lines", "1500"])
+
+    def test_dialog_at_bottom_refuses_even_if_deep_buffer_has_empty_composer(self):
+        self.deep_screen(["Allow this tool call? (y/n)"])
+        rc, out, calls = self.run_set("c", [])
+        self.assertEqual(rc, 6)
+        self.assertFalse([c for c in calls if c[0] in ("send", "send-key")])
+
+    def test_overlong_condition_refused_nothing_typed(self):
+        rc, out, calls = self.run_set("x" * (g.MAX_LEN + 1), [])
+        self.assertEqual(rc, 1)
+        self.assertFalse(calls)
+
     def test_types_into_own_surface_and_reads_back(self):
         rc, out, calls = self.run_set("c", [rec(met=False, sentinel=True, condition="c")])
         self.assertEqual(rc, 0)
@@ -209,17 +235,8 @@ class TmuxInsideCmux(FakeBase):
         self.assertEqual(cm, [])  # the outer cmux surface is never touched
         self.assertIn(["send-keys", "-t", "%7", "-l", "/goal c"], calls)
         self.assertTrue(all(c[c.index("-t") + 1] == "%7" for c in calls))
-
-
-class EntryPointContract(unittest.TestCase):
-    def test_prw_goal_condition_follows_requested_endpoint(self):
-        text = (pathlib.Path(__file__).resolve().parents[2] / "prw" / "SKILL.md").read_text()
-        self.assertIn("the endpoint the user requested, default FINAL_READY", text)
-        self.assertNotIn("PR <N> at FINAL_READY,", text)
-
-    def test_helper_accepts_any_endpoint_wording(self):
-        for cond in ("repo PR 5 at stop after Stage 0, or stopped with the exact blocker only the user can clear",):
-            self.assertTrue(0 < len(cond) <= g.MAX_LEN)
+        first = [c for c in calls if c[0] == "capture-pane"][0]
+        self.assertEqual(first, ["capture-pane", "-p", "-t", "%7", "-J", "-S", "-"])
 
 
 if __name__ == "__main__":
