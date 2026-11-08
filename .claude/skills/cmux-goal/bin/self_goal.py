@@ -3,7 +3,7 @@
 
   self_goal.py host                 print cmux|tmux|warp|none
   self_goal.py status               print none|active|achieved|failed|cleared [TAB condition]
-  self_goal.py set '<condition>'    tmux only: type /goal into this pane, verify readback
+  self_goal.py set '<condition>'    tmux or cmux: type /goal into this session's own pane/surface, verify readback
 
 Goal state is read from the session transcript's `goal_status` records and the
 `Goal cleared:` /goal stdout, never from what was typed. No shell is involved.
@@ -110,6 +110,33 @@ def tmux(*args):
     ).stdout
 
 
+def cmux(*args):
+    return subprocess.run(
+        ["cmux", *args], capture_output=True, text=True, timeout=15, check=True
+    ).stdout
+
+
+def target(kind):
+    """(type_text, press_enter, read_screen) bound to this session's own pane/surface, or None."""
+    if kind == "tmux":
+        pane = os.environ["TMUX_PANE"]
+        return (
+            lambda t: tmux("send-keys", "-t", pane, "-l", t),
+            lambda: tmux("send-keys", "-t", pane, "Enter"),
+            lambda: tmux("capture-pane", "-p", "-t", pane, "-S", "-200"),
+        )
+    caller = json.loads(cmux("identify")).get("caller") or {}
+    ws, sf = caller.get("workspace_ref"), caller.get("surface_ref")
+    if not (ws and sf):
+        return None
+    base = ["--workspace", ws, "--surface", sf]
+    return (
+        lambda t: cmux("send", *base, t),
+        lambda: cmux("send-key", *base, "enter"),
+        lambda: cmux("capture-pane", *base, "--scrollback", "--lines", "200"),
+    )
+
+
 def composer_empty(screen):
     """True only if every line between the last two composer borders is blank."""
     lines = screen.splitlines()
@@ -123,20 +150,22 @@ def composer_empty(screen):
     return " ".join(x.strip() for x in region if x.strip()) in ("", "Press up to edit queued messages")
 
 
-def composer_is_empty(pane):
-    return composer_empty(tmux("capture-pane", "-p", "-t", pane))
-
-
 def do_set(cond, force_after_clear):
-    if host() != "tmux":
-        hint = " - agent-side route: cmux-goal/SKILL.md section Warp" if host() == "warp" else ""
-        return report("unsupported (host is %s; self-typing is tmux-only here)%s" % (host(), hint))
-    pane = os.environ["TMUX_PANE"]
+    kind = host()
+    if kind not in ("tmux", "cmux"):
+        hint = " - agent-side route: cmux-goal/SKILL.md section Warp" if kind == "warp" else ""
+        return report("unsupported (host is %s; self-typing is tmux/cmux only here)%s" % (kind, hint))
     if not cond or len(cond) > MAX_LEN or re.search(r"[\x00-\x1f\x7f]", cond):
         return report("unsupported (condition must be one line, 1-%d chars)" % MAX_LEN)
+    if kind == "cmux" and "\\" in cond:
+        return report("unsupported (cmux send expands backslash escapes; drop them from the condition)")
+    tgt = target(kind)
+    if tgt is None:
+        return report("unsupported (no caller surface from cmux identify)")
+    type_text, press_enter, read_screen = tgt
     jsonl = session_jsonl()
     if jsonl is None:
-        return report("unsupported (no session transcript found for pane %s)" % pane)
+        return report("unsupported (no session transcript found for this session)")
     state, current = goal_state(jsonl)
     if state == "active":
         verdict = "reused" if current == cond else "preserved-different"
@@ -144,22 +173,22 @@ def do_set(cond, force_after_clear):
         return 0 if current == cond else 4
     if state == "cleared" and not force_after_clear:
         return report("not set (user cleared a goal; never revive without a fresh instruction)", 5)
-    if not composer_is_empty(pane):
+    if not composer_empty(read_screen()):
         return report("not set (composer holds a draft; refusing to append)", 6)
     offset = jsonl.stat().st_size
-    tmux("send-keys", "-t", pane, "-l", "/goal " + cond)
+    type_text("/goal " + cond)
     time.sleep(0.4)
-    tmux("send-keys", "-t", pane, "Enter")
+    press_enter()
     for _ in range(30):
         time.sleep(1)
         with jsonl.open("rb") as f:
             f.seek(offset)
             fresh = f.read().decode(errors="replace")
         persisted = readback_ok(fresh, cond)
-        pane_text = tmux("capture-pane", "-p", "-t", pane, "-S", "-200")
+        pane_text = read_screen()
         shown = "/goal active" in pane_text or "Goal set: " + cond in pane_text
         if persisted and shown:
-            print("Goal: activated via tmux (readback ok)")
+            print("Goal: activated via %s (readback ok)" % kind)
             return 0
     return report("unverified (typed but no matching persisted goal_status and footer)", 1)
 
@@ -185,8 +214,8 @@ def main(argv):
     if cmd == "set" and len(argv) == 3:
         try:
             return do_set(argv[2], force)
-        except (subprocess.SubprocessError, OSError) as e:
-            return report("unverified (tmux call failed: %s)" % e)
+        except (subprocess.SubprocessError, OSError, ValueError) as e:
+            return report("unverified (%s call failed: %s)" % (host(), e))
     print(__doc__)
     return 2
 

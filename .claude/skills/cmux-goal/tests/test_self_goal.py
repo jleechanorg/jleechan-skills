@@ -1,7 +1,10 @@
 """Offline regressions for bin/self_goal.py (own-session binding, composer guard, readback)."""
+import io
+import contextlib
 import json
 import os
 import pathlib
+import stat
 import sys
 import tempfile
 import unittest
@@ -102,6 +105,82 @@ class Readback(unittest.TestCase):
         self.assertEqual(self.state(self.SET, self.SYS), ("cleared", "c"))
         self.assertEqual(self.state(self.SET, self.USR), ("cleared", "c"))
         self.assertEqual(self.state(self.SET, self.QUOTE), ("active", "c"))
+
+
+FAKE_CMUX = """#!/usr/bin/env python3
+import json, os, sys
+log, jl = os.environ["FAKE_LOG"], os.environ["FAKE_JSONL"]
+open(log, "a").write(json.dumps(sys.argv[1:]) + "\\n")
+cmd = sys.argv[1]
+if cmd == "identify":
+    print(json.dumps({"caller": {"workspace_ref": "workspace:1", "surface_ref": "surface:2"}}))
+elif cmd == "send-key":
+    open(jl, "a").write(os.environ["FAKE_RECORDS"] + "\\n")
+elif cmd == "capture-pane":
+    print("\\n".join(["● x", "-" * 0 + "─" * 30, "❯ ", "─" * 30, "  status", "Goal set: c"]))
+"""
+
+
+class CmuxPath(unittest.TestCase):
+    """Offline: a fake `cmux` on PATH records argv; no real cmux is involved."""
+
+    def setUp(self):
+        self.tmp = pathlib.Path(tempfile.mkdtemp())
+        (self.tmp / "bin").mkdir()
+        exe = self.tmp / "bin" / "cmux"
+        exe.write_text(FAKE_CMUX)
+        exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
+        self.jsonl = self.tmp / "s.jsonl"
+        self.jsonl.write_text("")
+        self.log = self.tmp / "argv.log"
+        self.old = dict(os.environ)
+        os.environ.update(
+            PATH=f"{self.tmp / 'bin'}:{os.environ['PATH']}", CMUX_SURFACE_ID="U",
+            FAKE_LOG=str(self.log), FAKE_JSONL=str(self.jsonl),
+        )
+        os.environ.pop("TMUX", None)
+        self.saved = (g.session_jsonl, g.time.sleep)
+        g.session_jsonl = lambda pids=None: self.jsonl
+        g.time.sleep = lambda s: None
+
+    def tearDown(self):
+        g.session_jsonl, g.time.sleep = self.saved
+        os.environ.clear()
+        os.environ.update(self.old)
+
+    def run_set(self, cond, records):
+        os.environ["FAKE_RECORDS"] = "\n".join(records)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            rc = g.do_set(cond, False)
+        calls = [json.loads(x) for x in self.log.read_text().splitlines()] if self.log.exists() else []
+        return rc, out.getvalue(), calls
+
+    def test_types_into_own_surface_and_reads_back(self):
+        rc, out, calls = self.run_set("c", [rec(met=False, sentinel=True, condition="c")])
+        self.assertEqual(rc, 0)
+        self.assertIn("activated via cmux (readback ok)", out)
+        base = ["--workspace", "workspace:1", "--surface", "surface:2"]
+        self.assertIn(["send", *base, "/goal c"], calls)
+        self.assertIn(["send-key", *base, "enter"], calls)
+        self.assertLess(calls.index(["send", *base, "/goal c"]), calls.index(["send-key", *base, "enter"]))
+
+    def test_failed_goal_is_not_activation(self):
+        recs = [rec(met=False, sentinel=True, condition="c"), rec(met=False, failed=True, condition="c")]
+        rc, out, _ = self.run_set("c", recs)
+        self.assertEqual(rc, 1)
+        self.assertIn("unverified", out)
+
+    def test_active_different_goal_preserved_nothing_typed(self):
+        self.jsonl.write_text(rec(met=False, sentinel=True, condition="other") + "\n")
+        rc, out, calls = self.run_set("c", [])
+        self.assertEqual(rc, 4)
+        self.assertFalse([c for c in calls if c[0] in ("send", "send-key")])
+
+    def test_backslash_condition_refused_nothing_typed(self):
+        rc, out, calls = self.run_set("a\\nb", [])
+        self.assertEqual(rc, 1)
+        self.assertFalse(calls)
 
 
 if __name__ == "__main__":
