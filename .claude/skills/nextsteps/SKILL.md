@@ -149,7 +149,7 @@ The independent `.md` file is the **handoff artifact**: a reader must be able to
 | **Bead index** | Table: `bd-…` id, title, priority/status if known, **link** — every open bead touched or created this run. Prefer `https://github.com/<owner>/<repo>/issues/<n>` when the bead syncs to GitHub Issues; else `br show <id>` as fallback. Link the id in every row. |
 | **Work queue** | Numbered tasks; each task **self-contained**: goal, acceptance criteria, files/areas, dependencies/blockers, suggested order; **reference beads** inline as linked `[bd-xxx](url)` where applicable |
 | **Timeline and parallel lanes** | Estimated elapsed windows, lane owners and exclusive write scope, dependencies, outputs/proof, critical path, concurrency ceiling and limiting resource; 20-minute milestones and hourly rollups for future execution, without resuming stopped work |
-| **PR / merge state** | Same session truth as Phase 1b (`PR #n: OPEN \| MERGED \| CLOSED`) for any PR referenced; full PR URLs |
+| **PR / merge state** | Same session truth as Phase 1b (`PR #n: OPEN \| MERGED \| CLOSED`) for any PR whose current status or merge order is asserted or acted on (dated inventories stay snapshots); full PR URLs |
 | **Learnings pointer** | Path/link to the new `~/roadmap/learnings-YYYY-MM.md` entry for this date; one-line summary of what was logged |
 | **Roadmap pointer** | Confirm `roadmap/activity/YYYY-MM-DD.md` appended (and README date link added if new date) |
 
@@ -230,7 +230,9 @@ questions worth separate lanes; otherwise perform the remaining bounded reads
 locally. Do not repeat completed discovery merely to satisfy a phase label.
 If a discovery lane fails because its transport or quota is unavailable, finish
 its bounded reads locally rather than retrying that unavailable transport.
-Refresh mutable tracker and PR state when reporting current facts.
+Refresh mutable tracker state when reporting current facts. Refresh PRs whose
+current status or merge order is asserted or acted on; preserve explicitly dated
+historical inventories as snapshots.
 
 For context still missing:
 1. Search memory files for key terms from the user-provided context after `/nextsteps`

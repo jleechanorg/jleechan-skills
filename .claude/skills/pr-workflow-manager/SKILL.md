@@ -11,7 +11,7 @@ scope: project
 
 An unqualified `/prw` (`/pr-workflow`) defaults to driving the PR to **`FINAL_READY`** across all applicable gates under one continuous session goal, unless the user explicitly requests an earlier milestone. Intermediate checkpoints (opening draft, pushes, initial approval, undrafting, stage labels) are not task completion; merge authority remains separate. For the canonical completion contract, exit conditions, and canonical `[status][short detail]` title presentation (e.g. `[ready][needs approval] Substantive change [cli][model]`), follow [pr-lifecycle](../pr-lifecycle/SKILL.md#terminal-goal-and-first-screen-contract) and [six-stage.md](../pr-lifecycle/six-stage.md#stage-title-and-labels).
 
-- **Automatic native goal activation:** When `/prw` starts, detect capability through the supported CLI interface (native goal tool/API when available, or [cmux-goal](../cmux-goal/SKILL.md) when hosted in cmux) and activate or reuse one task-scoped native session goal through `FINAL_READY`; never revive a goal the user cleared, paused, or stopped. Detailed activation rules (supported/absent, already-active, user-cleared/stopped protection, unsupported fallback, and verified persistence) are canonically owned by [pr-lifecycle's terminal goal contract](../pr-lifecycle/SKILL.md#terminal-goal-and-first-screen-contract).
+- **Automatic native goal activation:** When `/prw` starts, detect capability through the supported CLI interface (native goal tool/API when available, or [cmux-goal](../cmux-goal/SKILL.md) when hosted in cmux) and activate or reuse one task-scoped native session goal through `FINAL_READY`; never revive a goal the user cleared, paused, or stopped. Detailed activation rules (supported/absent, already-active, user-cleared/stopped protection, unsupported fallback, and verified persistence) are canonically owned by [pr-lifecycle's terminal goal contract](../pr-lifecycle/SKILL.md#terminal-goal-and-first-screen-contract). The `/prw` alias already ran cmux-goal's `bin/self_goal.py set` (tmux and cmux hosts); print its `Goal:` line verbatim before the first PR-mutating action, or run it now if it was skipped.
 
 ## One operational contract
 
@@ -52,7 +52,7 @@ Drive the PR through the [pr-lifecycle completion loop](../pr-lifecycle/SKILL.md
 2. Select route from [review-routing.md](../pr-lifecycle/review-routing.md).
 3. Maintain the single current record in the PR description ([Review Ledger and Execution Record](../pr-lifecycle/review-records.md#unified-obligation-and-review-ledger)).
 4. Own asynchronous jobs with explicit handle and verified resumption mechanism (a written wake condition alone is not resumption); retain ownership of blocking dependencies through their endpoint or accepted handoff.
-5. Pass draft gates in order, undraft via `gh pr ready`, and satisfy closing obligations per [pr-lifecycle](../pr-lifecycle/SKILL.md#the-autonomous-completion-loop).
+5. Pass draft gates in order, undraft via `gh pr ready`, and satisfy closing obligations, following [pr-lifecycle's final-approval claim-to-proof check](../pr-lifecycle/SKILL.md#the-autonomous-completion-loop) (reconcile each headline claim against its real caller, source events/arithmetic, and exact reviewed artifacts; missing proof remains `UNVERIFIED`).
 
 ## Boundaries
 
