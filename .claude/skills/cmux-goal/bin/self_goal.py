@@ -142,6 +142,11 @@ def target(kind):
     )
 
 
+# Lines Claude Code renders below the composer: statusline "[...", "ctx ...", PR URL,
+# mode hint / goal indicator / teammate panel (glyph-led). Anything else there is a dialog.
+FOOTER_STARTS = ("[", "ctx ", "http://", "https://", "?", "⏵", "⏸", "⏺", "◯", "◎", "◉", "●")
+
+
 def composer_empty(screen):
     """True only if every line between the last two composer borders is blank."""
     lines = screen.rstrip().splitlines()[-40:]  # decide on the current screen of a full capture
@@ -151,6 +156,8 @@ def composer_empty(screen):
     region = [ln.strip() for ln in lines[bars[-2] + 1 : bars[-1]]]
     if not region or not region[0].startswith("❯"):
         return False
+    if any(x.strip() and not x.strip().startswith(FOOTER_STARTS) for x in lines[bars[-1] + 1 :]):
+        return False  # something other than the footer follows the composer: a dialog
     region[0] = region[0][1:]
     return " ".join(x.strip() for x in region if x.strip()) in ("", "Press up to edit queued messages")
 

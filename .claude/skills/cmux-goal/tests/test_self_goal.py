@@ -19,8 +19,11 @@ def rec(**kw):
     return json.dumps({"attachment": {"type": "goal_status", **kw}})
 
 
+FOOTER = ["  [Not in a git repository]", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"]
+
+
 def screen(*composer):
-    return "\n".join(["● done", BAR, *composer, BAR, "  status"])
+    return "\n".join(["● done", BAR, *composer, BAR, *FOOTER])
 
 
 class OwnSession(unittest.TestCase):
@@ -84,6 +87,23 @@ class Composer(unittest.TestCase):
         self.assertFalse(g.composer_empty(screen("❯ first", "  second")))
         self.assertFalse(g.composer_empty("no borders here"))
 
+    def test_dialog_after_composer_borders_refused(self):
+        self.assertFalse(g.composer_empty("\n".join([BAR, "❯ ", BAR, "Allow this tool call? (y/n)"])))
+        self.assertFalse(g.composer_empty(screen("❯ ") + "\nDo you want to proceed?"))
+
+    def test_real_footer_shapes_pass(self):
+        footer = [
+            "  [Dir: x | Local: b (synced) | Remote: o/r | PR: #1]",
+            "  ctx #####----- 50%",
+            "  https://github.com/o/r/pull/1",
+            "  ⏵⏵ bypass permissions on · 2 monitors",
+            "                                        ◎ /goal active (1h)",
+            "",
+            "  ⏺ main",
+            "  ◯ lane-d  Lane D: x   16s · ↓ 273.8k tokens",
+        ]
+        self.assertTrue(g.composer_empty("\n".join([BAR, "❯ ", BAR, *footer])))
+
 
 class Readback(unittest.TestCase):
     def state(self, *lines):
@@ -123,7 +143,7 @@ elif cmd == "send-key":
     open(jl, "a").write(os.environ["FAKE_RECORDS"] + "\\n")
 elif cmd == "capture-pane":
     log2 = os.environ.get("FAKE_SCREEN")
-    print(open(log2).read() if log2 else "\\n".join(["● x", "-" * 0 + "─" * 30, "❯ ", "─" * 30, "  status", "Goal set: c"]))
+    print(open(log2).read() if log2 else "\\n".join(["● x", "-" * 0 + "─" * 30, "❯ ", "─" * 30, "  [Not in a git repository]"]).replace("● x", "Goal set: c"))
 """
 
 
@@ -158,7 +178,7 @@ class FakeBase(unittest.TestCase):
         """Scrollback >200 lines: an old draft composer at the top, filler, then `tail`."""
         old = [BAR, "❯ OLD DRAFT", BAR]
         scr = self.tmp / "screen.txt"
-        scr.write_text("\n".join(old + ["filler"] * 300 + tail + ["Goal set: c"]))
+        scr.write_text("\n".join(old + ["filler"] * 300 + ["Goal set: c"] + tail))
         os.environ["FAKE_SCREEN"] = str(scr)
 
     def run_set(self, cond, records):
@@ -172,7 +192,7 @@ class FakeBase(unittest.TestCase):
 
 class CmuxPath(FakeBase):
     def test_full_scrollback_captured_and_tail_decides(self):
-        self.deep_screen([BAR, "❯ ", BAR, "  status"])
+        self.deep_screen([BAR, "❯ ", BAR, *FOOTER])
         rc, out, calls = self.run_set("c", [rec(met=False, sentinel=True, condition="c")])
         self.assertEqual(rc, 0)
         first = [c for c in calls if c[0] == "capture-pane"][0]
@@ -180,6 +200,14 @@ class CmuxPath(FakeBase):
 
     def test_dialog_at_bottom_refuses_even_if_deep_buffer_has_empty_composer(self):
         self.deep_screen(["Allow this tool call? (y/n)"])
+        rc, out, calls = self.run_set("c", [])
+        self.assertEqual(rc, 6)
+        self.assertFalse([c for c in calls if c[0] in ("send", "send-key")])
+
+    def test_dialog_after_empty_composer_zero_sends(self):
+        scr = self.tmp / "dlg.txt"
+        scr.write_text("\n".join([BAR, "❯ ", BAR, "Allow this tool call? (y/n)"]))
+        os.environ["FAKE_SCREEN"] = str(scr)
         rc, out, calls = self.run_set("c", [])
         self.assertEqual(rc, 6)
         self.assertFalse([c for c in calls if c[0] in ("send", "send-key")])
