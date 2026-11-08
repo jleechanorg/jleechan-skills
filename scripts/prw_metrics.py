@@ -210,7 +210,7 @@ def redact_sensitive_excerpt(text, max_chars=200):
     s = re.sub(rf"{gh_prefix}[A-Za-z0-9_]+", "[REDACTED]", s)
     s = re.sub(rf"{pat_prefix}[A-Za-z0-9_]+", "[REDACTED]", s)
     # Redact OpenAI / Anthropic / general API keys
-    s = re.sub(r"sk-[A-Za-z0-9_-]+", "[REDACTED]", s)
+    s = re.sub(r"(?<![A-Za-z0-9])sk-[A-Za-z0-9_-]+", "[REDACTED]", s)
     # Redact Bearer tokens
     s = re.sub(r"Bearer\s+\S+", "Bearer [REDACTED]", s)
     # Redact OTP / verification codes
@@ -226,7 +226,7 @@ _SLUG_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 # Minimal retained-publication schema: only these scalar fields leave the host.
 # Raw source text (messages, transcripts, excerpts, rationales) is never retained.
 RETAINED_EVENT_FIELDS = frozenset({
-    "event_type", "occurred_at", "pr_number", "number", "repo", "span_kind",
+    "event_id", "agent_id", "worker_id", "event_type", "occurred_at", "pr_number", "number", "repo", "span_kind",
     "start_at", "start", "started_at", "end_at", "end", "completed_at", "duration_sec",
 })
 RETAINED_EPISODE_FIELDS = frozenset({
@@ -1037,7 +1037,11 @@ class Collector:
                         with open(manifest_path, "r", encoding="utf-8") as f:
                             m = json.load(f)
                             for k, v in m.items():
-                                if isinstance(v, dict) and v.get("cutoff"):
+                                if (
+                                    isinstance(v, dict)
+                                    and v.get("status") not in ("STALE", "FAILED")
+                                    and parse_iso_utc(v.get("cutoff"))
+                                ):
                                     prior_cutoffs[k] = v["cutoff"]
                     except Exception:
                         pass
@@ -1049,20 +1053,19 @@ class Collector:
 
         if offline:
             for repo in target_repos:
+                # Offline data is only as fresh as its verified cached cutoff; never
+                # substitute the current collection cutoff for an unknown one.
                 prs = cached_prs_by_repo.get(repo, [])
+                prior_cutoff = prior_cutoffs.get(repo)
                 if prs:
                     all_prs.extend(prs)
                     sources[repo] = {
-                        "status": "COMPLETE",
+                        "status": "COMPLETE" if prior_cutoff else "STALE",
                         "count": len(prs),
-                        "cutoff": prior_cutoffs.get(repo, format_iso_utc(self.cutoff_dt)),
+                        "cutoff": prior_cutoff,
                     }
                 else:
-                    sources[repo] = {
-                        "status": "EMPTY",
-                        "count": 0,
-                        "cutoff": format_iso_utc(self.cutoff_dt),
-                    }
+                    sources[repo] = {"status": "EMPTY", "count": 0, "cutoff": prior_cutoff}
             all_timeline = cached_timeline
             handoff_records = cached_handoffs
         else:
@@ -1138,6 +1141,8 @@ class Collector:
             overall_status = "PARTIAL_FAILURE"
         elif not all_prs:
             overall_status = "EMPTY"
+        elif any(s.get("status") == "STALE" for s in sources.values()):
+            overall_status = "STALE"
         else:
             overall_status = "FRESH"
 
@@ -1967,14 +1972,19 @@ class MetricsAggregator:
 
         # Derive data_through_dt from sources cutoff
         source_cutoffs = []
+        unknown_cutoff = False
         if sources:
             for s in sources.values():
-                if isinstance(s, dict) and s.get("cutoff"):
-                    c_dt = parse_iso_utc(s["cutoff"])
+                if isinstance(s, dict) and s.get("status") != "EMPTY":
+                    c_dt = parse_iso_utc(s.get("cutoff"))
                     if c_dt:
                         source_cutoffs.append(c_dt)
+                    else:
+                        unknown_cutoff = True
 
-        if source_cutoffs:
+        if unknown_cutoff:
+            data_through_dt = None
+        elif source_cutoffs:
             data_through_dt = min(source_cutoffs)
         else:
             data_through_dt = self.cutoff_dt
@@ -2136,7 +2146,7 @@ class MetricsAggregator:
             status = "PARTIAL_FAILURE" if prs else "FAILED"
         elif sources and any(s.get("status") == "STALE" or s.get("cutoff") is None for s in sources.values()):
             status = "STALE"
-        elif (now_dt - data_through_dt) > timedelta(hours=stale_threshold_hours):
+        elif data_through_dt is None or (now_dt - data_through_dt) > timedelta(hours=stale_threshold_hours):
             status = "STALE"
         elif source_cutoffs and any((now_dt - c) > timedelta(hours=stale_threshold_hours) for c in source_cutoffs):
             status = "STALE"
@@ -2184,7 +2194,7 @@ class MetricsAggregator:
         return {
             "status": status,
             "generated_at": format_iso_utc(datetime.now(timezone.utc)),
-            "data_through": format_iso_utc(data_through_dt),
+            "data_through": format_iso_utc(data_through_dt) if data_through_dt else "UNKNOWN",
             "w1_bounds": (format_iso_utc(w1_s), format_iso_utc(w2_s)),
             "w2_bounds": (format_iso_utc(w2_s), format_iso_utc(cutoff)),
             "sources": sources or {},
@@ -2430,7 +2440,7 @@ class DashboardRenderer:
         md.append("- **Sanitization & Portability Guarantee**: No credentials, private tokens, raw model payloads, or personal filesystem paths are written to this dashboard.")
         md.append("")
 
-        return "\n".join(md)
+        return _scrub_secrets("\n".join(md))
 
 
 def render_dashboard(data):
@@ -2594,6 +2604,8 @@ class Publisher:
                 "committed": False,
                 "reason": "Collection status is FAILED; retained prior dashboard content.",
             }
+
+        markdown_text = _scrub_secrets(markdown_text)
 
         if not self._verify_destination_is_private(verify_private_fn=verify_private_fn):
             if verify_private_fn is not None:

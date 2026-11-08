@@ -1783,5 +1783,97 @@ class TestPublicationPrivacyAndRetainedTelemetry(unittest.TestCase):
         self.assertFalse(blocked["committed"])
 
 
+class TestRound4RedactionAndWorkerIdentity(unittest.TestCase):
+    """PR #742 Codex P0-1 (rendered/committed redaction) and P0-3 (worker identity across retention)."""
+
+    CREDENTIAL = "Bearer " + "synthetic-credential-" + "0123456789"
+    CUTOFF = "2026-11-08T00:00:00Z"
+
+    def test_p0_1_rendered_dashboard_redacts_title_detail_and_source_error(self):
+        agg = MetricsAggregator(cutoff_dt=parse_iso_utc(self.CUTOFF))
+        pr = {
+            "repo": "example-org/repo-alpha", "number": 1, "state": "OPEN",
+            "title": "[working][detail " + self.CREDENTIAL + "] subject",
+            "createdAt": "2026-11-05T00:00:00Z", "labels": [],
+        }
+        data = agg.aggregate_full_dataset(
+            prs=[pr], sources={"example-org/repo-alpha": {"status": "FAILED", "error": "boom " + self.CREDENTIAL}}
+        )
+        md = DashboardRenderer().render(data)
+        self.assertNotIn("synthetic-credential", md)
+        self.assertIn("[REDACTED]", md)
+
+    def test_p0_1_redactor_leaves_hyphenated_words_alone(self):
+        text = "task-level risk-based disk-usage"
+        self.assertEqual(redact_sensitive_excerpt(text), text)
+        self.assertNotIn("abc123", redact_sensitive_excerpt("key sk-abc123 here"))
+
+    def test_p0_1_publish_redacts_markdown_in_committed_blob(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            remote, local = os.path.join(tmp, "remote.git"), os.path.join(tmp, "local")
+            subprocess.run(["git", "init", "-q", "--bare", remote], check=True, capture_output=True)
+            subprocess.run(["git", "-C", remote, "symbolic-ref", "HEAD", "refs/heads/main"], check=True)
+            subprocess.run(["git", "clone", "-q", remote, local], check=True, capture_output=True)
+            for args in (["checkout", "-B", "main"], ["config", "user.name", "T"], ["config", "user.email", "t@test.local"]):
+                subprocess.run(["git", "-C", local, *args], check=True, capture_output=True)
+            with open(os.path.join(local, "README.md"), "w") as f:
+                f.write("# Root\n")
+            for args in (["add", "README.md"], ["commit", "-qm", "init"], ["push", "-q", "origin", "main"]):
+                subprocess.run(["git", "-C", local, *args], check=True, capture_output=True)
+
+            res = publish_dashboard(
+                markdown_text="# Dashboard\nerror " + self.CREDENTIAL + "\n",
+                repo_path=local,
+                verify_private_fn=lambda _: True,
+            )
+            self.assertTrue(res["committed"], res)
+            blob = subprocess.run(
+                ["git", "-C", remote, "show", "main:dashboards/prw/README.md"],
+                check=True, capture_output=True, text=True,
+            ).stdout
+            self.assertNotIn("synthetic-credential", blob)
+
+    def test_p0_3_distinct_workers_with_identical_spans_survive_round_trip(self):
+        events = [
+            {
+                "event_id": "ev-%d" % i, "agent_id": "agent-%d" % i, "repo": "example-org/repo-alpha",
+                "pr_number": 1, "span_kind": "observed_active_execution",
+                "start_at": "2026-11-06T00:00:00Z", "end_at": "2026-11-06T01:00:00Z",
+            }
+            for i in (1, 2)
+        ]
+        # A genuine duplicate observation of worker 1 must still collapse.
+        events.append(dict(events[0]))
+        with tempfile.TemporaryDirectory() as roadmap:
+            files = Publisher(repo_path=roadmap).write_telemetry_bundle(
+                {"a": 1}, pilot_events=events, window_slug="20261106"
+            )
+            for relpath, content in files.items():
+                path = os.path.join(roadmap, relpath)
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(content)
+            collected = Collector(repos=[], cutoff_dt=parse_iso_utc(self.CUTOFF)).collect_all(
+                roadmap_repo=roadmap, offline=True
+            )
+        self.assertEqual(len(collected["pilot_events"]), 2)
+        agg = MetricsAggregator(cutoff_dt=parse_iso_utc(self.CUTOFF))
+        ts = agg.compute_time_semantics(
+            {"repo": "example-org/repo-alpha", "number": 1,
+             "createdAt": "2026-11-05T00:00:00Z", "mergedAt": "2026-11-07T00:00:00Z"},
+            pilot_events=collected["pilot_events"],
+        )
+        self.assertEqual(ts["agent_effort_sec"], 7200.0)
+
+    def test_p0_3_worker_identity_fields_are_redacted_not_dropped(self):
+        files = Publisher(repo_path=".").write_telemetry_bundle(
+            None, pilot_events=[{"agent_id": TestRound4RedactionAndWorkerIdentity.CREDENTIAL, "pr_number": 1}],
+            window_slug="20261106",
+        )
+        content = files["dashboards/prw/telemetry/20261106/pilot_events.jsonl"]
+        self.assertNotIn("synthetic-credential", content)
+        self.assertIn("agent_id", content)
+
+
 if __name__ == "__main__":
     unittest.main()
