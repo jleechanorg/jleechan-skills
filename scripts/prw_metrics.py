@@ -16,6 +16,7 @@ Portability Invariant:
 """
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -143,6 +144,14 @@ def compute_disjoint_interval_union(intervals):
     return round(total_sec, 3)
 
 
+def valid_duration_sec(value):
+    """A usable duration is a finite, non-negative real number; anything else is UNKNOWN (None)."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    value = float(value)
+    return value if math.isfinite(value) and value >= 0 else None
+
+
 def filter_events_half_open(items, timestamp_key, start_dt, end_dt):
     """
     Filter items by timestamp_key on exact half-open boundary:
@@ -245,7 +254,13 @@ RETAINED_PR_FIELDS = frozenset({
     "actual_review_started_at", "queued_at", "review_returned_at", "review_completed_at",
     "next_action_started_at", "authority_ready_at", "final_ready", "merge_authority",
     "initial_task_accepted_at", "closure_sprint_accepted_at", "next_action", "owner", "hold_status",
-    "earliest_unmet_obligation", "potential_handoff_waiting",
+    "earliest_unmet_obligation", "potential_handoff_waiting", "job_handle", "wake_condition",
+    "receipt_links",
+})
+RETAINED_SUMMARY_FIELDS = frozenset({
+    "status", "generated_at", "data_through", "w1_bounds", "w2_bounds", "repo_comparison",
+    "stage_dwell", "handoffs", "open_prs_known_idle", "open_prs_unknown_idle",
+    "time_semantics_pilot", "human_interventions",
 })
 RETAINED_TIMELINE_FIELDS = frozenset({
     "id", "event", "event_type", "type", "label", "actor", "createdAt", "created_at", "occurred_at",
@@ -301,6 +316,15 @@ def _retained_scalar(value):
     return None
 
 
+def _project_summary(summary):
+    """Fixed-field summary snapshot: known sections only, sources reduced to status/count/cutoff."""
+    if not isinstance(summary, dict):
+        return {}
+    out = {k: _scrub_secrets(v) for k, v in summary.items() if k in RETAINED_SUMMARY_FIELDS}
+    out["sources"] = _sanitize_retained_sources(summary.get("sources"))
+    return out
+
+
 def _sanitize_retained_record(record, allowed, nested=False):
     """Project a record onto the allowed fields, redacting credentials in string values."""
     if not isinstance(record, dict):
@@ -315,6 +339,9 @@ def _sanitize_retained_record(record, allowed, nested=False):
         elif key in ("annotator_a", "annotator_b"):
             label = value.get("label") if isinstance(value, dict) else value
             out[key] = {"label": _retained_scalar(label)} if isinstance(value, dict) else _retained_scalar(label)
+        elif key == "source_receipt" and isinstance(value, str) and value:
+            # Only the receipt's presence/identity matters downstream, never its local path.
+            out[key] = "receipt-" + hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
         elif nested:
             out[key] = _retained_nested(value)
         else:
@@ -390,7 +417,9 @@ def sanitize_telemetry_file(relpath, content):
         return "\n".join(lines) + "\n"
     if name == "retained_sources.json":
         return json.dumps(_sanitize_retained_sources(json.loads(content)), indent=2)
-    if name in ("summary_snapshot.json", "retention_manifest.json", "calibration_audit.json"):
+    if name == "summary_snapshot.json":
+        return json.dumps(_project_summary(json.loads(content)), indent=2)
+    if name in ("retention_manifest.json", "calibration_audit.json"):
         return json.dumps(_scrub_secrets(json.loads(content)), indent=2)
     raise ValueError(f"unsupported telemetry file: {relpath}")
 
@@ -1622,26 +1651,26 @@ class MetricsAggregator:
                 sk = ev.get("span_kind")
                 s_iso = ev.get("start_at") or ev.get("start") or ev.get("started_at")
                 e_iso = ev.get("end_at") or ev.get("end") or ev.get("completed_at")
-                dur = ev.get("duration_sec")
+                dur = valid_duration_sec(ev.get("duration_sec"))
                 s_dt = parse_iso_utc(s_iso)
                 e_dt = parse_iso_utc(e_iso)
 
                 if not (s_dt and e_dt) and ev.get("occurred_at") and dur is not None:
                     s_dt = parse_iso_utc(ev.get("occurred_at"))
-                    if s_dt is not None and float(dur) >= 0:
-                        e_dt = s_dt + timedelta(seconds=float(dur))
+                    if s_dt is not None:
+                        e_dt = s_dt + timedelta(seconds=dur)
 
                 if sk == "observed_active_execution":
                     if s_dt and e_dt and e_dt >= s_dt:
                         active_intervals.append((s_dt, e_dt))
                         active_durations.append((e_dt - s_dt).total_seconds())
                     elif dur is not None:
-                        active_durations.append(float(dur))
+                        active_durations.append(dur)
                 elif sk == "observed_operation_elapsed":
                     if s_dt and e_dt and e_dt >= s_dt:
                         operation_intervals.append((s_dt, e_dt))
                     elif dur is not None:
-                        operation_intervals.append({"duration": float(dur)})
+                        operation_intervals.append({"duration": dur})
                 elif sk == "explicit_waiting":
                     if s_dt and e_dt and e_dt >= s_dt:
                         waiting_intervals.append((s_dt, e_dt))
@@ -1658,13 +1687,25 @@ class MetricsAggregator:
                 observed_active_wall_sec = None
                 agent_effort_sec = None
 
-            if operation_intervals:
-                if any(isinstance(x, dict) and "duration" in x for x in operation_intervals):
-                    observed_operation_elapsed_sec = round(sum(x["duration"] for x in operation_intervals if "duration" in x), 3)
-                else:
-                    observed_operation_elapsed_sec = compute_disjoint_interval_union(operation_intervals)
+            # Timed operations contribute their interval union; duration-only operations cannot be
+            # placed on the timeline, so their sum is added and the basis is labelled (overlap with
+            # timed intervals cannot be excluded).
+            timed_ops = [x for x in operation_intervals if isinstance(x, tuple)]
+            untimed_secs = [x["duration"] for x in operation_intervals if isinstance(x, dict)]
+            if timed_ops and untimed_secs:
+                observed_operation_elapsed_sec = round(
+                    compute_disjoint_interval_union(timed_ops) + sum(untimed_secs), 3
+                )
+                operation_elapsed_basis = "TIMED_UNION_PLUS_DURATION_ONLY_SUM"
+            elif timed_ops:
+                observed_operation_elapsed_sec = compute_disjoint_interval_union(timed_ops)
+                operation_elapsed_basis = "TIMED_UNION"
+            elif untimed_secs:
+                observed_operation_elapsed_sec = round(sum(untimed_secs), 3)
+                operation_elapsed_basis = "DURATION_ONLY_SUM"
             else:
                 observed_operation_elapsed_sec = None
+                operation_elapsed_basis = None
 
             if waiting_intervals:
                 explicit_waiting_sec = compute_disjoint_interval_union(waiting_intervals)
@@ -1674,6 +1715,7 @@ class MetricsAggregator:
             observed_active_wall_sec = None
             agent_effort_sec = None
             observed_operation_elapsed_sec = None
+            operation_elapsed_basis = None
             explicit_waiting_sec = None
 
         unattributed_or_waiting_residual_sec = None
@@ -1688,6 +1730,7 @@ class MetricsAggregator:
             "task_elapsed_sec": task_elapsed_sec,
             "closure_sprint_to_merge_sec": closure_sprint_to_merge_sec,
             "observed_operation_elapsed_sec": observed_operation_elapsed_sec,
+            "operation_elapsed_basis": operation_elapsed_basis,
             "observed_active_wall_sec": observed_active_wall_sec,
             "agent_effort_sec": agent_effort_sec,
             "unattributed_or_waiting_residual_sec": unattributed_or_waiting_residual_sec,
@@ -1695,6 +1738,25 @@ class MetricsAggregator:
             "explicit_waiting_sec": explicit_waiting_sec,
             "avoidable_unattended_sec": None,
         }
+
+    @staticmethod
+    def episode_in_scope(ep, start_dt, end_dt, repos):
+        """
+        Keep episodes inside [start_dt, end_dt) and the PR repo scope. Dot rows are kept even
+        without a timestamp because their absence of ids/timestamps is itself the coverage signal.
+        """
+        if not isinstance(ep, dict):
+            return False
+        ep_repo = ep.get("repo")
+        if ep_repo and repos and ep_repo not in repos:
+            return False
+        ts = next(
+            (parse_iso_utc(ep.get(k)) for k in ("timestamp", "created_at", "occurred_at") if parse_iso_utc(ep.get(k))),
+            None,
+        )
+        if ts is None:
+            return str(ep.get("origin") or "").lower().strip().startswith("dot")
+        return start_dt <= ts < end_dt
 
     def compute_human_interventions(self, episodes, cohort_prs_count=None, retention_manifest=None):
         """
@@ -2465,7 +2527,10 @@ class MetricsAggregator:
         # Human interventions
         human_summary = None
         if human_episodes is not None:
-            human_summary = self.compute_human_interventions(human_episodes, cohort_prs_count=len(all_merged_w2 or prs))
+            scoped_episodes = [
+                ep for ep in human_episodes if self.episode_in_scope(ep, w1_s, cutoff, set(repos))
+            ]
+            human_summary = self.compute_human_interventions(scoped_episodes, cohort_prs_count=len(all_merged_w2 or prs))
 
         return {
             "status": status,
@@ -2522,7 +2587,7 @@ class DashboardRenderer:
             md.append("|---|---|---|")
             for src_name, src_info in sorted(sources.items()):
                 s_stat = src_info.get("status", "UNKNOWN")
-                s_det = src_info.get("path") or src_info.get("cutoff") or src_info.get("error") or ""
+                s_det = src_info.get("cutoff") or ""
                 md.append(f"| `{src_name}` | **{s_stat}** | `{s_det}` |")
         else:
             md.append("*No per-source manifest available.*")
@@ -2855,7 +2920,7 @@ class Publisher:
 
         files = {}
         if summary_data:
-            files[f"{window_dir}/summary_snapshot.json"] = json.dumps(_scrub_secrets(summary_data), indent=2)
+            files[f"{window_dir}/summary_snapshot.json"] = json.dumps(_project_summary(summary_data), indent=2)
 
         if pilot_events:
             lines = [json.dumps(_sanitize_retained_record(ev, RETAINED_EVENT_FIELDS)) for ev in pilot_events]

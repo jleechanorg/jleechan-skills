@@ -1801,7 +1801,7 @@ class TestRound4RedactionAndWorkerIdentity(unittest.TestCase):
         )
         md = DashboardRenderer().render(data)
         self.assertNotIn("synthetic-credential", md)
-        self.assertIn("[REDACTED]", md)
+        self.assertNotIn("boom", md)
 
     def test_p0_1_redactor_leaves_hyphenated_words_alone(self):
         text = "task-level risk-based disk-usage"
@@ -2111,6 +2111,95 @@ class TestRetentionRoundTripInvariant(unittest.TestCase):
                     {k: summary_before["sources"][repo].get(k) for k in ("status", "cutoff")},
                     repo,
                 )
+
+    def test_every_publication_sink_is_free_of_error_strings_paths_and_credentials(self):
+        cred = "Bearer " + "synthetic-credential-" + "0123456789"
+        with tempfile.TemporaryDirectory() as tmp:
+            remote, local = os.path.join(tmp, "remote.git"), os.path.join(tmp, "local")
+            receipts, state = os.path.join(tmp, "private-receipts-dir"), os.path.join(tmp, "private-state-dir")
+            subprocess.run(["git", "init", "-q", "--bare", remote], check=True, capture_output=True)
+            subprocess.run(["git", "-C", remote, "symbolic-ref", "HEAD", "refs/heads/main"], check=True)
+            subprocess.run(["git", "clone", "-q", remote, local], check=True, capture_output=True)
+            for args in (["checkout", "-B", "main"], ["config", "user.name", "T"], ["config", "user.email", "t@test.local"]):
+                subprocess.run(["git", "-C", local, *args], check=True, capture_output=True)
+            with open(os.path.join(local, "README.md"), "w") as f:
+                f.write("# Root\n")
+            for args in (["add", "README.md"], ["commit", "-qm", "init"], ["push", "-q", "origin", "main"]):
+                subprocess.run(["git", "-C", local, *args], check=True, capture_output=True)
+
+            self._receipt(receipts)
+            pages = {
+                self.REPO_A: [self._pr(self.REPO_A, 1, "MERGED", "2026-11-04T20:00:00Z", "2026-11-04T20:00:00Z")],
+                self.REPO_B: [self._pr(self.REPO_B, 7, "OPEN", "2026-11-07T00:00:00Z", head="bbb2222")],
+            }
+            pages[self.REPO_A][0]["body"] = "private body text " + cred
+            self._collect(pages, state_dir=state)
+            collected = self._collect(pages, receipts_dir=receipts, state_dir=state, fail_repos=(self.REPO_B,))
+            collected["sources"][self.REPO_B]["error"] = "raw-error-sentinel " + cred
+            collected["sources"]["prs"] = {"status": "COMPLETE", "path": "/private/local-path/prs.json"}
+            summary = self._summarize(collected)
+            res = publish_dashboard(
+                markdown_text=DashboardRenderer().render(summary),
+                repo_path=local,
+                verify_private_fn=lambda _: True,
+                publish_telemetry=True,
+                summary_data=summary,
+                prs=collected["prs"],
+                timeline=collected["timeline"],
+                handoff_records=collected["handoff_records"],
+                sources=collected["sources"],
+            )
+            self.assertTrue(res["committed"], res)
+            tree = subprocess.run(
+                ["git", "-C", remote, "ls-tree", "-r", "--name-only", "main"],
+                check=True, capture_output=True, text=True,
+            ).stdout.split()
+            self.assertTrue(any(p.endswith("summary_snapshot.json") for p in tree), tree)
+            self.assertTrue(any(p.endswith("retained_handoffs.jsonl") for p in tree), tree)
+            for path in tree:
+                blob = subprocess.run(
+                    ["git", "-C", remote, "show", "main:" + path], check=True, capture_output=True, text=True
+                ).stdout
+                for sentinel in (
+                    "raw-error-sentinel", "synthetic API outage", "/private/local-path", "private-receipts-dir",
+                    "private-state-dir", "private body text", "synthetic-credential",
+                ):
+                    self.assertNotIn(sentinel, blob, (path, sentinel))
+
+    def test_attention_table_is_identical_after_publish_wipe_rebuild(self):
+        body = "\n".join([
+            "next_action: dispatch review seat 2",
+            "owner: lane-b",
+            "job_handle: job-4242",
+            "wake_condition: CI green on candidate",
+            "",
+            "| obligation | status | receipt |",
+            "|---|---|---|",
+            "| Source Review Quorum | PENDING | https://example.org/receipts/742 |",
+        ])
+        pr = self._pr(self.REPO_A, 9, "OPEN", "2026-11-07T00:00:00Z", head="ccc3333")
+        pr.update({"body": body, "has_continuous_observation": True, "telemetry_coverage": 1.0,
+                   "eligible_intervals": [["2026-11-07T01:00:00Z", "2026-11-07T04:00:00Z"]],
+                   "labels": ["stage:3-review"]})
+        with tempfile.TemporaryDirectory() as tmp:
+            roadmap = os.path.join(tmp, "roadmap")
+            before = self._collect({self.REPO_A: [pr]})
+            record = [p for p in before["prs"] if p["number"] == 9][0]
+            self.assertEqual(record["job_handle"], "job-4242")
+            self._publish(roadmap, before, "20261107")
+            after = Collector(repos=[self.REPO_A], cutoff_dt=parse_iso_utc(self.CUTOFF)).collect_all(
+                roadmap_repo=roadmap, offline=True
+            )
+
+            def attention(collected):
+                md = DashboardRenderer().render(self._summarize(collected))
+                return md[md.index("## 5. Open PR Attention Table"):]
+
+            table = attention(before)
+            self.assertIn("job-4242", table)
+            self.assertIn("CI green on candidate", table)
+            self.assertIn("https://example.org/receipts/742", table)
+            self.assertEqual(attention(after), table)
 
 
 if __name__ == "__main__":
