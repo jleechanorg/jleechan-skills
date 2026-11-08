@@ -590,10 +590,19 @@ def render_receipt_links(links):
     return " ".join(f"[Receipt {i}]({u})" for i, u in enumerate(links, 1))
 
 
+_SHA_RE = re.compile(r"\b(?=[0-9a-f]*\d)[0-9a-f]{7,40}\b")
+
+
+def _sha_matches(head_sha, candidate):
+    return bool(head_sha and candidate) and (head_sha.startswith(candidate) or candidate.startswith(head_sha))
+
+
 def parse_pr_body_record(body, head_sha=None):
     """
     Structurally parse the documented PR-body Persistent Execution Record (`key: value` lines) and
-    the obligation ledger table. A record whose candidate names a different head is stale and ignored.
+    the obligation ledger table. Candidate applicability is uniform: a record whose candidate names a
+    different head makes the whole body stale, and a ledger row carrying its own SHA applies only to
+    that head.
     """
     out = {}
     if not isinstance(body, str) or not body:
@@ -605,8 +614,8 @@ def parse_pr_body_record(body, head_sha=None):
         if m and m.group(1) not in fields:
             fields[m.group(1)] = _record_value(m.group(2))
     cand = fields.get("candidate")
-    if cand and head_sha and not (head_sha.startswith(cand) or cand.startswith(head_sha)):
-        fields = {}
+    if cand and head_sha and not _sha_matches(head_sha, cand):
+        return {}
     for key in ("next_action", "owner", "job_handle", "wake_condition"):
         if fields.get(key):
             out[key] = fields[key]
@@ -627,6 +636,14 @@ def parse_pr_body_record(body, head_sha=None):
         if header is None or len(cells) != len(header) or set("".join(cells)) <= set("-: "):
             continue
         row = dict(zip(header, cells))
+        row_shas = [
+            sha
+            for col, cell in row.items()
+            if "sha" in col or "candidate" in col
+            for sha in _SHA_RE.findall(cell.lower())
+        ]
+        if head_sha and row_shas and not any(_sha_matches(head_sha, sha) for sha in row_shas):
+            continue
         status = " ".join(row.get("status", "").strip("` *").upper().split())
         if status not in LEDGER_CLOSED_STATUSES and "earliest_unmet_obligation" not in out:
             out["earliest_unmet_obligation"] = row.get("obligation") or "UNKNOWN"
@@ -659,18 +676,59 @@ class Collector:
                     return dt
             return None
 
-        best = {}
+        groups = {}
         order = []
         for p in prs:
             key = (p.get("repo"), p.get("number"))
-            if key not in best:
-                best[key] = p
+            if key not in groups:
+                groups[key] = []
                 order.append(key)
-                continue
-            cur_dt, new_dt = recency(best[key]), recency(p)
-            if new_dt and (cur_dt is None or new_dt > cur_dt):
-                best[key] = p
-        return [best[k] for k in order]
+            groups[key].append(p)
+
+        deduped = []
+        for key in order:
+            group = groups[key]
+            winner = group[0]
+            for p in group[1:]:
+                cur_dt, new_dt = recency(winner), recency(p)
+                if new_dt and (cur_dt is None or new_dt > cur_dt):
+                    winner = p
+            if len(group) > 1:
+                winner = self._merge_candidate_telemetry(winner, group)
+            deduped.append(winner)
+        return deduped
+
+    PR_TELEMETRY_DEFAULTS = (
+        ("stage_transitions", []), ("has_continuous_observation", False), ("telemetry_coverage", 0.0),
+        ("eligible_intervals", []), ("evidence_ready_at", None), ("review_requested_at", None),
+        ("actual_review_started_at", None), ("queued_at", None), ("review_returned_at", None),
+        ("review_completed_at", None), ("next_action_started_at", None), ("authority_ready_at", None),
+        ("final_ready", None), ("merge_authority", None), ("initial_task_accepted_at", None),
+        ("closure_sprint_accepted_at", None), ("potential_handoff_waiting", None),
+    )
+
+    def _merge_candidate_telemetry(self, winner, group):
+        """
+        Fill the winner's absent/default telemetry from other snapshots of the SAME candidate (head).
+        Telemetry recorded for a different candidate never applies; it is marked N/A, not carried over.
+        """
+        merged = dict(winner)
+        stale_head = None
+        for other in sorted(
+            (o for o in group if o is not winner),
+            key=lambda o: str(o.get("updatedAt") or ""),
+            reverse=True,
+        ):
+            has_telemetry = any(other.get(f) not in (None, d) for f, d in self.PR_TELEMETRY_DEFAULTS)
+            if other.get("headRefOid") == winner.get("headRefOid"):
+                for field, default in self.PR_TELEMETRY_DEFAULTS:
+                    if merged.get(field) == default and other.get(field) not in (None, default):
+                        merged[field] = other[field]
+            elif has_telemetry and stale_head is None:
+                stale_head = other.get("headRefOid")
+        if stale_head is not None and not any(merged.get(f) != d for f, d in self.PR_TELEMETRY_DEFAULTS):
+            merged["telemetry_applicability"] = f"N/A: candidate changed from {str(stale_head)[:12]}"
+        return merged
 
     def deduplicate_events(self, events):
         """Deduplicate timeline events by event ID where available or (repo, pr_number, event, label, createdAt, actor)."""

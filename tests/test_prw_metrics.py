@@ -2277,6 +2277,55 @@ class TestRetentionRoundTripInvariant(unittest.TestCase):
             self.assertIn("https://example.org/receipts/742", sinks[-1])
             self.assertIn("[PATH]", sinks[-1])
 
+    def _telemetry_pr(self, head):
+        pr = self._pr(self.REPO_A, 5, "OPEN", "2026-11-07T00:00:00Z", head=head)
+        pr.update({
+            "has_continuous_observation": True, "telemetry_coverage": 1.0,
+            "eligible_intervals": [["2026-11-07T01:00:00Z", "2026-11-07T04:00:00Z"]],
+            "evidence_ready_at": "2026-11-06T10:00:00Z",
+        })
+        return pr
+
+    def _live_page(self, head):
+        # The GitHub API carries identity/updatedAt/head but none of the recorded telemetry fields.
+        return self._pr(self.REPO_A, 5, "OPEN", "2026-11-07T00:00:00Z", head=head)
+
+    def test_live_refresh_same_candidate_preserves_recorded_telemetry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state, roadmap = os.path.join(tmp, "state"), os.path.join(tmp, "roadmap")
+            os.makedirs(state)
+            with open(os.path.join(state, "enriched_prs.json"), "w", encoding="utf-8") as f:
+                json.dump([self._telemetry_pr("ddd4444")], f)
+            seeded = Collector(repos=[self.REPO_A], cutoff_dt=parse_iso_utc(self.CUTOFF)).collect_all(
+                input_dir=state, offline=True
+            )
+            self._publish(roadmap, seeded, "20261107")
+
+            for kwargs in ({"state_dir": state}, {"roadmap": roadmap}):
+                refreshed = self._collect({self.REPO_A: [self._live_page("ddd4444")]}, **kwargs)
+                pr = [p for p in refreshed["prs"] if p["number"] == 5][0]
+                self.assertEqual(pr["telemetry_coverage"], 1.0, kwargs)
+                self.assertEqual(pr["evidence_ready_at"], "2026-11-06T10:00:00Z", kwargs)
+                self.assertTrue(pr["has_continuous_observation"], kwargs)
+                self.assertEqual(self._summarize(refreshed)["open_prs_known_idle"][0]["eligible_unattended_duration_sec"], 10800.0)
+
+    def test_live_refresh_changed_candidate_drops_telemetry_as_not_applicable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = os.path.join(tmp, "state")
+            os.makedirs(state)
+            with open(os.path.join(state, "enriched_prs.json"), "w", encoding="utf-8") as f:
+                json.dump([self._telemetry_pr("ddd4444")], f)
+            refreshed = self._collect({self.REPO_A: [self._live_page("eee5555")]}, state_dir=state)
+            pr = [p for p in refreshed["prs"] if p["number"] == 5][0]
+            self.assertEqual(pr["headRefOid"], "eee5555")
+            self.assertEqual(pr["telemetry_coverage"], 0.0)
+            self.assertIsNone(pr["evidence_ready_at"])
+            self.assertEqual(pr["eligible_intervals"], [])
+            self.assertIn("candidate changed", pr["telemetry_applicability"])
+            summary = self._summarize(refreshed)
+            self.assertEqual(summary["open_prs_known_idle"], [])
+            self.assertEqual(len(summary["open_prs_unknown_idle"]), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

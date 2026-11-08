@@ -81,5 +81,51 @@ class TestPilotScope(unittest.TestCase):
         self.assertEqual(len(rows), 1)
 
 
+HEAD = "a1" * 20
+OLD = "b2" * 20
+BODY = """| Obligation | Required by | Status | Receipt | Candidate applicability |
+|---|---|---|---|---|
+| Old required gate | Route | PENDING | https://example.com/old | Current |
+
+```text
+candidate: {cand}
+owner: lane-x
+```
+"""
+SHA_TABLE = """| Obligation | Status | Receipt | Candidate SHA |
+|---|---|---|---|
+| Old gate | PENDING | https://example.com/old | {old} |
+| New gate | PENDING | https://example.com/new | {new} |
+| Shared gate | PENDING | https://example.com/shared | affected |
+"""
+
+
+class TestCandidateApplicability(unittest.TestCase):
+    def test_mismatched_record_candidate_voids_ledger_and_execution_fields(self):
+        self.assertEqual(parse_pr_body_record(BODY.format(cand=OLD[:7]), HEAD), {})
+
+    def test_matching_record_candidate_keeps_ledger(self):
+        out = parse_pr_body_record(BODY.format(cand=HEAD[:7]), HEAD)
+        self.assertEqual(out["earliest_unmet_obligation"], "Old required gate")
+        self.assertEqual(out["receipt_links"], ["https://example.com/old"])
+        self.assertEqual(out["owner"], "lane-x")
+
+    def test_record_without_candidate_keeps_ledger(self):
+        out = parse_pr_body_record(BODY.format(cand="<head-SHA>"), HEAD)
+        self.assertEqual(out["earliest_unmet_obligation"], "Old required gate")
+
+    def test_row_sha_column_is_respected_per_row(self):
+        out = parse_pr_body_record(SHA_TABLE.format(old=OLD[:12], new=HEAD[:12]), HEAD)
+        self.assertEqual(out["earliest_unmet_obligation"], "New gate")
+        self.assertEqual(out["receipt_links"], ["https://example.com/new", "https://example.com/shared"])
+
+    def test_rows_for_another_head_are_not_applicable(self):
+        out = parse_pr_body_record(SHA_TABLE.format(old=OLD[:12], new=OLD[:9]), HEAD)
+        self.assertEqual(out["earliest_unmet_obligation"], "Shared gate")
+        self.assertEqual(out["receipt_links"], ["https://example.com/shared"])
+        only_stale = SHA_TABLE.format(old=OLD[:12], new=OLD[:9]).replace("| affected |", "| " + OLD[:8] + " |")
+        self.assertEqual(parse_pr_body_record(only_stale, HEAD), {})
+
+
 if __name__ == "__main__":
     unittest.main()
