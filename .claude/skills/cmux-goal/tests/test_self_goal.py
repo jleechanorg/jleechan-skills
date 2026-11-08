@@ -81,15 +81,27 @@ class Readback(unittest.TestCase):
     def state(self, *lines):
         return g.goal_state_text("\n".join(lines))
 
-    clear = '{"m":"<local-command-stdout>Goal cleared: c</local-command-stdout>"}'
+    SET = rec(met=False, sentinel=True, condition="c")
+    CLEAR_TXT = "<local-command-stdout>Goal cleared: c</local-command-stdout>"
+    SYS = json.dumps({"type": "system", "subtype": "local_command", "content": CLEAR_TXT})
+    USR = json.dumps({"type": "user", "message": {"role": "user", "content": CLEAR_TXT}})
+    QUOTE = json.dumps({"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": CLEAR_TXT}]}})
 
-    def test_set_then_clear_is_not_ok(self):
-        st = self.state(rec(met=False, sentinel=True, condition="c"), rec(met=True, sentinel=True, condition="c"), self.clear)
-        self.assertEqual(st, ("cleared", "c"))
+    def test_outcomes_separately(self):
+        done = rec(met=True, condition="c")
+        failed = rec(met=False, failed=True, condition="c", reason="r")
+        sentinel_clear = rec(met=True, sentinel=True, condition="c")
+        self.assertTrue(g.readback_ok(self.SET, "c"))
+        self.assertTrue(g.readback_ok("\n".join([self.SET, done]), "c"))
+        self.assertFalse(g.readback_ok("\n".join([self.SET, failed]), "c"))
+        self.assertFalse(g.readback_ok("\n".join([self.SET, sentinel_clear, self.SYS]), "c"))
+        self.assertFalse(g.readback_ok(self.SET, "other"))
+        self.assertFalse(g.readback_ok("", "c"))
 
-    def test_set_then_instant_achieve_is_ok(self):
-        st = self.state(rec(met=False, sentinel=True, condition="c"), rec(met=True, condition="c"))
-        self.assertEqual(st, ("achieved", "c"))
+    def test_clear_only_from_real_command_output(self):
+        self.assertEqual(self.state(self.SET, self.SYS), ("cleared", "c"))
+        self.assertEqual(self.state(self.SET, self.USR), ("cleared", "c"))
+        self.assertEqual(self.state(self.SET, self.QUOTE), ("active", "c"))
 
 
 if __name__ == "__main__":

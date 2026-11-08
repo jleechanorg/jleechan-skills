@@ -88,11 +88,20 @@ def goal_state_text(text):
                 state, cond = "failed", a.get("condition", "")
             elif a.get("met") and not a.get("sentinel"):
                 state, cond = "achieved", a.get("condition", "")
-        else:
-            m = re.search(r"<local-command-stdout>Goal cleared: (.*)</local", line)
+        elif d.get("type") in ("user", "system"):
+            c = d.get("content") if d["type"] == "system" else (d.get("message") or {}).get("content")
+            m = isinstance(c, str) and re.fullmatch(
+                r"<local-command-stdout>Goal cleared: (.*)</local-command-stdout>", c.strip(), re.S
+            )
             if m:
                 state, cond = "cleared", m.group(1)
     return state, cond
+
+
+def readback_ok(fresh, cond):
+    """Fresh transcript bytes show this goal set and still set (or already met); not failed/cleared."""
+    state, got = goal_state_text(fresh)
+    return state in ("active", "achieved") and got == cond
 
 
 def tmux(*args):
@@ -146,8 +155,7 @@ def do_set(cond, force_after_clear):
         with jsonl.open("rb") as f:
             f.seek(offset)
             fresh = f.read().decode(errors="replace")
-        fstate, fcond = goal_state_text(fresh)
-        persisted = fstate in ("active", "achieved", "failed") and fcond == cond
+        persisted = readback_ok(fresh, cond)
         pane_text = tmux("capture-pane", "-p", "-t", pane, "-S", "-200")
         shown = "/goal active" in pane_text or "Goal set: " + cond in pane_text
         if persisted and shown:

@@ -113,12 +113,12 @@ Robust route (untested): run Claude inside tmux within Warp, then use the tmux f
 2. Type: `type_text(pid, window_id, "/goal <cond>", x, y)` with a pixel click on the composer. The `element_index` form on the AXTextArea drops ~70 leading characters; do not use it. Then `press_key(pid, window_id, return)`.
 3. Verify (not the tool result; `press_key` says "unverifiable" even when it lands): a screenshot showing `Goal set: <cond>` AND a fresh `goal_status` record (`bin/self_goal.py status` also works if the transcript is reachable). Report `Goal: activated via warp (readback ok)` or `Goal: unverified (...)`.
 
-Caveats: a folder-trust dialog defaults to "No, exit" (send down, then return); Warp may auto-update and quit mid-run; its AX tree can go empty or stale, so prefer screenshots; background ctrl+c did not land. Evidence: `/Volumes/diskm-scratch/lane-e-warp` (Mac).
+Caveats: a folder-trust dialog defaults to "No, exit" (send down, then return); Warp may auto-update and quit mid-run; its AX tree can go empty or stale, so prefer screenshots; background ctrl+c did not land.
 
 ### Scope and cautions
 
 - `/goal clear` is typeable the same way (stdout `Goal cleared: <cond>`); Step 1's never-clear/replace rule applies. Persisted goal state lives in the session transcript (`$CLAUDE_CONFIG_DIR/projects/*/<sessionId>.jsonl`) as `attachment.type=goal_status` records: `sentinel:true,met:false` = set, `met:true` (no sentinel) = achieved, `failed:true` = ended unmet, and a `Goal cleared:` stdout = user cleared.
-- A user skill named `goal` (e.g. a Codex-style `~/.claude/skills/goal` that calls `CreateGoal`) shadows the builtin `/goal`: typing it yields "CreateGoal not available" and no goal. Seen on jeff-ubuntu 2026-11-07; if readback fails, check `ls ~/.claude/skills/goal` first.
+- A user skill named `goal` (e.g. a Codex-style `~/.claude/skills/goal` that calls `CreateGoal`) shadows the builtin `/goal`: typing it yields "CreateGoal not available" and no goal. Seen 2026-11-07; if readback fails, check `ls ~/.claude/skills/goal` first.
 - Works for any builtin in principle; this skill is scoped to `/goal` — self-typing other builtins needs its own justification.
 - Related: `ironclad` skill (criteria hardening), `~/.claude/hooks/goal-exit-criteria.sh` (hardening hook), memory `reference_builtin_goal_exit_criteria_hook`.
 
