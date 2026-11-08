@@ -2402,6 +2402,50 @@ class TestRetentionRoundTripInvariant(unittest.TestCase):
             for original, kept in zip(summary[section], projected[section]):
                 self.assertEqual(set(kept), set(original), section)
 
+    def test_manifest_and_calibration_files_are_fixed_field_in_every_path(self):
+        sentinel = "private-message-sentinel"
+        manifest = json.dumps({"version": "1.0", "retention_days": 90, "raw_transcript": sentinel,
+                               "nested": {"raw_transcript": sentinel}})
+        calibration = json.dumps({"audit_status": "CALIBRATED", "disagreement_rate": 0.05,
+                                  "raw_transcript": sentinel, "annotations": [{"text": sentinel}]})
+        with tempfile.TemporaryDirectory() as tmp:
+            remote, local = self._bare_remote_and_checkout(tmp)
+            base = "dashboards/prw/telemetry/20261107/"
+            res = publish_dashboard(
+                markdown_text="# Dashboard\n",
+                repo_path=local,
+                verify_private_fn=lambda _: True,
+                telemetry_files={
+                    "dashboards/prw/telemetry/retention_manifest.json": manifest,
+                    base + "calibration_audit.json": calibration,
+                },
+            )
+            self.assertTrue(res["committed"], res)
+            tree = subprocess.run(
+                ["git", "-C", remote, "ls-tree", "-r", "--name-only", "main"],
+                check=True, capture_output=True, text=True,
+            ).stdout.split()
+            for path in tree:
+                blob = subprocess.run(
+                    ["git", "-C", remote, "show", "main:" + path], check=True, capture_output=True, text=True
+                ).stdout
+                self.assertNotIn(sentinel, blob, path)
+            kept = json.loads(subprocess.run(
+                ["git", "-C", remote, "show", "main:" + base + "calibration_audit.json"],
+                check=True, capture_output=True, text=True,
+            ).stdout)
+            self.assertEqual(kept, {"audit_status": "CALIBRATED", "disagreement_rate": 0.05})
+
+    def test_loader_projects_manifest_and_calibration_on_read(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, "retention_manifest.json"), "w") as f:
+                json.dump({"version": "1.0", "raw_transcript": "private-message-sentinel"}, f)
+            with open(os.path.join(tmp, "calibration_audit.json"), "w") as f:
+                json.dump({"audit_status": "OK", "raw_transcript": "private-message-sentinel"}, f)
+            retained = Collector(repos=[]).load_retained_telemetry(telemetry_dir=tmp)
+            self.assertEqual(retained["retention_manifest"], {"version": "1.0"})
+            self.assertEqual(retained["calibration_audit"], {"audit_status": "OK"})
+
 
 if __name__ == "__main__":
     unittest.main()

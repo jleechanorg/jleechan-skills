@@ -352,6 +352,13 @@ SUMMARY_SCHEMA = {
 }
 
 
+RETENTION_MANIFEST_SCHEMA = {"version": _SC, "retention_days": _SC, "last_updated_at": _SC}
+CALIBRATION_AUDIT_SCHEMA = {
+    "audit_status": _SC, "disagreement_rate": _SC, "agreement_rate": _SC, "sample_n": _SC,
+    "annotator_count": _SC, "audited_at": _SC,
+}
+
+
 def _project(value, spec):
     """Recursively project value onto spec; unknown keys, wrong shapes and non-scalars are dropped."""
     if spec == _SC:
@@ -507,8 +514,10 @@ def sanitize_telemetry_file(relpath, content):
         return json.dumps(_sanitize_retained_sources(json.loads(content)), indent=2)
     if name == "summary_snapshot.json":
         return json.dumps(_project_summary(json.loads(content)), indent=2)
-    if name in ("retention_manifest.json", "calibration_audit.json"):
-        return json.dumps(_scrub_secrets(json.loads(content)), indent=2)
+    if name == "retention_manifest.json":
+        return json.dumps(_project(json.loads(content), RETENTION_MANIFEST_SCHEMA) or {}, indent=2)
+    if name == "calibration_audit.json":
+        return json.dumps(_project(json.loads(content), CALIBRATION_AUDIT_SCHEMA) or {}, indent=2)
     raise ValueError(f"unsupported telemetry file: {relpath}")
 
 
@@ -758,12 +767,22 @@ class Collector:
         ("closure_sprint_accepted_at", None), ("potential_handoff_waiting", None),
     )
 
+    ATTEMPT_CLOCK_FIELDS = (
+        "evidence_ready_at", "review_requested_at", "actual_review_started_at", "queued_at",
+        "review_returned_at", "review_completed_at", "next_action_started_at",
+    )
+
     def _merge_candidate_telemetry(self, winner, group):
         """
         Fill the winner's absent/default telemetry from other snapshots of the SAME candidate (head).
         Telemetry recorded for a different candidate never applies; it is marked N/A, not carried over.
+        The review clocks belong to one attempt: they are merged field-by-field only between snapshots
+        that carry the same attempt identity, or copied as a whole set onto a winner with no clocks;
+        timestamps from different attempts are never combined.
         """
         merged = dict(winner)
+        clock_set = set(self.ATTEMPT_CLOCK_FIELDS)
+        clocks_settled = False
         stale_head = None
         for other in sorted(
             (o for o in group if o is not winner),
@@ -773,8 +792,24 @@ class Collector:
             has_telemetry = any(other.get(f) not in (None, d) for f, d in self.PR_TELEMETRY_DEFAULTS)
             if other.get("headRefOid") == winner.get("headRefOid"):
                 for field, default in self.PR_TELEMETRY_DEFAULTS:
-                    if merged.get(field) == default and other.get(field) not in (None, default):
+                    if field not in clock_set and merged.get(field) == default and other.get(field) not in (None, default):
                         merged[field] = other[field]
+                if clocks_settled:
+                    continue
+                w_att, o_att = merged.get("attempt"), other.get("attempt")
+                if w_att is not None and o_att is not None:
+                    if w_att == o_att:
+                        for field in self.ATTEMPT_CLOCK_FIELDS:
+                            if merged.get(field) is None and other.get(field) is not None:
+                                merged[field] = other[field]
+                elif all(merged.get(f) is None for f in self.ATTEMPT_CLOCK_FIELDS):
+                    donated = [f for f in self.ATTEMPT_CLOCK_FIELDS if other.get(f) is not None]
+                    if donated:
+                        for field in donated:
+                            merged[field] = other[field]
+                        if o_att is not None:
+                            merged["attempt"] = o_att
+                        clocks_settled = True
             elif has_telemetry and stale_head is None:
                 stale_head = other.get("headRefOid")
         if stale_head is not None and not any(merged.get(f) != d for f, d in self.PR_TELEMETRY_DEFAULTS):
@@ -877,6 +912,7 @@ class Collector:
             "review_returned_at": p.get("review_returned_at"),
             "review_completed_at": p.get("review_completed_at"),
             "next_action_started_at": p.get("next_action_started_at"),
+            "attempt": p.get("attempt_number") or p.get("attempt") or p.get("round"),
             "authority_ready_at": p.get("authority_ready_at"),
             "final_ready": p.get("final_ready"),
             "merge_authority": p.get("merge_authority"),
@@ -1311,11 +1347,11 @@ class Collector:
                     with open(path, "r", encoding="utf-8") as f:
                         loaded = json.load(f)
                     if name == "calibration_audit.json":
-                        calibration_audit = loaded
+                        calibration_audit = _project(loaded, CALIBRATION_AUDIT_SCHEMA) or {}
                     elif name == "retained_sources.json":
-                        retained_sources.update(loaded)
+                        retained_sources.update(_sanitize_retained_sources(loaded))
                     else:
-                        retention_manifest = loaded
+                        retention_manifest = _project(loaded, RETENTION_MANIFEST_SCHEMA) or {}
 
         return {
             "pilot_events": pilot_events,
@@ -2336,7 +2372,7 @@ class MetricsAggregator:
                 return
             cohort = (p.get("repo"), p.get("number"))
             dur = res["duration_sec"]
-            key = (cohort, t_name, p.get("headRefOid") or "", 1)
+            key = (cohort, t_name, p.get("headRefOid") or "", p.get("attempt") or 1)
             trans_obs[t_name].setdefault(key, (cohort, dur))
 
         for p in prs:
@@ -2855,6 +2891,8 @@ class DashboardRenderer:
                 t_el = format_duration(r.get("task_elapsed_sec")) if r.get("task_elapsed_sec") is not None else "UNKNOWN"
                 c_sp = format_duration(r.get("closure_sprint_to_merge_sec")) if r.get("closure_sprint_to_merge_sec") is not None else "UNKNOWN"
                 o_op = format_duration(r.get("observed_operation_elapsed_sec")) if r.get("observed_operation_elapsed_sec") is not None else "UNKNOWN"
+                if r.get("observed_operation_elapsed_sec") is not None:
+                    o_op = f"{o_op} ({r.get('operation_elapsed_basis') or 'BASIS UNKNOWN'})"
                 a_wl = format_duration(r.get("observed_active_wall_sec")) if r.get("observed_active_wall_sec") is not None else "UNKNOWN"
                 a_ef = format_duration(r.get("agent_effort_sec")) if r.get("agent_effort_sec") is not None else "UNKNOWN"
                 e_wt = format_duration(r.get("explicit_waiting_sec")) if r.get("explicit_waiting_sec") is not None else "UNKNOWN"
@@ -3122,11 +3160,11 @@ class Publisher:
             files[f"{window_dir}/retained_sources.json"] = json.dumps(_sanitize_retained_sources(sources), indent=2)
 
         manifest_relpath = f"{TELEMETRY_RELDIR}/retention_manifest.json"
-        files[manifest_relpath] = json.dumps({
+        files[manifest_relpath] = json.dumps(_project({
             "version": "1.0",
             "retention_days": 90,
             "last_updated_at": format_iso_utc(datetime.now(timezone.utc)),
-        }, indent=2)
+        }, RETENTION_MANIFEST_SCHEMA), indent=2)
 
         return files
 
