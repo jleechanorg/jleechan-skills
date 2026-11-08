@@ -326,7 +326,7 @@ _ATTENTION_ROW = {
 # records, ("map", spec) = dynamic keys. Anything not listed is dropped at every depth.
 SUMMARY_SCHEMA = {
     "status": _SC, "generated_at": _SC, "data_through": _SC,
-    "w1_bounds": [_SC], "w2_bounds": [_SC],
+    "w1_bounds": [_SC], "w2_bounds": [_SC], "w2_merged_cohort_n": _SC,
     "sources": ("map", {"status": _SC, "count": _SC, "cutoff": _SC}),
     "repo_comparison": [{k: _SC for k in (
         "repo", "created", "created_w1", "created_w2", "merged_w1", "merged_w2", "closed_unmerged_w1",
@@ -2170,24 +2170,30 @@ class MetricsAggregator:
                     cohort_pr_keys.add((None, num))
                     pr_by_key[(None, num)] = p
 
+        seen_observations = set()
+
+        def record(stg, pr_key, s_dt, e_dt):
+            """Add one interval; equivalent observations from different sources count once."""
+            obs = (pr_key, stg, s_dt, e_dt)
+            if obs in seen_observations:
+                return
+            seen_observations.add(obs)
+            if e_dt < s_dt:
+                stage_conflicts[stg] += 1
+                return
+            stage_durations[stg].append((e_dt - s_dt).total_seconds() / 3600.0)
+            stage_covered_prs[stg].add(pr_key)
+
         # 1. From PR stage_transitions if attached to PR objects
         for p in prs:
             pr_key = (p.get("repo"), p.get("number"))
-            transitions = p.get("stage_transitions") or []
-            for tr in transitions:
+            for tr in p.get("stage_transitions") or []:
                 stg = tr.get("stage") or tr.get("label")
                 if stg in stage_durations:
-                    s_iso = tr.get("start_at") or tr.get("entered_at") or tr.get("start")
-                    e_iso = tr.get("end_at") or tr.get("exited_at") or tr.get("end")
-                    s_dt = parse_iso_utc(s_iso)
-                    e_dt = parse_iso_utc(e_iso)
+                    s_dt = parse_iso_utc(tr.get("start_at") or tr.get("entered_at") or tr.get("start"))
+                    e_dt = parse_iso_utc(tr.get("end_at") or tr.get("exited_at") or tr.get("end"))
                     if s_dt and e_dt:
-                        if e_dt < s_dt:
-                            stage_conflicts[stg] += 1
-                        else:
-                            hrs = (e_dt - s_dt).total_seconds() / 3600.0
-                            stage_durations[stg].append(hrs)
-                            stage_covered_prs[stg].add(pr_key)
+                        record(stg, pr_key, s_dt, e_dt)
 
         # 2. From timeline_events
         if timeline_events:
@@ -2212,18 +2218,15 @@ class MetricsAggregator:
                 pr_obj = pr_by_key.get(pr_key)
                 if not pr_obj:
                     continue
+                # Same identity as the PR's own stage_transitions so the sources reconcile.
+                pr_key = (pr_obj.get("repo"), pr_obj.get("number"))
                 for ev in ev_list:
                     stg = ev.get("stage") or ev.get("label")
                     if stg in stage_durations and (ev.get("start_at") or ev.get("entered_at")) and (ev.get("end_at") or ev.get("exited_at")):
                         s_dt = parse_iso_utc(ev.get("start_at") or ev.get("entered_at"))
                         e_dt = parse_iso_utc(ev.get("end_at") or ev.get("exited_at"))
                         if s_dt and e_dt:
-                            if e_dt < s_dt:
-                                stage_conflicts[stg] += 1
-                            else:
-                                hrs = (e_dt - s_dt).total_seconds() / 3600.0
-                                stage_durations[stg].append(hrs)
-                                stage_covered_prs[stg].add(pr_key)
+                            record(stg, pr_key, s_dt, e_dt)
 
                 # Chronological labeled/unlabeled events
                 labeled_evs = sorted(
@@ -2246,34 +2249,18 @@ class MetricsAggregator:
                         # Close any previously open stage upon transitioning to a new stage
                         for prev_lbl, s_dt in list(open_stages.items()):
                             if prev_lbl != lbl:
-                                if dt < s_dt:
-                                    stage_conflicts[prev_lbl] += 1
-                                else:
-                                    hrs = (dt - s_dt).total_seconds() / 3600.0
-                                    stage_durations[prev_lbl].append(hrs)
-                                    stage_covered_prs[prev_lbl].add(pr_key)
+                                record(prev_lbl, pr_key, s_dt, dt)
                                 del open_stages[prev_lbl]
-                        open_stages[lbl] = dt
+                        open_stages.setdefault(lbl, dt)
                     elif ev_type == "unlabeled":
                         if lbl in open_stages:
-                            s_dt = open_stages.pop(lbl)
-                            if dt < s_dt:
-                                stage_conflicts[lbl] += 1
-                            else:
-                                hrs = (dt - s_dt).total_seconds() / 3600.0
-                                stage_durations[lbl].append(hrs)
-                                stage_covered_prs[lbl].add(pr_key)
+                            record(lbl, pr_key, open_stages.pop(lbl), dt)
 
                 # Close remaining open stages at terminal merge or close
                 term_dt = parse_iso_utc(pr_obj.get("mergedAt")) or parse_iso_utc(pr_obj.get("closedAt"))
                 if term_dt:
                     for prev_lbl, s_dt in list(open_stages.items()):
-                        if term_dt < s_dt:
-                            stage_conflicts[prev_lbl] += 1
-                        else:
-                            hrs = (term_dt - s_dt).total_seconds() / 3600.0
-                            stage_durations[prev_lbl].append(hrs)
-                            stage_covered_prs[prev_lbl].add(pr_key)
+                        record(prev_lbl, pr_key, s_dt, term_dt)
                         del open_stages[prev_lbl]
 
         merged_in_cohort = [p for p in prs if p.get("mergedAt")]
@@ -2348,7 +2335,7 @@ class MetricsAggregator:
             ))
         return out
 
-    def compute_handoff_breakdown(self, prs, handoff_records=None, total_cohort_n=0):
+    def compute_handoff_breakdown(self, prs, handoff_records=None, total_cohort_n=None):
         """
         Compute observed counts, medians, and telemetry coverage across the 6 transitions:
         1. evidence_ready -> review_requested
@@ -2471,7 +2458,7 @@ class MetricsAggregator:
                     continue
                 trans_obs[t_name][dedup_key] = (cohort, computed_sec)
 
-        tot = total_cohort_n or len(prs)
+        tot = total_cohort_n if total_cohort_n is not None else len(prs)
 
         handoffs_data = []
         for t in transitions:
@@ -2620,11 +2607,11 @@ class MetricsAggregator:
         })
 
         # Stage dwell computation
-        stage_dwell_data = self.compute_stage_dwell(all_merged_w2 or prs, timeline_events=timeline_events)
+        stage_dwell_data = self.compute_stage_dwell(all_merged_w2, timeline_events=timeline_events)
 
         # Handoff breakdown
         handoffs = self.compute_handoff_breakdown(
-            all_merged_w2 or prs,
+            all_merged_w2,
             handoff_records=handoff_records,
             total_cohort_n=len(all_merged_w2),
         )
@@ -2708,7 +2695,7 @@ class MetricsAggregator:
         # Pilot time semantics
         if time_semantics_pilot is None:
             time_semantics_pilot = []
-            target_cohort = all_merged_w2 or prs
+            target_cohort = all_merged_w2
             for p in target_cohort:
                 ts = self.compute_time_semantics(p)
                 if ts.get("task_elapsed_sec") is not None or ts.get("observed_active_wall_sec") is not None:
@@ -2747,7 +2734,7 @@ class MetricsAggregator:
             scoped_episodes = [
                 ep for ep in human_episodes if self.episode_in_scope(ep, w1_s, cutoff, scope_repos)
             ]
-            human_summary = self.compute_human_interventions(scoped_episodes, cohort_prs_count=len(all_merged_w2 or prs))
+            human_summary = self.compute_human_interventions(scoped_episodes, cohort_prs_count=len(all_merged_w2))
 
         return {
             "status": status,
@@ -2755,6 +2742,7 @@ class MetricsAggregator:
             "data_through": format_iso_utc(data_through_dt) if data_through_dt else "UNKNOWN",
             "w1_bounds": (format_iso_utc(w1_s), format_iso_utc(w2_s)),
             "w2_bounds": (format_iso_utc(w2_s), format_iso_utc(cutoff)),
+            "w2_merged_cohort_n": len(all_merged_w2),
             "sources": sources or {},
             "repo_comparison": repo_rows,
             "stage_dwell": stage_dwell_data,
@@ -2851,6 +2839,9 @@ class DashboardRenderer:
         md.append("")
         md.append("> ℹ️ **Elapsed Stage Time vs Agent Idle**: Dwell time measures total elapsed calendar time within each stage. It is NOT agent idle time.")
         md.append("")
+        if data.get("w2_merged_cohort_n") == 0:
+            md.append("> No merges in window W2: stage dwell, handoff and pilot metrics have an empty cohort (UNKNOWN, n = 0); no historical or open PRs are substituted.")
+            md.append("")
         md.append("| Lifecycle Stage | Covered Merged PRs (n / N) | Median Dwell | Nearest-Rank p75 | Clock Conflicts |")
         md.append("|---|---:|---:|---:|---:|")
         for row in data.get("stage_dwell", []):
