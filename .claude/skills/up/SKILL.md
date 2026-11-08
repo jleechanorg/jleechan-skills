@@ -151,6 +151,10 @@ reply.** A two-line pointer in chat is enough.
 - Run applicable existing managed-file checks. The brief report records the
   completed instruction changes; it does not replace them or their validation.
 
+When a user-referenced Slack message has screenshots, follow the `/slack` skill's
+"Viewing screenshots/attachments from a Slack message" section instead of
+reporting the Slack connector as unavailable.
+
 ## Common failure
 
 Editing all surfaces "for consistency" creates semantic copies that drift.

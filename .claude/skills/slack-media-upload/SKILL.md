@@ -70,6 +70,21 @@ entirely (falls back to each file's basename).
 - **Legacy `files.upload` is dead.** Slack sunset it 2025-11-12. Don't use it
   even if a snippet you find online still references it.
 
+## Viewing screenshots/attachments from a Slack message
+
+Do not stop at "the Slack connector is down": the claude.ai Slack connector may
+be disconnected and the korotovsky `mcp__slack__*` MCP has no file-download
+tool, but this route works (verified 2026-11-08; needs `files:read`, no browser).
+1. Message URL `.../p1794105958419649`: channel id is in the URL path; `thread_ts`
+   is `1794105958.419649` (dot before the last 6 digits). Attachments appear as
+   file IDs in the `AttachmentIDs` column of `mcp__slack__conversations_replies/history`.
+2. Token from the process env (`SLACK_BOT_TOKEN`, else `HERMES_SLACK_BOT_TOKEN`);
+   never print or log it. `curl -s -H "Authorization: Bearer $T" "https://slack.com/api/files.info?file=<FILE_ID>"`,
+   then read `.file.url_private_download` (fallback `.file.url_private`) and `.file.name` with `jq`.
+3. `curl -L -H "Authorization: Bearer $T" -o <dir>/<ID>-<name> <url>` into a dir from
+   `~/.claude/skills/scratch-space/scripts/scratch-dir.sh`, then open it with the
+   Read tool (images display visually; large ones, e.g. ~1179x2556, are downsized).
+
 ## Verification
 
 Confirmed live 2026-09-01: 6 real files (4 MP4s, 2 PNGs) uploaded and posted
