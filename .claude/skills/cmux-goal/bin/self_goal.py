@@ -83,8 +83,8 @@ def goal_state_text(text):
             continue
         a = d.get("attachment") or {}
         if a.get("type") == "goal_status":
-            if a.get("sentinel") and not a.get("met"):
-                state, cond = "active", a.get("condition", "")
+            if a.get("sentinel"):  # set (met false) or clear (met true)
+                state, cond = ("cleared" if a.get("met") else "active"), a.get("condition", "")
             elif a.get("failed"):
                 state, cond = "failed", a.get("condition", "")
             elif a.get("met") and not a.get("sentinel"):
@@ -188,6 +188,7 @@ def do_set(cond, force_after_clear):
     if not composer_empty(read_screen(deep=True)):
         return report("not set (composer holds a draft; refusing to append)", 6)
     offset = jsonl.stat().st_size
+    before = read_screen()
     type_text("/goal " + cond)
     time.sleep(0.4)
     press_enter()
@@ -198,7 +199,10 @@ def do_set(cond, force_after_clear):
             fresh = f.read().decode(errors="replace")
         persisted = readback_ok(fresh, cond)
         pane_text = read_screen()
-        shown = "/goal active" in pane_text or "Goal set: " + cond in pane_text
+        marker = "Goal set: " + cond  # must be NEW since the send, not history
+        shown = ("/goal active" in pane_text and "/goal active" not in before) or (
+            pane_text.count(marker) > before.count(marker)
+        )
         if persisted and shown:
             print("Goal: activated via %s (readback ok)" % kind)
             return 0

@@ -141,9 +141,13 @@ if cmd == "identify":
     print(json.dumps({"caller": {"workspace_ref": "workspace:1", "surface_ref": "surface:2"}}))
 elif cmd == "send-key":
     open(jl, "a").write(os.environ["FAKE_RECORDS"] + "\\n")
+    open(jl + ".sent", "w").write("1")
 elif cmd == "capture-pane":
     log2 = os.environ.get("FAKE_SCREEN")
-    print(open(log2).read() if log2 else "\\n".join(["● x", "-" * 0 + "─" * 30, "❯ ", "─" * 30, "  [Not in a git repository]"]).replace("● x", "Goal set: c"))
+    body = open(log2).read() if log2 else "\\n".join(["● x", "─" * 30, "❯ ", "─" * 30, "  [Not in a git repository]"])
+    if os.path.exists(jl + ".sent") and not os.environ.get("FAKE_NOSHOW"):
+        body = "Goal set: c\\n" + body
+    print(body)
 """
 
 
@@ -178,7 +182,7 @@ class FakeBase(unittest.TestCase):
         """Scrollback >200 lines: an old draft composer at the top, filler, then `tail`."""
         old = [BAR, "❯ OLD DRAFT", BAR]
         scr = self.tmp / "screen.txt"
-        scr.write_text("\n".join(old + ["filler"] * 300 + ["Goal set: c"] + tail))
+        scr.write_text("\n".join(old + ["filler"] * 300 + tail))
         os.environ["FAKE_SCREEN"] = str(scr)
 
     def run_set(self, cond, records):
@@ -225,6 +229,20 @@ class CmuxPath(FakeBase):
         self.assertIn(["send", *base, "/goal c"], calls)
         self.assertIn(["send-key", *base, "enter"], calls)
         self.assertLess(calls.index(["send", *base, "/goal c"]), calls.index(["send-key", *base, "enter"]))
+
+    def test_set_then_clear_sentinel_never_succeeds(self):
+        recs = [rec(met=False, sentinel=True, condition="c"), rec(met=True, sentinel=True, condition="c")]
+        rc, out, _ = self.run_set("c", recs)
+        self.assertEqual(rc, 1)
+        self.assertNotIn("activated", out)
+
+    def test_historical_goal_set_on_unchanged_screen_never_succeeds(self):
+        scr = self.tmp / "hist.txt"
+        scr.write_text("\n".join(["Goal set: c", BAR, "❯ ", BAR, *FOOTER]))
+        os.environ.update(FAKE_SCREEN=str(scr), FAKE_NOSHOW="1")
+        rc, out, _ = self.run_set("c", [rec(met=False, sentinel=True, condition="c")])
+        self.assertEqual(rc, 1)
+        self.assertNotIn("activated", out)
 
     def test_failed_goal_is_not_activation(self):
         recs = [rec(met=False, sentinel=True, condition="c"), rec(met=False, failed=True, condition="c")]
