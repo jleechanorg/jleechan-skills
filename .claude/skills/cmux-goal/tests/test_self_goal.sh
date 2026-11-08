@@ -25,4 +25,5 @@ clrs_='{"attachment":{"type":"goal_status","met":true,"sentinel":true,"condition
 [ "$(state "$set_" "$done_")" = $'achieved\tc1' ] || fail achieved
 [ "$(state "$set_" "$bad_")" = $'failed\tc1' ] || fail failed
 [ "$(state "$set_" "$clrs_" "$clr_")" = $'cleared\tc1' ] || fail cleared
+python3 -I "$here/tests/test_self_goal.py"
 echo "ok"

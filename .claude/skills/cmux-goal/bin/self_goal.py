@@ -35,30 +35,45 @@ def config_dirs():
     return [Path(d).expanduser() for d in dirs if d]
 
 
-def session_jsonl():
-    """Transcript of the claude process attached to this tmux pane."""
+def ancestor_pids():
+    pids, pid = [], os.getpid()
+    for _ in range(32):
+        out = subprocess.run(
+            ["ps", "-o", "ppid=", "-p", str(pid)], capture_output=True, text=True
+        ).stdout.strip()
+        if not out.isdigit() or int(out) <= 1:
+            break
+        pid = int(out)
+        pids.append(pid)
+    return pids
+
+
+def session_jsonl(pids=None):
+    """Transcript of THIS process's own claude session: the nearest ancestor pid with a
+    sessions/<pid>.json. None (caller refuses) when absent or ambiguous."""
     pane = os.environ.get("TMUX_PANE", "")
-    best = None
-    for cfg in config_dirs():
-        for f in (cfg / "sessions").glob("*.json"):
+    for pid in ancestor_pids() if pids is None else pids:
+        found = set()
+        for cfg in config_dirs():
             try:
-                s = json.loads(f.read_text())
+                s = json.loads((cfg / "sessions" / f"{pid}.json").read_text())
             except (OSError, ValueError):
                 continue
-            if not pane or not str(s.get("tmux", "")).endswith("." + pane):
+            if pane and not str(s.get("tmux", "")).endswith("." + pane):
                 continue
-            if best is None or s.get("updatedAt", 0) > best[1].get("updatedAt", 0):
-                best = (cfg, s)
-    if best is None:
-        return None
-    cfg, s = best
-    hits = list((cfg / "projects").glob(f"*/{s['sessionId']}.jsonl"))
-    return hits[0] if hits else None
+            found.update((cfg / "projects").glob(f"*/{s.get('sessionId')}.jsonl"))
+        if found:
+            return found.pop() if len(found) == 1 else None
+    return None
 
 
 def goal_state(jsonl):
+    return goal_state_text(jsonl.read_text(errors="replace"))
+
+
+def goal_state_text(text):
     state, cond = "none", ""
-    for line in jsonl.read_text(errors="replace").splitlines():
+    for line in text.splitlines():
         if '"goal_status"' not in line and "Goal cleared:" not in line:
             continue
         try:
@@ -86,12 +101,21 @@ def tmux(*args):
     ).stdout
 
 
+def composer_empty(screen):
+    """True only if every line between the last two composer borders is blank."""
+    lines = screen.splitlines()
+    bars = [i for i, ln in enumerate(lines) if len(ln.strip()) >= 10 and set(ln.strip()) == {"─"}]
+    if len(bars) < 2:
+        return False
+    region = [ln.strip() for ln in lines[bars[-2] + 1 : bars[-1]]]
+    if not region or not region[0].startswith("❯"):
+        return False
+    region[0] = region[0][1:]
+    return " ".join(x.strip() for x in region if x.strip()) in ("", "Press up to edit queued messages")
+
+
 def composer_is_empty(pane):
-    for line in reversed(tmux("capture-pane", "-p", "-t", pane).splitlines()):
-        if line.startswith("❯"):
-            rest = line[1:].strip()
-            return rest in ("", "Press up to edit queued messages")
-    return False
+    return composer_empty(tmux("capture-pane", "-p", "-t", pane))
 
 
 def do_set(cond, force_after_clear):
@@ -122,13 +146,8 @@ def do_set(cond, force_after_clear):
         with jsonl.open("rb") as f:
             f.seek(offset)
             fresh = f.read().decode(errors="replace")
-        persisted = any(
-            '"sentinel":true' in ln.replace(" ", "")
-            and '"met":false' in ln.replace(" ", "")
-            and json.dumps(cond, ensure_ascii=False) in ln
-            for ln in fresh.splitlines()
-            if '"goal_status"' in ln
-        )
+        fstate, fcond = goal_state_text(fresh)
+        persisted = fstate in ("active", "achieved", "failed") and fcond == cond
         pane_text = tmux("capture-pane", "-p", "-t", pane, "-S", "-200")
         shown = "/goal active" in pane_text or "Goal set: " + cond in pane_text
         if persisted and shown:
