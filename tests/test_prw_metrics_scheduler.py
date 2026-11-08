@@ -508,6 +508,33 @@ class PRWMetricsSchedulerTests(unittest.TestCase):
         self.assertIn(f"TELEMETRY_DIR={self.scratch_dir}/dashboards/prw/telemetry", captured)
         self.assertIn("STALE_HOURS=4.5", captured)
 
+    def test_run_script_collector_path_with_absent_telemetry_dir_under_system_bash(self):
+        """The collector invocation must not trip `set -u` on an empty array (bash 3.2) when the telemetry dir is absent."""
+        fake_repo = self.scratch_dir / "fake_repo"
+        (fake_repo / "scripts").mkdir(parents=True)
+        wrapper = fake_repo / "scripts" / "run_prw_metrics.sh"
+        shutil.copy(RUN_SCRIPT, wrapper)
+        argv_file = self.state_dir / "collector_argv.txt"
+        (fake_repo / "scripts" / "prw_metrics.py").write_text(
+            "import sys\n"
+            f"open({str(argv_file)!r}, 'w').write('\\n'.join(sys.argv[1:]))\n",
+            encoding="utf-8",
+        )
+        telemetry_dir = self.scratch_dir / "dashboards" / "prw" / "telemetry"
+        self.assertFalse(telemetry_dir.exists())
+        bash = "/bin/bash" if os.path.exists("/bin/bash") else "bash"
+        result = subprocess.run(
+            [bash, str(wrapper)],
+            capture_output=True,
+            text=True,
+            env=self._base_env(PRW_METRICS_FORCE_RUN="1"),
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, f"Script failed: {result.stderr}")
+        self.assertNotIn("unbound variable", result.stderr)
+        self.assertTrue(argv_file.exists(), "collector was not invoked")
+        self.assertNotIn("--telemetry-dir", argv_file.read_text(encoding="utf-8"))
+
     def test_install_script_handles_ampersand_and_xml_metacharacters_in_repo_root(self):
         """Verifies installer handles ampersands and XML metacharacters in paths without corruption."""
         self.assertTrue(INSTALL_SCRIPT.exists(), f"Missing install script: {INSTALL_SCRIPT}")

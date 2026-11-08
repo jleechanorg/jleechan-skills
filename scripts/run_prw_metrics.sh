@@ -136,7 +136,7 @@ else
   python3 "$REPO_DIR/scripts/prw_metrics.py" \
     --roadmap-repo "$PRW_METRICS_ROADMAP_REPO" \
     --state-dir "$PRW_METRICS_STATE_DIR" \
-    "${telem_args[@]}"
+    ${telem_args[@]+"${telem_args[@]}"}
 fi
 STATUS=$?
 set -e
