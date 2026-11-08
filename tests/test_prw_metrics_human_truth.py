@@ -144,6 +144,58 @@ class TestHumanActorClassification(unittest.TestCase):
 
 
 class TestHumanMessageIdentity(unittest.TestCase):
+    def test_split_initial_messages_count_before_episode_dedupe_and_followup_survives(self):
+        result = MetricsAggregator().compute_human_interventions([
+            {
+                "episode_id": "same-task",
+                "actor_status": "human",
+                "message_ids": ["m1"],
+                "is_initial_assignment": True,
+            },
+            {
+                "episode_id": "same-task",
+                "actor_status": "human",
+                "message_ids": ["m2"],
+                "is_initial_assignment": True,
+            },
+            {
+                "episode_id": "same-task",
+                "actor_status": "human",
+                "message_ids": ["m3"],
+                "label": "good",
+            },
+        ])
+
+        self.assertEqual(result["raw_human_messages"], 3)
+        self.assertEqual(result["initial_task_requests"], 2)
+        self.assertEqual(result["qualifying_episodes"], 1)
+
+    def test_full_message_mirrors_do_not_add_episodes_but_partial_overlap_does(self):
+        result = MetricsAggregator().compute_human_interventions([
+            {
+                "episode_id": "e1",
+                "actor_status": "human",
+                "message_ids": ["m1", "m2"],
+            },
+            {
+                "episode_id": "e2",
+                "actor_status": "human",
+                "message_ids": ["m1", "m2"],
+            },
+            {
+                "actor_status": "human",
+                "message_ids": ["m1", "m2"],
+            },
+            {
+                "episode_id": "e3",
+                "actor_status": "human",
+                "message_ids": ["m2", "m3"],
+            },
+        ])
+
+        self.assertEqual(result["raw_human_messages"], 3)
+        self.assertEqual(result["qualifying_episodes"], 2)
+
     def test_partial_overlap_counts_unique_message_ids_and_episode_identity(self):
         result = MetricsAggregator().compute_human_interventions([
             {
