@@ -230,7 +230,9 @@ questions worth separate lanes; otherwise perform the remaining bounded reads
 locally. Do not repeat completed discovery merely to satisfy a phase label.
 If a discovery lane fails because its transport or quota is unavailable, finish
 its bounded reads locally rather than retrying that unavailable transport.
-Refresh mutable tracker and PR state when reporting current facts.
+Refresh mutable tracker state when reporting current facts. Refresh PRs whose
+current status or merge order is asserted or acted on; preserve explicitly dated
+historical inventories as snapshots.
 
 For context still missing:
 1. Search memory files for key terms from the user-provided context after `/nextsteps`
