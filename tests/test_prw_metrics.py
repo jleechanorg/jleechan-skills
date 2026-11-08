@@ -40,6 +40,9 @@ try:
         extract_github_repo_slug,
         sanitize_telemetry_file,
         _project_summary,
+        RETAINED_PR_FIELDS,
+        RETAINED_TIMELINE_FIELDS,
+        RETAINED_HANDOFF_FIELDS,
     )
 except ImportError:
     Collector = None
@@ -2445,6 +2448,107 @@ class TestRetentionRoundTripInvariant(unittest.TestCase):
             retained = Collector(repos=[]).load_retained_telemetry(telemetry_dir=tmp)
             self.assertEqual(retained["retention_manifest"], {"version": "1.0"})
             self.assertEqual(retained["calibration_audit"], {"audit_status": "OK"})
+
+    def _two_attempt_scratch(self, scratch):
+        pr = self._pr(self.REPO_A, 1, "MERGED", "2026-11-04T20:00:00Z", "2026-11-04T20:00:00Z", head="aaa1111")
+        pr.update({
+            "attempt": 2,
+            "evidence_ready_at": "2026-11-02T10:00:00Z",
+            "review_requested_at": "2026-11-02T11:00:00Z",
+            "actual_review_started_at": "2026-11-02T12:30:00Z",
+            "review_returned_at": "2026-11-02T14:00:00Z",
+            "next_action_started_at": "2026-11-02T15:00:00Z",
+            "initial_task_accepted_at": "2026-11-02T00:00:00Z",
+            "closure_sprint_accepted_at": "2026-11-03T00:00:00Z",
+            "has_continuous_observation": True, "telemetry_coverage": 1.0,
+            "eligible_intervals": [["2026-11-03T01:00:00Z", "2026-11-03T02:00:00Z"]],
+            "stage_transitions": [{"stage": "stage:1-coding", "entered_at": "2026-11-02T00:00:00Z",
+                                   "exited_at": "2026-11-02T06:00:00Z"}],
+        })
+        first_attempt = {
+            "repo": self.REPO_A, "pr_number": 1, "name": "review_requested -> actual_review_started",
+            "candidate_sha": "aaa1111", "attempt_number": 1,
+            "start_at": "2026-11-02T11:00:00Z", "end_at": "2026-11-02T12:00:00Z", "receipt_id": "r-1",
+        }
+        timeline = {self.REPO_A + "#1": [
+            {"__typename": "LabeledEvent", "createdAt": "2026-11-02T00:00:00Z", "label": {"name": "stage:1-coding"}},
+        ]}
+        os.makedirs(scratch)
+        for name, payload in (
+            ("enriched_prs.json", [pr]), ("raw_timeline.json", timeline),
+            ("actionable_handoff_metrics.json", [first_attempt]),
+            ("source_manifest.json", {self.REPO_A: {"status": "COMPLETE", "count": 1, "cutoff": self.CUTOFF}}),
+        ):
+            with open(os.path.join(scratch, name), "w", encoding="utf-8") as f:
+                json.dump(payload, f)
+
+    def test_two_attempts_at_the_same_head_survive_publish_and_reload(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            scratch, roadmap = os.path.join(tmp, "scratch"), os.path.join(tmp, "roadmap")
+            self._two_attempt_scratch(scratch)
+            collector = Collector(repos=[self.REPO_A], cutoff_dt=parse_iso_utc(self.CUTOFF))
+            before = collector.collect_all(input_dir=scratch, offline=True)
+            summary_before = self._summarize(before)
+            review = [h for h in summary_before["handoffs"] if h["name"] == "review_requested -> actual_review_started"][0]
+            self.assertEqual(review["sample_n"], 2)
+            self._publish(roadmap, before, "20261104")
+            shutil.rmtree(scratch)
+            after = Collector(repos=[self.REPO_A], cutoff_dt=parse_iso_utc(self.CUTOFF)).collect_all(
+                roadmap_repo=roadmap, offline=True
+            )
+            self.assertEqual(self._summarize(after)["handoffs"], summary_before["handoffs"])
+
+    def test_every_record_key_the_aggregator_and_renderer_read_is_retained_or_documented(self):
+        # Keys intentionally not retained although code may read them: PR bodies are never published
+        # (their parsed fields are retained instead).
+        never_retained = {"PR": {"body"}, "TIMELINE": set(), "HANDOFF": set()}
+        seen = {"PR": set(), "TIMELINE": set(), "HANDOFF": set()}
+
+        def recording(kind):
+            class Recorder(dict):
+                def get(self, key, default=None):
+                    seen[kind].add(key)
+                    return super().get(key, default)
+
+                def __getitem__(self, key):
+                    seen[kind].add(key)
+                    return super().__getitem__(key)
+
+                def __contains__(self, key):
+                    seen[kind].add(key)
+                    return super().__contains__(key)
+            return Recorder
+
+        with tempfile.TemporaryDirectory() as tmp:
+            scratch, receipts = os.path.join(tmp, "scratch"), os.path.join(tmp, "receipts")
+            self._two_attempt_scratch(scratch)
+            self._receipt(receipts)
+            collected = Collector(repos=[self.REPO_A], cutoff_dt=parse_iso_utc(self.CUTOFF)).collect_all(
+                input_dir=scratch, receipts_dir=receipts,
+                fetch_page_fn=lambda r, p, pp: [], fetch_timeline_fn=lambda r, n: [],
+            )
+            open_pr = self._telemetry_pr("hhh8888")
+            open_pr["body"] = "next_action: x\nowner: y\njob_handle: j\nwake_condition: w"
+            collected["prs"].append(Collector(repos=[]).normalize_pr_record(open_pr))
+            prs = [recording("PR")(p) for p in collected["prs"]]
+            timeline = [recording("TIMELINE")(e) for e in collected["timeline"]]
+            handoffs = [recording("HANDOFF")(h) for h in collected["handoff_records"]]
+            cutoff = parse_iso_utc(self.CUTOFF)
+            summary = MetricsAggregator(cutoff_dt=cutoff).aggregate_full_dataset(
+                prs=prs, timeline_events=timeline, sources=collected["sources"],
+                handoff_records=handoffs, now_dt=cutoff,
+            )
+            DashboardRenderer().render(summary)
+
+        self.assertTrue({"attempt", "headRefOid", "state"} <= seen["PR"], seen["PR"])
+        self.assertTrue(seen["HANDOFF"] and seen["TIMELINE"])
+        for kind, allowed in (
+            ("PR", RETAINED_PR_FIELDS),
+            ("TIMELINE", RETAINED_TIMELINE_FIELDS),
+            ("HANDOFF", RETAINED_HANDOFF_FIELDS),
+        ):
+            missing = seen[kind] - set(allowed) - never_retained[kind]
+            self.assertEqual(missing, set(), "%s keys read but not retained" % kind)
 
 
 if __name__ == "__main__":

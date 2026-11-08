@@ -257,7 +257,7 @@ RETAINED_PR_FIELDS = frozenset({
     "actual_review_started_at", "queued_at", "review_returned_at", "review_completed_at",
     "next_action_started_at", "authority_ready_at", "final_ready", "merge_authority",
     "initial_task_accepted_at", "closure_sprint_accepted_at", "next_action", "owner", "hold_status",
-    "earliest_unmet_obligation", "potential_handoff_waiting", "job_handle", "wake_condition",
+    "earliest_unmet_obligation", "potential_handoff_waiting", "job_handle", "wake_condition", "attempt",
     "receipt_links",
 })
 RETAINED_TIMELINE_FIELDS = frozenset({
@@ -538,17 +538,22 @@ def parse_operational_title(title):
         }
 
     legacy_codes = {
+        # Canonical short prefixes and full trailing suffixes (pr-lifecycle/six-stage.md).
         "sp": "stage:0-spec",
+        "specification": "stage:0-spec",
         "spec": "stage:0-spec",
         "cd": "stage:1-coding",
         "coding": "stage:1-coding",
         "ev": "stage:2-evidence",
+        "evidence generation": "stage:2-evidence",
         "evidence": "stage:2-evidence",
         "er": "stage:3-evidence-review",
+        "evidence review": "stage:3-evidence-review",
         "rv": "stage:3-review",
         "review": "stage:3-review",
         "cr": "stage:4-code-review",
         "ci": "stage:4-ci-undraft",
+        "ci and undraft": "stage:4-ci-undraft",
         "fa": "stage:5-final-approval",
         "final approval": "stage:5-final-approval",
     }
@@ -564,7 +569,7 @@ def parse_operational_title(title):
         trailing_stage = None
         trailing_match = re.search(r"\[([^\]]+)\]\s*$", subst)
         if trailing_match:
-            tok = trailing_match.group(1).lower().strip()
+            tok = " ".join(trailing_match.group(1).lower().split())
             if tok in legacy_codes:
                 trailing_stage = legacy_codes[tok]
             elif re.match(r"^stage:\d+-[a-z-]+$", tok):
@@ -581,7 +586,7 @@ def parse_operational_title(title):
     # 2. Leading legacy stage prefixes: [sp], [cd], [ev], [er], [cr], [ci], [rv], [fa]
     leading_bracket_match = re.match(r"^\s*\[([^\]]+)\]\s*(.*)$", title, re.IGNORECASE)
     if leading_bracket_match:
-        prefix = leading_bracket_match.group(1).lower().strip()
+        prefix = " ".join(leading_bracket_match.group(1).lower().split())
         rest = leading_bracket_match.group(2).strip()
         if prefix in legacy_codes:
             stage_name = legacy_codes[prefix]
@@ -596,7 +601,7 @@ def parse_operational_title(title):
     # 3. Trailing bracket tokens when no operational prefix: [final approval], [ci], [review], [rv], etc.
     trailing_match = re.search(r"\[([^\]]+)\]\s*$", title)
     if trailing_match:
-        tok = trailing_match.group(1).lower().strip()
+        tok = " ".join(trailing_match.group(1).lower().split())
         if tok in legacy_codes:
             stage_name = legacy_codes[tok]
             return {
