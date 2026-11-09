@@ -46,6 +46,7 @@ A lightweight, automated metrics collector and renderer that publishes a single,
   - `Agent effort`: Sum ($\sum (t_{\text{end}} - t_{\text{start}})$) of per-agent evidenced active intervals across parallel agents. Can exceed active wall time and PR elapsed; never summed together with active wall time.
   - `Waiting time`: Observed CI/provider/dependency/human-hold intervals; report category breakdown and interval union.
   - `Avoidable unattended time`: Disjoint evidenced intervals with an executable authorized action, no executing owner/job, and no legitimate hold; requires positive eligibility and continuity evidence, otherwise `UNKNOWN`.
+- **Empty Duration Cohorts**: When a duration distribution has `n = 0`, report its median and p75 as `UNKNOWN`; preserve observed zero-duration events as numeric zero.
 - **Residual Rule**: Residual duration (`PR elapsed - observed_active_wall_time`) is NOT wasted time. It contains observed waiting times, human reflection, and unobserved periods.
 - **Honest Missing Data**: If owner, job, or hold observation is absent during an open interval, `eligible_unattended_interval` evaluates strictly to `UNKNOWN`, never `0s`.
 
@@ -57,18 +58,19 @@ A lightweight, automated metrics collector and renderer that publishes a single,
 
 ### 3.4 Human Interactions & Episode Annotation
 - **Deduplicated Episodes**: Raw message count is distinguished from deduplicated intervention episodes (one distinct human contribution/issue plus clarifying follow-ups = 1 episode). Record episode boundaries and source `message_id`s.
-- **Bot and Origin Filtering**: Exclude initial task assignment, automated bots, background agents, quota/resume watchdogs, and copied/mirrored transcripts (`role=user` alone is not human proof; inspect metadata and context; unclear origins remain `UNKNOWN`).
+- **Human Actor and Source Identity**: A positively classified `actor_status: human` establishes the speaker independently of the source channel; `role=user` or a channel label alone is not human proof. Deduplicate message IDs within explicit `source_namespace`, falling back to channel/origin; missing or malformed IDs make message identity coverage partial or unknown and cannot prove Dot connector completeness.
+- **Bot and Origin Filtering**: Count initial task assignment messages in raw human messages and initial task requests, but exclude them from qualifying follow-up episodes. Exclude automated bots, background agents, quota/resume watchdogs, and copied/mirrored transcripts; unclear origins remain `UNKNOWN`.
 - **Semantic Classification**: Four categories authored by driver, reviewer, or bounded model pass citing specific evidence (never keyword/regex rules):
   - `good` (*value-adding*): Intended human review, new domain judgment, spec revision from valid video evidence, requested merge decision.
   - `bad` (*avoidable*): Human effort caused by an evidenced agent error, rule miss, or unresumed authorized step. Root-cause `/harness` work belongs to the same episode.
-  - `mixed`: Episode contains both useful new domain judgment and correction of an agent miss.
+  - `mixed`: The human contribution itself contains both useful new domain judgment and correction of an agent miss; annotator disagreement alone is not `mixed`.
   - `unknown`: Insufficient context, unclear responsibility, or uncertain PR association.
 - **Attribution & Coverage Rules**:
   - Preserve `pr_attribution: "unassigned"` for task-level episodes; never force assignment to a PR.
   - Never divide an incident sample by total PR population to claim a failure rate.
   - Never claim "zero-touch" unless all relevant human channels (including Dot history) are audited.
   - Count post-merge corrections under `post_merge`.
-- **Cross-Annotator Calibration**: Evaluate sample episodes across independent annotators; retain disagreements as `mixed` or `unknown`.
+- **Cross-Annotator Calibration**: Evaluate sample episodes across independent annotators. A valid explicit adjudicated label wins; without one, use an agreed annotator label and record unresolved disagreement as `unknown`.
 
 ### 3.5 Dashboard Health States
 The dashboard must cleanly surface operational states in the header and tables:
@@ -81,6 +83,7 @@ The dashboard must cleanly surface operational states in the header and tables:
 
 ### 3.6 Scheduling & Publication
 - **Calendar Intervals**: Scheduled via `launchd` in 4-hour calendar slots at `00:17`, `04:17`, `08:17`, `12:17`, `16:17`, `20:17` local time, writing all timestamps in UTC.
+- **State and Lock Directories**: After configuration is loaded, create the effective state directory and lock-file parent required for collection.
 - **Scoped Publication**: Publishes strictly to `dashboards/prw/README.md` and `dashboards/prw/telemetry/` in private `roadmap` using standard fast-forward git pushes with remote-head reconciliation. Never uses force-push.
 - **Atomic Failure Handling**: On API or script failure, the existing dashboard is preserved; no partial or empty Markdown commit is published.
 
