@@ -31,6 +31,13 @@ real, full pass when installed; substitute an equivalent if you have one.
 | gdocs-access | Google Docs tool order and edit-in-place rules |
 | pr-description-sections | Pointer to the shared PR-description owner and target-repository template |
 
+## Core goals
+
+Make the author's actual message clear, useful and readable without changing its
+meaning or strength. Preserve their latest edits, concrete experience and voice;
+ground factual claims in evidence; remove repetition and invented objections
+rather than essential context; and verify the requested output and its real status.
+
 ## Author intent before review
 
 Read the author's latest edits before applying a rubric. Identify the intended
@@ -43,6 +50,13 @@ exit criteria and spot-checking larger PRs is not approving every generated line
 Keep concrete context that changes the story, such as extending an existing
 system, checking backend requests/responses, or questioning an agent's choices.
 Do not replace the author's experience or metaphor with institutional boilerplate.
+Do not invent cheeky contrast, dismissive jabs, or snark to make a point.
+Preserve the author's voice and real contrast grounded in an actual alternative
+or source context. Do not remove a pointed criticism merely because it is strong:
+read its source and distinguish the author's interpretation from what the other
+person explicitly said. When asked to explain revisions, compare the author's actual
+edits with the prior version; separate the observable changes from your reading
+of their purpose.
 
 An explicit deletion is editorial feedback. Do not restore removed caveats,
 sections, examples, or framing. Correct an inaccurate claim directly or omit an
@@ -141,7 +155,10 @@ a prepared body cannot establish live `READY` or `FINAL_READY`.
    - Each fact has one canonical home; other sections link to it. Boilerplate
      restated per-section is a defect.
    - A revision pass reports what it deleted. If the doc grew, name what was
-     removed to compensate or justify the growth in one line.
+     removed to compensate or justify the growth in one line. When a reduction
+     is requested, measure before and after on the same basis, aim for the
+     requested range, and retain the context and examples that carry the claim.
+     Report the actual reduction rather than rounding it into the target.
    - Any audit must emit a "cut candidates" list, not only additions.
    - **Empty slots stay empty.** A template slot (subtitle, kicker, deck,
      summary line, caption) with nothing new to say is deleted, not filled.
@@ -226,10 +243,12 @@ a prepared body cannot establish live `READY` or `FINAL_READY`.
      (literal `\n`, vertical tabs, eaten line-continuations), broken tables,
      and unclickable links. In rich-text editors, verify actual hyperlink
      elements, not merely URL-looking text or a saved copy in another tab.
-   - Place evidence immediately after the paragraph it supports, not as an image
-     pile before the introduction. Use compact, readable comparison previews;
-     verify rendered placement and size, not just attachment count. Preserve
-     originals and identify resizing, compositing, or cropping accurately.
+   - Place evidence immediately after the paragraph it supports where the surface
+     permits, not as an image pile before the introduction. Otherwise use the
+     nearest supported attachment, caption, or alt-text association and verify
+     it. Use compact, readable comparison previews; verify rendered placement
+     and size, not just attachment count. Preserve originals and identify
+     resizing, compositing, or cropping accurately.
    - Markdown: standard GFM; no HTML unless the renderer is known to accept it.
    - HTML: self-contained (inline CSS/JS), no external fetches, opens from
      `file://`.
