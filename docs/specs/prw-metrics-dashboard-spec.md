@@ -330,3 +330,20 @@ prices only events with explicit `standard` service tier, `global` inference geo
 and `standard` speed. Missing or different metadata stays unpriced. Events are limited
 to the existing dashboard interval `[cutoff - 14 days, cutoff)`; outside-window and
 undated records are reported separately.
+
+### Bounded retained usage publication
+
+Retained usage must preserve every sanitized record while keeping each JSONL Git
+blob at or below 32 MiB. Small and empty snapshots retain the legacy
+`usage_events.jsonl` format; larger snapshots use numbered JSONL parts with an
+ordered byte-count, row-count and SHA256 manifest. A record is never split,
+truncated or sampled. An individually oversized record fails publication visibly.
+
+All retained read paths, including published-ref export, accept legacy windows and
+verify complete shard families. Missing, corrupt, unexpected or ambiguous usage
+files fail visibly rather than become complete coverage. Republishing a window
+atomically replaces its usage family, including shrinking or empty snapshots;
+other windows, unrelated repository paths and local worktree changes remain intact.
+The privacy projection, unknown values, duplicate/conflict semantics and existing
+retention policy do not change. Focused acceptance uses tiny byte limits and real
+local Git publication/readback; it does not require another native-history scan.
