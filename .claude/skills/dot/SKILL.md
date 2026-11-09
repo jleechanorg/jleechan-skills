@@ -281,6 +281,8 @@ unidentified. Do not use `! kill -0` alone - it succeeds on `EPERM` for a live c
 
 ## Account Rotation on Limits (Mandatory)
 
+Every configured account is eligible for new work and participates in `rotation`. Route new work to `default_account` first, then the next account in `rotation` when it is limited or its composer is blocked. Select a specific account with `--account <name>` or `DOT_ACCOUNT=<name>`. Do not withhold work from an account based on whether the request originated from a human operator or an AI agent: all configured accounts accept both kinds of request. A user may keep optional per-account work restrictions in a machine-local `~/.config/dot/account-policy.md`, keyed by account name or alias; if that file exists, honor its applicable restrictions for the resolved account, including on explicit `--account` selection and blocked-composer fallback. The policy is agent guidance, not transport enforcement; `dot.sh` does not read that file.
+
 Always rotate across configured accounts when hitting a rate limit, usage limit, abuse prevention cooldown, or message cap:
 - **Limit Detection:** Detected directly from ChatGPT UI alert elements (`[role=alert]`, alert banners), emitting structured `DOT_USAGE_LIMIT_REACHED` events.
 - **Mandatory Rotation:** When an account hits a limit or cooldown, immediately rotate to the next configured account in `rotation` using `--account <next>`.
