@@ -348,21 +348,41 @@ async function openContact(page, name) {
     );
   }
 
-  // Click THE node whose title equals the name, selected by evaluating every title node and
-  // filtering in JS. No interpolated CSS/XPath selector is built from the contact name, so
-  // quotes, backslashes and control characters in a name cannot corrupt the selector
-  // (found by Dot review at 1de608c8f).
-  const titleNodesAll = page.locator('#pane-side span[title]');
-  const matchIdx = titles.indexOf(name);
-  if (matchIdx < 0) {
-    die(`contact "${name}" vanished from the chat list before selection; refusing to guess`, 5);
+  // Select and click the SAME node in one evaluated pass. Earlier versions filtered an
+  // evaluated title list and then applied that index to a differently-filtered locator,
+  // which could point at an empty-title span or a node that shifted between snapshot and
+  // click (found by Dot review at fb657cb2d). Doing selection inside the page removes both
+  // the index/filter mismatch and the snapshot-to-click window.
+  const clicked = await page.evaluate((wanted) => {
+    const nodes = [...document.querySelectorAll('#pane-side span[title]')];
+    const hits = nodes.filter((n) => n.getAttribute('title') === wanted);
+    if (hits.length !== 1) {
+      return { ok: false, reason: hits.length === 0 ? 'no exact title match' : `${hits.length} exact title matches`, count: hits.length };
+    }
+    // Mark the exact node so Playwright clicks THIS element (a synthetic .click() does not
+    // reliably open the chat in this build). The marker is removed right after.
+    hits[0].setAttribute('data-instinct-target', '1');
+    return { ok: true, title: hits[0].getAttribute('title') };
+  }, name);
+
+  if (!clicked.ok) {
+    die(
+      `could not select "${name}": ${clicked.reason}; refusing to guess`,
+      5
+    );
   }
-  const chosen = titleNodesAll.nth(matchIdx);
-  if ((await chosen.count()) !== 1) {
-    die(`title node at index ${matchIdx} for "${name}" is not unique; refusing to guess`, 5);
-  }
-  await chosen.click();
-  await page.waitForTimeout(1800);
+  await page.locator('[data-instinct-target="1"]').first().click({ timeout: 20_000 });
+  await page.evaluate(() => {
+    const el = document.querySelector('[data-instinct-target="1"]');
+    if (el) el.removeAttribute('data-instinct-target');
+  });
+  // Wait for the conversation pane to actually render the header, not a fixed guess.
+  await page
+    .locator('[data-testid="conversation-info-header"]')
+    .first()
+    .waitFor({ state: 'visible', timeout: 30_000 })
+    .catch(() => {});
+  await page.waitForTimeout(600);
 
   // Verify the OPEN chat is the requested contact before anyone types into it.
   // NOTE: `header span[title]` is NOT the chat title here — it matches the "Business Account"
