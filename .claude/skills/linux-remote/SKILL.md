@@ -5,6 +5,38 @@ description: "Steering work on a remote Linux host ($LINUX_REMOTE_HOST) via SSH.
 
 # Linux Remote — Linux SSH Steering
 
+## Lightweight caller, remote execution owner
+
+For a mirrored or delegated agent session in either direction, the calling
+machine is a transport and oversight driver; the target agent owns investigation,
+implementation, tests, and required review through completion. A one-off SSH
+command does not need another agent when the caller can finish it directly.
+
+- Hand off once with the outcome, acceptance criteria, repo/branch/SHA, relevant
+  paths, verified progress, unresolved next action, and applicable authority
+  boundaries. Prefer a short brief and retrievable artifact references; do not
+  copy the conversation, local model context, full source trees, or logs. Include
+  essential constraints explicitly when the target cannot access their source.
+- After acknowledgment, keep one execution owner. The caller must not repeat
+  repository exploration, implementation, or test/review runs already owned by
+  the target. Send changes in requirements as concise deltas to that same session;
+  resume its context instead of launching a fresh agent each polling cycle.
+- Request bounded receipts: status, changed SHA, completed checks, artifact
+  locations, blocker and exact next action. Keep raw output on the execution
+  host. Use asynchronous handles and bounded waits; do not repeatedly ingest full
+  transcripts. When diagnosing delivery, failure, or a disputed status, inspect
+  the required raw evidence and full available terminal history before deciding;
+  compact routine receipts never replace those verification requirements.
+- The caller verifies acknowledgment and final claims using the exact remote SHA
+  and relevant artifacts/check receipts, without redoing the remote work by
+  default. Required independent reviews still run; authority-dependent actions
+  stay with the authorized session. Remain responsible for recovery and closure,
+  and report a verified blocker rather than abandoning an active remote job.
+
+This reduces duplicated task context and reasoning; it does not eliminate the
+fresh target runtime's own policy/startup context or the caller's existing context.
+Do not claim token or cost savings without measured usage.
+
 ## Retained review integrations
 
 The shared catalog preserves host-installed `/advice` and `/web-advice` integrations instead of installing them. Before invoking either, resolve its `../advice/SKILL.md` or `../web-advice/SKILL.md` relative to this package and read the existing skill. For a remote invocation, check the corresponding skill on the target host. If absent, report that integration as `UNAVAILABLE` and identify the missing package; do not invent a replacement runner, claim an approval, or treat a required gate as passed. Continue independent authorized work, but leave any dependent readiness or plan-approval gate unmet. Existing review quorum, external-disclosure authorization, and optional-review rules still apply.

@@ -7,6 +7,8 @@ description: "Steer work on a remote macOS host ($MAC_REMOTE_HOST) via SSH. Use 
 
 Mirror of `/linux` (`$LINUX_REMOTE_HOST`), but targeting a Mac. Runs from any machine that can reach the Mac's SSH port.
 
+Follow the [lightweight caller contract](../linux-remote/SKILL.md#lightweight-caller-remote-execution-owner): the caller drives transport and verifies receipts; the target agent owns execution.
+
 ## Configuration
 
 This skill targets the macOS host named by `MAC_REMOTE_HOST` (an SSH alias from
