@@ -353,3 +353,14 @@ equality semantics, retaining first-seen order and distinct/conflicting records.
 Request IDs alone never determine equality; dictionary key order is immaterial,
 array order and string/number distinctions remain significant, and equivalent
 boolean/integer/float values retain their previous equality behavior.
+
+Complete privacy-projected summary snapshots also obey the 32 MiB per-blob bound.
+Small snapshots keep summary_snapshot.json. Larger snapshots use a verified
+manifest and numbered JSONL transport parts containing base64 fragments of the
+complete UTF-8 JSON document. This preserves every projected summary event and
+field without truncation; fragments may cross UTF-8 boundaries and are decoded
+only after byte-integrity verification and reassembly. Published-ref export carries
+both formats, and retained loading exposes reconstructed summary_snapshots.
+Caller-supplied summary parts are reconstructed and privacy-projected before
+publication. Same-window replacement removes stale summary parts as well as usage
+parts; small, empty, shrinking, corrupt and repeated snapshots have focused proof.

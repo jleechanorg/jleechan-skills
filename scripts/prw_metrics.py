@@ -17,6 +17,7 @@ Portability Invariant:
 """
 
 import argparse
+import base64
 import hashlib
 import json
 import math
@@ -565,7 +566,7 @@ def _usage_candidate(name):
 
 
 def _telemetry_file(name):
-    return name in TELEMETRY_FILES or _usage_candidate(name)
+    return name in TELEMETRY_FILES or _usage_candidate(name) or _summary_candidate(name)
 
 
 def _usage_parts(records, max_bytes=None):
@@ -598,7 +599,7 @@ def _usage_parts(records, max_bytes=None):
     return files
 
 
-def _usage_manifest(content):
+def _usage_manifest(content, stem="usage_events"):
     manifest = json.loads(content)
     if not isinstance(manifest, dict) or manifest.get("version") != 1:
         raise ValueError("unsupported retained usage manifest")
@@ -607,7 +608,7 @@ def _usage_manifest(content):
         raise ValueError("missing retained usage parts")
     for index, entry in enumerate(entries):
         if (not isinstance(entry, dict) or set(entry) != {"name", "bytes", "records", "sha256"}
-                or entry["name"] != f"usage_events.part-{index:06d}.jsonl"
+                or entry["name"] != f"{stem}.part-{index:06d}.jsonl"
                 or not isinstance(entry["bytes"], int) or isinstance(entry["bytes"], bool)
                 or not 0 < entry["bytes"] <= USAGE_SHARD_BYTES
                 or not isinstance(entry["records"], int) or isinstance(entry["records"], bool)
@@ -645,6 +646,61 @@ def _read_usage_bundle(names, read):
     return records
 
 
+
+def _summary_candidate(name):
+    return name.startswith("summary_snapshot.")
+
+
+def _summary_parts(summary):
+    """Lossless bounded transport for the complete privacy-projected summary."""
+    content = json.dumps(_project_summary(summary), indent=2)
+    raw = content.encode("utf-8")
+    if len(raw) <= USAGE_SHARD_BYTES:
+        return {"summary_snapshot.json": content}
+    # Base64 keeps each transport part valid JSON/text even across UTF-8 boundaries.
+    chunk_bytes = (USAGE_SHARD_BYTES - 128) // 4 * 3
+    if chunk_bytes < 1:
+        raise ValueError("summary shard limit too small")
+    files, entries = {}, []
+    for index, start in enumerate(range(0, len(raw), chunk_bytes)):
+        if index > 999999:
+            raise ValueError("too many summary shards")
+        name = f"summary_snapshot.part-{index:06d}.jsonl"
+        part = json.dumps({"base64": base64.b64encode(raw[start:start + chunk_bytes]).decode("ascii")}) + "\n"
+        encoded = part.encode("utf-8")
+        files[name] = part
+        entries.append({"name": name, "bytes": len(encoded), "records": 1,
+                        "sha256": hashlib.sha256(encoded).hexdigest()})
+    files["summary_snapshot.manifest.json"] = json.dumps({"version": 1, "parts": entries}, sort_keys=True)
+    return files
+
+
+def _read_summary_bundle(names, read):
+    names = {name for name in names if _summary_candidate(name)}
+    if not names:
+        return None
+    if names == {"summary_snapshot.json"}:
+        return _project_summary(json.loads(read("summary_snapshot.json")))
+    manifest_name = "summary_snapshot.manifest.json"
+    if manifest_name not in names:
+        raise ValueError("summary shards lack manifest or have unexpected files")
+    manifest = _usage_manifest(read(manifest_name), stem="summary_snapshot")
+    if names != {manifest_name, *(entry["name"] for entry in manifest["parts"])}:
+        raise ValueError("summary family differs from manifest")
+    chunks = []
+    for entry in manifest["parts"]:
+        content = read(entry["name"])
+        raw = content if isinstance(content, bytes) else content.encode("utf-8")
+        if (len(raw) != entry["bytes"] or hashlib.sha256(raw).hexdigest() != entry["sha256"]
+                or entry["records"] != 1):
+            raise ValueError("summary shard integrity mismatch")
+        row = json.loads(raw)
+        if not isinstance(row, dict) or set(row) != {"base64"} or not isinstance(row["base64"], str):
+            raise ValueError("invalid summary transport part")
+        chunks.append(base64.b64decode(row["base64"], validate=True))
+    return _project_summary(json.loads(b"".join(chunks)))
+
+
 def retained_telemetry_dirs(root):
     """Directories holding retained telemetry: the root itself plus each <window_slug>/ the publisher writes."""
     if not root or not os.path.isdir(root):
@@ -680,7 +736,7 @@ def export_published_telemetry(roadmap_repo, dest_dir, ref="refs/remotes/origin/
                 continue
             blob = git("show", f"{ref}:{rel}")
             if blob.returncode != 0:
-                if _usage_candidate(os.path.basename(rel)):
+                if _usage_candidate(os.path.basename(rel)) or _summary_candidate(os.path.basename(rel)):
                     raise ValueError("cannot export published usage telemetry")
                 continue
             out_path = os.path.join(dest_dir, *rel[len(TELEMETRY_RELDIR) + 1:].split("/"))
@@ -736,6 +792,11 @@ def sanitize_telemetry_file(relpath, content):
         return json.dumps(_sanitize_retained_sources(json.loads(content)), indent=2)
     if name == "summary_snapshot.json":
         return json.dumps(_project_summary(json.loads(content)), indent=2)
+    if name == "summary_snapshot.manifest.json":
+        return json.dumps(_usage_manifest(content, stem="summary_snapshot"), sort_keys=True)
+    if re.fullmatch(r"summary_snapshot\.part-[0-9]{6}\.jsonl", name):
+        # Privacy projection requires the complete reconstructed object, below in publish.
+        return content
     if name == "retention_manifest.json":
         return json.dumps(_project(json.loads(content), RETENTION_MANIFEST_SCHEMA) or {}, indent=2)
     if name == "calibration_audit.json":
@@ -1602,6 +1663,7 @@ class Collector:
         retained_sources = {}
         usage_events = []
         usage_rates = []
+        summary_snapshots = []
 
         jsonl_sinks = (
             ("pilot_events.jsonl", pilot_events),
@@ -1631,6 +1693,9 @@ class Collector:
                 with open(os.path.join(bundle_dir, name), "rb") as f:
                     return f.read()
             usage_events.extend(_read_usage_bundle(os.listdir(bundle_dir), read_usage))
+            summary = _read_summary_bundle(os.listdir(bundle_dir), read_usage)
+            if summary is not None:
+                summary_snapshots.append(summary)
             rates_path = os.path.join(bundle_dir, "usage_rates.json")
             if os.path.exists(rates_path):
                 with open(rates_path, "r", encoding="utf-8") as f:
@@ -1658,6 +1723,7 @@ class Collector:
             "handoff_records": handoff_records,
             "sources": retained_sources,
             "usage_events": usage_events,
+            "summary_snapshots": summary_snapshots,
             "usage_rates": {"rates": list({json.dumps(rate, sort_keys=True): rate for rate in usage_rates}.values())},
         }
 
@@ -4453,7 +4519,8 @@ class Publisher:
 
         files = {}
         if summary_data:
-            files[f"{window_dir}/summary_snapshot.json"] = json.dumps(_project_summary(summary_data), indent=2)
+            for name, content in _summary_parts(summary_data).items():
+                files[f"{window_dir}/{name}"] = content
 
         if pilot_events:
             lines = [json.dumps(_sanitize_retained_record(ev, RETAINED_EVENT_FIELDS)) for ev in pilot_events]
@@ -4557,6 +4624,13 @@ class Publisher:
                 usage_events=usage_events,
                 usage_rates=usage_rates,
             )
+            # Generated families supersede caller-supplied versions atomically,
+            # including legacy-singleton to sharded-format transitions.
+            for candidate in (_usage_candidate, _summary_candidate):
+                windows = {os.path.dirname(path) for path in tb if candidate(os.path.basename(path))}
+                for path in list(telemetry_staged_files):
+                    if os.path.dirname(path) in windows and candidate(os.path.basename(path)):
+                        del telemetry_staged_files[path]
             telemetry_staged_files.update(tb)
 
         # A usage family is one atomic replacement, including empty/shrinking snapshots.
@@ -4576,6 +4650,21 @@ class Publisher:
         except (ValueError, TypeError, KeyError) as exc:
             return {"action": "BLOCKED", "committed": False,
                     "reason": f"Invalid usage telemetry bundle: {exc}"}
+
+        summary_windows = {os.path.dirname(path) for path in telemetry_staged_files
+                           if _summary_candidate(os.path.basename(path))}
+        try:
+            for window in summary_windows:
+                family = {os.path.basename(path): content for path, content in telemetry_staged_files.items()
+                          if os.path.dirname(path) == window and _summary_candidate(os.path.basename(path))}
+                summary = _read_summary_bundle(family, family.__getitem__)
+                for name in family:
+                    del telemetry_staged_files[f"{window}/{name}"]
+                for name, content in _summary_parts(summary).items():
+                    telemetry_staged_files[f"{window}/{name}"] = content
+        except (ValueError, TypeError, KeyError) as exc:
+            return {"action": "BLOCKED", "committed": False,
+                    "reason": f"Invalid summary telemetry bundle: {exc}"}
 
         # Check existing content at origin/main:<target_relpath>
         current_content = None
@@ -4644,13 +4733,15 @@ class Publisher:
                     )
 
                     # Remove only superseded usage files in windows replaced by this run.
-                    for window in sorted(usage_windows):
+                    for window in sorted(usage_windows | summary_windows):
                         old_paths = subprocess.run(
                             ["git", "-C", self.repo_path, "ls-tree", "-r", "--name-only", parent_sha, "--", window],
                             check=True, capture_output=True, text=True, env=env,
                         ).stdout.splitlines()
                         for path in old_paths:
-                            if os.path.dirname(path) == window and _usage_file(os.path.basename(path)):
+                            if (os.path.dirname(path) == window
+                                    and ((window in usage_windows and _usage_file(os.path.basename(path)))
+                                         or (window in summary_windows and _summary_candidate(os.path.basename(path))))):
                                 subprocess.run(
                                     ["git", "-C", self.repo_path, "update-index", "--force-remove", "--", path],
                                     check=True, capture_output=True, text=True, env=env,

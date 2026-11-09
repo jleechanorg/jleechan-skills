@@ -106,6 +106,19 @@ class RetainedUsageShards(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'unexpected retained usage filename'):
                     m.Collector().collect_all(telemetry_dir=str(bundle), offline=True)
 
+    def test_summary_transport_raw_integrity_and_unexpected_files(self):
+        summary = {"usage_summary": {"events": [{"status": "UNKNOWN", "known_cost_usd": None,
+                    "tokens_by_bucket": {"é": i}} for i in range(20)]}, "private": "excluded"}
+        with mock.patch.object(m, 'USAGE_SHARD_BYTES', 800):
+            parts = m._summary_parts(summary)
+            self.assertEqual(m._read_summary_bundle(parts, parts.__getitem__), m._project_summary(summary))
+            part = 'summary_snapshot.part-000000.jsonl'
+            for broken in (dict(parts, **{part: parts[part].replace('\n', '\r\n')}),
+                           {k:v for k,v in parts.items() if k != part},
+                           dict(parts, **{'summary_snapshot.part-00000.jsonl': '{}'})):
+                with self.assertRaises(ValueError):
+                    m._read_summary_bundle(broken, broken.__getitem__)
+
     def test_retained_full_record_index_preserves_equality_and_scales(self):
         class CountedRecord(dict):
             comparisons = 0
@@ -159,16 +172,31 @@ class RetainedUsageShards(unittest.TestCase):
             previous_payloads = None
             for count in (9, 9, 7, 5, 1, 0):
                 rows = self.rows(count)
+                summary = {"w2_bounds": ["2026-11-02T00:00:00Z", "x"],
+                           "usage_summary": {"events": [{"status": "UNKNOWN", "known_cost_usd": None,
+                               "tokens_by_bucket": {"input": i}, "unknown_buckets": {"é": i},
+                               "private_note": "must not survive"} for i in range(count * 20)]},
+                           "raw_private": "must not survive"}
                 with mock.patch.object(m, 'USAGE_SHARD_BYTES', 1500, create=True):
                     kwargs = ({"telemetry_files": {"dashboards/prw/telemetry/20261102/usage_events.jsonl":
-                               "".join(json.dumps(row) + "\n" for row in rows)}} if count == 7 else
+                               "".join(json.dumps(row) + "\n" for row in rows),
+                               "dashboards/prw/telemetry/20261102/summary_snapshot.json": json.dumps(summary)}} if count == 7 else
                               {"publish_telemetry": True,
-                               "summary_data": {"w2_bounds": ["2026-11-02T00:00:00Z", "x"]},
+                               "summary_data": summary,
                                "usage_events": m.load_usage_events(rows)})
+                    if count == 5:
+                        kwargs['telemetry_files'] = {
+                            'dashboards/prw/telemetry/20261102/summary_snapshot.json': '{}',
+                            'dashboards/prw/telemetry/20261102/usage_events.jsonl': ''}
                     result = m.publish_dashboard(
                         '# Dashboard\n', str(local), verify_private_fn=lambda _: True,
                         **kwargs)
                     self.assertTrue(result['committed'], result)
+                    tree = git(remote, 'ls-tree', '-r', '-l', 'main', '--', 'dashboards/prw/telemetry/20261102')
+                    for entry in tree.splitlines():
+                        metadata, name = entry.split('\t', 1)
+                        if name.endswith('/summary_snapshot.json') or '.part-' in name:
+                            self.assertLessEqual(int(metadata.split()[3]), 1500)
                     exported = root/f'export-{count}'
                     self.assertTrue(m.export_published_telemetry(str(local), str(exported)))
                     current = exported/'20261102'
@@ -177,7 +205,16 @@ class RetainedUsageShards(unittest.TestCase):
                     if count == 9 and previous_payloads is not None:
                         self.assertEqual(payloads, previous_payloads)
                     previous_payloads = payloads
-                    loaded = m.Collector().load_retained_telemetry(str(exported))['usage_events']
+                    summary_payloads = {p.name: p.read_bytes() for p in current.iterdir()
+                                        if p.name.startswith('summary_snapshot.')}
+                    self.assertTrue(summary_payloads)
+                    self.assertTrue(all(len(v) <= 1500 for k, v in summary_payloads.items()
+                                        if not k.endswith('manifest.json')))
+                    self.assertEqual(m._read_summary_bundle(summary_payloads, summary_payloads.__getitem__),
+                                     m._project_summary(summary))
+                    retained = m.Collector().load_retained_telemetry(str(exported))
+                    self.assertIn(m._project_summary(summary), retained['summary_snapshots'])
+                    loaded = retained['usage_events']
                     self.assertEqual(len(loaded), count + 1)
                     expected = ([m._sanitize_usage_event_record(r) for r in rows] if count == 7 else
                                 [m._sanitize_usage_event_record(m._usage_event_record(e)) for e in m.load_usage_events(rows)])
