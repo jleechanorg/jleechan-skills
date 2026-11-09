@@ -26,6 +26,7 @@ try:
         MetricsAggregator,
         Publisher,
         calculate_median,
+        calculate_nearest_rank_percentile,
         calculate_nearest_rank_p75,
         compute_disjoint_interval_union,
         filter_events_half_open,
@@ -113,6 +114,27 @@ class TestStatisticalFunctions(unittest.TestCase):
         self.assertEqual(calculate_median([42.0]), 42.0)
         self.assertEqual(calculate_median([1.0, 3.0, 2.0]), 2.0)
         self.assertEqual(calculate_median([1.0, 2.0, 3.0, 4.0]), 2.5)
+
+    def test_nearest_rank_percentiles_cover_boundaries_and_ties(self):
+        self.assertIsNone(calculate_nearest_rank_percentile([], 50))
+        self.assertEqual(
+            [calculate_nearest_rank_percentile([7.0], p) for p in (50, 90, 99)],
+            [7.0, 7.0, 7.0],
+        )
+        self.assertEqual(
+            [calculate_nearest_rank_percentile([1.0, 9.0], p) for p in (50, 90, 99)],
+            [1.0, 9.0, 9.0],
+        )
+        ten = list(range(1, 11))
+        self.assertEqual(
+            [calculate_nearest_rank_percentile(ten, p) for p in (50, 90, 99)],
+            [5.0, 9.0, 10.0],
+        )
+        tied = [4.0, 2.0, 2.0, 1.0, 2.0]
+        self.assertEqual(
+            [calculate_nearest_rank_percentile(tied, p) for p in (50, 90, 99)],
+            [2.0, 4.0, 4.0],
+        )
 
     def test_disjoint_interval_union(self):
         """Disjoint union of overlapping or parallel intervals without double counting."""
@@ -642,6 +664,9 @@ class TestStageDwellAndHandoffAggregation(unittest.TestCase):
         coding_dwell = next(d for d in dwell if d["stage"] == "stage:1-coding")
         self.assertEqual(coding_dwell["median_h"], 3.0)
         self.assertEqual(coding_dwell["p75_h"], 4.0)
+        self.assertEqual(coding_dwell["p50_h"], 2.0)
+        self.assertEqual(coding_dwell["p90_h"], 4.0)
+        self.assertEqual(coding_dwell["p99_h"], 4.0)
         self.assertEqual(coding_dwell["conflicts"], 1)
         self.assertEqual(coding_dwell["n"], 2)
 
@@ -684,6 +709,8 @@ class TestStageDwellAndHandoffAggregation(unittest.TestCase):
         ev_to_req = next(h for h in handoffs if h["name"] == "evidence_ready -> review_requested")
         self.assertEqual(ev_to_req["observed_n"], 1)
         self.assertEqual(ev_to_req["median_sec"], 1800.0)
+        self.assertEqual(ev_to_req["sample_n"], 1)
+        self.assertEqual([ev_to_req[f"p{p}_sec"] for p in (50, 90, 99)], [1800.0] * 3)
 
         req_to_act = next(h for h in handoffs if h["name"] == "review_requested -> actual_review_started")
         self.assertEqual(req_to_act["observed_n"], 1)
@@ -2411,6 +2438,46 @@ class TestRetentionRoundTripInvariant(unittest.TestCase):
         for section in ("repo_comparison", "stage_dwell", "handoffs", "open_prs_known_idle", "open_prs_unknown_idle"):
             for original, kept in zip(summary[section], projected[section]):
                 self.assertEqual(set(kept), set(original), section)
+
+    def test_rendered_distributions_include_fourteen_day_and_percentile_values(self):
+        summary = {
+            "status": "FRESH",
+            "repo_comparison": [{
+                "repo": "example-org/repo-alpha",
+                "created": 1, "created_w1": 1, "created_w2": 1,
+                "merged_w1": 1, "merged_w2": 1, "closed_unmerged_w1": 0,
+                "closed_unmerged_w2": 0, "current_closed_unmerged": 0, "still_open": 0,
+                "w1_all_median_hours": 2, "all_median_hours": 3,
+                "w1_all_p75_hours": 2, "all_p75_hours": 3,
+                "w1_comp_median_hours": 2, "comp_median_hours": 3,
+                "w1_comp_p75_hours": 2, "comp_p75_hours": 3,
+                "w1_backlog_n": 0, "w1_backlog_median_hours": "UNKNOWN",
+                "backlog_n": 0, "backlog_median_hours": "UNKNOWN",
+                "d14_all_n": 2, "d14_all_p50_hours": 2, "d14_all_p90_hours": 3,
+                "d14_all_p99_hours": 3, "d14_comp_n": 2, "d14_comp_p50_hours": 2,
+                "d14_comp_p90_hours": 3, "d14_comp_p99_hours": 3,
+                "d14_backlog_n": 0, "d14_backlog_p50_hours": "UNKNOWN",
+                "d14_backlog_p90_hours": "UNKNOWN", "d14_backlog_p99_hours": "UNKNOWN",
+            }],
+            "stage_dwell": [{
+                "stage": "stage:1-coding", "median_h": 2, "p75_h": 3,
+                "p50_h": 2, "p90_h": 3, "p99_h": 3,
+                "sample_n": 2, "n": 2, "total_n": 2, "conflicts": 0,
+            }],
+            "handoffs": [{
+                "name": "task_accepted -> merged", "observed_n": 1, "sample_n": 1,
+                "total_n": 2, "median_sec": 60, "p75_sec": 60, "p50_sec": 60,
+                "p90_sec": 60, "p99_sec": 60, "status": "PARTIAL",
+            }],
+        }
+        rendered = DashboardRenderer().render(summary)
+        self.assertIn("14-day Creation-to-Merge Distribution", rendered)
+        self.assertIn("n=2; p50=2h, p90=3h, p99=3h", rendered)
+        self.assertIn(
+            "| `stage:1-coding` | 2; 2 / 2 | 2h | 3h | 2h | 3h | 3h | 0 |",
+            rendered,
+        )
+        self.assertIn("1m 00s", rendered)
 
     def test_manifest_and_calibration_files_are_fixed_field_in_every_path(self):
         sentinel = "private-message-sentinel"

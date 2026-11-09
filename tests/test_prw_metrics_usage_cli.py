@@ -8,13 +8,15 @@ import tempfile
 import unittest
 
 from scripts.prw_metrics import (
-    _retained_usage_summary,
     MetricsAggregator,
     Publisher,
+    _retained_usage_summary,
+    _summarize_observed_pr_costs,
     aggregate_usage,
     load_rate_table,
     load_usage_events,
     parse_iso_utc,
+    render_usage_summary,
 )
 
 
@@ -169,10 +171,64 @@ class UsageFeedCliTests(unittest.TestCase):
         self.assertEqual(len(projected["rate_records"]), 5)
         self.assertIsNone(projected["events"][1]["known_cost_usd"])
         self.assertEqual(projected["known_cost_usd"], "17.6")
+        self.assertEqual(
+            projected["pr_cost_distribution"],
+            {"n": 0, "p50_usd": None, "p90_usd": None, "p99_usd": None},
+        )
         serialized = json.dumps(projected)
         self.assertNotIn("MUST NOT APPEAR", serialized)
         self.assertNotIn(self.tempdir.name, serialized)
         self.assertIn('"price_per_million": "1"', serialized)
+
+    def test_pr_cost_distribution_requires_explicit_fully_priced_pr_cohort(self):
+        costs = {
+            "example/repo#1": {
+                "known_cost_usd": 1.0,
+                "pricing_status": "observed-priced",
+                "event_count": 1,
+            },
+            "example/repo#2": {
+                "known_cost_usd": 2.0,
+                "pricing_status": "observed-priced",
+                "event_count": 2,
+            },
+            "example/repo#3": {
+                "known_cost_usd": 4.0,
+                "pricing_status": "observed-priced",
+                "event_count": 1,
+            },
+            "example/repo#4": {
+                "known_cost_usd": 100.0,
+                "pricing_status": "partial",
+                "event_count": 3,
+            },
+        }
+        distribution = _summarize_observed_pr_costs(costs)
+        self.assertEqual(
+            distribution, {"n": 3, "p50_usd": 2.0, "p90_usd": 4.0, "p99_usd": 4.0}
+        )
+        empty = _summarize_observed_pr_costs({})
+        self.assertEqual(
+            empty, {"n": 0, "p50_usd": None, "p90_usd": None, "p99_usd": None}
+        )
+        rendered = render_usage_summary({
+            "known_cost_usd": 7.0, "priced_event_count": 3,
+            "partially_priced_event_count": 1,
+            "unallocated": {
+                "known_cost_usd": 0, "event_count": 0, "unknown_cost_events": 0,
+            },
+            "coverage": {"session_count": 0}, "rate_records": [],
+            "label": "observed prices",
+            "source_records": 4, "event_count": 4, "unknown_event_count": 0,
+            "window_start": None, "window_end": None,
+            "outside_window_count": 0, "undated_count": 0,
+            "tokens_by_bucket": {}, "reasoning_tokens": 0, "prs": {},
+            "pr_cost_distribution": distribution,
+        })
+        self.assertTrue(any(
+            "n=3; p50=$2.0000000, p90=$4.0000000, p99=$4.0000000" in line
+            for line in rendered
+        ))
 
     def test_nonfinite_explicit_attribution_stays_unallocated_without_crashing(self):
         event = {

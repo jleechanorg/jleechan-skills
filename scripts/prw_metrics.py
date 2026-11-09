@@ -4,7 +4,8 @@ PRW Metrics Dashboard Collector, Aggregator, Renderer, and Publisher.
 
 Architecture:
 - Collector: Reusable ingestion from live GitHub API (gh CLI) or cached JSON datasets.
-- MetricsAggregator: Exact half-open window arithmetic, nearest-rank p75, and honest idle boundaries.
+- MetricsAggregator: Exact half-open window arithmetic, nearest-rank percentiles, and
+  honest idle boundaries.
 - DashboardRenderer: 6-section GitHub-flavored Markdown report.
 - Publisher: Scoped git publisher using isolated index files without touching working trees.
 
@@ -80,19 +81,28 @@ def format_duration(seconds):
     return f"{h}h {m:02d}m {s:02d}s ({hrs:.2f}h)"
 
 
+def calculate_nearest_rank_percentile(values, percentile):
+    """Return a nearest-rank percentile (1-100), or None for an empty sample."""
+    if not values:
+        return None
+    sorted_list = sorted(values)
+    rank = math.ceil((percentile / 100.0) * len(sorted_list))
+    return float(sorted_list[max(0, min(len(sorted_list) - 1, rank - 1))])
+
+
 def calculate_nearest_rank_p75(values):
-    """
-    Calculate 75th percentile using nearest-rank method:
-    k = math.ceil(0.75 * n)
-    index = k - 1 (0-indexed)
-    """
+    """Calculate the legacy nearest-rank p75; empty samples retain the old 0.0 API."""
     if not values:
         return 0.0
-    sorted_list = sorted(values)
-    n = len(sorted_list)
-    k = math.ceil(0.75 * n)
-    idx = max(0, min(n - 1, k - 1))
-    return float(sorted_list[idx])
+    return calculate_nearest_rank_percentile(values, 75)
+
+
+def calculate_nearest_rank_percentiles(values):
+    """Return nearest-rank p50/p90/p99; empty samples are UNKNOWN (None)."""
+    return {
+        f"p{percentile}": calculate_nearest_rank_percentile(values, percentile)
+        for percentile in (50, 90, 99)
+    }
 
 
 def calculate_median(values):
@@ -333,11 +343,25 @@ SUMMARY_SCHEMA = {
     "repo_comparison": [{k: _SC for k in (
         "repo", "created", "created_w1", "created_w2", "merged_w1", "merged_w2", "closed_unmerged_w1",
         "closed_unmerged_w2", "current_closed_unmerged", "still_open", "w1_all_median_hours",
-        "w1_all_p75_hours", "all_median_hours", "all_p75_hours", "w1_comp_median_hours",
-        "w1_comp_p75_hours", "comp_median_hours", "comp_p75_hours", "w1_backlog_n",
-        "w1_backlog_median_hours", "backlog_n", "backlog_median_hours")}],
-    "stage_dwell": [{k: _SC for k in ("stage", "median_h", "p75_h", "n", "total_n", "conflicts")}],
-    "handoffs": [{k: _SC for k in ("name", "observed_n", "sample_n", "total_n", "median_sec", "p75_sec", "status")}],
+        "w1_all_p75_hours", "w1_all_p50_hours", "w1_all_p90_hours", "w1_all_p99_hours",
+        "all_median_hours", "all_p75_hours", "all_p50_hours", "all_p90_hours",
+        "all_p99_hours", "w1_comp_median_hours", "w1_comp_p75_hours",
+        "w1_comp_p50_hours", "w1_comp_p90_hours",
+        "w1_comp_p99_hours", "comp_median_hours", "comp_p75_hours", "comp_p50_hours",
+        "comp_p90_hours", "comp_p99_hours", "w1_backlog_n", "w1_backlog_median_hours",
+        "w1_backlog_p50_hours", "w1_backlog_p90_hours", "w1_backlog_p99_hours",
+        "backlog_n", "backlog_median_hours", "backlog_p50_hours", "backlog_p90_hours",
+        "backlog_p99_hours",
+        "d14_all_n", "d14_all_p50_hours", "d14_all_p90_hours", "d14_all_p99_hours",
+        "d14_comp_n", "d14_comp_p50_hours", "d14_comp_p90_hours", "d14_comp_p99_hours",
+        "d14_backlog_n", "d14_backlog_p50_hours", "d14_backlog_p90_hours",
+        "d14_backlog_p99_hours")}],
+    "stage_dwell": [{k: _SC for k in (
+        "stage", "median_h", "p75_h", "p50_h", "p90_h", "p99_h", "sample_n", "n",
+        "total_n", "conflicts")}],
+    "handoffs": [{k: _SC for k in (
+        "name", "observed_n", "sample_n", "total_n", "median_sec", "p75_sec",
+        "p50_sec", "p90_sec", "p99_sec", "status")}],
     "open_prs_known_idle": [_ATTENTION_ROW],
     "open_prs_unknown_idle": [_ATTENTION_ROW],
     "time_semantics_pilot": [{k: _SC for k in (
@@ -361,6 +385,9 @@ SUMMARY_SCHEMA = {
         "coverage": {"providers": [_SC], "models": [_SC], "service_tiers": [_SC], "regions": [_SC], "speeds": [_SC], "session_count": _SC},
         "unallocated": {"known_cost_usd": _SC, "event_count": _SC, "unknown_cost_events": _SC},
         "tokens_by_bucket": ("map", _SC),
+        "pr_cost_distribution": {
+            "n": _SC, "p50_usd": _SC, "p90_usd": _SC, "p99_usd": _SC,
+        },
         "prs": ("map", {"known_cost_usd": _SC, "unknown": _SC, "event_count": _SC, "pricing_status": _SC}),
         "events": [{"status": _SC, "known_cost_usd": _SC, "unknown_buckets": ("map", _SC), "tokens_by_bucket": ("map", _SC)}],
         "rate_records": [{k: _SC for k in ("provider", "sku", "bucket", "price_per_million", "currency", "source_url", "current_confirmation_url", "rate_basis", "unit", "service_tier", "inference_geo", "speed", "retrieved_at", "effective_from", "effective_to")}],
@@ -2227,8 +2254,14 @@ class MetricsAggregator:
         if not merged_prs:
             return {
                 "n": 0, "all_median_hours": "UNKNOWN", "all_p75_hours": "UNKNOWN",
+                "all_p50_hours": "UNKNOWN", "all_p90_hours": "UNKNOWN",
+                "all_p99_hours": "UNKNOWN",
                 "comparable_n": 0, "comp_median_hours": "UNKNOWN", "comp_p75_hours": "UNKNOWN",
+                "comp_p50_hours": "UNKNOWN", "comp_p90_hours": "UNKNOWN",
+                "comp_p99_hours": "UNKNOWN",
                 "backlog_n": 0, "backlog_median_hours": "UNKNOWN", "backlog_p75_hours": "UNKNOWN",
+                "backlog_p50_hours": "UNKNOWN", "backlog_p90_hours": "UNKNOWN",
+                "backlog_p99_hours": "UNKNOWN",
             }
 
         durations_all = []
@@ -2249,17 +2282,32 @@ class MetricsAggregator:
         durations_all.sort()
         durations_comp.sort()
         durations_backlog.sort()
+        all_percentiles = calculate_nearest_rank_percentiles(durations_all)
+        comp_percentiles = calculate_nearest_rank_percentiles(durations_comp)
+        backlog_percentiles = calculate_nearest_rank_percentiles(durations_backlog)
 
         return {
             "n": len(durations_all),
             "all_median_hours": round(calculate_median(durations_all), 2) if durations_all else "UNKNOWN",
             "all_p75_hours": round(calculate_nearest_rank_p75(durations_all), 2) if durations_all else "UNKNOWN",
+            **{
+                f"all_{k}_hours": round(v, 2) if v is not None else "UNKNOWN"
+                for k, v in all_percentiles.items()
+            },
             "comparable_n": len(durations_comp),
             "comp_median_hours": round(calculate_median(durations_comp), 2) if durations_comp else "UNKNOWN",
             "comp_p75_hours": round(calculate_nearest_rank_p75(durations_comp), 2) if durations_comp else "UNKNOWN",
+            **{
+                f"comp_{k}_hours": round(v, 2) if v is not None else "UNKNOWN"
+                for k, v in comp_percentiles.items()
+            },
             "backlog_n": len(durations_backlog),
             "backlog_median_hours": round(calculate_median(durations_backlog), 2) if durations_backlog else "UNKNOWN",
             "backlog_p75_hours": round(calculate_nearest_rank_p75(durations_backlog), 2) if durations_backlog else "UNKNOWN",
+            **{
+                f"backlog_{k}_hours": round(v, 2) if v is not None else "UNKNOWN"
+                for k, v in backlog_percentiles.items()
+            },
         }
 
     def compute_stage_dwell(self, prs, timeline_events=None, stages=None):
@@ -2268,7 +2316,8 @@ class MetricsAggregator:
         Filters timeline_events to only PRs in the passed prs cohort.
         Closes open stages on transition to a subsequent stage or upon terminal merge/close.
         If end_dt < start_dt: increments conflicts for that stage and excludes duration.
-        If end_dt >= start_dt: accumulates duration in hours and computes median and nearest-rank p75.
+        If end_dt >= start_dt: accumulates duration in hours and computes median,
+        p75, p50, p90, and p99.
         """
         if stages is None:
             stages = [
@@ -2400,14 +2449,29 @@ class MetricsAggregator:
             if durs:
                 med_h = round(calculate_median(durs), 2)
                 p75_h = round(calculate_nearest_rank_p75(durs), 2)
+                percentiles = calculate_nearest_rank_percentiles(durs)
             else:
                 med_h = "UNKNOWN"
                 p75_h = "UNKNOWN"
+                percentiles = {"p50": None, "p90": None, "p99": None}
 
             stage_dwell_data.append({
                 "stage": stg,
                 "median_h": med_h,
                 "p75_h": p75_h,
+                "p50_h": (
+                    round(percentiles["p50"], 2)
+                    if percentiles["p50"] is not None else "UNKNOWN"
+                ),
+                "p90_h": (
+                    round(percentiles["p90"], 2)
+                    if percentiles["p90"] is not None else "UNKNOWN"
+                ),
+                "p99_h": (
+                    round(percentiles["p99"], 2)
+                    if percentiles["p99"] is not None else "UNKNOWN"
+                ),
+                "sample_n": len(durs),
                 "n": n,
                 "total_n": total_merged_count,
                 "conflicts": conflicts,
@@ -2594,10 +2658,12 @@ class MetricsAggregator:
             if sample_n > 0:
                 med_sec = round(calculate_median(durs), 1)
                 p75_sec = round(calculate_nearest_rank_p75(durs), 1)
+                percentiles = calculate_nearest_rank_percentiles(durs)
                 status = "COMPLETE" if (tot > 0 and obs_n >= tot) else "PARTIAL"
             else:
                 med_sec = "UNKNOWN"
                 p75_sec = "UNKNOWN"
+                percentiles = {"p50": None, "p90": None, "p99": None}
                 status = "UNKNOWN"
 
             handoffs_data.append({
@@ -2607,6 +2673,18 @@ class MetricsAggregator:
                 "total_n": tot,
                 "median_sec": med_sec,
                 "p75_sec": p75_sec,
+                "p50_sec": (
+                    round(percentiles["p50"], 1)
+                    if percentiles["p50"] is not None else "UNKNOWN"
+                ),
+                "p90_sec": (
+                    round(percentiles["p90"], 1)
+                    if percentiles["p90"] is not None else "UNKNOWN"
+                ),
+                "p99_sec": (
+                    round(percentiles["p99"], 1)
+                    if percentiles["p99"] is not None else "UNKNOWN"
+                ),
                 "status": status,
             })
 
@@ -2678,6 +2756,7 @@ class MetricsAggregator:
 
             stats_w1 = self.summarize_window_cohort(merged_w1)
             stats_w2 = self.summarize_window_cohort(merged_w2)
+            stats_d14 = self.summarize_window_cohort(merged_w1 + merged_w2)
 
             repo_rows.append({
                 "repo": repo,
@@ -2692,20 +2771,51 @@ class MetricsAggregator:
                 "still_open": len(still_open),
                 "w1_all_median_hours": stats_w1["all_median_hours"],
                 "w1_all_p75_hours": stats_w1["all_p75_hours"],
+                "w1_all_p50_hours": stats_w1["all_p50_hours"],
+                "w1_all_p90_hours": stats_w1["all_p90_hours"],
+                "w1_all_p99_hours": stats_w1["all_p99_hours"],
                 "all_median_hours": stats_w2["all_median_hours"],
                 "all_p75_hours": stats_w2["all_p75_hours"],
+                "all_p50_hours": stats_w2["all_p50_hours"],
+                "all_p90_hours": stats_w2["all_p90_hours"],
+                "all_p99_hours": stats_w2["all_p99_hours"],
                 "w1_comp_median_hours": stats_w1["comp_median_hours"],
                 "w1_comp_p75_hours": stats_w1["comp_p75_hours"],
+                "w1_comp_p50_hours": stats_w1["comp_p50_hours"],
+                "w1_comp_p90_hours": stats_w1["comp_p90_hours"],
+                "w1_comp_p99_hours": stats_w1["comp_p99_hours"],
                 "comp_median_hours": stats_w2["comp_median_hours"],
                 "comp_p75_hours": stats_w2["comp_p75_hours"],
+                "comp_p50_hours": stats_w2["comp_p50_hours"],
+                "comp_p90_hours": stats_w2["comp_p90_hours"],
+                "comp_p99_hours": stats_w2["comp_p99_hours"],
                 "w1_backlog_n": stats_w1["backlog_n"],
                 "w1_backlog_median_hours": stats_w1["backlog_median_hours"],
+                "w1_backlog_p50_hours": stats_w1["backlog_p50_hours"],
+                "w1_backlog_p90_hours": stats_w1["backlog_p90_hours"],
+                "w1_backlog_p99_hours": stats_w1["backlog_p99_hours"],
                 "backlog_n": stats_w2["backlog_n"],
                 "backlog_median_hours": stats_w2["backlog_median_hours"],
+                "backlog_p50_hours": stats_w2["backlog_p50_hours"],
+                "backlog_p90_hours": stats_w2["backlog_p90_hours"],
+                "backlog_p99_hours": stats_w2["backlog_p99_hours"],
+                "d14_all_n": stats_d14["n"],
+                "d14_all_p50_hours": stats_d14["all_p50_hours"],
+                "d14_all_p90_hours": stats_d14["all_p90_hours"],
+                "d14_all_p99_hours": stats_d14["all_p99_hours"],
+                "d14_comp_n": stats_d14["comparable_n"],
+                "d14_comp_p50_hours": stats_d14["comp_p50_hours"],
+                "d14_comp_p90_hours": stats_d14["comp_p90_hours"],
+                "d14_comp_p99_hours": stats_d14["comp_p99_hours"],
+                "d14_backlog_n": stats_d14["backlog_n"],
+                "d14_backlog_p50_hours": stats_d14["backlog_p50_hours"],
+                "d14_backlog_p90_hours": stats_d14["backlog_p90_hours"],
+                "d14_backlog_p99_hours": stats_d14["backlog_p99_hours"],
             })
 
         overall_stats_w1 = self.summarize_window_cohort(all_merged_w1)
         overall_stats_w2 = self.summarize_window_cohort(all_merged_w2)
+        overall_stats_d14 = self.summarize_window_cohort(all_merged_w1 + all_merged_w2)
 
         repo_rows.append({
             "repo": "Combined (All Repos)",
@@ -2720,16 +2830,46 @@ class MetricsAggregator:
             "still_open": len(all_still_open),
             "w1_all_median_hours": overall_stats_w1["all_median_hours"],
             "w1_all_p75_hours": overall_stats_w1["all_p75_hours"],
+            "w1_all_p50_hours": overall_stats_w1["all_p50_hours"],
+            "w1_all_p90_hours": overall_stats_w1["all_p90_hours"],
+            "w1_all_p99_hours": overall_stats_w1["all_p99_hours"],
             "all_median_hours": overall_stats_w2["all_median_hours"],
             "all_p75_hours": overall_stats_w2["all_p75_hours"],
+            "all_p50_hours": overall_stats_w2["all_p50_hours"],
+            "all_p90_hours": overall_stats_w2["all_p90_hours"],
+            "all_p99_hours": overall_stats_w2["all_p99_hours"],
             "w1_comp_median_hours": overall_stats_w1["comp_median_hours"],
             "w1_comp_p75_hours": overall_stats_w1["comp_p75_hours"],
+            "w1_comp_p50_hours": overall_stats_w1["comp_p50_hours"],
+            "w1_comp_p90_hours": overall_stats_w1["comp_p90_hours"],
+            "w1_comp_p99_hours": overall_stats_w1["comp_p99_hours"],
             "comp_median_hours": overall_stats_w2["comp_median_hours"],
             "comp_p75_hours": overall_stats_w2["comp_p75_hours"],
+            "comp_p50_hours": overall_stats_w2["comp_p50_hours"],
+            "comp_p90_hours": overall_stats_w2["comp_p90_hours"],
+            "comp_p99_hours": overall_stats_w2["comp_p99_hours"],
             "w1_backlog_n": overall_stats_w1["backlog_n"],
             "w1_backlog_median_hours": overall_stats_w1["backlog_median_hours"],
+            "w1_backlog_p50_hours": overall_stats_w1["backlog_p50_hours"],
+            "w1_backlog_p90_hours": overall_stats_w1["backlog_p90_hours"],
+            "w1_backlog_p99_hours": overall_stats_w1["backlog_p99_hours"],
             "backlog_n": overall_stats_w2["backlog_n"],
             "backlog_median_hours": overall_stats_w2["backlog_median_hours"],
+            "backlog_p50_hours": overall_stats_w2["backlog_p50_hours"],
+            "backlog_p90_hours": overall_stats_w2["backlog_p90_hours"],
+            "backlog_p99_hours": overall_stats_w2["backlog_p99_hours"],
+            "d14_all_n": overall_stats_d14["n"],
+            "d14_all_p50_hours": overall_stats_d14["all_p50_hours"],
+            "d14_all_p90_hours": overall_stats_d14["all_p90_hours"],
+            "d14_all_p99_hours": overall_stats_d14["all_p99_hours"],
+            "d14_comp_n": overall_stats_d14["comparable_n"],
+            "d14_comp_p50_hours": overall_stats_d14["comp_p50_hours"],
+            "d14_comp_p90_hours": overall_stats_d14["comp_p90_hours"],
+            "d14_comp_p99_hours": overall_stats_d14["comp_p99_hours"],
+            "d14_backlog_n": overall_stats_d14["backlog_n"],
+            "d14_backlog_p50_hours": overall_stats_d14["backlog_p50_hours"],
+            "d14_backlog_p90_hours": overall_stats_d14["backlog_p90_hours"],
+            "d14_backlog_p99_hours": overall_stats_d14["backlog_p99_hours"],
         })
 
         # Stage dwell computation
@@ -2964,6 +3104,36 @@ class DashboardRenderer:
             md.append("| *No repository data available* | - | - | - | - | - | - | - | - | - |")
         md.append("")
 
+        md.append("### 14-day Creation-to-Merge Distribution")
+        md.append("")
+        md.append(
+            "| Repository | All merged PRs | Merged within 7 days | "
+            "Backlog merges (>7d) |"
+        )
+        md.append("|---|---|---|---|")
+        for row in data.get("repo_comparison", []):
+            def percentile_summary(prefix, n_key):
+                n = row.get(n_key, 0)
+                if not n:
+                    return "n=0; UNKNOWN"
+                vals = ", ".join(
+                    f"p{p}={hours(row.get(f'{prefix}_p{p}_hours'))}"
+                    for p in (50, 90, 99)
+                )
+                return f"n={n}; {vals}"
+
+            md.append(
+                f"| {row['repo']} | {percentile_summary('d14_all', 'd14_all_n')} | "
+                f"{percentile_summary('d14_comp', 'd14_comp_n')} | "
+                f"{percentile_summary('d14_backlog', 'd14_backlog_n')} |"
+            )
+        if not data.get("repo_comparison"):
+            md.append(
+                "| *No repository data available* | n=0; UNKNOWN | "
+                "n=0; UNKNOWN | n=0; UNKNOWN |"
+            )
+        md.append("")
+
         # Section 3: Stage Dwell
         md.append("## 3. Stage Dwell")
         md.append("")
@@ -2972,21 +3142,41 @@ class DashboardRenderer:
         if data.get("w2_merged_cohort_n") == 0:
             md.append("> No merges in window W2: stage dwell, handoff and pilot metrics have an empty cohort (UNKNOWN, n = 0); no historical or open PRs are substituted.")
             md.append("")
-        md.append("| Lifecycle Stage | Covered Merged PRs (n / N) | Median Dwell | Nearest-Rank p75 | Clock Conflicts |")
-        md.append("|---|---:|---:|---:|---:|")
+        md.append(
+            "| Lifecycle Stage | Samples (n); Covered Merged PRs / cohort (N) | "
+            "Median Dwell | Nearest-Rank p75 | p50 | p90 | p99 | Clock Conflicts |"
+        )
+        md.append("|---|---:|---:|---:|---:|---:|---:|---:|")
         for row in data.get("stage_dwell", []):
             med = f"{row['median_h']}h" if isinstance(row['median_h'], (int, float)) else row['median_h']
             p75 = f"{row['p75_h']}h" if isinstance(row['p75_h'], (int, float)) else row['p75_h']
-            md.append(f"| `{row['stage']}` | {row['n']} / {row['total_n']} | {med} | {p75} | {row['conflicts']} |")
+            pvals = [
+                f"{row[f'p{p}_h']}h"
+                if isinstance(row.get(f"p{p}_h"), (int, float))
+                else row.get(f"p{p}_h", "UNKNOWN")
+                for p in (50, 90, 99)
+            ]
+            md.append(
+                f"| `{row['stage']}` | {row.get('sample_n', row['n'])}; "
+                f"{row['n']} / {row['total_n']} | {med} | {p75} | "
+                f"{pvals[0]} | {pvals[1]} | {pvals[2]} | {row['conflicts']} |"
+            )
         if not data.get("stage_dwell"):
-            md.append("| *No stage dwell events observed* | 0 / 0 | UNKNOWN | UNKNOWN | 0 |")
+            md.append(
+                "| *No stage dwell events observed* | 0 / 0 | UNKNOWN | UNKNOWN | "
+                "UNKNOWN | UNKNOWN | UNKNOWN | 0 |"
+            )
         md.append("")
 
         # Section 4: Handoff Waiting Breakdown
         md.append("## 4. Handoff Waiting Breakdown")
         md.append("")
-        md.append("| Handoff Transition | Observed Events (n / N) | Median Duration | Telemetry Coverage | Status |")
-        md.append("|---|---:|---:|---:|---|")
+        md.append(
+            "| Handoff Transition | Samples (n); Covered PRs / cohort (N) | "
+            "Median Duration | Nearest-Rank p75 | p50 | p90 | p99 | "
+            "Telemetry Coverage | Status |"
+        )
+        md.append("|---|---:|---:|---:|---:|---:|---:|---:|---|")
         for h in data.get("handoffs", []):
             cov = "0%"
             n = h.get("observed_n", 0)
@@ -2995,10 +3185,23 @@ class DashboardRenderer:
                 cov = f"{(n / tot) * 100:.1f}%"
             med_sec = h.get("median_sec", "UNKNOWN")
             med_str = format_duration(med_sec) if isinstance(med_sec, (int, float)) else str(med_sec)
+            pvals = [
+                format_duration(h[f"p{p}_sec"])
+                if isinstance(h.get(f"p{p}_sec"), (int, float))
+                else h.get(f"p{p}_sec", "UNKNOWN")
+                for p in (75, 50, 90, 99)
+            ]
             status_str = h.get("status", "UNKNOWN" if n == 0 else "PARTIAL")
-            md.append(f"| `{h['name']}` | {n} / {tot} | {med_str} | {cov} | {status_str} |")
+            md.append(
+                f"| `{h['name']}` | {h.get('sample_n', n)}; {n} / {tot} | "
+                f"{med_str} | {pvals[0]} | {pvals[1]} | {pvals[2]} | "
+                f"{pvals[3]} | {cov} | {status_str} |"
+            )
         if not data.get("handoffs"):
-            md.append("| *No handoff transitions recorded* | 0 / 0 | UNKNOWN | 0% | UNKNOWN |")
+            md.append(
+                "| *No handoff transitions recorded* | 0; 0 / 0 | UNKNOWN | "
+                "UNKNOWN | UNKNOWN | UNKNOWN | UNKNOWN | 0% | UNKNOWN |"
+            )
         md.append("")
 
         # Section 4b: Time Semantics & Effort Breakdown (Pilot Cohort)
@@ -3121,7 +3324,11 @@ class DashboardRenderer:
         md.append("3. **GitHub Quiet Time**: Elapsed time since the last recorded GitHub PR event (comment, commit, review). Serves as a coarse proxy only; does not prove background process inactivity.")
         md.append("")
         md.append("### Statistical Method")
-        md.append("- **Nearest-Rank p75**: `k = math.ceil(0.75 * n) - 1` on 0-indexed sorted arrays.")
+        md.append(
+            "- **Nearest-Rank p50/p75/p90/p99**: `k = math.ceil((p / 100) * n) - 1` "
+            "on 0-indexed sorted arrays. Existing median fields retain their "
+            "conventional arithmetic average for even samples."
+        )
         md.append("- **Backlog Merges**: Merges where `mergedAt - createdAt > 7 days` (168 hours) at merge time, separated from fresh 7-day velocity.")
         md.append("- **Four-Hour Sampling Uncertainty**: Snapshots refresh on a 4-hour cycle. Exact event start/stop times possess an inherent 4-hour observation granularity.")
         md.append("- **Sanitization & Portability Guarantee**: No credentials, private tokens, raw model payloads, or personal filesystem paths are written to this dashboard.")
@@ -4059,6 +4266,29 @@ def _supported_usage_attribution(attr):
     return None
 
 
+def _summarize_observed_pr_costs(prs):
+    """Summarize only attributed PRs whose observed usage was entirely priced."""
+    values = [
+        row["known_cost_usd"]
+        for row in prs.values()
+        if (
+            row.get("pricing_status") == "observed-priced"
+            and row.get("event_count", 0) > 0
+        )
+    ]
+    percentiles = calculate_nearest_rank_percentiles(values)
+    return {
+        "n": len(values),
+        **{
+            f"p{p}_usd": (
+                round(percentiles[f"p{p}"], 7)
+                if percentiles[f"p{p}"] is not None else None
+            )
+            for p in (50, 90, 99)
+        },
+    }
+
+
 def _retained_usage_summary(summary):
     """Persist sanitized numeric totals, per-event buckets, and rate provenance only."""
     rates = []
@@ -4086,6 +4316,7 @@ def _retained_usage_summary(summary):
                         "event_count": summary["unallocated"]["event_count"],
                         "unknown_cost_events": summary["unallocated"]["unknown_cost_events"]},
         "tokens_by_bucket": summary["tokens_by_bucket"],
+        "pr_cost_distribution": summary["pr_cost_distribution"],
         "reasoning_tokens": summary["reasoning_tokens"],
         "coverage": summary["coverage"],
         "prs": {key: {"known_cost_usd": str(row["known_cost_usd"]), "unknown": row["unknown"],
@@ -4214,6 +4445,13 @@ def aggregate_usage(raw_events, rates, window_start=None, window_end=None):
                      "session_count": len(coverage["sessions"])},
         "prs": {key: {**value, "pricing_status": "partial" if value["unknown"] else "observed-priced"}
                 for key, value in prs.items()},
+        "pr_cost_distribution": _summarize_observed_pr_costs({
+            key: {
+                **value,
+                "pricing_status": "partial" if value["unknown"] else "observed-priced",
+            }
+            for key, value in prs.items()
+        }),
         "events": priced_rows,
         "rate_records": [{k: (str(v) if isinstance(v, (Decimal, datetime)) else v) for k, v in r.items()} for r in rates],
     }
@@ -4245,6 +4483,20 @@ def render_usage_summary(summary):
              "- Tokens by bucket: " + ", ".join(f"`{k}` {v if v is not None else 'UNKNOWN'}" for k, v in sorted(summary["tokens_by_bucket"].items())),
              f"- Reasoning tokens: {summary['reasoning_tokens']} (included in output tokens; diagnostic subset).",
              "- Per-PR costs are shown only for explicit supported attribution."]
+    cost_distribution = summary.get("pr_cost_distribution") or {"n": 0}
+    if cost_distribution.get("n", 0):
+        cost_values = ", ".join(
+            f"p{p}=${cost_distribution.get(f'p{p}_usd'):.7f}"
+            for p in (50, 90, 99)
+        )
+        lines.append(
+            f"- Per-PR observed priced cost distribution: n={cost_distribution['n']}; "
+            f"{cost_values}. Only PRs with an explicitly attributed, fully priced "
+            "event are included; this sample does not establish lifecycle-wide or "
+            "complete PR cost coverage."
+        )
+    else:
+        lines.append("- Per-PR observed priced cost distribution: n=0; UNKNOWN.")
     if summary["prs"]:
         lines.extend(["", "| PR | Known subtotal | Coverage |", "|---|---:|---|"])
         for key, row in sorted(summary["prs"].items()):
