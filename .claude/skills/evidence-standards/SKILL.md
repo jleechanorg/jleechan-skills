@@ -27,15 +27,20 @@ does not require unrelated repository dumps or new evidence classes.
 Protect secrets and sensitive data. Preserve raw originals in their authorized
 store and provide reviewers safe, redacted content that retains all substantive
 claim-relevant bytes. Where redaction is necessary, preserve integrity and
-provenance and enable an independent, nondisclosing comparison with protected
-originals (for example, comparisons of preserved body bytes or domain/HMAC
-fields). Credential-only redaction does not justify replacing substantive raw
-content with a summary. Do not expose secrets, read `.env` files, or place
-unredacted credentials in reviewer or model output. Identify each claim-scoped
-raw item as available or unavailable; missing portions and the reason must be
-explicit.
+provenance, and have the reviewer independently run a nondisclosing comparison
+against protected originals using the preserved body bytes. Producer-only
+attestation is not enough. Keep credentials and protected originals out of
+reviewer/model output; if a safe independent comparison cannot be made, report
+the affected raw portion unavailable. Credential-only redaction does not justify
+replacing substantive raw content with a summary. Do not expose secrets, read
+`.env` files, or place unredacted credentials in reviewer or model output.
+Identify each claim-scoped raw item as available or unavailable; missing portions
+and the reason must be explicit.
 
-Compact proof keeps primary artifacts, source provenance and hashes; mark irrelevant server/PID/provider fields N/A with reasons instead of inventing runtime metadata. Source hashes alone do not prove execution.
+Compact proof still retains the entire claim-scoped raw evidence set, along
+with primary artifacts, source provenance and hashes; mark irrelevant
+server/PID/provider fields N/A with reasons instead of inventing runtime
+metadata. Source hashes alone do not prove execution.
 
 ## Summary
 
