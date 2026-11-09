@@ -26,7 +26,7 @@ Use `--codex-home PATH` once per explicitly admitted Codex profile when profile 
 
 ## Conditional procedures
 
-Keep routine `/history --deep` on the supported helper sources above. OpenCode or Git recovery is on demand only when the user explicitly requests that procedure, or admitted supported-source results are insufficient and the recovery is relevant. The same reference covers legacy `--recent`/`--date` filters and requested human-prompt/intervention audits. In every case, inherit source admission and coverage rules from the sparse workflow; do not broaden permissions. See [specialized recovery](references/specialized-recovery.md) for the bounded procedures and limits.
+Keep routine `/history --deep` on the supported helper sources above. OpenCode, Antigravity Markdown exports, or Git recovery are on demand only when the user explicitly requests that source/procedure, or admitted supported-source results are insufficient and the recovery is relevant. The same reference covers legacy `--recent`/`--date` filters and requested human-prompt/intervention audits. In every case, inherit source admission and coverage rules from the sparse workflow; do not broaden permissions. See [specialized recovery](references/specialized-recovery.md) for the bounded procedures and limits.
 
 ## Synthesis
 

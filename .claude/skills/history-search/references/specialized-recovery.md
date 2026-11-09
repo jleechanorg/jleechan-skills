@@ -4,6 +4,12 @@ Begin with [the sparse workflow](../../conversation-history-sparse/SKILL.md) for
 
 Use this reference only when the user explicitly requests one of these procedures, or when admitted supported-source results are insufficient and the procedure is relevant. Before running any query, verify that the required path is admitted. If the needed bounded route or tool is unavailable, report that source as unavailable/not searched; do not widen access or silently skip a requested filter.
 
+## Antigravity Markdown exports
+
+This is distinct from the helper's agy CLI database/brain-log source. Use it only when the user explicitly requests exported Antigravity Markdown or admitted helper results are insufficient and these exports are relevant. Resolve the directory only from the registered `ANTIGRAVITY_EXPORT_DIR` variable in [the portability registry](../../../../docs/portability-env-vars.md); if unset or not a directory, report unavailable/not searched. A configured value still needs source admission. Do not guess a Dropbox path or inspect backups, credentials, or other Antigravity stores.
+
+Within the admitted directory, inspect only top-level `*.md` files, ordered by modification time, and cap the candidate sample at 50 files and matching previews at 20 (or smaller requested limits). Search the query as a literal case-insensitive substring. Return a bounded excerpt around the match, the exact file path, and the file's mtime-derived date; keep the legacy excerpt at 150 characters unless a larger preview was requested. Because this is a bounded file sample without complete coverage metadata, report zero returned matches as coverage unverified, not no-match. Do not recurse or expand the candidate set without a larger authorized scope.
+
 ## OpenCode session-diff files
 
 The source is `~/.local/share/opencode/storage/session_diff/`, unless the user has identified an admitted equivalent. Search only top-level `*.json` files in that directory, ordered newest-first by mtime. Inspect no more than 50 candidate files and return no more than 20 matching files (or the smaller requested limit). Use the query as data, retain a bounded substring around each match, and report the exact path, file ID/name, and mtime-derived date. The legacy preview is 150 characters; enlarge it only when requested. A missing directory is unavailable, not a no-match. Do not inspect other OpenCode stores.
