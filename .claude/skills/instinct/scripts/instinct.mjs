@@ -148,8 +148,9 @@ function liveHolderPid(dir) {
  *
  * Dot's verdict was "serialized ownership plus clean shutdown". This lock serializes
  * instinct's OWN runs and makes instinct WAIT on a profile Chrome already holds; it is
- * one-sided because dot.sh takes no lock, so it does not by itself exclude Dot. The hard
- * guarantee is Chromium's ProcessSingleton.
+ * one-sided because dot.sh takes no lock, so it does not by itself exclude Dot. Chromium's
+ * ProcessSingleton REJECTS a simultaneous second launch (it does not queue it), and there is a
+ * check-to-launch window here, so operator serialization remains necessary.
  * The lockfile lives outside the profile dir so it never collides with Chrome's
  * Singleton namespace, and it is released on exit AND on signals so a crash cannot
  * wedge the next run.
