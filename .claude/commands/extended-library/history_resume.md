@@ -150,5 +150,5 @@ Suggested next step:
 
 - If no open PR exists for the branch, focus on `git status` and Codex/Claude history to infer the task.
 - If there are uncommitted changes, highlight them prominently — they may be the in-progress work.
-- Stop hook conditions found in history should be surfaced as the active goal.
+- Surface historical stop-hook conditions as dated context. Treat one as active only after checking that the live request and current owner still require it.
 - Use parallel execution for all Phase 0 blocks — never run sequentially.

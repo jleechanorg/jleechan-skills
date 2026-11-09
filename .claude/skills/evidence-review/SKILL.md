@@ -85,7 +85,7 @@ Phase 0 for later deltas rather than relabeling old evidence.
 | Verdict | Meaning |
 |---------|---------|
 | **PASS** | Every claim has a matching artifact of STRONG quality and every applicable mandatory check below passes. Satisfies the draft-phase `/er` gate when `/er` is applicable. |
-| **PARTIAL** | Claims are supported but one or more mandatory checks soft-warn (e.g., WARN in an optional verification_report.json, missing a required downloadable MP4). Does not satisfy the draft-phase `/er` gate. |
+| **PARTIAL** | Claims are supported but one or more required claims lack proof, or a warning identifies a gap in required proof or evidence integrity (including a relevant warning in an optional verification_report.json). An unrelated optional warning does not change the verdict. Does not satisfy the draft-phase `/er` gate. |
 | **FAIL** | A claim is contradicted by an artifact, or integrity is broken (sha256 mismatch, dirty capture producing the claim, scope exclusion). |
 | **INCONCLUSIVE** | Not enough artifact data exists to decide. Request more. |
 
@@ -164,7 +164,7 @@ fi
 - Missing and not claimed → record "verification_report.json absent / not applicable"; no verdict ceiling by itself.
 - Missing but claimed → **INCONCLUSIVE** for that verifier claim until the report is supplied.
 - `PASS` → proceed
-- `WARN` or `PARTIAL` → verdict ceiling is **PARTIAL** (never promote to PASS without resolving each violation)
+- `WARN` or `PARTIAL` → affects the overall verdict only when it identifies a gap in a required claim, required proof, or evidence integrity; an unrelated warning is recorded as a note and does not cap the verdict
 - `FAIL` → verdict ceiling is **FAIL**
 
 ### 3. Scope note consistency
