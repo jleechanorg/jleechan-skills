@@ -348,20 +348,18 @@ async function openContact(page, name) {
     );
   }
 
-  // Click THE node whose title equals the name — not filter({hasText}), which is a substring
-  // match and would click "Bob Smith" when asked for "Bob" (found by Dot review).
-  const target = titleNodes.filter({
-    has: page.locator(`xpath=self::*[@title=${JSON.stringify(name)}]`),
-  });
-  // Fallback: scan evaluated nodes so selection is by strict equality, never substring.
-  const idx = titles.indexOf(name);
-  const byAttribute = page.locator(`#pane-side span[title="${name.replace(/"/g, '\\"')}"]`);
-  const chosen = (await byAttribute.count()) > 0 ? byAttribute.first() : target.first();
-  if ((await chosen.count()) === 0) {
-    die(
-      `could not target the title node for "${name}" (index ${idx}); refusing to guess`,
-      5
-    );
+  // Click THE node whose title equals the name, selected by evaluating every title node and
+  // filtering in JS. No interpolated CSS/XPath selector is built from the contact name, so
+  // quotes, backslashes and control characters in a name cannot corrupt the selector
+  // (found by Dot review at 1de608c8f).
+  const titleNodesAll = page.locator('#pane-side span[title]');
+  const matchIdx = titles.indexOf(name);
+  if (matchIdx < 0) {
+    die(`contact "${name}" vanished from the chat list before selection; refusing to guess`, 5);
+  }
+  const chosen = titleNodesAll.nth(matchIdx);
+  if ((await chosen.count()) !== 1) {
+    die(`title node at index ${matchIdx} for "${name}" is not unique; refusing to guess`, 5);
   }
   await chosen.click();
   await page.waitForTimeout(1800);
