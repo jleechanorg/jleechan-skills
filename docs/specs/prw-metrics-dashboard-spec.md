@@ -247,7 +247,16 @@ remainder stays unallocated.
 The retention snapshot keeps sanitized token/cost totals and rate provenance and
 excludes prompts, responses, request paths, and rationale text. The rate card provides
 a public model-list equivalent, not actual invoice amounts. A single session feed is
-not a fleet or PR population. The cache-write TTL buckets remain separate and never
+not a fleet or PR population. For direct recurring collection, the optional
+--usage-source-dir <directory> CLI argument reads native Claude Code session JSONL
+files under that explicitly selected
+directory, recursively. The collector extracts only assistant request ID, message ID,
+timestamp, model, and token counters. It deduplicates by request ID and reports files
+scanned, usage rows, unique and duplicate requests, malformed lines, read errors, and
+rejected rows. It never retains raw session text or source paths. The source is opt-in;
+a scheduled wrapper may provide it through the existing configured collector command.
+
+The cache-write TTL buckets remain separate and never
 use a generic cache-write price. The card's `standard_global_public_list_price` basis
 prices only events with explicit `standard` service tier, `global` inference geography,
 and `standard` speed. Missing or different metadata stays unpriced. Events are limited

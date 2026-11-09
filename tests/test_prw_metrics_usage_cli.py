@@ -6,12 +6,14 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 
 from scripts.prw_metrics import (
     _retained_usage_summary,
     MetricsAggregator,
     Publisher,
     aggregate_usage,
+    collect_claude_native_usage,
     load_rate_table,
     load_usage_events,
     parse_iso_utc,
@@ -343,6 +345,102 @@ class UsageFeedCliTests(unittest.TestCase):
                          "cache_write_1h` 1000000"):
             self.assertIn(expected, first.stdout)
             self.assertIn(expected, second.stdout)
+
+
+class NativeClaudeUsageSourceTests(unittest.TestCase):
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.root = Path(self.tempdir.name)
+        self.source = self.root / "native"
+        self.source.mkdir()
+        self.events = self.source / "session.jsonl"
+        self.rates = self.root / "rates.json"
+        self.rates.write_text(json.dumps({
+            "provider": "anthropic", "currency": "USD",
+            "effective_from": "2026-11-01T00:00:00Z",
+            "observed_current_at": "2026-11-08T00:00:00Z",
+            "source_url": "https://example.invalid/rates",
+            "rate_basis": "standard_global_public_list_price",
+            "rates": {"claude-test": {
+                "input_tokens": "1", "cache_read_input_tokens": "0.1",
+                "output_tokens": "10", "write_5m": "2.5", "write_1h": "4",
+            }},
+        }), encoding="utf-8")
+        self.script = Path(__file__).resolve().parents[1] / "scripts" / "prw_metrics.py"
+
+    def tearDown(self):
+        self.tempdir.cleanup()
+
+    def _collect(self):
+        return subprocess.run(
+            [sys.executable, str(self.script), "--offline",
+             "--cutoff", "2026-11-08T00:00:00Z",
+             "--usage-source-dir", str(self.source),
+             "--usage-rates", str(self.rates)],
+            check=True, capture_output=True, text=True, timeout=30,
+        )
+
+    def test_new_native_request_is_seen_once_on_each_successive_collection(self):
+        before = self._collect()
+        self.assertIn("Source records: 0;", before.stdout)
+
+        native = {
+            "type": "assistant", "timestamp": "2026-11-07T12:00:00Z",
+            "requestId": "req-native-1",
+            "message": {
+                "id": "msg-native-1", "model": "claude-test",
+                "usage": {
+                    "input_tokens": 100, "cache_read_input_tokens": 20,
+                    "cache_creation": {
+                        "ephemeral_5m_input_tokens": 30,
+                        "ephemeral_1h_input_tokens": 40,
+                    },
+                    "output_tokens": 50,
+                    "service_tier": "standard", "inference_geo": "global", "speed": "standard",
+                },
+                "content": [{"type": "text", "text": "PRIVATE_RESPONSE_MUST_NOT_LEAK"}],
+            },
+        }
+        self.events.write_text(json.dumps(native) + "\n" + json.dumps(native) + "\n", encoding="utf-8")
+        outputs = [self._collect().stdout for _ in range(2)]
+        for output in outputs:
+            self.assertIn("Source records: 1;", output)
+            self.assertIn("`input_uncached` 100", output)
+            self.assertIn("`cache_read` 20", output)
+            self.assertIn("`cache_write_5m` 30", output)
+            self.assertIn("`cache_write_1h` 40", output)
+            self.assertIn("`output` 50", output)
+            self.assertIn("Reasoning tokens: 0", output)
+            self.assertIn("Known usage subtotal: $0.0008370 USD.", output)
+            self.assertIn("unique_requests=1", output)
+            self.assertIn("duplicate_requests=1", output)
+            self.assertNotIn("PRIVATE_RESPONSE_MUST_NOT_LEAK", output)
+            records, _ = collect_claude_native_usage(str(self.source))
+            self.assertEqual(len(records), 1)
+            serialized = json.dumps(records)
+            self.assertNotIn("PRIVATE_RESPONSE_MUST_NOT_LEAK", serialized)
+            self.assertNotIn(str(self.source), serialized)
+            self.assertEqual(
+                set(records[0]),
+                {"provider", "request_id", "message_id", "timestamp", "model", "raw_usage"},
+            )
+
+    def test_scan_counts_malformed_and_unusable_rows_without_exposing_source_paths(self):
+        self.events.write_text(
+            "{malformed}\n"
+            + json.dumps({
+                "type": "assistant", "timestamp": "not-a-time", "requestId": "req-bad",
+                "message": {"model": "claude-test", "usage": {"input_tokens": 2}},
+            }) + "\n",
+            encoding="utf-8",
+        )
+        output = self._collect().stdout
+        self.assertIn("Source records: 0;", output)
+        self.assertIn("files=1", output)
+        self.assertIn("assistant_usage_rows=1", output)
+        self.assertIn("malformed_lines=1", output)
+        self.assertIn("rejected_rows=1", output)
+        self.assertNotIn(str(self.source), output)
 
 
 if __name__ == "__main__":

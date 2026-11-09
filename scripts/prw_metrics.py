@@ -3615,6 +3615,7 @@ def main():
     parser.add_argument("--target-relpath", default="dashboards/prw/README.md", help="Relative path inside roadmap repo")
     parser.add_argument("--stale-hours", type=float, default=float(os.environ.get("PRW_METRICS_STALE_HOURS", "4.5")), help="Threshold hours after which source cutoffs are marked STALE")
     parser.add_argument("--usage-events", help="JSONL file with native request usage records (for example Anthropic request records)")
+    parser.add_argument("--usage-source-dir", help="Explicit directory of native Claude Code session JSONL files; only request metadata and token counts are read")
     parser.add_argument("--usage-rates", help="JSON file with dated rate-card pricing; absent feed flags reuse retained telemetry")
 
     args = parser.parse_args()
@@ -3659,6 +3660,7 @@ def main():
     usage_summary = None
     usage_events = []
     rates = []
+    native_source_stats = None
     if args.usage_events:
         rates = load_rate_table(args.usage_rates) if args.usage_rates else []
         providers = {rate["provider"] for rate in rates}
@@ -3666,10 +3668,26 @@ def main():
             raise ValueError("usage feed must use one provider rate card")
         events = load_usage_events(args.usage_events, provider=next(iter(providers), None))
     elif collected.get("usage_events"):
-        rates = load_rate_table(collected["usage_rates"]) if collected.get("usage_rates", {}).get("rates") else []
+        rates = load_rate_table(args.usage_rates) if args.usage_rates else (
+            load_rate_table(collected["usage_rates"])
+            if collected.get("usage_rates", {}).get("rates") else []
+        )
         providers = {rate["provider"] for rate in rates}
         events = load_usage_events(collected["usage_events"], provider=next(iter(providers), None))
     else:
+        rates = load_rate_table(args.usage_rates) if args.usage_rates else []
+        events = []
+
+    if args.usage_source_dir:
+        native_records, native_source_stats = collect_claude_native_usage(args.usage_source_dir)
+        providers = {rate["provider"] for rate in rates}
+        native_events = load_usage_events(native_records, provider=next(iter(providers), "anthropic"))
+        seen = {ev.get("usage_id") for ev in events or []}
+        for event in native_events:
+            if event.get("usage_id") not in seen:
+                events.append(event)
+                seen.add(event.get("usage_id"))
+    if not events and not args.usage_events and not collected.get("usage_events") and not args.usage_source_dir:
         events = None
     if events is not None:
         usage_events = events
@@ -3685,6 +3703,18 @@ def main():
         md_output = md_output.replace(
             "## 6. Definitions & Limitations",
             "\n".join(render_usage_summary(usage_summary)) + "\n\n## 6. Definitions & Limitations",
+        )
+
+    if native_source_stats is not None:
+        print(
+            "Native usage source: "
+            f"files={native_source_stats['files_scanned']} "
+            f"assistant_usage_rows={native_source_stats['assistant_usage_rows']} "
+            f"unique_requests={native_source_stats['unique_requests']} "
+            f"duplicate_requests={native_source_stats['duplicate_requests']} "
+            f"malformed_lines={native_source_stats['malformed_lines']} "
+            f"read_errors={native_source_stats['read_errors']} "
+            f"rejected_rows={native_source_stats['rejected_rows']}"
         )
 
     if args.output:
@@ -3947,6 +3977,89 @@ def load_usage_events(path, provider=None):
                 event.setdefault("unknown_reasons", []).append("unsupported_sku")
             events.append(event)
     return events
+
+
+def collect_claude_native_usage(source_dir):
+    """Extract only native request IDs, timestamps, model names, and token counts."""
+    stats = {
+        "files_scanned": 0, "assistant_usage_rows": 0, "unique_requests": 0,
+        "duplicate_requests": 0, "malformed_lines": 0, "read_errors": 0,
+        "rejected_rows": 0,
+    }
+    if not os.path.isdir(source_dir):
+        stats["read_errors"] = 1
+        return [], stats
+
+    records = []
+    seen_requests = set()
+    for root, dirs, files in os.walk(source_dir):
+        dirs.sort()
+        for filename in sorted(files):
+            if not filename.endswith(".jsonl"):
+                continue
+            stats["files_scanned"] += 1
+            file_path = os.path.join(root, filename)
+            try:
+                stream = open(file_path, encoding="utf-8", errors="replace")
+            except OSError:
+                stats["read_errors"] += 1
+                continue
+            with stream:
+                for line in stream:
+                    try:
+                        row = json.loads(line)
+                    except (json.JSONDecodeError, UnicodeDecodeError):
+                        stats["malformed_lines"] += 1
+                        continue
+                    if not isinstance(row, dict) or row.get("type") != "assistant":
+                        continue
+                    message = row.get("message")
+                    if not isinstance(message, dict) or not isinstance(message.get("usage"), dict):
+                        continue
+                    stats["assistant_usage_rows"] += 1
+                    request_id = _usage_label(row.get("requestId"))
+                    model = _usage_label(message.get("model"))
+                    timestamp = row.get("timestamp")
+                    timestamp_dt = parse_iso_utc(timestamp) if isinstance(timestamp, str) else None
+                    if not request_id or not model or not timestamp_dt:
+                        stats["rejected_rows"] += 1
+                        continue
+                    if request_id in seen_requests:
+                        stats["duplicate_requests"] += 1
+                        continue
+                    seen_requests.add(request_id)
+                    raw = message["usage"]
+                    raw_usage = {
+                        "input_tokens": raw.get("input_tokens"),
+                        "cache_read_input_tokens": raw.get("cache_read_input_tokens"),
+                        "cache_creation": {
+                            "ephemeral_5m_input_tokens": _get_nested(
+                                raw, "cache_creation.ephemeral_5m_input_tokens"
+                            ),
+                            "ephemeral_1h_input_tokens": _get_nested(
+                                raw, "cache_creation.ephemeral_1h_input_tokens"
+                            ),
+                        },
+                        "output_tokens": raw.get("output_tokens"),
+                        "output_tokens_details": {
+                            "thinking_tokens": _get_nested(
+                                raw, "output_tokens_details.thinking_tokens"
+                            ),
+                        },
+                        "service_tier": raw.get("service_tier"),
+                        "inference_geo": raw.get("inference_geo"),
+                        "speed": raw.get("speed"),
+                    }
+                    records.append({
+                        "provider": "anthropic",
+                        "request_id": request_id,
+                        "message_id": _usage_label(message.get("id")),
+                        "timestamp": format_iso_utc(timestamp_dt),
+                        "model": model,
+                        "raw_usage": raw_usage,
+                    })
+    stats["unique_requests"] = len(records)
+    return records, stats
 
 
 def load_rate_table(path):
