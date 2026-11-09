@@ -954,7 +954,7 @@ class TestTimeSemanticsHumanInterventionsAndTitleParsing(unittest.TestCase):
         self.assertEqual(summary["raw_human_messages"], 2)
 
     def test_unassigned_task_level_episode_and_changed_spec_vs_agent_miss_calibration(self):
-        """Unassigned task-level episodes are preserved, and differing annotators resolve to mixed."""
+        """Unassigned episodes persist while unresolved annotator disagreement stays unknown."""
         agg = MetricsAggregator()
         episodes = [
             # Unassigned task-level episode with differing annotators
@@ -973,7 +973,8 @@ class TestTimeSemanticsHumanInterventionsAndTitleParsing(unittest.TestCase):
         summary = agg.compute_human_interventions(episodes)
         self.assertEqual(summary["unassigned_count"], 1)
         self.assertEqual(summary["pr_attributed_count"], 0)
-        self.assertEqual(summary["label_breakdown"]["mixed"], 1)
+        self.assertEqual(summary["label_breakdown"]["unknown"], 1)
+        self.assertEqual(summary["label_breakdown"]["mixed"], 0)
         self.assertEqual(summary["label_breakdown"]["good"], 0)
         self.assertEqual(summary["label_breakdown"]["bad"], 0)
 

@@ -232,6 +232,45 @@ class TestHumanMessageIdentity(unittest.TestCase):
         self.assertIn("PARTIAL_MISSING_MESSAGE_IDS", rendered)
 
 
+class TestHumanLabelAdjudication(unittest.TestCase):
+    def _label_breakdown(self, **episode_fields):
+        episode = {
+            "episode_id": "e1",
+            "actor_status": "human",
+            "message_ids": ["m1"],
+        }
+        episode.update(episode_fields)
+        result = MetricsAggregator().compute_human_interventions([episode])
+        return result["label_breakdown"]
+
+    def test_explicit_adjudicated_label_wins_over_annotator_disagreement(self):
+        labels = self._label_breakdown(
+            label="good",
+            annotator_a={"label": "good"},
+            annotator_b={"label": "bad"},
+        )
+
+        self.assertEqual(labels["good"], 1)
+        self.assertEqual(labels["mixed"], 0)
+
+    def test_unresolved_annotator_disagreement_is_unknown(self):
+        labels = self._label_breakdown(
+            annotator_a={"label": "good"},
+            annotator_b={"label": "bad"},
+        )
+
+        self.assertEqual(labels["unknown"], 1)
+        self.assertEqual(labels["mixed"], 0)
+
+    def test_agreed_mixed_label_is_preserved(self):
+        labels = self._label_breakdown(
+            annotator_a={"label": "mixed"},
+            annotator_b={"label": "mixed"},
+        )
+
+        self.assertEqual(labels["mixed"], 1)
+
+
 class TestEmptyDurationDistribution(unittest.TestCase):
     def test_empty_statistics_are_unknown_and_render_as_unknown(self):
         aggregator = MetricsAggregator()

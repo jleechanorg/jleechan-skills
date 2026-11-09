@@ -2116,15 +2116,19 @@ class MetricsAggregator:
             # Semantic calibration
             ann_a = ep.get("annotator_a")
             ann_b = ep.get("annotator_b")
-            if ann_a and ann_b:
+            explicit_label = ep.get("label")
+            if isinstance(explicit_label, str) and explicit_label in label_breakdown:
+                resolved_label = explicit_label
+            elif ann_a and ann_b:
                 lbl_a = ann_a.get("label") if isinstance(ann_a, dict) else str(ann_a)
                 lbl_b = ann_b.get("label") if isinstance(ann_b, dict) else str(ann_b)
-                if lbl_a != lbl_b:
-                    resolved_label = "mixed"
-                else:
-                    resolved_label = lbl_a or "unknown"
+                resolved_label = (
+                    lbl_a
+                    if isinstance(lbl_a, str) and lbl_a == lbl_b and lbl_a in label_breakdown
+                    else "unknown"
+                )
             else:
-                resolved_label = ep.get("label") or "unknown"
+                resolved_label = "unknown"
 
             if resolved_label not in label_breakdown:
                 resolved_label = "unknown"
