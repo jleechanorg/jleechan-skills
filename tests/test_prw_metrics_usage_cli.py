@@ -645,24 +645,49 @@ class NativeClaudeUsageSourceTests(unittest.TestCase):
         self.assertIn("usage_records_in_window=2", output)
         self.assertIn("duplicate_usage_records=1", output)
 
-    def test_retained_hashed_request_id_deduplicates_fresh_native_request_and_keeps_distinct_ids(self):
+    def test_retained_native_requests_deduplicate_and_conflicts_remain_unknown(self):
+        second = self._native_event(50)
+        second["requestId"] = "req-native-2"
+        second["message"]["id"] = "msg-native-2"
+        second["timestamp"] = "2026-11-07T12:00:01Z"
+        session_meta = {"type": "session_meta", "payload": {"id": "native-session-1"}}
+        self.events.write_text(
+            json.dumps(session_meta) + "\n"
+            + json.dumps(self._native_event()) + "\n"
+            + json.dumps(second) + "\n",
+            encoding="utf-8",
+        )
+        annotations = self.root / "usage-annotations.jsonl"
+        annotations.write_text(
+            json.dumps({
+                "provider": "anthropic", "request_id": "req-native-1",
+                "pr_binding": {
+                    "pr": "example/repo#9", "weight": 0.5, "method": "direct",
+                    "basis": "separable_breakdown", "receipt_refs": ["receipt-1"],
+                    "rationale": "verified request scope",
+                },
+            }) + "\n"
+            + json.dumps({
+                "provider": "anthropic", "request_id": "req-native-2",
+                "pr_binding": {
+                    "pr": "example/repo#9", "weight": "0.5", "method": "direct",
+                    "basis": "separable_breakdown", "receipt_refs": ["receipt-2"],
+                    "rationale": "verified request scope",
+                },
+            }) + "\n",
+            encoding="utf-8",
+        )
+        history = collect_native_history(
+            [self.source], cutoff=datetime(2026, 11, 8, tzinfo=timezone.utc),
+            days=14, annotation_path=annotations,
+        )
+        self.assertEqual(len(history["usage_records"]), 2)
+        self.assertEqual(
+            {record["session_id"] for record in history["usage_records"]},
+            {"native-session-1"},
+        )
         rates = load_rate_table(self.rates)
-        fresh = load_usage_events([
-            {
-                "provider": "anthropic", "request_id": "req-roundtrip",
-                "model": "claude-test", "timestamp": "2026-11-01T00:00:00Z",
-                "raw_usage": {"input_tokens": 10, "output_tokens": 0,
-                              "service_tier": "standard", "inference_geo": "global",
-                              "speed": "standard"},
-            },
-            {
-                "provider": "anthropic", "request_id": "req-distinct",
-                "model": "claude-test", "timestamp": "2026-11-01T00:01:00Z",
-                "raw_usage": {"input_tokens": 30, "output_tokens": 0,
-                              "service_tier": "standard", "inference_geo": "global",
-                              "speed": "standard"},
-            },
-        ], provider="anthropic")
+        fresh = load_usage_events(history["usage_records"], provider="anthropic")
         bundle = Publisher(repo_path=self.tempdir.name).write_telemetry_bundle(
             None, usage_events=fresh, usage_rates=rates,
         )
@@ -673,10 +698,29 @@ class NativeClaudeUsageSourceTests(unittest.TestCase):
             [json.loads(line) for line in retained_jsonl.splitlines()],
             provider="anthropic",
         )
+        retained_by_id = {event["usage_id"]: event for event in retained}
+        source_by_id = {event["usage_id"]: event for event in fresh}
+        for request_id, retained_event in retained_by_id.items():
+            with self.subTest(request_id=request_id, field="session_id"):
+                self.assertEqual(
+                    retained_event["session_id"], source_by_id[request_id]["session_id"]
+                )
+            with self.subTest(request_id=request_id, field="attributions"):
+                self.assertEqual(
+                    retained_event["attributions"], source_by_id[request_id]["attributions"]
+                )
 
         combined = aggregate_usage(retained + fresh, rates)
         self.assertEqual(combined["event_count"], 2)
-        self.assertEqual(combined["tokens_by_bucket"]["input_uncached"], 40)
+        self.assertEqual(combined["priced_event_count"], 2)
+        self.assertEqual(combined["unknown_event_count"], 0)
+        self.assertEqual(combined["tokens_by_bucket"]["input_uncached"], 150)
+
+        changed = dict(fresh[0], input_tokens=fresh[0]["input_tokens"] + 1)
+        conflict = aggregate_usage(retained + [changed, fresh[1]], rates)
+        self.assertEqual(conflict["event_count"], 2)
+        self.assertEqual(conflict["priced_event_count"], 1)
+        self.assertEqual(conflict["unknown_event_count"], 1)
 
     def test_conflicting_retained_and_fresh_native_observations_reach_aggregator(self):
         telemetry = self.root / "telemetry"

@@ -5130,7 +5130,7 @@ def load_usage_events(path, provider=None):
                 "provider": _usage_label(row.get("provider") or provider),
                 "sku": sku,
                 "usage_id": _retained_hash(row.get("request_id") or row.get("message_id")),
-                "session_id": row.get("session_id"),
+                "session_id": _retained_hash(row.get("session_id")),
                 "timestamp": row.get("timestamp"),
                 "source": "native_usage_jsonl",
                 "purpose": "unknown",
@@ -5154,9 +5154,17 @@ def load_usage_events(path, provider=None):
                     if not isinstance(attr, dict):
                         continue
                     refs = attr.get("receipt_refs")
+                    weight = attr.get("weight")
+                    try:
+                        parsed_weight = Decimal(str(weight))
+                    except (InvalidOperation, TypeError, ValueError):
+                        pass
+                    else:
+                        if parsed_weight.is_finite():
+                            weight = str(parsed_weight.normalize())
                     event["attributions"].append({
                         "pr": attr.get("pr") if _safe_pr_id(attr.get("pr")) else None,
-                        "weight": attr.get("weight"), "method": attr.get("method"),
+                        "weight": weight, "method": attr.get("method"),
                         "basis": attr.get("basis"), "convention_ref": attr.get("convention_ref"),
                         "receipt_refs": [clean for ref in refs if (clean := _usage_receipt_ref(ref))]
                         if isinstance(refs, list) else [],
