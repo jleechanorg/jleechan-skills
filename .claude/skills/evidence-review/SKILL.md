@@ -383,19 +383,20 @@ Produce output in this format:
 
 **Verdict synthesis.** Combine this skill's evidence findings with the
 applicable evidence-standards compliance result into one raw overall verdict.
-Goal-driving harnesses own any further normalization under their own policy:
+Goal-driving harnesses own any further normalization under their own policy.
+Evaluate rows from top to bottom; the first matching row wins. A FAIL in either
+input takes precedence over PARTIAL or INCONCLUSIVE in the other.
 
 | ER verdict | ES verdict | Raw overall verdict | Harness-normalized |
 |-----------|-----------|---------------------|--------------------|
+| any | FAIL | FAIL | FAIL |
+| FAIL | any | FAIL | FAIL |
 | PASS | PASS | PASS | PASS |
 | PASS | WARN | WARN | PASS |
-| PASS | FAIL | FAIL | FAIL |
 | PASS | PARTIAL | PARTIAL | FAIL |
 | WARN | PASS | WARN | PASS |
 | WARN | WARN | WARN | PASS |
-| WARN | FAIL | FAIL | FAIL |
 | PARTIAL | any | PARTIAL | FAIL |
-| FAIL | any | FAIL | FAIL |
 | INCONCLUSIVE | any | INCONCLUSIVE | FAIL |
 
 **Normalization constraint:** A harness may normalize `WARN` to `PASS` only when all mandatory proof, required artifacts, and claim coverage are fully verified (i.e., the warning is strictly advisory/non-blocking and all mandatory checks pass). A normalization label can NEVER establish `PASS` while mandatory proof or required claim coverage is missing; in such cases the verdict remains capped at `PARTIAL` or `FAIL` under the applicable mandatory check in sections 1–4 (and at `PARTIAL` per check 2 when `verification_report.json` is `WARN`/`PARTIAL`). Under no circumstance may a harness or reviewer promote missing mandatory proof to PASS.
