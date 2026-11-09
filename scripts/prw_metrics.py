@@ -236,6 +236,8 @@ def redact_sensitive_excerpt(text, max_chars=200):
     s = re.sub(r"Bearer\s+\S+", "Bearer [REDACTED]", s)
     # Redact OTP / verification codes
     s = re.sub(r"(?i)(otp|passcode|verification\s*code|auth\s*code)\s*[:=]?\s*\d{4,8}", r"\1: [REDACTED]", s)
+    # Labeled password values may contain spaces when quoted.
+    s = re.sub(r'''(?i)\b(password)\b(\s*(?:is\s+|[:=]\s*))(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;]+)''', r"\1\2[REDACTED]", s)
     # Absolute POSIX / home paths carry host and user identity; URLs and relative paths are untouched
     s = re.sub(r"(?<![\w:/.~$-])(?:~|\$HOME)?(?:/[\w.@+%=,-]+){2,}/?", "[PATH]", s)
     if len(s) > max_chars:

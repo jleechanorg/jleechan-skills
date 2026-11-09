@@ -1626,6 +1626,20 @@ class TestRound2HermesAndCodexReviewFixes(unittest.TestCase):
         bounded = redact_sensitive_excerpt(long_text, max_chars=50)
         self.assertLessEqual(len(bounded), 55)
 
+    def test_redact_labeled_password_values_including_quoted_spaces(self):
+        excerpts = (
+            "password is EXAMPLE_VALUE",
+            "password: EXAMPLE_VALUE",
+            "password=EXAMPLE_VALUE",
+            'password is "EXAMPLE VALUE"',
+            "password: 'EXAMPLE VALUE'",
+        )
+        for excerpt in excerpts:
+            with self.subTest(excerpt=excerpt):
+                scrubbed = redact_sensitive_excerpt(excerpt)
+                self.assertNotIn("EXAMPLE", scrubbed)
+                self.assertIn("[REDACTED]", scrubbed)
+
     def test_human_interventions_initial_requests_vs_followup_and_dot_page_tail(self):
         """Parent addendum & Codex P1-4: separate initial requests, follow-ups, and dot_page_tail."""
         agg = MetricsAggregator()
