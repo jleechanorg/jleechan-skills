@@ -56,7 +56,7 @@ class UsageFeedCliTests(unittest.TestCase):
     def test_actual_cli_prices_ttl_buckets_and_keeps_unknown_unallocated(self):
         script = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "scripts", "prw_metrics.py"))
         proc = subprocess.run(
-            [sys.executable, script, "--offline", "--usage-events", self.events_path,
+            [sys.executable, script, "--offline", "--cutoff", "2026-11-02T00:00:00Z", "--usage-events", self.events_path,
              "--usage-rates", self.rates_path],
             check=True, capture_output=True, text=True, timeout=30,
         )
@@ -72,7 +72,7 @@ class UsageFeedCliTests(unittest.TestCase):
     def test_missing_rates_render_unknown_instead_of_zero(self):
         script = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "scripts", "prw_metrics.py"))
         proc = subprocess.run(
-            [sys.executable, script, "--offline", "--usage-events", self.events_path],
+            [sys.executable, script, "--offline", "--cutoff", "2026-11-02T00:00:00Z", "--usage-events", self.events_path],
             check=True, capture_output=True, text=True, timeout=30,
         )
         self.assertIn("Known usage subtotal: UNKNOWN (no priced usage).", proc.stdout)
@@ -97,6 +97,35 @@ class UsageFeedCliTests(unittest.TestCase):
                 summary = aggregate_usage(load_usage_events(self.events_path, provider="example-provider"), rates)
                 self.assertEqual(summary["unknown_event_count"], 1)
                 self.assertEqual(summary["known_cost_usd"], 0)
+
+    def test_rate_and_event_both_missing_scope_dimensions_remain_unknown(self):
+        rates = load_rate_table(self.rates_path)
+        rates = [dict(rate, service_tier=None, inference_geo=None, speed=None) for rate in rates]
+        event = {
+            "provider": "example-provider", "sku": "model-a", "usage_id": "req-no-scope",
+            "timestamp": "2026-11-01T00:00:00Z", "input_tokens": 1000000, "output_tokens": 0,
+            "cache_read_tokens": 0, "cache_write_5m_tokens": 0, "cache_write_1h_tokens": 0,
+            "attributions": [],
+        }
+        summary = aggregate_usage([event], rates)
+        self.assertEqual(summary["unknown_event_count"], 1)
+        self.assertEqual(summary["known_cost_usd"], 0)
+
+    def test_naive_event_timestamp_is_undated_and_excluded_from_window(self):
+        event = {
+            "provider": "example-provider", "sku": "model-a", "usage_id": "req-naive-time",
+            "timestamp": "2026-11-01T00:00:00", "input_tokens": 1000000, "output_tokens": 0,
+            "cache_read_tokens": 0, "cache_write_5m_tokens": 0, "cache_write_1h_tokens": 0,
+            "service_tier": "standard", "inference_geo": "global", "speed": "standard",
+            "attributions": [],
+        }
+        summary = aggregate_usage([event], load_rate_table(self.rates_path),
+                                  window_start=parse_iso_utc("2026-10-25T00:00:00Z"),
+                                  window_end=parse_iso_utc("2026-11-08T00:00:00Z"))
+        self.assertEqual(summary["event_count"], 0)
+        self.assertEqual(summary["undated_count"], 1)
+        self.assertEqual(summary["outside_window_count"], 0)
+        self.assertEqual(summary["known_cost_usd"], 0)
 
     def test_rate_effective_time_requires_timezone_and_currency_must_be_usd(self):
         card = {
@@ -159,6 +188,59 @@ class UsageFeedCliTests(unittest.TestCase):
         summary = aggregate_usage(events, load_rate_table(self.rates_path))
         self.assertEqual(summary["unallocated"]["known_cost_usd"], 1)
         self.assertEqual(summary["prs"]["example/repo#1"]["pricing_status"], "partial")
+
+    def test_conflicted_usage_is_unknown_without_pricing_reported_tokens(self):
+        event = {
+            "provider": "example-provider", "request_id": "req-conflict", "model": "model-a",
+            "timestamp": "2026-11-01T00:00:00Z", "usage_conflict": True,
+            "raw_usage": {"input_tokens": 1000000, "output_tokens": 0, "service_tier": "standard",
+                          "inference_geo": "global", "speed": "standard"},
+            "attributions": [{"pr": "example/repo#4", "weight": 1, "method": "direct",
+                              "receipt_refs": ["receipt-conflict"], "rationale": "recorded"}],
+        }
+        events = load_usage_events([event], provider="example-provider")
+        summary = aggregate_usage(events, load_rate_table(self.rates_path))
+        self.assertEqual(summary["priced_event_count"], 0)
+        self.assertEqual(summary["partially_priced_event_count"], 0)
+        self.assertEqual(summary["unknown_event_count"], 1)
+        self.assertEqual(summary["known_cost_usd"], 0)
+        self.assertEqual(summary["tokens_by_bucket"], {})
+        self.assertEqual(summary["reasoning_tokens"], 0)
+        self.assertEqual(summary["prs"]["example/repo#4"]["known_cost_usd"], 0)
+        rates = load_rate_table(self.rates_path)
+        bundle = Publisher(repo_path=self.tempdir.name).write_telemetry_bundle(
+            None, usage_events=events, usage_rates=rates,
+        )
+        retained = next(v for k, v in bundle.items() if k.endswith("usage_events.jsonl"))
+        retained_events = load_usage_events([json.loads(line) for line in retained.splitlines()],
+                                            provider="example-provider")
+        replayed = aggregate_usage(retained_events, rates)
+        self.assertEqual(replayed["known_cost_usd"], 0)
+        self.assertEqual(replayed["unknown_event_count"], 1)
+        self.assertEqual(replayed["prs"]["example/repo#4"]["known_cost_usd"], 0)
+
+    def test_receipt_reference_hash_is_stable_across_repeated_bundle_reloads(self):
+        event = {
+            "provider": "example-provider", "request_id": "req-attributed", "model": "model-a",
+            "timestamp": "2026-11-01T00:00:00Z",
+            "raw_usage": {"input_tokens": 1000000, "output_tokens": 0, "service_tier": "standard",
+                          "inference_geo": "global", "speed": "standard"},
+            "attributions": [{"pr": "example/repo#3", "weight": 1, "method": "direct",
+                              "receipt_refs": ["receipt-id"], "rationale": "scoped receipt"}],
+        }
+        rates = load_rate_table(self.rates_path)
+        initial = load_usage_events([event], provider="example-provider")
+        publisher = Publisher(repo_path=self.tempdir.name)
+        first = publisher.write_telemetry_bundle(None, usage_events=initial, usage_rates=rates)
+        first_rows = [json.loads(line) for line in next(v for k, v in first.items() if k.endswith("usage_events.jsonl")).splitlines()]
+        reloaded = load_usage_events(first_rows, provider="example-provider")
+        second = publisher.write_telemetry_bundle(None, usage_events=reloaded, usage_rates=rates)
+        second_rows = [json.loads(line) for line in next(v for k, v in second.items() if k.endswith("usage_events.jsonl")).splitlines()]
+        self.assertEqual(first_rows, second_rows)
+        combined = aggregate_usage(load_usage_events(first_rows + second_rows, provider="example-provider"), rates)
+        self.assertEqual(combined["event_count"], 1)
+        self.assertEqual(combined["unknown_event_count"], 0)
+        self.assertEqual(combined["known_cost_usd"], 1)
 
     def test_supported_explicit_attribution_keeps_partial_pr_subtotal(self):
         event = {

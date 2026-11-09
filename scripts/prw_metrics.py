@@ -3770,6 +3770,14 @@ def _retained_hash(value):
     return "sha256:" + hashlib.sha256(value.encode()).hexdigest()
 
 
+def _usage_receipt_ref(value):
+    if not isinstance(value, str) or not value:
+        return None
+    if re.fullmatch(r"sha256:[0-9a-f]{64}", value):
+        return value
+    return "sha256:" + hashlib.sha256(value.encode()).hexdigest()
+
+
 def _sanitize_usage_event_record(row):
     raw = row.get("raw_usage") if isinstance(row.get("raw_usage"), dict) else {}
     sku = _usage_label(row.get("model")) or "<unsupported>"
@@ -3803,7 +3811,7 @@ def _sanitize_usage_event_record(row):
         attrs.append({
             "pr": attr["pr"], "weight": str(weight), "method": _usage_label(attr.get("method")),
             "basis": _usage_label(attr.get("basis")), "convention_ref": _usage_label(attr.get("convention_ref")),
-            "receipt_refs": [hashlib.sha256(str(ref).encode()).hexdigest()[:16] for ref in refs if isinstance(ref, str)],
+            "receipt_refs": [clean for ref in refs if (clean := _usage_receipt_ref(ref))],
             "rationale": "retained" if attr.get("has_rationale") or attr.get("rationale") else "",
         })
     usage_id = row.get("request_id") or row.get("message_id")
@@ -3926,8 +3934,8 @@ def load_usage_events(path, provider=None):
                         "pr": attr.get("pr") if _safe_pr_id(attr.get("pr")) else None,
                         "weight": attr.get("weight"), "method": attr.get("method"),
                         "basis": attr.get("basis"), "convention_ref": attr.get("convention_ref"),
-                        "receipt_refs": [hashlib.sha256(str(ref).encode()).hexdigest()[:16] for ref in refs
-                                         if isinstance(ref, str)] if isinstance(refs, list) else [],
+                        "receipt_refs": [clean for ref in refs if (clean := _usage_receipt_ref(ref))]
+                        if isinstance(refs, list) else [],
                         "has_rationale": bool(isinstance(attr.get("rationale"), str) and attr["rationale"].strip()),
                     })
             if row.get("usage_conflict"):
@@ -4010,6 +4018,8 @@ def load_rate_table(path):
 
 
 def _price_usage_event(event, rates):
+    if "source_usage_conflict" in event.get("unknown_reasons", []):
+        return None, "unknown", {"usage": "source_usage_conflict"}
     at = parse_iso_utc(event.get("timestamp"))
     known, unknown = Decimal(0), {}
     for bucket, tokens in event["billable"].items():
@@ -4021,9 +4031,9 @@ def _price_usage_event(event, rates):
         matches = [r for r in rates if r["provider"] == event.get("provider") and r["sku"] == event.get("sku")
                    and r["bucket"] == bucket and r["effective_from"] <= at and
                    r.get("rate_basis") == "standard_global_public_list_price" and
-                   r.get("service_tier") == event.get("service_tier") and
-                   r.get("inference_geo") == event.get("inference_geo") and
-                   r.get("speed") == event.get("speed") and
+                   r.get("service_tier") == event.get("service_tier") == "standard" and
+                   r.get("inference_geo") == event.get("inference_geo") == "global" and
+                   r.get("speed") == event.get("speed") == "standard" and
                    (r["effective_to"] is None or at < r["effective_to"])] if at else []
         if len(matches) != 1 or matches[0]["currency"] != "USD":
             unknown[bucket] = "no_rate" if not matches else "ambiguous_or_non_usd_rate"
@@ -4095,10 +4105,16 @@ def aggregate_usage(raw_events, rates, window_start=None, window_end=None):
     source_records = len(raw_events)
     undated_count, outside_window_count = 0, 0
     if window_start is not None and window_end is not None:
-        filtered = filter_events_half_open(raw_events, "timestamp", window_start, window_end)
-        undated_count = sum(1 for event in raw_events if _parse_utc_instant(event.get("timestamp")) is None)
-        outside_window_count = source_records - len(filtered) - undated_count
-        raw_events = filtered
+        windowed = []
+        for event in raw_events:
+            timestamp = _parse_utc_instant(event.get("timestamp"))
+            if timestamp is None:
+                undated_count += 1
+            elif window_start <= timestamp < window_end:
+                windowed.append(event)
+            else:
+                outside_window_count += 1
+        raw_events = windowed
     rows, seen = [], {}
     for index, raw in enumerate(raw_events):
         reason = list(raw.get("unknown_reasons", []))
@@ -4135,7 +4151,10 @@ def aggregate_usage(raw_events, rates, window_start=None, window_end=None):
             if raw.get(field):
                 coverage[name].add(str(raw[field]))
         billable = {bucket: raw.get(source) for source, bucket in _USAGE_TOKEN_BUCKETS.items()}
-        reasoning = raw.get("reasoning_tokens")
+        source_conflict = "source_usage_conflict" in raw.get("unknown_reasons", [])
+        if source_conflict:
+            billable = {bucket: None for bucket in billable}
+        reasoning = None if source_conflict else raw.get("reasoning_tokens")
         if isinstance(reasoning, int) and not isinstance(reasoning, bool) and reasoning >= 0:
             reasoning_tokens += reasoning
         # Native input_tokens excludes cache tokens; reasoning is diagnostic and included in output.
