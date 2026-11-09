@@ -5197,7 +5197,7 @@ def load_usage_events(path, provider=None):
                     except (InvalidOperation, TypeError, ValueError):
                         pass
                     else:
-                        if parsed_weight.is_finite():
+                        if parsed_weight.is_finite() and 0 < parsed_weight <= 1:
                             weight = str(parsed_weight.normalize())
                     event["attributions"].append({
                         "pr": attr.get("pr") if _safe_pr_id(attr.get("pr")) else None,

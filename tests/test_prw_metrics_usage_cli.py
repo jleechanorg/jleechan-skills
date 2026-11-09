@@ -402,6 +402,26 @@ class UsageFeedCliTests(unittest.TestCase):
         self.assertEqual(combined["unknown_event_count"], 0)
         self.assertEqual(combined["known_cost_usd"], 1)
 
+    def test_large_finite_attribution_weight_remains_unsupported_without_aborting(self):
+        event = {
+            "provider": "example-provider", "request_id": "request-large-weight",
+            "model": "model-a", "timestamp": "2026-11-01T00:00:00Z",
+            "raw_usage": {"input_tokens": 10, "output_tokens": 0},
+            "attributions": [{
+                "pr": "example/repo#1", "weight": "1e1000000", "method": "direct",
+                "basis": "separable_breakdown", "receipt_refs": ["receipt-large"],
+                "rationale": "verified request scope",
+            }],
+        }
+        events = load_usage_events([event], provider="example-provider")
+        summary = aggregate_usage(events, load_rate_table(self.rates_path))
+
+        self.assertEqual(events[0]["attributions"][0]["weight"], "1e1000000")
+        self.assertEqual(summary["event_count"], 1)
+        self.assertTrue(summary["prs"]["example/repo#1"]["unknown"])
+        self.assertEqual(summary["prs"]["example/repo#1"]["event_count"], 0)
+        self.assertEqual(summary["unallocated"]["event_count"], 1)
+
     def test_supported_explicit_attribution_keeps_partial_pr_subtotal(self):
         event = {
             "request_id": "req-partial", "timestamp": "2026-11-01T00:00:00Z", "model": "model-a",
