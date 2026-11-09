@@ -339,11 +339,17 @@ blob at or below 32 MiB. Small and empty snapshots retain the legacy
 ordered byte-count, row-count and SHA256 manifest. A record is never split,
 truncated or sampled. An individually oversized record fails publication visibly.
 
-All retained read paths, including published-ref export, accept legacy windows and
-verify complete shard families. Missing, corrupt, unexpected or ambiguous usage
+Retained loading accepts legacy windows and verifies complete shard families,
+including files transported by published-ref export. Missing, corrupt, unexpected or ambiguous usage
 files fail visibly rather than become complete coverage. Republishing a window
 atomically replaces its usage family, including shrinking or empty snapshots;
 other windows, unrelated repository paths and local worktree changes remain intact.
 The privacy projection, unknown values, duplicate/conflict semantics and existing
 retention policy do not change. Focused acceptance uses tiny byte limits and real
 local Git publication/readback; it does not require another native-history scan.
+
+Retained collection indexes full decoded JSON records with the prior Python
+equality semantics, retaining first-seen order and distinct/conflicting records.
+Request IDs alone never determine equality; dictionary key order is immaterial,
+array order and string/number distinctions remain significant, and equivalent
+boolean/integer/float values retain their previous equality behavior.

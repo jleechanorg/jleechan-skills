@@ -541,6 +541,19 @@ _USAGE_PART_RE = re.compile(r"usage_events\.part-[0-9]{6}\.jsonl")
 _USAGE_MANIFEST = "usage_events.manifest.json"
 
 
+def _json_equality_key(value):
+    """Hash decoded JSON with Python's existing equality (including 1 == 1.0 == True).
+
+    Container tags distinguish lists from objects; object order is immaterial,
+    array order is not. Scalar hashes preserve numeric equality, unlike JSON text.
+    """
+    if isinstance(value, dict):
+        return (dict, frozenset((key, _json_equality_key(item)) for key, item in value.items()))
+    if isinstance(value, list):
+        return (list, tuple(_json_equality_key(item) for item in value))
+    return value
+
+
 def _usage_file(name):
     return name in ("usage_events.jsonl", _USAGE_MANIFEST) or bool(_USAGE_PART_RE.fullmatch(name))
 
@@ -1700,6 +1713,7 @@ class Collector:
         pilot_events = []
         human_episodes = []
         retained_usage_events = []
+        seen_usage_records = set()
         retained_usage_rates = []
         calibration_audit = {}
         retention_manifest = {}
@@ -1718,7 +1732,9 @@ class Collector:
                 if ep not in human_episodes:
                     human_episodes.append(ep)
             for ev in retained.get("usage_events", []):
-                if ev not in retained_usage_events:
+                key = _json_equality_key(ev)
+                if key not in seen_usage_records:
+                    seen_usage_records.add(key)
                     retained_usage_events.append(ev)
             for rate in retained.get("usage_rates", {}).get("rates", []):
                 if rate not in retained_usage_rates:

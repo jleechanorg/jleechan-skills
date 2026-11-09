@@ -51,6 +51,38 @@ class RetainedUsageShards(unittest.TestCase):
         with self.assertRaises(ValueError):
             m._read_usage_bundle({'usage_events.part-000000.jsonl'}, lambda _: '{}\n')
 
+    def test_retained_full_record_index_preserves_equality_and_scales(self):
+        class CountedRecord(dict):
+            comparisons = 0
+            def __eq__(self, other):
+                CountedRecord.comparisons += 1
+                return super().__eq__(other)
+        # Same request ID with differing usage/conflict/nested array order must
+        # survive. Python's historical bool/int/float equivalence must remain.
+        small = [
+            {"request_id": "same", "raw_usage": {"input_tokens": 1}, "nested": [1, None]},
+            {"nested": [True, None], "raw_usage": {"input_tokens": 1.0}, "request_id": "same"},
+            {"request_id": "same", "raw_usage": {"input_tokens": 2}, "nested": [1, None]},
+            {"request_id": "same", "raw_usage": {"input_tokens": 2}, "nested": [None, 1]},
+            {"request_id": "same", "raw_usage": {"input_tokens": 2}, "usage_conflict": True},
+            {"request_id": "same", "raw_usage": {"input_tokens": "1"}, "nested": [1, None]},
+        ]
+        expected = []
+        for row in small:
+            if row not in expected:
+                expected.append(row)
+        large = [CountedRecord(request_id=str(i), raw_usage={"input_tokens": i}) for i in range(4000)]
+        records = small + large + [CountedRecord(row) for row in large]
+        with tempfile.TemporaryDirectory() as temp:
+            Path(temp, 'usage_events.jsonl').write_text('')
+            collector = m.Collector()
+            with mock.patch.object(collector, 'load_retained_telemetry', return_value={"usage_events": records}):
+                loaded = collector.collect_all(telemetry_dir=temp, offline=True)['usage_events']
+        # Count dictionary comparisons rather than wall time: linear membership
+        # indexing must not regress to a full scan of every prior distinct row.
+        self.assertLess(CountedRecord.comparisons, len(records) * 4)
+        self.assertEqual(loaded, expected + large)
+
     def test_real_git_publish_reload_shrink_empty_and_legacy(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp); remote = root/'remote.git'; local = root/'local'
@@ -69,7 +101,8 @@ class RetainedUsageShards(unittest.TestCase):
             (local/'untracked').write_text('keep\n')
             old_blob = git(remote, 'rev-parse', 'main:dashboards/prw/telemetry/20261101/usage_events.jsonl').strip()
             # Large -> fewer parts -> singleton -> empty, same window each time.
-            for count in (9, 7, 5, 1, 0):
+            previous_payloads = None
+            for count in (9, 9, 7, 5, 1, 0):
                 rows = self.rows(count)
                 with mock.patch.object(m, 'USAGE_SHARD_BYTES', 1500, create=True):
                     kwargs = ({"telemetry_files": {"dashboards/prw/telemetry/20261102/usage_events.jsonl":
@@ -86,6 +119,9 @@ class RetainedUsageShards(unittest.TestCase):
                     current = exported/'20261102'
                     payloads = {p.name: p.read_text() for p in current.iterdir() if p.name.startswith('usage_events.')}
                     self.assertTrue(all(len(v.encode()) <= 1500 for k,v in payloads.items() if k.endswith('.jsonl')))
+                    if count == 9 and previous_payloads is not None:
+                        self.assertEqual(payloads, previous_payloads)
+                    previous_payloads = payloads
                     loaded = m.Collector().load_retained_telemetry(str(exported))['usage_events']
                     self.assertEqual(len(loaded), count + 1)
                     expected = ([m._sanitize_usage_event_record(r) for r in rows] if count == 7 else
