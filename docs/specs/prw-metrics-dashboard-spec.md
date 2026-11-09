@@ -34,6 +34,10 @@ A lightweight, automated metrics collector and renderer that publishes a single,
 - **Backlog Partitioning**: Partitions PRs merged within each window into:
   - *Comparable Recent Merges* ($\le 7$ days from `createdAt` to `mergedAt`).
   - *Historical Backlog Merges* ($> 7$ days old at merge), preventing long-parked draft branches from skewing recent turnaround statistics.
+- **Full-Horizon Distribution**: In addition to W1 and W2 comparisons, report
+  creation-to-merge p50/p90/p99 for the complete 14-day merged cohort, split into
+  all merges, merges within 7 days, and backlog merges over 7 days. Show each
+  cohort's sample size.
 - **Private Telemetry Retention**: Sanitized event/episode records, collected PR records, timeline events, handoff receipts and per-source cutoffs (fixed fields only; PR bodies, raw message text, transcripts, excerpts and error strings are never retained) are stored under `dashboards/prw/telemetry/<window_slug>/` in `<org>/roadmap`, ensuring deterministic audit studies and dashboard rebuilds even after local host Scratch is cleared.
 
 ### 3.2 Time Semantics & Active Work Model
@@ -46,7 +50,19 @@ A lightweight, automated metrics collector and renderer that publishes a single,
   - `Agent effort`: Sum ($\sum (t_{\text{end}} - t_{\text{start}})$) of per-agent evidenced active intervals across parallel agents. Can exceed active wall time and PR elapsed; never summed together with active wall time.
   - `Waiting time`: Observed CI/provider/dependency/human-hold intervals; report category breakdown and interval union.
   - `Avoidable unattended time`: Disjoint evidenced intervals with an executable authorized action, no executing owner/job, and no legitimate hold; requires positive eligibility and continuity evidence, otherwise `UNKNOWN`.
-- **Empty Duration Cohorts**: When a duration distribution has `n = 0`, report its median and p75 as `UNKNOWN`; preserve observed zero-duration events as numeric zero.
+- **Empty Duration Cohorts**: When a duration distribution has `n = 0`, report its
+  median and p50/p75/p90/p99 as `UNKNOWN`; preserve observed zero-duration events
+  as numeric zero. Apply the same nearest-rank percentiles to creation-to-merge,
+  stage-dwell, and observed handoff duration samples, and retain their sample counts.
+- **Percentile Compatibility**: Percentiles use nearest rank
+  `k = ceil((p / 100) * n)` and the value at sorted index `k - 1`. Thus p50 is the
+  lower middle item for an even sample; existing `median` fields retain their
+  conventional arithmetic-average meaning for even samples.
+- **Observed PR Cost Distribution**: Show per-PR cost percentiles only across
+  PRs with at least one explicitly attributed, fully priced usage event, and show
+  that cohort's `n`. Label this as an observed attributed sample; do not imply
+  complete PR cost or lifecycle population coverage. Exclude partial or unknown
+  per-PR cost records.
 - **Residual Rule**: Residual duration (`PR elapsed - observed_active_wall_time`) is NOT wasted time. It contains observed waiting times, human reflection, and unobserved periods.
 - **Honest Missing Data**: If owner, job, or hold observation is absent during an open interval, `eligible_unattended_interval` evaluates strictly to `UNKNOWN`, never `0s`.
 

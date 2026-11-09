@@ -14,14 +14,16 @@ from unittest import mock
 
 from scripts.native_usage_collector import collect_native_history
 from scripts.prw_metrics import (
-    _retained_usage_summary,
     MetricsAggregator,
     Publisher,
+    _retained_usage_summary,
+    _summarize_observed_pr_costs,
     aggregate_usage,
     load_rate_table,
     load_usage_events,
     main,
     parse_iso_utc,
+    render_usage_summary,
 )
 
 
@@ -189,10 +191,64 @@ class UsageFeedCliTests(unittest.TestCase):
         self.assertEqual(len(projected["rate_records"]), 5)
         self.assertIsNone(projected["events"][1]["known_cost_usd"])
         self.assertEqual(projected["known_cost_usd"], "17.6")
+        self.assertEqual(
+            projected["pr_cost_distribution"],
+            {"n": 0, "p50_usd": None, "p90_usd": None, "p99_usd": None},
+        )
         serialized = json.dumps(projected)
         self.assertNotIn("MUST NOT APPEAR", serialized)
         self.assertNotIn(self.tempdir.name, serialized)
         self.assertIn('"price_per_million": "1"', serialized)
+
+    def test_pr_cost_distribution_requires_explicit_fully_priced_pr_cohort(self):
+        costs = {
+            "example/repo#1": {
+                "known_cost_usd": 1.0,
+                "pricing_status": "observed-priced",
+                "event_count": 1,
+            },
+            "example/repo#2": {
+                "known_cost_usd": 2.0,
+                "pricing_status": "observed-priced",
+                "event_count": 2,
+            },
+            "example/repo#3": {
+                "known_cost_usd": 4.0,
+                "pricing_status": "observed-priced",
+                "event_count": 1,
+            },
+            "example/repo#4": {
+                "known_cost_usd": 100.0,
+                "pricing_status": "partial",
+                "event_count": 3,
+            },
+        }
+        distribution = _summarize_observed_pr_costs(costs)
+        self.assertEqual(
+            distribution, {"n": 3, "p50_usd": 2.0, "p90_usd": 4.0, "p99_usd": 4.0}
+        )
+        empty = _summarize_observed_pr_costs({})
+        self.assertEqual(
+            empty, {"n": 0, "p50_usd": None, "p90_usd": None, "p99_usd": None}
+        )
+        rendered = render_usage_summary({
+            "known_cost_usd": 7.0, "priced_event_count": 3,
+            "partially_priced_event_count": 1,
+            "unallocated": {
+                "known_cost_usd": 0, "event_count": 0, "unknown_cost_events": 0,
+            },
+            "coverage": {"session_count": 0}, "rate_records": [],
+            "label": "observed prices",
+            "source_records": 4, "event_count": 4, "unknown_event_count": 0,
+            "window_start": None, "window_end": None,
+            "outside_window_count": 0, "undated_count": 0,
+            "tokens_by_bucket": {}, "reasoning_tokens": 0, "prs": {},
+            "pr_cost_distribution": distribution,
+        })
+        self.assertTrue(any(
+            "n=3; p50=$2.0000000, p90=$4.0000000, p99=$4.0000000" in line
+            for line in rendered
+        ))
 
     def test_nonfinite_explicit_attribution_stays_unallocated_without_crashing(self):
         event = {
@@ -238,6 +294,90 @@ class UsageFeedCliTests(unittest.TestCase):
         self.assertEqual(replayed["known_cost_usd"], 0)
         self.assertEqual(replayed["unknown_event_count"], 1)
         self.assertEqual(replayed["prs"]["example/repo#4"]["known_cost_usd"], 0)
+
+    def test_query_events_export_canonical_identity_cost_and_validated_attribution(
+        self,
+    ):
+        receipt = "sha256:" + ("a" * 64)
+        source_id = "sha256:" + ("b" * 64)
+        event = {
+            "provider": "example-provider", "sku": "model-a",
+            "usage_id": "request-secret",
+            "timestamp": "2026-11-01T00:00:00Z", "session_id": "session-secret",
+            "source_fingerprint": source_id, "input_tokens": 1000000,
+            "cache_read_tokens": 2000000, "cache_write_5m_tokens": 0,
+            "cache_write_1h_tokens": 0, "output_tokens": 1000000,
+            "reasoning_tokens": 100000,
+            "service_tier": "standard", "inference_geo": "global", "speed": "standard",
+            "attributions": [{
+                "pr": "example/repo#1", "weight": 1, "method": "direct",
+                "basis": "separable_breakdown", "receipt_refs": [receipt],
+                "has_rationale": True, "rationale": "private rationale",
+            }],
+        }
+        summary = aggregate_usage(
+            [event, dict(event)], load_rate_table(self.rates_path)
+        )
+
+        self.assertEqual(summary["event_count"], 1)
+        self.assertIs(summary["query_events"], summary["events"])
+        exported = summary["query_events"][0]
+        self.assertEqual(exported["provider"], "example-provider")
+        self.assertEqual(exported["model"], "model-a")
+        self.assertEqual(exported["timestamp"], event["timestamp"])
+        self.assertEqual(exported["source_id"], source_id)
+        self.assertNotEqual(exported["event_id"], "request-secret")
+        self.assertNotEqual(exported["session_id_hash"], "session-secret")
+        self.assertEqual(exported["tokens_by_bucket"]["input_uncached"], 1000000)
+        self.assertEqual(exported["tokens_by_bucket"]["output"], 1000000)
+        self.assertEqual(exported["reasoning_output_tokens"], 100000)
+        self.assertEqual(exported["total_tokens"], 4000000)
+        self.assertFalse(exported["dedup_conflict"])
+        self.assertFalse(exported["source_conflict"])
+        self.assertEqual(exported["observed_cost_usd"], None)
+        self.assertEqual(exported["list_equivalent_cost_usd"], "11.2")
+        self.assertTrue(exported["price_catalog_version"].startswith("sha256:"))
+        self.assertEqual(
+            exported["validated_attributions"],
+            [{
+                "pr": "example/repo#1", "weight": "1", "method": "direct",
+                "basis": "separable_breakdown", "convention_ref": None,
+                "receipt_refs": [receipt],
+            }],
+        )
+        serialized = json.dumps(exported, default=str)
+        self.assertNotIn("request-secret", serialized)
+        self.assertNotIn("session-secret", serialized)
+        self.assertNotIn("private rationale", serialized)
+
+        unpriced = aggregate_usage([event], [])
+        unpriced_event = unpriced["query_events"][0]
+        self.assertEqual(unpriced_event["cost_status"], "UNKNOWN_NO_RATE_CARD")
+        self.assertIsNone(unpriced_event["list_equivalent_cost_usd"])
+        self.assertIsNone(unpriced_event["observed_cost_usd"])
+
+    def test_query_event_export_conflict_keeps_identity_but_unknown_tokens_and_cost(
+        self,
+    ):
+        base = {
+            "provider": "example-provider", "sku": "model-a",
+            "usage_id": "same-secret-id",
+            "timestamp": "2026-11-01T00:00:00Z", "input_tokens": 1000000,
+            "cache_read_tokens": 0, "cache_write_5m_tokens": 0,
+            "cache_write_1h_tokens": 0, "output_tokens": 0,
+            "service_tier": "standard", "inference_geo": "global", "speed": "standard",
+            "attributions": [],
+        }
+        conflict = dict(base, input_tokens=2000000)
+        summary = aggregate_usage([base, conflict], load_rate_table(self.rates_path))
+        self.assertEqual(summary["event_count"], 1)
+        exported = summary["query_events"][0]
+        self.assertEqual(exported["unknown_reasons"], ["conflicting_duplicate"])
+        self.assertTrue(exported["dedup_conflict"])
+        self.assertIsNone(exported["tokens_by_bucket"]["input_uncached"])
+        self.assertIsNone(exported["total_tokens"])
+        self.assertIsNone(exported["list_equivalent_cost_usd"])
+        self.assertIsNone(exported["observed_cost_usd"])
 
     def test_receipt_reference_hash_is_stable_across_repeated_bundle_reloads(self):
         event = {
