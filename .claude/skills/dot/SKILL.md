@@ -7,6 +7,29 @@ description: Use when the user invokes /dot or asks to "message the dot", "ask d
 
 Talk to the user's ChatGPT dot assistant using `scripts/dot.sh`. The scripts are a thin mechanical pointer (type, read, submit, clear, verify — see `GUARDRAIL.md`); every judgment call lives in this file, read top-down: how to work through the dot first, then transport actions and the peer-draft policy, then operational reference.
 
+## Peers: /instinct is an alternative coder/reviewer/worker
+
+Instinct is a **peer chat agent** reached over WhatsApp Web (`/instinct`, `/in`), on the contact
+**"Instinct WhatsApp"**, sharing this Mac's Chrome profile with Dot. It can take bounded coding,
+independent review, and worker tasks the same way Dot can.
+
+- **Dispatch it** with `~/.claude/skills/instinct/SKILL.md` (goal + repo/branch + acceptance +
+  constraints + receipt request). Do not invent a second protocol here.
+- **Same independence rules.** Instinct and Dot each count as **at most one** `/advice` vote and are
+  never combined into a two-vote quorum. Neither may review work it produced.
+- **Same authority ceiling.** A WhatsApp or ChatGPT reply is dated evidence, never merge, destructive,
+  spend, or credential authority.
+- **Prefer Dot for**: multi-coder campaigns, PRs Dot already owns, work needing Dot's own tools.
+  **Prefer Instinct for**: a second independent opinion when Dot is saturated or walled, WhatsApp-native
+  handoff, and bounded work where one peer's receipt is enough.
+- **Never run Dot and Instinct against the same Chrome profile at once.** Chromium's `ProcessSingleton`
+  makes a genuinely simultaneous second launch fail, and Instinct waits out a busy profile instead of
+  racing it — but that exclusion is **one-sided**: Instinct honours its lock, Dot does not. This is not
+  an oversight in Instinct: the per-profile kernel flock was deliberately deleted from `dot.sh` on
+  2026-10-20 at the operator's request (see the machine-checks note below), so Dot no longer serializes
+  concurrent invocations and concurrent launches are "the caller's own risk". Serialization therefore
+  depends on you not launching Dot while Instinct is running.
+
 ## Default: delegate non-small work, then monitor
 
 ### Explicit Dot requests take priority
@@ -358,4 +381,4 @@ coordinator rules and all existing authorization and capacity constraints.
 }
 ```
 
-Each `user_data_dir` must be dedicated to that Dot account and must not point inside the system Google Chrome profile. No other tool, MCP server, or browser may share a dot `user_data_dir`; exclusivity covers the directory, not only dot's own launches. If `user_data_dir` is omitted, Dot derives a separate local directory from the account key. `profile_directory` is optional: it selects a named Chrome subprofile and defaults to `Default` when absent. The value must be one safe directory name, such as `Profile 1`; path separators, `.` and `..`, and control characters are rejected. `DOT_PROFILE_DIRECTORY` may temporarily override the configured subprofile for one invocation, subject to the same validation. Chrome is the only backend. Multi-account targeting uses `--account <name>` / `DOT_ACCOUNT`, with independent headless-Chrome sessions per host/account pair and unified profile resolution with non-destructive lock recovery.
+Each `user_data_dir` must be dedicated to that Dot account and must not point inside the system Google Chrome profile. No other tool, MCP server, or browser may share a dot `user_data_dir`; exclusivity covers the directory, not only dot's own launches. **One documented exception:** `/instinct` (see Peers, above) is an operator-authorized peer that shares this Mac's `dot-headless-chrome-jeffrey` directory under the credential-store pin and Chromium's `ProcessSingleton`; that exception is named, not a general licence, and any other consumer is still forbidden. If `user_data_dir` is omitted, Dot derives a separate local directory from the account key. `profile_directory` is optional: it selects a named Chrome subprofile and defaults to `Default` when absent. The value must be one safe directory name, such as `Profile 1`; path separators, `.` and `..`, and control characters are rejected. `DOT_PROFILE_DIRECTORY` may temporarily override the configured subprofile for one invocation, subject to the same validation. Chrome is the only backend. Multi-account targeting uses `--account <name>` / `DOT_ACCOUNT`, with independent headless-Chrome sessions per host/account pair and unified profile resolution with non-destructive lock recovery.
