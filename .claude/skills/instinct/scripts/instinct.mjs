@@ -323,24 +323,55 @@ async function openContact(page, name) {
   await search.type(name, { delay: 40 });
   await page.waitForTimeout(2500);
 
-  // Prefer an exact title match, then fall back to a row containing the name.
-  const exact = page.locator(`#pane-side span[title="${name}"]`).first();
-  let target = exact;
-  if ((await exact.count()) === 0) {
-    target = page.locator('#pane-side div[role="row"]').filter({ hasText: name }).first();
-  }
-  if ((await target.count()) === 0) {
-    const seen = await page
-      .locator('#pane-side span[title]')
-      .evaluateAll((els) => els.map((e) => e.getAttribute('title')).filter(Boolean).slice(0, 20))
-      .catch(() => []);
+  // Titles must be judged on the TITLE node only. A whole-row hasText fallback is unsafe:
+  // a row's text includes its message preview, so searching "Bob" could select Ann's chat
+  // merely because Ann's last message mentioned Bob — and .first() would silently send there.
+  const titleNodes = page.locator('#pane-side span[title]');
+  const titles = await titleNodes
+    .evaluateAll((els) => els.map((e) => e.getAttribute('title')).filter(Boolean))
+    .catch(() => []);
+
+  const exactTitles = titles.filter((t) => t === name);
+  if (exactTitles.length === 0) {
     die(
-      `contact "${name}" not found. Visible chats: ${JSON.stringify(seen)}`,
+      `contact "${name}" not found by exact title (no message-preview matching, to avoid ` +
+        `mis-sending). Visible chats: ${JSON.stringify(titles.slice(0, 20))}`,
       5
     );
   }
+  if (exactTitles.length > 1) {
+    // Ambiguous: never guess with .first().
+    die(
+      `${exactTitles.length} chats are titled exactly "${name}"; refusing to guess. ` +
+        `Rename one, or pass a unique name. Visible chats: ${JSON.stringify(titles.slice(0, 20))}`,
+      5
+    );
+  }
+
+  const target = titleNodes.filter({ hasText: name }).first();
   await target.click();
-  await page.waitForTimeout(1500);
+  await page.waitForTimeout(1800);
+
+  // Verify the OPEN chat is the requested contact before anyone types into it.
+  // NOTE: `header span[title]` is NOT the chat title here — it matches the "Business Account"
+  // badge inside the header (verified live 2026-11-09). The conversation title lives in
+  // [data-testid="conversation-info-header"].
+  const infoHeader = page.locator('[data-testid="conversation-info-header"]').first();
+  let openTitle = '';
+  try {
+    openTitle = (await infoHeader.innerText({ timeout: 10_000 })).split('\n')[0].trim();
+  } catch {
+    openTitle = (await page.locator('#main header').first().innerText().catch(() => ''))
+      .split('\n')[0]
+      .trim();
+  }
+  if (openTitle !== name) {
+    die(
+      `opened chat header is ${JSON.stringify(openTitle)}, expected ${JSON.stringify(name)}; ` +
+        'refusing to send into the wrong chat',
+      5
+    );
+  }
   return true;
 }
 

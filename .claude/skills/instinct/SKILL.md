@@ -147,6 +147,19 @@ no Markdown tables (WhatsApp does not render them).
 survives, because a leftover draft gets prepended to your text. This was observed during bring-up: a
 stray `xx` from a DOM probe prefixed a real message.
 
+### The wrong-recipient guard (found live, 2026-11-09)
+
+`send` never assumes the intended chat is open. Before typing it:
+
+1. matches the contact by **exact title only** — no message-preview matching;
+2. **refuses on a duplicate title** instead of silently taking `.first()`;
+3. after clicking, reads `[data-testid="conversation-info-header"]` and **aborts (exit 5)** if the
+   open chat is not the requested contact.
+
+This guard immediately caught a real defect during bring-up: the original selector `header span[title]`
+matched the **"Business Account"** badge, so the check reported the wrong chat. Had the check merely
+been advisory, that same selector class of error is how a message lands in the wrong conversation.
+
 ### Verify delivery, do not assume it
 `send` already fails closed: it refuses if the composer does not accept the text, if the send button
 is missing, or if the composer still holds the text after clicking send (`exit 6`, delivery NOT
@@ -214,7 +227,9 @@ These are the selectors that actually work:
 |---|---|
 | signed-in chat list | `#pane-side` (0 while signed out — QR canvas instead) |
 | search box | `input[aria-label="Search or start a new chat"]` — a real `<input>`, not contenteditable |
-| chat row | `#pane-side span[title="<name>"]`, else `#pane-side div[role="row"]` filtered by text |
+| chat row | `#pane-side span[title="<name>"]` — **exact title only**. Never a whole-row `hasText`
+fallback: row text includes the message preview, so "Bob" could select Ann's chat. |
+| open-chat title (send guard) | `[data-testid="conversation-info-header"]`. **Not** `header span[title]`, which matches the "Business Account" badge. |
 | composer | `[data-testid="conversation-compose-box-input"]` |
 | send button | `button[aria-label="Send"]` |
 | message bubbles | `[data-pre-plain-text]` = `"[<time>, <date>] <Sender>: "` |
