@@ -536,7 +536,7 @@ SELECT
 FROM prw_review_attempts
 GROUP BY repository, pr_number;
 
-CREATE OR REPLACE TEMP VIEW prw_per_pr_metrics AS
+CREATE OR REPLACE TEMP TABLE prw_per_pr_metrics AS
 SELECT
     p.snapshot_at_utc,
     p.repository,
@@ -702,7 +702,7 @@ SELECT * REPLACE (
 )
 FROM prw_per_pr_metrics;
 
-CREATE OR REPLACE TEMP VIEW prw_cohort_prs AS
+CREATE OR REPLACE TEMP TABLE prw_cohort_prs AS
 SELECT
     repository,
     pr_number,
@@ -732,7 +732,7 @@ CROSS JOIN prw_parameters q
 WHERE p.merged_at_utc >= q.window_start_utc AND p.merged_at_utc < q.snapshot_at_utc
   AND p.pr_elapsed_seconds > 604800;
 
-CREATE OR REPLACE TEMP VIEW prw_metric_observations AS
+CREATE OR REPLACE TEMP TABLE prw_metric_observations AS
 SELECT
     repository,
     pr_number,
@@ -780,7 +780,7 @@ SELECT
 FROM prw_cohort_prs c
 JOIN prw_review_attempts a USING (repository, pr_number);
 
-CREATE OR REPLACE TEMP VIEW prw_cohort_metric_grid AS
+CREATE OR REPLACE TEMP TABLE prw_cohort_metric_grid AS
 SELECT
     r.repository,
     q.snapshot_at_utc,
@@ -803,7 +803,7 @@ CROSS JOIN (
            ('review_attempt', 'attempt_duration_seconds', 'seconds', 'review_attempt_observation')
 ) AS m(metric_family, measure, unit, average_basis);
 
-CREATE OR REPLACE TEMP VIEW prw_metric_cohorts AS
+CREATE OR REPLACE TEMP TABLE prw_metric_cohorts AS
 SELECT
     g.repository,
     g.snapshot_at_utc,

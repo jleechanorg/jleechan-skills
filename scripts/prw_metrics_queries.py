@@ -278,7 +278,8 @@ def _catalog_scenario_summary(catalog_path, connection):
             "unknown_buckets": sorted(values["unknown_buckets"]),
         })
     rows.sort(key=lambda row: (
-        row["pr"], row["model_id"], row["attribution_method"], row["price_tier"]
+        row["pr"], row["model_id"] or "", row["attribution_method"],
+        row["price_tier"],
     ))
     connection.execute(
         "CREATE TEMP TABLE prw_catalog_scenario_pr_metrics ("

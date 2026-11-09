@@ -346,6 +346,87 @@ class TestPRWMetricsQueries(unittest.TestCase):
         self.assertEqual(result["catalog_scenario_pr_metrics"], [])
         self.assertEqual(result["catalog_scenario_cohorts"], [])
 
+    def test_catalog_sort_preserves_missing_model_identity(self):
+        pr = "example-org/repo-alpha#31"
+        missing_model = self._event(
+            "sha256:missing-model", pr,
+            {"input_uncached": 1, "cache_read": 0, "cache_write_5m": 0,
+             "cache_write_1h": 0, "output": 1},
+            1.0, cost=None,
+        )
+        missing_model["model"] = None
+        named_model = self._event(
+            "sha256:named-model", pr,
+            {"input_uncached": 2, "cache_read": 0, "cache_write_5m": 0,
+             "cache_write_1h": 0, "output": 1},
+            1.0, cost=None,
+        )
+        named_model["model"] = "model-a"
+        self._base_files(events=[missing_model, named_model], prs=[{
+            "repo": "example-org/repo-alpha", "number": 31, "state": "OPEN",
+            "createdAt": "2026-11-01T00:00:00Z",
+        }])
+        result = self._query_with_catalog({
+            "schema_version": 1,
+            "basis": "test fixture",
+            "rates": [],
+        })
+        rows = result["catalog_scenario_pr_metrics"]
+        self.assertEqual({row["model_id"] for row in rows}, {None, "model-a"})
+        self.assertEqual(len(rows), 2)
+
+    def test_materialized_metric_cohorts_preserve_all_observations_under_budget(self):
+        pr_numbers = range(20, 40)
+        prs = [{
+            "repo": "example-org/repo-alpha", "number": number,
+            "state": "MERGED", "createdAt": "2026-11-01T00:00:00Z",
+            "mergedAt": "2026-11-02T00:00:00Z",
+        } for number in pr_numbers]
+        events = [
+            self._event(
+                f"sha256:cohort-{number}-{index}",
+                f"example-org/repo-alpha#{number}",
+                {"input_uncached": 3, "cache_read": 0, "cache_write_5m": 0,
+                 "cache_write_1h": 0, "output": 2},
+                1.0, cost=None,
+            )
+            for number in pr_numbers
+            for index in range(250)
+        ]
+        attempts = [
+            {
+                "repo": "example-org/repo-alpha", "pr_number": number,
+                "attempt_id": f"{number}-{index}", "transition": "review",
+                "duration_seconds": index + 1, "basis": "fixture observation",
+            }
+            for number in pr_numbers
+            for index in range(2)
+        ]
+        result = run_query(
+            events_path=events, pr_snapshots_path=prs,
+            attempt_observations_path=attempts,
+            snapshot_at_utc=self.CUTOFF,
+            duckdb_memory_limit="4GB", duckdb_temp_directory=self.root,
+        )
+        direct = next(
+            row for row in result["metric_cohorts"]
+            if row["cohort_definition"] == "all_14d_merges"
+            and row["metric_family"] == "direct_request"
+            and row["measure"] == "total_tokens"
+        )
+        attempts_cohort = next(
+            row for row in result["metric_cohorts"]
+            if row["cohort_definition"] == "all_14d_merges"
+            and row["metric_family"] == "review_attempt"
+            and row["measure"] == "attempt_duration_seconds"
+        )
+        self.assertEqual(direct["observation_n"], 5000)
+        self.assertEqual(direct["distinct_pr_n"], 20)
+        self.assertEqual(direct["average"], 5.0)
+        self.assertEqual(attempts_cohort["observation_n"], 40)
+        self.assertEqual(attempts_cohort["distinct_pr_n"], 20)
+        self.assertEqual(len(result["pr_metrics"]), 20)
+
     def test_catalog_scenarios_use_exact_model_protocol_tiers_and_unknowns(self):
         prs = [
             {"repo": "example-org/repo-alpha", "number": n, "state": "OPEN",
