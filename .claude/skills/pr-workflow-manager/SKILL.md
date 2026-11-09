@@ -47,12 +47,7 @@ Apply these compact defaults where explicit repository instructions are silent; 
 
 ## Autonomous execution and boundaries
 
-Drive the PR through the [pr-lifecycle completion loop](../pr-lifecycle/SKILL.md#the-autonomous-completion-loop) (activating or reusing one task-scoped native session goal when supported per the entry contract above):
-1. Default to opening PRs as DRAFT (`gh pr create --draft`).
-2. Select route from [review-routing.md](../pr-lifecycle/review-routing.md).
-3. Maintain the single current record in the PR description ([Review Ledger and Execution Record](../pr-lifecycle/review-records.md#unified-obligation-and-review-ledger)).
-4. Own asynchronous jobs with explicit handle and verified resumption mechanism (a written wake condition alone is not resumption); retain ownership of blocking dependencies through their endpoint or accepted handoff.
-5. Pass draft gates in order, undraft via `gh pr ready`, and satisfy closing obligations, following [pr-lifecycle's final-approval claim-to-proof check](../pr-lifecycle/SKILL.md#the-autonomous-completion-loop) (reconcile each headline claim against its real caller, source events/arithmetic, and exact reviewed artifacts; missing proof remains `UNVERIFIED`).
+Drive the PR through the [pr-lifecycle completion loop](../pr-lifecycle/SKILL.md#the-autonomous-completion-loop), which owns route selection, gate order, obligation records, asynchronous work, evidence applicability and final claim-to-proof checks. Load [six-stage.md](../pr-lifecycle/six-stage.md) only when the target repository opts into that workflow, and the relevant [on-demand routing/recovery references](../pr-lifecycle/SKILL.md#review-obligations-by-changed-claim-and-risk) when their decisions are needed. Open new PRs as drafts; undraft only after its applicable draft gates pass.
 
 ## Boundaries
 

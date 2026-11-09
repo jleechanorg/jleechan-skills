@@ -72,6 +72,33 @@ required safety/security notices, and obey tool, permission, and instruction
 rules. Do not lie, conceal evidence, or claim unverified success to avoid a
 qualifier. Fulfill those duties directly and keep discretionary commentary out.
 
+## PR body prose review and publication
+
+Use this owner when reviewing or preparing a PR description. Review the exact
+prepared body bytes and record its SHA-256 plus hashes for each reviewed
+human-judgment section. These include Summary, Background, Goals, User Story,
+Tenets, Changes by Area, validation/evidence claims, risks/limits, and
+out-of-scope claims. Classify every byte-level difference from the reviewed
+candidate. Material or unknown changes to human-judgment claims need affected
+prose review under the applicable route; retain any source-review independence
+or quorum requirements. Reuse a completed prose review for byte-identical human
+sections only after inspecting the complete body delta. Mechanical stage/status
+and receipt-index synchronization needs field validation against the actual
+receipts, not another full prose pass; it cannot change a verdict or supply
+missing coverage. A changed status that asserts an unsupported outcome fails
+that validation. Preserve the required User Story, line deltas, review ledger
+and other repository-required fields.
+
+A prepared body is a proposed publication, not proof of live PR state. Before
+publication, check the candidate body against current source, receipts, checks,
+and review coverage. A stale live title or stage marker alone is not grounds to
+reject prepared body content or require source/prose rereview when the proposed
+transition's prerequisites are proven; update the marker as part of publication.
+After every body write, read back the complete published body and verify its
+exact content and current head/receipt references. If publication is partial,
+uncertain, or fails readback, report that state and leave readiness unclaimed:
+a prepared body cannot establish live `READY` or `FINAL_READY`.
+
 ## Universal lanes
 
 1. **Truth & contract** — every claim in the doc matches its source.
