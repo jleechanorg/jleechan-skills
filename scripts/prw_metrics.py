@@ -434,6 +434,11 @@ SUMMARY_SCHEMA = {
                 "duplicate_usage_records": _SC, "outside_window_records": _SC, "undated_records": _SC,
                 "human_candidates": _SC, "human_verified": _SC, "human_unannotated": _SC,
                 "pr_bound_usage_records": _SC, "malformed_lines": _SC, "read_errors": _SC,
+                "source_quality": _SC,
+                "source_exports": [{"status": _SC, "window_start": _SC, "window_end": _SC,
+                                    "roots_requested": _SC, "roots_available": _SC, "missing_roots": _SC,
+                                    "files_scanned": _SC, "duplicate_files": _SC,
+                                    "malformed_lines": _SC, "read_errors": _SC}],
             },
         },
         "unallocated": {"known_cost_usd": _SC, "event_count": _SC, "unknown_cost_events": _SC},
@@ -4782,8 +4787,15 @@ def main():
                     history_data["stats"] = replay["stats"]
                 else:
                     for key, value in replay["stats"].items():
-                        if isinstance(value, int) and not isinstance(value, bool):
+                        if key == "source_exports":
+                            history_data["stats"][key].extend(value)
+                        elif isinstance(value, int) and not isinstance(value, bool):
                             history_data["stats"][key] += value
+            quality = [item["status"] for item in history_data["stats"]["source_exports"]]
+            history_data["stats"]["source_quality"] = next(
+                (status for status in ("FAILED", "PARTIAL", "UNKNOWN", "COMPLETE") if status in quality),
+                "UNKNOWN",
+            )
             seen_replay_usage = set()
             duplicate_replay_usage = 0
             for row in history_data["usage_records"]:
@@ -4867,7 +4879,7 @@ def main():
     if history_data:
         native_events = load_usage_events(history_data["usage_records"])
         events.extend(native_events)
-    if not events and not args.usage_events and not collected.get("usage_events") and not history_roots:
+    if not events and not args.usage_events and not collected.get("usage_events") and not history_roots and not history_data:
         events = None
     if events is not None:
         usage_events = events
@@ -5819,6 +5831,15 @@ def render_usage_summary(summary):
             f"- {source_label}: {native_status} ({native_counts}); "
             f"scope: {native_scope}."
         )
+        if native_status == "REPLAYED":
+            exports = native_source.get("source_exports", [])
+            details = "; ".join(
+                f"export {index}: {item.get('status', 'UNKNOWN')}, "
+                f"window {item.get('window_start', 'UNKNOWN')} to {item.get('window_end', 'UNKNOWN')}, "
+                f"malformed={item.get('malformed_lines', 'UNKNOWN')}, read_errors={item.get('read_errors', 'UNKNOWN')}"
+                for index, item in enumerate(exports, 1)
+            )
+            native_line += f"\n- Upstream export quality: {native_source.get('source_quality', 'UNKNOWN')}; {details}."
     else:
         native_line = None
     lines = ["## Usage Cost Summary", "",

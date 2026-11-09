@@ -519,3 +519,61 @@ class NativeUsageCollectorTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class ReplaySourceQualityTests(unittest.TestCase):
+    def test_export_quality_is_allowlisted_and_missing_is_unknown(self):
+        from datetime import datetime, timezone
+        from scripts.native_usage_collector import load_normalized_history
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "partial.jsonl"
+            path.write_text("", encoding="utf-8")
+            sidecar = Path(str(path) + ".stats.json")
+            sidecar.write_text(json.dumps({
+                "status": "PARTIAL", "malformed_lines": 76, "read_errors": 2,
+                "files_scanned": 23, "window_start": "2026-10-26T00:00:00Z",
+                "window_end": "2026-11-09T00:00:00Z", "secret_path": "/secret/private",
+            }), encoding="utf-8")
+            cutoff = datetime(2026, 11, 9, tzinfo=timezone.utc)
+            partial = load_normalized_history(path, cutoff=cutoff)["stats"]
+            self.assertEqual(partial["status"], "REPLAYED")
+            self.assertEqual(partial["malformed_lines"], 0)
+            self.assertEqual(partial["source_exports"][0]["status"], "PARTIAL")
+            self.assertEqual(partial["source_exports"][0]["malformed_lines"], 76)
+            self.assertNotIn("secret", json.dumps(partial))
+            missing = Path(temp) / "missing.jsonl"
+            missing.write_text("", encoding="utf-8")
+            self.assertEqual(load_normalized_history(missing, cutoff=cutoff)["stats"]["source_exports"][0]["status"], "UNKNOWN")
+
+    def test_combined_replay_exposes_upstream_partial_and_unknown(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            partial, missing = root / "one.jsonl", root / "two.jsonl"
+            row = {"record_type": "usage", "provider": "openai", "request_id": "request", "session_id": "session", "timestamp": "2026-11-02T00:00:00Z", "model": "model", "raw_usage": {"input_tokens": 1, "cache_read_input_tokens": 0, "output_tokens": 1}}
+            partial.write_text(json.dumps(row) + "\n", encoding="utf-8")
+            missing.write_text("", encoding="utf-8")
+            Path(str(partial) + ".stats.json").write_text(json.dumps({
+                "status": "PARTIAL", "malformed_lines": 76, "read_errors": 0,
+                "window_start": "2026-10-26T00:00:00Z", "window_end": "2026-11-09T00:00:00Z",
+                "secret_path": "/private/secret",
+            }), encoding="utf-8")
+            output = root / "report.md"
+            cmd = [sys.executable, "scripts/prw_metrics.py", "--offline", "--history-replay", str(partial), "--history-replay", str(missing), "--cutoff", "2026-11-09T00:00:00Z", "--output", str(output)]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            text = output.read_text(encoding="utf-8")
+            self.assertIn("Upstream export quality: PARTIAL", text)
+            self.assertIn("export 1: PARTIAL", text)
+            self.assertIn("malformed=76", text)
+            self.assertIn("export 2: UNKNOWN", text)
+            self.assertIn("malformed_lines=0", text)
+            self.assertNotIn("/private/secret", text)
+
+    def test_empty_replay_still_reports_unknown_source_quality(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source, output = root / "empty.jsonl", root / "report.md"
+            source.write_text("", encoding="utf-8")
+            cmd = [sys.executable, "scripts/prw_metrics.py", "--offline", "--history-replay", str(source), "--cutoff", "2026-11-09T00:00:00Z", "--output", str(output)]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("Upstream export quality: UNKNOWN", output.read_text(encoding="utf-8"))

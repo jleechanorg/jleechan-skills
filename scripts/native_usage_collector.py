@@ -90,6 +90,39 @@ def _load_replay_annotations(path):
     return annotations
 
 
+def _export_source_quality(path, start, cutoff):
+    """Retain only source-quality fields from an export's companion receipt."""
+    result = {"status": "UNKNOWN"}
+    try:
+        data = json.loads(Path(str(path) + ".stats.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError, UnicodeError):
+        return result
+    if not isinstance(data, dict):
+        return result
+    status = data.get("status")
+    if status not in ("COMPLETE", "PARTIAL", "FAILED"):
+        return result
+    result["status"] = status
+    for key in ("roots_requested", "roots_available", "missing_roots", "files_scanned",
+                "duplicate_files", "malformed_lines", "read_errors"):
+        value = data.get(key)
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            result[key] = value
+    for key in ("window_start", "window_end"):
+        value = _parse_utc_instant(data.get(key))
+        if value:
+            result[key] = format_iso_utc(value)
+    if status == "COMPLETE":
+        source_start = _parse_utc_instant(result.get("window_start"))
+        source_end = _parse_utc_instant(result.get("window_end"))
+        if not source_start or not source_end:
+            result["status"] = "UNKNOWN"
+        elif (source_start > start or source_end < cutoff or result.get("missing_roots", 0)
+              or result.get("malformed_lines", 0) or result.get("read_errors", 0)):
+            result["status"] = "PARTIAL"
+    return result
+
+
 def load_normalized_history(path, cutoff, days=14, annotation_path=None):
     """Replay a typed normalized export without reopening native history sources."""
     if isinstance(cutoff, datetime) and cutoff.tzinfo:
@@ -115,6 +148,7 @@ def load_normalized_history(path, cutoff, days=14, annotation_path=None):
         ),
         window_start=format_iso_utc(start), window_end=format_iso_utc(cutoff),
     )
+    stats["source_exports"] = [_export_source_quality(path, start, cutoff)]
     annotations = _load_replay_annotations(annotation_path)
     seen_usage = set()
     with Path(path).open(encoding="utf-8") as stream:
