@@ -3862,7 +3862,7 @@ def aggregate_native_human_steering(
             "branch_only_candidates": 0, "initial_requests": 0,
             "human_nudge_messages": 0, "human_nudge_episodes": 0,
             "message_kind_counts": {}, "reviewed_scores": [],
-            "followup_episodes": 0,
+            "verified_followup_messages": 0, "followup_episodes": 0,
             "episodes_by_quality": {"good": 0, "bad": 0, "mixed": 0, "unknown": 0},
             "association_basis": set(), "coverage_status": "UNKNOWN",
             "association_confidence": "UNKNOWN", "_episode_labels": {},
@@ -4139,6 +4139,7 @@ def aggregate_native_human_steering(
                 if not episode_id:
                     coverage["followups_without_episode_id"] += 1
                 else:
+                    row["verified_followup_messages"] += 1
                     row["_episode_labels"].setdefault(
                         str(episode_id), set()
                     ).add(quality_label)

@@ -396,7 +396,15 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                             if request:
                                 seen_usage.add(key)
                             usage.append(record)
-                            exported.append(dict(record, record_type="usage"))
+                            export_record = dict(record, record_type="usage")
+                            export_record["attributions"] = [
+                                {
+                                    **attr,
+                                    "rationale": "retained" if attr.get("rationale") else "",
+                                }
+                                for attr in record.get("attributions", [])
+                            ]
+                            exported.append(export_record)
                             stats["usage_records_in_window"] += 1
                         else:
                             aliases = []

@@ -286,7 +286,8 @@ class NativeUsageCollectorTests(unittest.TestCase):
             "provider": "openai", "request_id": "response-1",
             "pr_binding": {
                 "pr": "example/repo#42", "weight": "1", "method": "direct",
-                "receipt_refs": ["receipt-42"], "rationale": "reviewed exact request binding",
+                "receipt_refs": ["receipt-42"],
+                "rationale": "PRIVATE_BINDING_RATIONALE_FIXTURE",
             },
         }) + "\n", encoding="utf-8")
         data = collect_native_history(
@@ -295,6 +296,15 @@ class NativeUsageCollectorTests(unittest.TestCase):
         self.assertEqual(data["stats"]["pr_bound_usage_records"], 1)
         self.assertEqual(data["usage_records"][0]["attributions"][0]["pr"], "example/repo#42")
         self.assertEqual(data["usage_records"][0]["attributions"][0]["receipt_refs"], ["receipt-42"])
+        self.assertEqual(
+            data["usage_records"][0]["attributions"][0]["rationale"],
+            "PRIVATE_BINDING_RATIONALE_FIXTURE",
+        )
+        exported = next(
+            row for row in data["export_records"] if row.get("record_type") == "usage"
+        )
+        self.assertEqual(exported["attributions"][0]["rationale"], "retained")
+        self.assertNotIn("PRIVATE_BINDING_RATIONALE_FIXTURE", json.dumps(exported))
 
     def test_prw_cli_collects_explicit_history_from_external_working_directory(self):
         secret = "EXTERNAL_CWD_PROMPT_MUST_NOT_LEAK"

@@ -356,8 +356,6 @@ SELECT
         AS direct_candidates,
     TRY_CAST(json_extract_string(person.value, '$.branch_associated_candidates') AS BIGINT)
         AS branch_associated_candidates,
-    TRY_CAST(json_extract_string(person.value, '$.ambiguous_candidate_count') AS BIGINT)
-        AS ambiguous_candidate_count,
     TRY_CAST(json_extract_string(person.value, '$.initial_requests') AS BIGINT)
         AS verified_initial_human_message_count,
     TRY_CAST(json_extract_string(person.value, '$.verified_followup_messages') AS BIGINT)
@@ -391,12 +389,13 @@ SELECT
         OR COUNT(DISTINCT branch_associated_verified_human_message_count) > 1
         OR COUNT(DISTINCT direct_candidates) > 1
         OR COUNT(DISTINCT branch_associated_candidates) > 1
-        OR COUNT(DISTINCT ambiguous_candidate_count) > 1
         OR COUNT(DISTINCT verified_initial_human_message_count) > 1
         OR COUNT(DISTINCT verified_followup_human_message_count) > 1
         OR COUNT(DISTINCT reviewed_followup_episode_count) > 1
     ) AS human_summary_conflict,
-    CASE WHEN COUNT(DISTINCT raw_verified_human_message_count) <= 1
+    CASE WHEN COUNT(DISTINCT human_coverage_status) = 1
+              AND MIN(human_coverage_status) = 'OBSERVED_SCOPE_ONLY'
+              AND COUNT(DISTINCT raw_verified_human_message_count) <= 1
         THEN MIN(raw_verified_human_message_count) END AS raw_verified_human_message_count,
     CASE WHEN COUNT(DISTINCT direct_verified_human_message_count) <= 1
         THEN MIN(direct_verified_human_message_count) END AS direct_verified_human_message_count,
@@ -407,15 +406,19 @@ SELECT
         THEN MIN(direct_candidates) END AS direct_candidates,
     CASE WHEN COUNT(DISTINCT branch_associated_candidates) <= 1
         THEN MIN(branch_associated_candidates) END AS branch_associated_candidates,
-    CASE WHEN COUNT(DISTINCT ambiguous_candidate_count) <= 1
-        THEN MIN(ambiguous_candidate_count) END AS ambiguous_candidate_count,
-    CASE WHEN COUNT(DISTINCT verified_initial_human_message_count) <= 1
+    CASE WHEN COUNT(DISTINCT human_coverage_status) = 1
+              AND MIN(human_coverage_status) = 'OBSERVED_SCOPE_ONLY'
+              AND COUNT(DISTINCT verified_initial_human_message_count) <= 1
         THEN MIN(verified_initial_human_message_count) END
         AS verified_initial_human_message_count,
-    CASE WHEN COUNT(DISTINCT verified_followup_human_message_count) <= 1
+    CASE WHEN COUNT(DISTINCT human_coverage_status) = 1
+              AND MIN(human_coverage_status) = 'OBSERVED_SCOPE_ONLY'
+              AND COUNT(DISTINCT verified_followup_human_message_count) <= 1
         THEN MIN(verified_followup_human_message_count) END
         AS verified_followup_human_message_count,
-    CASE WHEN COUNT(DISTINCT reviewed_followup_episode_count) <= 1
+    CASE WHEN COUNT(DISTINCT human_coverage_status) = 1
+              AND MIN(human_coverage_status) = 'OBSERVED_SCOPE_ONLY'
+              AND COUNT(DISTINCT reviewed_followup_episode_count) <= 1
         THEN MIN(reviewed_followup_episode_count) END AS reviewed_followup_episode_count,
     CASE WHEN COUNT(DISTINCT good_episode_count) <= 1
         THEN MIN(good_episode_count) END AS good_episode_count,
@@ -669,7 +672,6 @@ SELECT
     h.branch_associated_verified_human_message_count,
     h.direct_candidates,
     h.branch_associated_candidates,
-    h.ambiguous_candidate_count,
     h.verified_initial_human_message_count,
     h.verified_followup_human_message_count,
     h.reviewed_followup_episode_count,

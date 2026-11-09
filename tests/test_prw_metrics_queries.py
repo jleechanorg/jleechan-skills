@@ -7,8 +7,8 @@ import unittest
 from pathlib import Path
 
 from scripts.prw_metrics import (
-    _merge_pr_branch_metadata, aggregate_usage, load_rate_table,
-    render_prw_query_summary,
+    _merge_pr_branch_metadata, aggregate_native_human_steering, aggregate_usage,
+    load_rate_table, render_prw_query_summary,
 )
 from scripts.prw_metrics_queries import run_query
 
@@ -894,6 +894,54 @@ class TestPRWMetricsQueries(unittest.TestCase):
         human_table = markdown.split("### Per-PR human steering", 1)[1]
         self.assertIn("| example/repo#5 | UNKNOWN | UNKNOWN | UNKNOWN |", human_table)
         self.assertIn("| example/repo#6 | 0 | 0 | 0 |", human_table)
+
+    def test_native_human_steering_flows_through_query_with_truthful_counts(self):
+        prs = [
+            {"repo": "example/repo", "number": number, "state": "OPEN",
+             "createdAt": "2026-10-01T00:00:00Z", "mergedAt": None,
+             "closedAt": None}
+            for number in (5, 6, 7)
+        ]
+        events = [
+            {
+                "event_id": "followup", "provider": "anthropic",
+                "timestamp": "2026-11-04T10:00:00Z",
+                "origin_status": "verified_human",
+                "pr_binding": {"pr": "example/repo#5"},
+                "episode_id": "episode-followup", "episode_role": "followup",
+                "quality_label": "good",
+            },
+            {
+                "event_id": "initial", "provider": "anthropic",
+                "timestamp": "2026-11-04T11:00:00Z",
+                "origin_status": "verified_human",
+                "pr_binding": {"pr": "example/repo#6"},
+                "episode_id": "episode-initial", "episode_role": "initial",
+                "message_kind": "initial_task",
+            },
+        ]
+        human_summary = aggregate_native_human_steering(
+            events, prs, window_start="2026-10-26T00:00:00Z",
+            window_end=self.CUTOFF,
+        )
+        result = run_query(
+            events_path=[], pr_snapshots_path=prs, human_summary_path=human_summary,
+            snapshot_at_utc=self.CUTOFF,
+        )
+
+        rows = {row["pr_number"]: row for row in result["pr_metrics"]}
+        self.assertEqual(rows[5]["verified_followup_human_message_count"], 1)
+        self.assertEqual(rows[5]["reviewed_followup_episode_count"], 1)
+        self.assertEqual(rows[6]["verified_followup_human_message_count"], 0)
+        self.assertEqual(rows[6]["reviewed_followup_episode_count"], 0)
+        self.assertIsNone(rows[7]["raw_verified_human_message_count"])
+        self.assertIsNone(rows[7]["verified_initial_human_message_count"])
+        self.assertIsNone(rows[7]["verified_followup_human_message_count"])
+        self.assertIsNone(rows[7]["reviewed_followup_episode_count"])
+        rendered = render_prw_query_summary(result)
+        human_table = rendered.split("### Per-PR human steering", 1)[1]
+        self.assertIn("| example/repo#6 | 1 | 1 | 0 |", human_table)
+        self.assertIn("| example/repo#7 | UNKNOWN | UNKNOWN | UNKNOWN |", human_table)
 
     def test_query_accepts_canonical_in_memory_events_and_human_summary(self):
         pr = "example-org/repo-alpha#1"
