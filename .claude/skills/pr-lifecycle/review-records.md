@@ -126,6 +126,15 @@ At already-observed transitions (e.g. evidence ready, review requested, review s
 
 Existing PR description ledgers and attempt receipts remain the single authoritative record; optional transition receipts are strictly observational projections used for offline dashboard aggregation.
 
+### Optional PRW measurement feed
+
+During a configured PRW measurement, the active owner may append one observed transition per JSON line to PRW_METRICS_RECEIPTS_DIR/transition-events.jsonl. This uses the existing receipts directory; it adds no runner, service, hook, or PR gate. For the dashboard pairing, include event_id, event_type, occurred_at, observed_at, pr_id, candidate_sha, and attempt_number. Other optional receipt fields are not required by this metric.
+
+- occurred_at is the event clock used for duration; observed_at records when the receipt was captured and is audit metadata only.
+- Record actual_review_started only when substantive inspection is observed to begin. A request, assignment, acknowledgment, or status message is not an actual review start.
+- The dashboard pairs records only when PR, candidate SHA, and attempt number match exactly. Missing endpoints, malformed receipts, and unmatched records remain UNKNOWN.
+- Receipt recording and reading are optional and non-blocking. A missing/unreadable receipt feed never delays, rejects, or blocks authorized PR work.
+
 ### Evidence readiness, censoring, and waiting rules
 
 - **Evidence readiness**: Required proof is complete, readable, and available to the reviewer at its recorded candidate SHA.

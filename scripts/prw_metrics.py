@@ -4,7 +4,8 @@ PRW Metrics Dashboard Collector, Aggregator, Renderer, and Publisher.
 
 Architecture:
 - Collector: Reusable ingestion from live GitHub API (gh CLI) or cached JSON datasets.
-- MetricsAggregator: Exact half-open window arithmetic, nearest-rank p75, and honest idle boundaries.
+- MetricsAggregator: Exact half-open window arithmetic, nearest-rank percentiles, and
+  honest idle boundaries.
 - DashboardRenderer: 6-section GitHub-flavored Markdown report.
 - Publisher: Scoped git publisher using isolated index files without touching working trees.
 
@@ -80,19 +81,28 @@ def format_duration(seconds):
     return f"{h}h {m:02d}m {s:02d}s ({hrs:.2f}h)"
 
 
+def calculate_nearest_rank_percentile(values, percentile):
+    """Return a nearest-rank percentile (1-100), or None for an empty sample."""
+    if not values:
+        return None
+    sorted_list = sorted(values)
+    rank = math.ceil((percentile / 100.0) * len(sorted_list))
+    return float(sorted_list[max(0, min(len(sorted_list) - 1, rank - 1))])
+
+
 def calculate_nearest_rank_p75(values):
-    """
-    Calculate 75th percentile using nearest-rank method:
-    k = math.ceil(0.75 * n)
-    index = k - 1 (0-indexed)
-    """
+    """Calculate the legacy nearest-rank p75; empty samples retain the old 0.0 API."""
     if not values:
         return 0.0
-    sorted_list = sorted(values)
-    n = len(sorted_list)
-    k = math.ceil(0.75 * n)
-    idx = max(0, min(n - 1, k - 1))
-    return float(sorted_list[idx])
+    return calculate_nearest_rank_percentile(values, 75)
+
+
+def calculate_nearest_rank_percentiles(values):
+    """Return nearest-rank p50/p90/p99; empty samples are UNKNOWN (None)."""
+    return {
+        f"p{percentile}": calculate_nearest_rank_percentile(values, percentile)
+        for percentile in (50, 90, 99)
+    }
 
 
 def calculate_median(values):
@@ -226,6 +236,8 @@ def redact_sensitive_excerpt(text, max_chars=200):
     s = re.sub(r"Bearer\s+\S+", "Bearer [REDACTED]", s)
     # Redact OTP / verification codes
     s = re.sub(r"(?i)(otp|passcode|verification\s*code|auth\s*code)\s*[:=]?\s*\d{4,8}", r"\1: [REDACTED]", s)
+    # Labeled password values may contain spaces when quoted.
+    s = re.sub(r'''(?i)\b(password)\b(\s*(?:is\s+|[:=]\s*))(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;]+)''', r"\1\2[REDACTED]", s)
     # Absolute POSIX / home paths carry host and user identity; URLs and relative paths are untouched
     s = re.sub(r"(?<![\w:/.~$-])(?:~|\$HOME)?(?:/[\w.@+%=,-]+){2,}/?", "[PATH]", s)
     if len(s) > max_chars:
@@ -239,7 +251,8 @@ _SLUG_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 # Minimal retained-publication schema: only these scalar fields leave the host.
 # Raw source text (messages, transcripts, excerpts, rationales) is never retained.
 RETAINED_EVENT_FIELDS = frozenset({
-    "event_id", "agent_id", "worker_id", "event_type", "occurred_at", "pr_number", "number", "repo", "span_kind",
+    "event_id", "agent_id", "worker_id", "event_type", "occurred_at", "pr_id", "observed_at",
+    "pr_number", "number", "repo", "span_kind",
     "start_at", "start", "started_at", "end_at", "end", "completed_at", "duration_sec",
 })
 RETAINED_EPISODE_FIELDS = frozenset({
@@ -254,7 +267,7 @@ RETAINED_EPISODE_FIELDS = frozenset({
 RETAINED_PR_FIELDS = frozenset({
     "number", "repo", "title", "operational_status", "operational_detail", "legacy_stage", "state",
     "isDraft", "createdAt", "updatedAt", "mergedAt", "closedAt", "additions", "deletions",
-    "changedFiles", "headRefOid", "labels", "url", "stage_transitions", "has_continuous_observation",
+    "changedFiles", "headRefOid", "headRefName", "labels", "url", "stage_transitions", "has_continuous_observation",
     "telemetry_coverage", "eligible_intervals", "evidence_ready_at", "review_requested_at",
     "actual_review_started_at", "queued_at", "review_returned_at", "review_completed_at",
     "next_action_started_at", "authority_ready_at", "final_ready", "merge_authority",
@@ -269,6 +282,7 @@ RETAINED_TIMELINE_FIELDS = frozenset({
 })
 RETAINED_HANDOFF_FIELDS = frozenset({
     "attempt", "attempt_number", "candidate_sha", "head_sha", "receipt_id", "source_receipt", "repo",
+    "record_type", "event_id", "event_type", "occurred_at", "observed_at", "pr_id",
     "number", "pr_number", "pr_url", "status", "transition", "name", "final_ready", "merge_authority",
     "duration_sec", "start_at", "started_at", "end_at", "completed_at", "evidence_ready_at",
     "review_requested_at", "actual_review_started_at", "queued_at", "review_returned_at",
@@ -333,11 +347,27 @@ SUMMARY_SCHEMA = {
     "repo_comparison": [{k: _SC for k in (
         "repo", "created", "created_w1", "created_w2", "merged_w1", "merged_w2", "closed_unmerged_w1",
         "closed_unmerged_w2", "current_closed_unmerged", "still_open", "w1_all_median_hours",
-        "w1_all_p75_hours", "all_median_hours", "all_p75_hours", "w1_comp_median_hours",
-        "w1_comp_p75_hours", "comp_median_hours", "comp_p75_hours", "w1_backlog_n",
-        "w1_backlog_median_hours", "backlog_n", "backlog_median_hours")}],
-    "stage_dwell": [{k: _SC for k in ("stage", "median_h", "p75_h", "n", "total_n", "conflicts")}],
-    "handoffs": [{k: _SC for k in ("name", "observed_n", "sample_n", "total_n", "median_sec", "p75_sec", "status")}],
+        "w1_all_p75_hours", "w1_all_p50_hours", "w1_all_p90_hours", "w1_all_p99_hours",
+        "all_median_hours", "all_p75_hours", "all_p50_hours", "all_p90_hours",
+        "all_p99_hours", "w1_comp_median_hours", "w1_comp_p75_hours",
+        "w1_comp_p50_hours", "w1_comp_p90_hours",
+        "w1_comp_p99_hours", "comp_median_hours", "comp_p75_hours", "comp_p50_hours",
+        "comp_p90_hours", "comp_p99_hours", "w1_backlog_n", "w1_backlog_median_hours",
+        "w1_backlog_p50_hours", "w1_backlog_p90_hours", "w1_backlog_p99_hours",
+        "backlog_n", "backlog_median_hours", "backlog_p50_hours", "backlog_p90_hours",
+        "backlog_p99_hours",
+        "d14_all_n", "d14_all_p50_hours", "d14_all_p90_hours", "d14_all_p99_hours",
+        "d14_comp_n", "d14_comp_p50_hours", "d14_comp_p90_hours", "d14_comp_p99_hours",
+        "d14_backlog_n", "d14_backlog_p50_hours", "d14_backlog_p90_hours",
+        "d14_backlog_p99_hours")}],
+    "stage_dwell": [{k: _SC for k in (
+        "stage", "median_h", "p75_h", "p50_h", "p90_h", "p99_h", "sample_n", "n",
+        "total_n", "conflicts")}],
+    "handoffs": [{k: _SC for k in (
+        "name", "observed_n", "sample_n", "total_n", "median_sec", "p75_sec",
+        "p50_sec", "p90_sec", "p99_sec", "status", "receipt_status",
+        "receipt_events_seen", "receipt_events_valid", "receipt_pairs",
+        "receipt_events_unmatched", "receipt_parse_errors", "receipt_read_errors")}],
     "open_prs_known_idle": [_ATTENTION_ROW],
     "open_prs_unknown_idle": [_ATTENTION_ROW],
     "time_semantics_pilot": [{k: _SC for k in (
@@ -353,14 +383,69 @@ SUMMARY_SCHEMA = {
         "pr_attributed_count": _SC, "unassigned_count": _SC, "post_merge_count": _SC,
         "channel_coverage": {"dot_history": _SC}, "retention_status": _SC,
     },
+    "human_summary": {
+        "coverage": {
+            "source_status": _SC, "runtime_coverage": _SC, "verified_messages": _SC,
+            "candidate_messages": _SC, "assigned_verified_messages": _SC,
+            "unassigned_verified_messages": _SC, "unassigned_candidates": _SC,
+            "branch_only_messages": _SC, "ambiguous_branch_messages": _SC,
+            "unmatched_direct_bindings": _SC,
+            "reviewed_unassigned_messages": _SC, "multi_pr_unassigned_messages": _SC,
+            "global_scope_unassigned_messages": _SC, "no_single_pr_unassigned_messages": _SC,
+            "reviewed_context_confirmed_messages": _SC, "reviewed_context_override_messages": _SC,
+            "automated_excluded_messages": _SC, "human_nudge_messages": _SC,
+            "human_nudge_episodes": _SC, "unassigned_nudge_episodes": _SC,
+            "unassigned_followup_episodes": _SC,
+            "unassigned_episodes_by_quality": {
+                key: _SC for key in ("good", "bad", "mixed", "unknown")
+            },
+            "followups_without_episode_id": _SC, "deduplicated_records": _SC,
+            "reviewed_score_observations": _SC, "message_kind_counts": ("map", _SC),
+            "branch_lookup_cache_sha256": _SC, "branch_lookup_fetched_at": _SC,
+            "branch_lookup_pr_count": _SC, "repository_map_entries": _SC,
+            "repository_map_resolved_events": _SC,
+        },
+        "per_pr": [{
+            "pr": _SC, "url": _SC, "coverage_status": _SC, "raw_verified_messages": _SC,
+            "direct_verified_messages": _SC, "context_associated_verified_messages": _SC,
+            "branch_associated_verified_messages": _SC, "branch_only_associated_verified_messages": _SC,
+            "direct_candidates": _SC, "context_candidates": _SC,
+            "branch_associated_candidates": _SC, "branch_only_candidates": _SC,
+            "initial_requests": _SC, "human_nudge_messages": _SC, "human_nudge_episodes": _SC,
+            "verified_followup_messages": _SC,
+            "message_kind_counts": ("map", _SC), "reviewed_scores": [_SC],
+            "followup_episodes": _SC,
+            "episodes_by_quality": {key: _SC for key in ("good", "bad", "mixed", "unknown")},
+            "association_basis": [_SC], "association_confidence": _SC,
+        }],
+    },
     "usage_summary": {
         "label": _SC, "source_records": _SC, "event_count": _SC, "priced_event_count": _SC,
         "partially_priced_event_count": _SC, "unknown_event_count": _SC, "known_cost_usd": _SC,
         "reasoning_tokens": _SC, "scope": _SC, "window_start": _SC, "window_end": _SC,
         "outside_window_count": _SC, "undated_count": _SC,
-        "coverage": {"providers": [_SC], "models": [_SC], "service_tiers": [_SC], "regions": [_SC], "speeds": [_SC], "session_count": _SC},
+        "coverage": {
+            "providers": [_SC], "models": [_SC], "service_tiers": [_SC], "regions": [_SC],
+            "speeds": [_SC], "session_count": _SC,
+            "native_source": {
+                "status": _SC, "runtime_coverage": _SC, "window_start": _SC, "window_end": _SC,
+                "roots_requested": _SC, "roots_available": _SC, "missing_roots": _SC,
+                "files_scanned": _SC, "duplicate_files": _SC, "usage_records_in_window": _SC,
+                "duplicate_usage_records": _SC, "outside_window_records": _SC, "undated_records": _SC,
+                "human_candidates": _SC, "human_verified": _SC, "human_unannotated": _SC,
+                "pr_bound_usage_records": _SC, "malformed_lines": _SC, "read_errors": _SC,
+                "source_quality": _SC,
+                "source_exports": [{"status": _SC, "window_start": _SC, "window_end": _SC,
+                                    "roots_requested": _SC, "roots_available": _SC, "missing_roots": _SC,
+                                    "files_scanned": _SC, "duplicate_files": _SC,
+                                    "malformed_lines": _SC, "read_errors": _SC}],
+            },
+        },
         "unallocated": {"known_cost_usd": _SC, "event_count": _SC, "unknown_cost_events": _SC},
         "tokens_by_bucket": ("map", _SC),
+        "pr_cost_distribution": {
+            "n": _SC, "p50_usd": _SC, "p90_usd": _SC, "p99_usd": _SC,
+        },
         "prs": ("map", {"known_cost_usd": _SC, "unknown": _SC, "event_count": _SC, "pricing_status": _SC}),
         "events": [{"status": _SC, "known_cost_usd": _SC, "unknown_buckets": ("map", _SC), "tokens_by_bucket": ("map", _SC)}],
         "rate_records": [{k: _SC for k in ("provider", "sku", "bucket", "price_per_million", "currency", "source_url", "current_confirmation_url", "rate_basis", "unit", "service_tier", "inference_geo", "speed", "retrieved_at", "effective_from", "effective_to")}],
@@ -749,6 +834,10 @@ class Collector:
         self.repos = repos or []
         self.cutoff_dt = cutoff_dt or datetime.now(timezone.utc)
         self.source_manifest = {}
+        self.receipt_scan_stats = {
+            "status": "NOT_CONFIGURED", "files_scanned": 0, "receipt_events_seen": 0,
+            "receipt_parse_errors": 0, "receipt_read_errors": 0,
+        }
 
     def deduplicate_prs(self, prs):
         """
@@ -875,6 +964,9 @@ class Collector:
             head_sha = p.get("headRefOid")
         elif p.get("head_sha"):
             head_sha = p.get("head_sha")
+        head_branch = p.get("headRefName") or p.get("head_ref_name")
+        if not head_branch and isinstance(p.get("head"), dict):
+            head_branch = p["head"].get("ref")
 
         url = p.get("html_url") or p.get("url")
         repo = p.get("repo") or default_repo
@@ -925,6 +1017,7 @@ class Collector:
             "deletions": int(p.get("deletions") or 0),
             "changedFiles": int(p.get("changed_files") or p.get("changedFiles") or 0),
             "headRefOid": head_sha,
+            "headRefName": head_branch,
             "labels": norm_labels,
             "url": url,
             # Telemetry, handoff, and stage fields
@@ -1147,30 +1240,79 @@ class Collector:
         return self.deduplicate_events(norm_events)
 
     def collect_receipts_from_dir(self, receipts_dir):
-        """
-        Ingest receipt files (run.stats.json, start_*.json, completion_*.json) from a directory.
-        """
+        """Read optional attempt receipts and path-free canonical transition events."""
         records = []
-        if not receipts_dir or not os.path.isdir(receipts_dir):
+        stats = {
+            "status": "NOT_CONFIGURED", "files_scanned": 0, "receipt_events_seen": 0,
+            "receipt_parse_errors": 0, "receipt_read_errors": 0,
+        }
+        if not receipts_dir:
+            self.receipt_scan_stats = stats
+            return records
+        if not os.path.isdir(receipts_dir):
+            stats.update({"status": "UNAVAILABLE", "receipt_read_errors": 1})
+            self.receipt_scan_stats = stats
             return records
 
-        for root, _, files in os.walk(receipts_dir):
-            for fname in files:
-                if fname in ("run.stats.json", "start.json", "completion.json") or (fname.startswith(("start_", "completion_")) and fname.endswith(".json")):
-                    fpath = os.path.join(root, fname)
+        json_receipts = {"run.stats.json", "start.json", "completion.json"}
+        for root, dirs, files in os.walk(receipts_dir):
+            dirs.sort()
+            for fname in sorted(files):
+                fpath = os.path.join(root, fname)
+                if fname in json_receipts or (
+                    fname.startswith(("start_", "completion_")) and fname.endswith(".json")
+                ):
                     try:
-                        with open(fpath, "r", encoding="utf-8") as f:
-                            data = json.load(f)
+                        with open(fpath, "r", encoding="utf-8") as stream:
+                            data = json.load(stream)
                         if isinstance(data, dict):
-                            data["source_receipt"] = fpath
-                            records.append(data)
+                            records.append(dict(data, source_receipt=fpath))
                         elif isinstance(data, list):
-                            for item in data:
-                                if isinstance(item, dict):
-                                    item["source_receipt"] = fpath
-                                    records.append(item)
-                    except Exception:
-                        pass
+                            records.extend(
+                                dict(item, source_receipt=fpath)
+                                for item in data if isinstance(item, dict)
+                            )
+                    except OSError:
+                        stats["receipt_read_errors"] += 1
+                        continue
+                    except (json.JSONDecodeError, UnicodeDecodeError):
+                        stats["receipt_parse_errors"] += 1
+                        continue
+                elif fname == "transition-events.jsonl":
+                    stats["files_scanned"] += 1
+                    try:
+                        with open(fpath, "rb") as stream:
+                            for raw_line in stream:
+                                if not raw_line.strip():
+                                    continue
+                                try:
+                                    item = json.loads(raw_line)
+                                except (json.JSONDecodeError, UnicodeDecodeError):
+                                    stats["receipt_parse_errors"] += 1
+                                    continue
+                                if not isinstance(item, dict):
+                                    stats["receipt_parse_errors"] += 1
+                                    continue
+                                allowed = (
+                                    "event_id", "event_type", "occurred_at", "observed_at",
+                                    "pr_id", "candidate_sha", "attempt_number",
+                                )
+                                receipt = {
+                                    key: item[key] for key in allowed if key in item
+                                }
+                                receipt["record_type"] = "transition_event"
+                                records.append(receipt)
+                                stats["receipt_events_seen"] += 1
+                    except OSError:
+                        stats["receipt_read_errors"] += 1
+
+        if stats["receipt_read_errors"] or stats["receipt_parse_errors"]:
+            stats["status"] = "PARTIAL"
+        elif stats["files_scanned"]:
+            stats["status"] = "COMPLETE"
+        else:
+            stats["status"] = "NOT_COLLECTED"
+        self.receipt_scan_stats = stats
         return records
 
     def load_from_cached_scratch(self, input_dir):
@@ -1615,12 +1757,17 @@ class Collector:
             all_timeline = self.deduplicate_events(live_timeline + cached_timeline)
             handoff_records = list(cached_handoffs)
 
-            # Ingest receipts if receipts_dir or PRW_METRICS_RECEIPTS_DIR is provided
-            r_dir = receipts_dir or os.environ.get("PRW_METRICS_RECEIPTS_DIR")
-            if r_dir:
-                receipt_records = self.collect_receipts_from_dir(r_dir)
-                if receipt_records:
-                    handoff_records.extend(receipt_records)
+        # Optional receipt reads never affect PR collection status or authorization.
+        r_dir = receipts_dir or os.environ.get("PRW_METRICS_RECEIPTS_DIR")
+        if r_dir:
+            receipt_records = self.collect_receipts_from_dir(r_dir)
+            if receipt_records:
+                handoff_records.extend(receipt_records)
+        else:
+            self.receipt_scan_stats = {
+                "status": "NOT_CONFIGURED", "files_scanned": 0, "receipt_events_seen": 0,
+                "receipt_parse_errors": 0, "receipt_read_errors": 0,
+            }
 
         all_prs = self.deduplicate_prs(all_prs)
         all_timeline = self.deduplicate_events(all_timeline)
@@ -1668,6 +1815,7 @@ class Collector:
             "timeline": all_timeline,
             "sources": sources,
             "handoff_records": handoff_records,
+            "handoff_receipt_stats": dict(self.receipt_scan_stats),
             "status": overall_status,
             "pilot_events": pilot_events,
             "human_episodes": human_episodes,
@@ -2227,8 +2375,14 @@ class MetricsAggregator:
         if not merged_prs:
             return {
                 "n": 0, "all_median_hours": "UNKNOWN", "all_p75_hours": "UNKNOWN",
+                "all_p50_hours": "UNKNOWN", "all_p90_hours": "UNKNOWN",
+                "all_p99_hours": "UNKNOWN",
                 "comparable_n": 0, "comp_median_hours": "UNKNOWN", "comp_p75_hours": "UNKNOWN",
+                "comp_p50_hours": "UNKNOWN", "comp_p90_hours": "UNKNOWN",
+                "comp_p99_hours": "UNKNOWN",
                 "backlog_n": 0, "backlog_median_hours": "UNKNOWN", "backlog_p75_hours": "UNKNOWN",
+                "backlog_p50_hours": "UNKNOWN", "backlog_p90_hours": "UNKNOWN",
+                "backlog_p99_hours": "UNKNOWN",
             }
 
         durations_all = []
@@ -2249,17 +2403,32 @@ class MetricsAggregator:
         durations_all.sort()
         durations_comp.sort()
         durations_backlog.sort()
+        all_percentiles = calculate_nearest_rank_percentiles(durations_all)
+        comp_percentiles = calculate_nearest_rank_percentiles(durations_comp)
+        backlog_percentiles = calculate_nearest_rank_percentiles(durations_backlog)
 
         return {
             "n": len(durations_all),
             "all_median_hours": round(calculate_median(durations_all), 2) if durations_all else "UNKNOWN",
             "all_p75_hours": round(calculate_nearest_rank_p75(durations_all), 2) if durations_all else "UNKNOWN",
+            **{
+                f"all_{k}_hours": round(v, 2) if v is not None else "UNKNOWN"
+                for k, v in all_percentiles.items()
+            },
             "comparable_n": len(durations_comp),
             "comp_median_hours": round(calculate_median(durations_comp), 2) if durations_comp else "UNKNOWN",
             "comp_p75_hours": round(calculate_nearest_rank_p75(durations_comp), 2) if durations_comp else "UNKNOWN",
+            **{
+                f"comp_{k}_hours": round(v, 2) if v is not None else "UNKNOWN"
+                for k, v in comp_percentiles.items()
+            },
             "backlog_n": len(durations_backlog),
             "backlog_median_hours": round(calculate_median(durations_backlog), 2) if durations_backlog else "UNKNOWN",
             "backlog_p75_hours": round(calculate_nearest_rank_p75(durations_backlog), 2) if durations_backlog else "UNKNOWN",
+            **{
+                f"backlog_{k}_hours": round(v, 2) if v is not None else "UNKNOWN"
+                for k, v in backlog_percentiles.items()
+            },
         }
 
     def compute_stage_dwell(self, prs, timeline_events=None, stages=None):
@@ -2268,7 +2437,8 @@ class MetricsAggregator:
         Filters timeline_events to only PRs in the passed prs cohort.
         Closes open stages on transition to a subsequent stage or upon terminal merge/close.
         If end_dt < start_dt: increments conflicts for that stage and excludes duration.
-        If end_dt >= start_dt: accumulates duration in hours and computes median and nearest-rank p75.
+        If end_dt >= start_dt: accumulates duration in hours and computes median,
+        p75, p50, p90, and p99.
         """
         if stages is None:
             stages = [
@@ -2400,14 +2570,29 @@ class MetricsAggregator:
             if durs:
                 med_h = round(calculate_median(durs), 2)
                 p75_h = round(calculate_nearest_rank_p75(durs), 2)
+                percentiles = calculate_nearest_rank_percentiles(durs)
             else:
                 med_h = "UNKNOWN"
                 p75_h = "UNKNOWN"
+                percentiles = {"p50": None, "p90": None, "p99": None}
 
             stage_dwell_data.append({
                 "stage": stg,
                 "median_h": med_h,
                 "p75_h": p75_h,
+                "p50_h": (
+                    round(percentiles["p50"], 2)
+                    if percentiles["p50"] is not None else "UNKNOWN"
+                ),
+                "p90_h": (
+                    round(percentiles["p90"], 2)
+                    if percentiles["p90"] is not None else "UNKNOWN"
+                ),
+                "p99_h": (
+                    round(percentiles["p99"], 2)
+                    if percentiles["p99"] is not None else "UNKNOWN"
+                ),
+                "sample_n": len(durs),
                 "n": n,
                 "total_n": total_merged_count,
                 "conflicts": conflicts,
@@ -2461,7 +2646,121 @@ class MetricsAggregator:
             ))
         return out
 
-    def compute_handoff_breakdown(self, prs, handoff_records=None, total_cohort_n=None):
+    def adapt_transition_event_receipts(self, records, prs):
+        """Pair observed event receipts only on exact PR, candidate SHA, and attempt."""
+        transitions = (
+            ("evidence_ready -> review_requested", "evidence_ready", "review_requested"),
+            ("review_requested -> actual_review_started", "review_requested", "actual_review_started"),
+            ("review_return -> next_substantive_action", "review_return", "next_action_started"),
+        )
+        pr_keys = {
+            (str(pr.get("repo")), str(pr.get("number")))
+            for pr in prs
+            if pr.get("repo") and pr.get("number") is not None
+        }
+        stats = {
+            "receipt_events_seen": sum(
+                1 for row in records
+                if isinstance(row, dict) and row.get("record_type") == "transition_event"
+            ),
+            "receipt_events_valid": 0, "receipt_duplicate_events": 0,
+            "receipt_event_conflicts": 0, "receipt_pairs": 0,
+            "receipt_events_unmatched": 0,
+        }
+        by_id = {}
+        conflict_ids = set()
+        for row in records:
+            if not isinstance(row, dict) or row.get("record_type") != "transition_event":
+                continue
+            event_id = _usage_label(row.get("event_id"))
+            event_type = row.get("event_type")
+            pr_id = row.get("pr_id")
+            occurred = _parse_utc_instant(row.get("occurred_at"))
+            candidate_sha = row.get("candidate_sha")
+            attempt = row.get("attempt_number")
+            valid = (
+                event_id and event_type in {
+                    "evidence_ready", "review_requested", "actual_review_started",
+                    "review_return", "next_action_started",
+                }
+                and _safe_pr_id(pr_id) and occurred
+                and isinstance(candidate_sha, str)
+                and re.fullmatch(r"[0-9a-fA-F]{7,40}", candidate_sha) is not None
+                and isinstance(attempt, int) and not isinstance(attempt, bool) and attempt > 0
+            )
+            repo, number = pr_id.rsplit("#", 1) if valid else (None, None)
+            if not valid or (repo, number) not in pr_keys:
+                continue
+            normalized = {
+                "event_id": event_id, "event_type": event_type,
+                "repo": repo, "number": number, "candidate_sha": candidate_sha.lower(),
+                "attempt_number": attempt,
+                "occurred_at": occurred.isoformat(timespec="auto").replace(
+                    "+00:00", "Z"
+                ),
+                "observed_at": row.get("observed_at"),
+            }
+            existing = by_id.get(event_id)
+            if existing is not None:
+                if existing == normalized:
+                    stats["receipt_duplicate_events"] += 1
+                else:
+                    conflict_ids.add(event_id)
+                    stats["receipt_event_conflicts"] += 1
+                continue
+            by_id[event_id] = normalized
+
+        groups = defaultdict(lambda: defaultdict(list))
+        for event_id, row in by_id.items():
+            if event_id in conflict_ids:
+                continue
+            stats["receipt_events_valid"] += 1
+            key = (row["repo"], row["number"], row["candidate_sha"], row["attempt_number"])
+            groups[key][row["event_type"]].append(row)
+
+        pairs = []
+        paired_ids = set()
+        for key, by_type in groups.items():
+            for name, start_type, end_type in transitions:
+                start_rows = by_type.get(start_type, [])
+                end_rows = by_type.get(end_type, [])
+                if len(start_rows) != 1 or len(end_rows) != 1:
+                    continue
+                start_row, end_row = start_rows[0], end_rows[0]
+                start_at = _parse_utc_instant(start_row["occurred_at"])
+                end_at = _parse_utc_instant(end_row["occurred_at"])
+                if start_at is None or end_at is None or end_at < start_at:
+                    continue
+                pair_receipt = hashlib.sha256(
+                    "|".join((key[0], key[1], key[2], str(key[3]), name,
+                              start_row["event_id"], end_row["event_id"])).encode()
+                ).hexdigest()
+                pairs.append({
+                    "repo": key[0], "number": int(key[1]), "candidate_sha": key[2],
+                    "attempt_number": key[3], "name": name,
+                    "start_at": start_row["occurred_at"], "end_at": end_row["occurred_at"],
+                    "receipt_id": "sha256:" + pair_receipt,
+                })
+                paired_ids.add(start_row["event_id"])
+                paired_ids.add(end_row["event_id"])
+
+        stats["receipt_pairs"] = len(pairs)
+        stats["receipt_events_unmatched"] = max(
+            0, stats["receipt_events_seen"] - stats["receipt_duplicate_events"]
+            - len(paired_ids)
+        )
+        if (stats.get("receipt_parse_errors", 0) or stats.get("receipt_read_errors", 0)
+                or stats["receipt_events_unmatched"]):
+            stats["status"] = "PARTIAL"
+        elif stats["receipt_events_seen"]:
+            stats["status"] = "COMPLETE"
+        else:
+            stats["status"] = stats.get("status", "NOT_COLLECTED")
+        return pairs, stats
+
+    def compute_handoff_breakdown(
+        self, prs, handoff_records=None, total_cohort_n=None, receipt_stats=None
+    ):
         """
         Compute observed counts, medians, and telemetry coverage across the 6 transitions:
         1. evidence_ready -> review_requested
@@ -2481,6 +2780,7 @@ class MetricsAggregator:
         ]
         # Observations keyed by full identity so a PR field and its receipt count once.
         trans_obs = {t: {} for t in transitions}
+        receipt_summary = dict(receipt_stats or {})
 
         def add_pr_field(p, t_name, start, end):
             if not (start and end):
@@ -2521,12 +2821,29 @@ class MetricsAggregator:
                 if p.get("repo") and p.get("number") is not None:
                     prs_by_key[(p["repo"], p["number"])] = p
 
+            transition_receipts = [
+                rec for rec in records_to_process
+                if isinstance(rec, dict) and rec.get("record_type") == "transition_event"
+            ]
+            paired_receipts, pairing_stats = self.adapt_transition_event_receipts(
+                transition_receipts, prs
+            )
+            scan_stats = receipt_stats or {}
+            receipt_summary = {
+                **scan_stats,
+                **pairing_stats,
+            }
+            if scan_stats.get("receipt_parse_errors") or scan_stats.get("receipt_read_errors"):
+                receipt_summary["status"] = "PARTIAL"
             expanded = []
             for rec in records_to_process:
+                if isinstance(rec, dict) and rec.get("record_type") == "transition_event":
+                    continue
                 if isinstance(rec, dict) and isinstance(rec.get("timestamps"), dict):
                     expanded.extend(self.adapt_run_stats_receipt(rec, prs))
                 else:
                     expanded.append(rec)
+            expanded.extend(paired_receipts)
 
             for rec in expanded:
                 if not isinstance(rec, dict):
@@ -2594,10 +2911,12 @@ class MetricsAggregator:
             if sample_n > 0:
                 med_sec = round(calculate_median(durs), 1)
                 p75_sec = round(calculate_nearest_rank_p75(durs), 1)
+                percentiles = calculate_nearest_rank_percentiles(durs)
                 status = "COMPLETE" if (tot > 0 and obs_n >= tot) else "PARTIAL"
             else:
                 med_sec = "UNKNOWN"
                 p75_sec = "UNKNOWN"
+                percentiles = {"p50": None, "p90": None, "p99": None}
                 status = "UNKNOWN"
 
             handoffs_data.append({
@@ -2607,7 +2926,26 @@ class MetricsAggregator:
                 "total_n": tot,
                 "median_sec": med_sec,
                 "p75_sec": p75_sec,
+                "p50_sec": (
+                    round(percentiles["p50"], 1)
+                    if percentiles["p50"] is not None else "UNKNOWN"
+                ),
+                "p90_sec": (
+                    round(percentiles["p90"], 1)
+                    if percentiles["p90"] is not None else "UNKNOWN"
+                ),
+                "p99_sec": (
+                    round(percentiles["p99"], 1)
+                    if percentiles["p99"] is not None else "UNKNOWN"
+                ),
                 "status": status,
+                "receipt_status": receipt_summary.get("status", "NOT_CONFIGURED"),
+                "receipt_events_seen": receipt_summary.get("receipt_events_seen", 0),
+                "receipt_events_valid": receipt_summary.get("receipt_events_valid", 0),
+                "receipt_pairs": receipt_summary.get("receipt_pairs", 0),
+                "receipt_events_unmatched": receipt_summary.get("receipt_events_unmatched", 0),
+                "receipt_parse_errors": receipt_summary.get("receipt_parse_errors", 0),
+                "receipt_read_errors": receipt_summary.get("receipt_read_errors", 0),
             })
 
         return handoffs_data
@@ -2618,6 +2956,7 @@ class MetricsAggregator:
         timeline_events=None,
         sources=None,
         handoff_records=None,
+        handoff_receipt_stats=None,
         time_semantics_pilot=None,
         human_episodes=None,
         now_dt=None,
@@ -2678,6 +3017,7 @@ class MetricsAggregator:
 
             stats_w1 = self.summarize_window_cohort(merged_w1)
             stats_w2 = self.summarize_window_cohort(merged_w2)
+            stats_d14 = self.summarize_window_cohort(merged_w1 + merged_w2)
 
             repo_rows.append({
                 "repo": repo,
@@ -2692,20 +3032,51 @@ class MetricsAggregator:
                 "still_open": len(still_open),
                 "w1_all_median_hours": stats_w1["all_median_hours"],
                 "w1_all_p75_hours": stats_w1["all_p75_hours"],
+                "w1_all_p50_hours": stats_w1["all_p50_hours"],
+                "w1_all_p90_hours": stats_w1["all_p90_hours"],
+                "w1_all_p99_hours": stats_w1["all_p99_hours"],
                 "all_median_hours": stats_w2["all_median_hours"],
                 "all_p75_hours": stats_w2["all_p75_hours"],
+                "all_p50_hours": stats_w2["all_p50_hours"],
+                "all_p90_hours": stats_w2["all_p90_hours"],
+                "all_p99_hours": stats_w2["all_p99_hours"],
                 "w1_comp_median_hours": stats_w1["comp_median_hours"],
                 "w1_comp_p75_hours": stats_w1["comp_p75_hours"],
+                "w1_comp_p50_hours": stats_w1["comp_p50_hours"],
+                "w1_comp_p90_hours": stats_w1["comp_p90_hours"],
+                "w1_comp_p99_hours": stats_w1["comp_p99_hours"],
                 "comp_median_hours": stats_w2["comp_median_hours"],
                 "comp_p75_hours": stats_w2["comp_p75_hours"],
+                "comp_p50_hours": stats_w2["comp_p50_hours"],
+                "comp_p90_hours": stats_w2["comp_p90_hours"],
+                "comp_p99_hours": stats_w2["comp_p99_hours"],
                 "w1_backlog_n": stats_w1["backlog_n"],
                 "w1_backlog_median_hours": stats_w1["backlog_median_hours"],
+                "w1_backlog_p50_hours": stats_w1["backlog_p50_hours"],
+                "w1_backlog_p90_hours": stats_w1["backlog_p90_hours"],
+                "w1_backlog_p99_hours": stats_w1["backlog_p99_hours"],
                 "backlog_n": stats_w2["backlog_n"],
                 "backlog_median_hours": stats_w2["backlog_median_hours"],
+                "backlog_p50_hours": stats_w2["backlog_p50_hours"],
+                "backlog_p90_hours": stats_w2["backlog_p90_hours"],
+                "backlog_p99_hours": stats_w2["backlog_p99_hours"],
+                "d14_all_n": stats_d14["n"],
+                "d14_all_p50_hours": stats_d14["all_p50_hours"],
+                "d14_all_p90_hours": stats_d14["all_p90_hours"],
+                "d14_all_p99_hours": stats_d14["all_p99_hours"],
+                "d14_comp_n": stats_d14["comparable_n"],
+                "d14_comp_p50_hours": stats_d14["comp_p50_hours"],
+                "d14_comp_p90_hours": stats_d14["comp_p90_hours"],
+                "d14_comp_p99_hours": stats_d14["comp_p99_hours"],
+                "d14_backlog_n": stats_d14["backlog_n"],
+                "d14_backlog_p50_hours": stats_d14["backlog_p50_hours"],
+                "d14_backlog_p90_hours": stats_d14["backlog_p90_hours"],
+                "d14_backlog_p99_hours": stats_d14["backlog_p99_hours"],
             })
 
         overall_stats_w1 = self.summarize_window_cohort(all_merged_w1)
         overall_stats_w2 = self.summarize_window_cohort(all_merged_w2)
+        overall_stats_d14 = self.summarize_window_cohort(all_merged_w1 + all_merged_w2)
 
         repo_rows.append({
             "repo": "Combined (All Repos)",
@@ -2720,16 +3091,46 @@ class MetricsAggregator:
             "still_open": len(all_still_open),
             "w1_all_median_hours": overall_stats_w1["all_median_hours"],
             "w1_all_p75_hours": overall_stats_w1["all_p75_hours"],
+            "w1_all_p50_hours": overall_stats_w1["all_p50_hours"],
+            "w1_all_p90_hours": overall_stats_w1["all_p90_hours"],
+            "w1_all_p99_hours": overall_stats_w1["all_p99_hours"],
             "all_median_hours": overall_stats_w2["all_median_hours"],
             "all_p75_hours": overall_stats_w2["all_p75_hours"],
+            "all_p50_hours": overall_stats_w2["all_p50_hours"],
+            "all_p90_hours": overall_stats_w2["all_p90_hours"],
+            "all_p99_hours": overall_stats_w2["all_p99_hours"],
             "w1_comp_median_hours": overall_stats_w1["comp_median_hours"],
             "w1_comp_p75_hours": overall_stats_w1["comp_p75_hours"],
+            "w1_comp_p50_hours": overall_stats_w1["comp_p50_hours"],
+            "w1_comp_p90_hours": overall_stats_w1["comp_p90_hours"],
+            "w1_comp_p99_hours": overall_stats_w1["comp_p99_hours"],
             "comp_median_hours": overall_stats_w2["comp_median_hours"],
             "comp_p75_hours": overall_stats_w2["comp_p75_hours"],
+            "comp_p50_hours": overall_stats_w2["comp_p50_hours"],
+            "comp_p90_hours": overall_stats_w2["comp_p90_hours"],
+            "comp_p99_hours": overall_stats_w2["comp_p99_hours"],
             "w1_backlog_n": overall_stats_w1["backlog_n"],
             "w1_backlog_median_hours": overall_stats_w1["backlog_median_hours"],
+            "w1_backlog_p50_hours": overall_stats_w1["backlog_p50_hours"],
+            "w1_backlog_p90_hours": overall_stats_w1["backlog_p90_hours"],
+            "w1_backlog_p99_hours": overall_stats_w1["backlog_p99_hours"],
             "backlog_n": overall_stats_w2["backlog_n"],
             "backlog_median_hours": overall_stats_w2["backlog_median_hours"],
+            "backlog_p50_hours": overall_stats_w2["backlog_p50_hours"],
+            "backlog_p90_hours": overall_stats_w2["backlog_p90_hours"],
+            "backlog_p99_hours": overall_stats_w2["backlog_p99_hours"],
+            "d14_all_n": overall_stats_d14["n"],
+            "d14_all_p50_hours": overall_stats_d14["all_p50_hours"],
+            "d14_all_p90_hours": overall_stats_d14["all_p90_hours"],
+            "d14_all_p99_hours": overall_stats_d14["all_p99_hours"],
+            "d14_comp_n": overall_stats_d14["comparable_n"],
+            "d14_comp_p50_hours": overall_stats_d14["comp_p50_hours"],
+            "d14_comp_p90_hours": overall_stats_d14["comp_p90_hours"],
+            "d14_comp_p99_hours": overall_stats_d14["comp_p99_hours"],
+            "d14_backlog_n": overall_stats_d14["backlog_n"],
+            "d14_backlog_p50_hours": overall_stats_d14["backlog_p50_hours"],
+            "d14_backlog_p90_hours": overall_stats_d14["backlog_p90_hours"],
+            "d14_backlog_p99_hours": overall_stats_d14["backlog_p99_hours"],
         })
 
         # Stage dwell computation
@@ -2740,6 +3141,7 @@ class MetricsAggregator:
             all_merged_w2,
             handoff_records=handoff_records,
             total_cohort_n=len(all_merged_w2),
+            receipt_stats=handoff_receipt_stats,
         )
 
         # Open PRs attention: partition into 5A (known idle) and 5B (unknown idle)
@@ -2964,6 +3366,36 @@ class DashboardRenderer:
             md.append("| *No repository data available* | - | - | - | - | - | - | - | - | - |")
         md.append("")
 
+        md.append("### 14-day Creation-to-Merge Distribution")
+        md.append("")
+        md.append(
+            "| Repository | All merged PRs | Merged within 7 days | "
+            "Backlog merges (>7d) |"
+        )
+        md.append("|---|---|---|---|")
+        for row in data.get("repo_comparison", []):
+            def percentile_summary(prefix, n_key):
+                n = row.get(n_key, 0)
+                if not n:
+                    return "n=0; UNKNOWN"
+                vals = ", ".join(
+                    f"p{p}={hours(row.get(f'{prefix}_p{p}_hours'))}"
+                    for p in (50, 90, 99)
+                )
+                return f"n={n}; {vals}"
+
+            md.append(
+                f"| {row['repo']} | {percentile_summary('d14_all', 'd14_all_n')} | "
+                f"{percentile_summary('d14_comp', 'd14_comp_n')} | "
+                f"{percentile_summary('d14_backlog', 'd14_backlog_n')} |"
+            )
+        if not data.get("repo_comparison"):
+            md.append(
+                "| *No repository data available* | n=0; UNKNOWN | "
+                "n=0; UNKNOWN | n=0; UNKNOWN |"
+            )
+        md.append("")
+
         # Section 3: Stage Dwell
         md.append("## 3. Stage Dwell")
         md.append("")
@@ -2972,33 +3404,101 @@ class DashboardRenderer:
         if data.get("w2_merged_cohort_n") == 0:
             md.append("> No merges in window W2: stage dwell, handoff and pilot metrics have an empty cohort (UNKNOWN, n = 0); no historical or open PRs are substituted.")
             md.append("")
-        md.append("| Lifecycle Stage | Covered Merged PRs (n / N) | Median Dwell | Nearest-Rank p75 | Clock Conflicts |")
-        md.append("|---|---:|---:|---:|---:|")
+        md.append(
+            "| Lifecycle Stage | Samples (n); Covered Merged PRs / cohort (N) | "
+            "Median Dwell | Nearest-Rank p75 | p50 | p90 | p99 | Clock Conflicts |"
+        )
+        md.append("|---|---:|---:|---:|---:|---:|---:|---:|")
         for row in data.get("stage_dwell", []):
             med = f"{row['median_h']}h" if isinstance(row['median_h'], (int, float)) else row['median_h']
             p75 = f"{row['p75_h']}h" if isinstance(row['p75_h'], (int, float)) else row['p75_h']
-            md.append(f"| `{row['stage']}` | {row['n']} / {row['total_n']} | {med} | {p75} | {row['conflicts']} |")
+            pvals = [
+                f"{row[f'p{p}_h']}h"
+                if isinstance(row.get(f"p{p}_h"), (int, float))
+                else row.get(f"p{p}_h", "UNKNOWN")
+                for p in (50, 90, 99)
+            ]
+            md.append(
+                f"| `{row['stage']}` | {row.get('sample_n', row['n'])}; "
+                f"{row['n']} / {row['total_n']} | {med} | {p75} | "
+                f"{pvals[0]} | {pvals[1]} | {pvals[2]} | {row['conflicts']} |"
+            )
         if not data.get("stage_dwell"):
-            md.append("| *No stage dwell events observed* | 0 / 0 | UNKNOWN | UNKNOWN | 0 |")
+            md.append(
+                "| *No stage dwell events observed* | 0 / 0 | UNKNOWN | UNKNOWN | "
+                "UNKNOWN | UNKNOWN | UNKNOWN | 0 |"
+            )
         md.append("")
 
         # Section 4: Handoff Waiting Breakdown
         md.append("## 4. Handoff Waiting Breakdown")
         md.append("")
-        md.append("| Handoff Transition | Observed Events (n / N) | Median Duration | Telemetry Coverage | Status |")
-        md.append("|---|---:|---:|---:|---|")
-        for h in data.get("handoffs", []):
-            cov = "0%"
-            n = h.get("observed_n", 0)
-            tot = h.get("total_n", 0)
-            if tot > 0:
-                cov = f"{(n / tot) * 100:.1f}%"
-            med_sec = h.get("median_sec", "UNKNOWN")
-            med_str = format_duration(med_sec) if isinstance(med_sec, (int, float)) else str(med_sec)
-            status_str = h.get("status", "UNKNOWN" if n == 0 else "PARTIAL")
-            md.append(f"| `{h['name']}` | {n} / {tot} | {med_str} | {cov} | {status_str} |")
-        if not data.get("handoffs"):
-            md.append("| *No handoff transitions recorded* | 0 / 0 | UNKNOWN | 0% | UNKNOWN |")
+        handoff_rows = data.get("handoffs", [])
+        has_handoff_observations = any(item.get("observed_n", 0) > 0 for item in handoff_rows)
+        receipt_events_seen = max((item.get("receipt_events_seen", 0) for item in handoff_rows), default=0)
+        receipt_pairs = max((item.get("receipt_pairs", 0) for item in handoff_rows), default=0)
+        receipt_unmatched = max(
+            (item.get("receipt_events_unmatched", 0) for item in handoff_rows), default=0
+        )
+        receipt_parse_errors = max(
+            (item.get("receipt_parse_errors", 0) for item in handoff_rows), default=0
+        )
+        receipt_read_errors = max(
+            (item.get("receipt_read_errors", 0) for item in handoff_rows), default=0
+        )
+        if has_handoff_observations:
+            if receipt_events_seen or receipt_parse_errors or receipt_read_errors:
+                receipt_status = next(
+                    (item.get("receipt_status") for item in handoff_rows if item.get("receipt_status")),
+                    "UNKNOWN",
+                )
+                md.append(
+                    f"- **Transition receipts**: {receipt_status}; "
+                    f"{receipt_events_seen} events, {receipt_pairs} pairs, "
+                    f"{receipt_unmatched} unmatched, {receipt_parse_errors} parse errors, "
+                    f"{receipt_read_errors} read errors. Unmatched values remain UNKNOWN."
+                )
+            headers = [
+                "Handoff Transition", "Samples (n); Covered PRs / cohort (N)",
+                "Median Duration", "Nearest-Rank p75", "p50", "p90", "p99",
+                "Telemetry Coverage", "Status",
+            ]
+            md.append("| " + " | ".join(headers) + " |")
+            md.append("|" + "|".join(["---"] + ["---:"] * 6 + ["---", "---"]) + "|")
+            for item in handoff_rows:
+                observed = item.get("observed_n", 0)
+                total = item.get("total_n", 0)
+                coverage = f"{(observed / total) * 100:.1f}%" if total > 0 else "UNKNOWN"
+                median_seconds = item.get("median_sec", "UNKNOWN")
+                median = (
+                    format_duration(median_seconds)
+                    if isinstance(median_seconds, (int, float)) else str(median_seconds)
+                )
+                percentiles = [
+                    format_duration(item[f"p{percentile}_sec"])
+                    if isinstance(item.get(f"p{percentile}_sec"), (int, float))
+                    else item.get(f"p{percentile}_sec", "UNKNOWN")
+                    for percentile in (75, 50, 90, 99)
+                ]
+                status = item.get("status", "UNKNOWN" if observed == 0 else "PARTIAL")
+                md.append(
+                    f"| {item['name']} | {item.get('sample_n', observed)}; {observed} / {total} | "
+                    f"{median} | {percentiles[0]} | {percentiles[1]} | {percentiles[2]} | "
+                    f"{percentiles[3]} | {coverage} | {status} |"
+                )
+        else:
+            if receipt_events_seen or receipt_parse_errors or receipt_read_errors:
+                md.append(
+                    f"- **Handoff telemetry**: PARTIAL; {receipt_events_seen} transition events, "
+                    f"{receipt_pairs} matched pairs, {receipt_unmatched} unmatched, "
+                    f"{receipt_parse_errors} parse errors, {receipt_read_errors} read errors. "
+                    "Unmatched values remain UNKNOWN; this does not gate PR progress."
+                )
+            else:
+                md.append(
+                    "- **Handoff telemetry**: NOT COLLECTED. Recovered review-stage dwell "
+                    "remains separate in Section 3."
+                )
         md.append("")
 
         # Section 4b: Time Semantics & Effort Breakdown (Pilot Cohort)
@@ -3110,6 +3610,122 @@ class DashboardRenderer:
             md.append(f"- **Retention Status**: `{ret_stat}`")
         else:
             md.append("*No human intervention telemetry available.*")
+
+        steering = data.get("human_summary")
+        if steering:
+            coverage = steering.get("coverage", {})
+            md.append("")
+            md.append("### Observed Native Human Activity by PR")
+            md.append("")
+            md.append(
+                f"- **Source coverage**: {coverage.get('source_status', 'UNKNOWN')}; "
+                f"{coverage.get('runtime_coverage', 'runtime coverage UNKNOWN')}."
+            )
+            md.append(
+                f"- **Verified messages**: {coverage.get('verified_messages', 0)}; "
+                f"unverified candidates: {coverage.get('candidate_messages', 0)}; "
+                f"automated actors excluded: {coverage.get('automated_excluded_messages', 0)}; "
+                f"unassigned verified messages: {coverage.get('unassigned_verified_messages', 0)} "
+                f"(reviewed unassigned: {coverage.get('reviewed_unassigned_messages', 0)}); "
+                f"ambiguous branch matches: {coverage.get('ambiguous_branch_messages', 0)}; "
+                f"branch-only matches: {coverage.get('branch_only_messages', 0)}."
+            )
+            if coverage.get("branch_lookup_cache_sha256"):
+                md.append(
+                    f"- **PR branch snapshot**: {coverage.get('branch_lookup_pr_count', 0)} PRs; "
+                    f"fetched {coverage.get('branch_lookup_fetched_at', 'UNKNOWN')} UTC; "
+                    f"SHA-256 {coverage['branch_lookup_cache_sha256']}."
+                )
+            md.append(
+                "- Counts are observed records only. Missing attribution means UNKNOWN coverage, "
+                "not zero human steering. Branch-context associations are low confidence."
+            )
+            rows = steering.get("per_pr", [])
+            if rows:
+                headers = (
+                    "PR", "Human messages", "Association", "Reviewed follow-up episodes",
+                )
+                md.append("")
+                md.append("| " + " | ".join(headers) + " |")
+                md.append("|" + "|".join("---" for _ in headers) + "|")
+                basis_labels = {
+                    "reviewed_direct_pr_binding": "reviewed direct PR binding",
+                    "context_override": "reviewed context override",
+                    "context_confirmed_original": "reviewed context confirmation",
+                    "context_associated": "reviewed context association",
+                    "best_effort_repo_branch_event_time": "repository + branch + event-time match",
+                    "repo_branch_exact_head": "repository + branch + head match",
+                    "unique_repo_branch_snapshot": "unique repository + branch snapshot",
+                    "best_effort_branch_only_event_time": "unique branch + event-time match",
+                    "branch_only_exact_head": "unique branch + head match",
+                    "unique_branch_only_snapshot": "unique branch snapshot",
+                }
+                for row in rows:
+                    pr_number = row["pr"].rsplit("#", 1)[1]
+                    label = (f"[#{pr_number}]({row['url']})" if row.get("url") else row["pr"])
+                    if row["coverage_status"] == "UNKNOWN":
+                        messages = "UNKNOWN (no attributed history)"
+                        association = "UNKNOWN"
+                        episodes = "UNKNOWN"
+                    else:
+                        kinds = row["message_kind_counts"]
+                        scores = row["reviewed_scores"]
+                        messages = (
+                            f"verified: direct {row['direct_verified_messages']}, "
+                            f"context {row['context_associated_verified_messages']}, "
+                            f"repo/branch {row['branch_associated_verified_messages']}, "
+                            f"branch-only {row['branch_only_associated_verified_messages']}; "
+                            f"candidates: direct {row['direct_candidates']}, "
+                            f"context {row['context_candidates']}, "
+                            f"repo/branch {row['branch_associated_candidates']}, "
+                            f"branch-only {row['branch_only_candidates']}; "
+                            f"initial requests {row['initial_requests']}; "
+                            f"message kinds: initial {kinds.get('initial_task', 0)}, "
+                            f"new requirement {kinds.get('new_requirement/domain_judgment', 0)}, "
+                            f"status {kinds.get('status_request', 0)}; "
+                            f"nudge messages/episodes {row['human_nudge_messages']}/"
+                            f"{row['human_nudge_episodes']}"
+                        )
+                        basis = []
+                        for item in row.get("association_basis", []):
+                            if item.startswith("source:"):
+                                basis.append("source metadata")
+                            elif item.startswith("context:") and (
+                                "snapshot" in item or "not_event_time" in item
+                            ):
+                                basis.append("snapshot metadata (not prompt-time proof)")
+                            else:
+                                basis.append(basis_labels.get(item, "reviewed metadata"))
+                        basis = list(dict.fromkeys(basis))
+                        confidence = row.get("association_confidence", "UNKNOWN")
+                        if confidence in ("BEST_EFFORT", "LOW_BEST_EFFORT", "LOW_BEST_EFFORT_HEAD",
+                                          "BRANCH_SNAPSHOT_LOW", "BRANCH_ONLY_LOW",
+                                          "BRANCH_ONLY_LOW_HEAD", "BRANCH_ONLY_HEAD_MATCH", "low"):
+                            confidence = "low confidence"
+                        elif confidence == "EXPLICIT":
+                            confidence = "explicit"
+                        elif confidence == "MIXED":
+                            confidence = "mixed"
+                        association = (
+                            f"{'; '.join(basis)}; {confidence}" if basis else confidence
+                        )
+                        score_text = (
+                            f"; reviewed scores {', '.join(map(str, scores))}" if scores else ""
+                        )
+                        if row["followup_episodes"]:
+                            quality = row["episodes_by_quality"]
+                            episodes = (
+                                f"{row['followup_episodes']} reviewed; "
+                                f"good {quality['good']}, bad {quality['bad']}, "
+                                f"mixed {quality['mixed']}, unknown {quality['unknown']}"
+                                f"{score_text}"
+                            )
+                        else:
+                            episodes = "UNKNOWN (no reviewed follow-up episode)" + score_text
+                    cells = (label, messages, association, episodes)
+                    md.append("| " + " | ".join(cells) + " |")
+            else:
+                md.append("*No per-PR native human records could be associated.*")
         md.append("")
 
         # Section 6: Definitions & Limitations
@@ -3121,7 +3737,11 @@ class DashboardRenderer:
         md.append("3. **GitHub Quiet Time**: Elapsed time since the last recorded GitHub PR event (comment, commit, review). Serves as a coarse proxy only; does not prove background process inactivity.")
         md.append("")
         md.append("### Statistical Method")
-        md.append("- **Nearest-Rank p75**: `k = math.ceil(0.75 * n) - 1` on 0-indexed sorted arrays.")
+        md.append(
+            "- **Nearest-Rank p50/p75/p90/p99**: `k = math.ceil((p / 100) * n) - 1` "
+            "on 0-indexed sorted arrays. Existing median fields retain their "
+            "conventional arithmetic average for even samples."
+        )
         md.append("- **Backlog Merges**: Merges where `mergedAt - createdAt > 7 days` (168 hours) at merge time, separated from fresh 7-day velocity.")
         md.append("- **Four-Hour Sampling Uncertainty**: Snapshots refresh on a 4-hour cycle. Exact event start/stop times possess an inherent 4-hour observation granularity.")
         md.append("- **Sanitization & Portability Guarantee**: No credentials, private tokens, raw model payloads, or personal filesystem paths are written to this dashboard.")
@@ -3173,6 +3793,455 @@ def extract_github_repo_slug(url):
     if not all(re.fullmatch(r"[A-Za-z0-9_.-]+", c) and c not in (".", "..") for c in components):
         return None
     return "/".join(components)
+
+
+
+
+def _merge_pr_branch_metadata(prs, cached_prs):
+    """Fill PR branch context from the bounded lookup snapshot without replacing live fields."""
+    merged = {}
+
+    def key_for(pr):
+        repo = pr.get("repo")
+        number = pr.get("number")
+        if not isinstance(repo, str) or number is None:
+            return None
+        key = f"{repo}#{number}"
+        return key if _safe_pr_id(key) else None
+
+    for pr in prs or []:
+        if not isinstance(pr, dict):
+            continue
+        key = key_for(pr)
+        if key:
+            merged[key] = dict(pr)
+
+    branch_fields = {
+        "headRefName": ("headRefName", "head_branch", "head_ref_name"),
+        "headRefOid": ("headRefOid", "head_sha", "head_ref_oid"),
+        "createdAt": ("createdAt", "created_at_utc", "created_at"),
+        "updatedAt": ("updatedAt", "updated_at_utc", "updated_at"),
+        "closedAt": ("closedAt", "closed_at_utc", "closed_at"),
+        "mergedAt": ("mergedAt", "merged_at_utc", "merged_at"),
+        "url": ("url", "html_url"),
+        "state": ("state", "pr_state"),
+    }
+    for pr in cached_prs or []:
+        if not isinstance(pr, dict):
+            continue
+        key = key_for(pr)
+        if not key:
+            continue
+        current = merged.setdefault(key, dict(pr))
+        for field, aliases in branch_fields.items():
+            if not any(alias in current for alias in aliases):
+                value = next(
+                    (pr[alias] for alias in aliases if pr.get(alias) not in (None, "")),
+                    None,
+                )
+                if value is not None:
+                    current[field] = value
+    return [merged[key] for key in sorted(merged)]
+
+
+def _attach_usage_snapshot_attributions(query_events, native_records, prs):
+    """Associate unique session snapshots, without asserting request-time ownership."""
+    by_branch = defaultdict(set)
+    for pr in prs:
+        repo, number = pr.get("repo"), pr.get("number")
+        branch = pr.get("headRefName") or pr.get("head_ref_name")
+        key = f"{repo}#{number}"
+        if _safe_pr_id(key) and isinstance(branch, str) and branch:
+            by_branch[(repo.lower(), branch)].add(key)
+    by_session = defaultdict(set)
+    for record in native_records:
+        session, repo, branch = record.get("session_id"), record.get("repository"), record.get("git_branch")
+        if session and isinstance(repo, str) and isinstance(branch, str) and branch:
+            by_session[(record.get("provider"), _retained_hash(session))].add((repo.lower(), branch))
+    for event in query_events:
+        if event.get("branch_attributions"):
+            continue
+        snapshots = by_session.get((event.get("provider"), event.get("session_id_hash")), set())
+        if len(snapshots) != 1:
+            continue
+        matches = by_branch.get(next(iter(snapshots)), set())
+        if len(matches) == 1:
+            event["branch_attributions"] = [{
+                "pr": next(iter(matches)), "weight": "1", "confidence": "low",
+                "basis": "repository_branch_snapshot_unique",
+            }]
+
+
+def aggregate_native_human_steering(
+    human_records, prs, *, window_start, window_end, source_stats=None
+):
+    """Aggregate observed human messages and reviewed episodes by PR evidence."""
+    start = _parse_utc_instant(window_start)
+    end = _parse_utc_instant(window_end)
+    source_stats = source_stats or {}
+    pr_rows, pr_sources, branch_index, branch_only_index = {}, {}, {}, {}
+
+    def safe_repo(value):
+        if not isinstance(value, str) or not value:
+            return None
+        if re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", value):
+            return value
+        return extract_github_repo_slug(value)
+
+    def pr_key(repo, number):
+        if not repo or number is None:
+            return None
+        key = f"{repo}#{number}"
+        return key if _safe_pr_id(key) else None
+
+    def parsed_time(value):
+        return _parse_utc_instant(value)
+
+    def new_row(key, pr=None):
+        return {
+            "pr": key, "url": pr.get("url") if pr else None,
+            "raw_verified_messages": 0, "direct_verified_messages": 0,
+            "context_associated_verified_messages": 0,
+            "branch_associated_verified_messages": 0,
+            "branch_only_associated_verified_messages": 0, "direct_candidates": 0,
+            "context_candidates": 0, "branch_associated_candidates": 0,
+            "branch_only_candidates": 0, "initial_requests": 0,
+            "human_nudge_messages": 0, "human_nudge_episodes": 0,
+            "message_kind_counts": {}, "reviewed_scores": [],
+            "verified_followup_messages": 0, "followup_episodes": 0,
+            "episodes_by_quality": {"good": 0, "bad": 0, "mixed": 0, "unknown": 0},
+            "association_basis": set(), "coverage_status": "UNKNOWN",
+            "association_confidence": "UNKNOWN", "_episode_labels": {},
+            "_nudge_episode_ids": set(), "_assigned_observations": 0,
+            "_confidences": set(),
+        }
+
+    for pr in prs or []:
+        if not isinstance(pr, dict):
+            continue
+        repo = safe_repo(pr.get("repo"))
+        key = pr_key(repo, pr.get("number"))
+        if not key:
+            continue
+        created = parsed_time(pr.get("createdAt") or pr.get("created_at"))
+        closed = parsed_time(pr.get("mergedAt") or pr.get("merged_at") or
+                             pr.get("closedAt") or pr.get("closed_at"))
+        if start and end and created and (created >= end or (closed and closed < start)):
+            continue
+        pr_rows[key] = new_row(key, pr)
+        pr_sources[key] = pr
+        branch = pr.get("headRefName") or pr.get("head_ref_name")
+        if branch:
+            entry = (key, pr, created, closed)
+            branch_index.setdefault((repo, branch), []).append(entry)
+            branch_only_index.setdefault(branch, []).append(entry)
+
+    def ensure_direct_row(key):
+        if key in pr_rows:
+            return pr_rows[key]
+        repo, number = key.rsplit("#", 1)
+        pr = {"repo": repo, "number": int(number), "url": None}
+        row = new_row(key, pr)
+        pr_rows[key], pr_sources[key] = row, pr
+        return row
+
+    def candidates_for(entries, at):
+        return [
+            (key, pr) for key, pr, created, closed in entries
+            if created and created <= at and (closed is None or at <= closed)
+        ]
+
+    def branch_candidates(repo, branch, at):
+        if not repo or not branch:
+            return [], []
+        entries = branch_index.get((repo, branch), [])
+        return candidates_for(entries, at), [(key, pr) for key, pr, _, _ in entries]
+
+    coverage = {
+        "source_status": source_stats.get("status", "UNKNOWN"),
+        "runtime_coverage": source_stats.get("runtime_coverage", "runtime coverage UNKNOWN"),
+        "verified_messages": 0, "candidate_messages": 0,
+        "assigned_verified_messages": 0, "unassigned_verified_messages": 0,
+        "unassigned_candidates": 0, "branch_only_messages": 0,
+        "ambiguous_branch_messages": 0, "unmatched_direct_bindings": 0,
+        "reviewed_unassigned_messages": 0, "multi_pr_unassigned_messages": 0,
+        "global_scope_unassigned_messages": 0, "no_single_pr_unassigned_messages": 0,
+        "reviewed_context_confirmed_messages": 0, "reviewed_context_override_messages": 0,
+        "automated_excluded_messages": 0, "human_nudge_messages": 0,
+        "human_nudge_episodes": 0, "unassigned_nudge_episodes": 0,
+        "unassigned_followup_episodes": 0,
+        "unassigned_episodes_by_quality": {"good": 0, "bad": 0, "mixed": 0, "unknown": 0},
+        "followups_without_episode_id": 0, "deduplicated_records": 0,
+        "reviewed_score_observations": 0, "message_kind_counts": {},
+        "branch_lookup_cache_sha256": source_stats.get("branch_lookup_cache_sha256"),
+        "branch_lookup_fetched_at": source_stats.get("branch_lookup_fetched_at"),
+        "branch_lookup_pr_count": source_stats.get("branch_lookup_pr_count", 0),
+        "repository_map_entries": source_stats.get("repository_map_entries", 0),
+        "repository_map_resolved_events": source_stats.get("repository_map_resolved_events", 0),
+    }
+    seen = set()
+    unassigned_episode_labels, all_nudge_episode_ids = {}, set()
+    assigned_nudge_episode_ids, unassigned_nudge_episode_ids = set(), set()
+    message_kinds = {
+        "initial_task", "new_requirement/domain_judgment",
+        "status_request", "continuation/followthrough_nudge",
+    }
+    context_unassigned = {
+        "unassigned_global_scope": "global_scope_unassigned_messages",
+        "unassigned_multi_pr": "multi_pr_unassigned_messages",
+        "unassigned_no_single_pr": "no_single_pr_unassigned_messages",
+    }
+
+    for event in human_records or []:
+        if not isinstance(event, dict):
+            continue
+        event_id = event.get("event_id")
+        identity = (event.get("provider"), event_id)
+        if event_id and identity in seen:
+            coverage["deduplicated_records"] += 1
+            continue
+        if event_id:
+            seen.add(identity)
+        at = parsed_time(event.get("timestamp"))
+        if at is None or (start and at < start) or (end and at >= end):
+            continue
+        actor_kind = event.get("actor_kind")
+        if actor_kind == "automated_watch" or event.get("origin_status") == "excluded_automated":
+            coverage["automated_excluded_messages"] += 1
+            continue
+        verified = actor_kind == "human" or event.get("origin_status") == "verified_human"
+        coverage["verified_messages" if verified else "candidate_messages"] += 1
+        if event.get("branch_source") == "cached_repository_map":
+            coverage["repository_map_resolved_events"] += 1
+
+        message_kind = event.get("message_kind")
+        if verified and message_kind in message_kinds:
+            coverage["message_kind_counts"][message_kind] = (
+                coverage["message_kind_counts"].get(message_kind, 0) + 1
+            )
+        nudge = (
+            verified and message_kind == "continuation/followthrough_nudge"
+            and event.get("human_nudge_eligible") is True
+        )
+        episode_id = event.get("episode_id")
+        if nudge:
+            coverage["human_nudge_messages"] += 1
+            if episode_id:
+                all_nudge_episode_ids.add(str(episode_id))
+            else:
+                coverage["followups_without_episode_id"] += 1
+        score = event.get("score")
+        has_score = (
+            verified and isinstance(score, (int, float)) and not isinstance(score, bool)
+            and math.isfinite(score)
+        )
+        if has_score:
+            coverage["reviewed_score_observations"] += 1
+
+        association, confidence, basis, association_kind = None, None, None, None
+        binding = event.get("pr_binding")
+        direct_pr = binding.get("pr") if isinstance(binding, dict) else None
+        context_decision = event.get("context_pr_decision")
+        if _safe_pr_id(direct_pr):
+            association = direct_pr
+            ensure_direct_row(association)
+            confidence, basis, association_kind = "EXPLICIT", "reviewed_direct_pr_binding", "direct"
+        elif context_decision in context_unassigned:
+            coverage["reviewed_unassigned_messages"] += 1
+            coverage[context_unassigned[context_decision]] += 1
+        elif context_decision in ("confirm_original", "override", "context_associated"):
+            context_pr = event.get("effective_associated_pr") or event.get("context_associated_pr")
+            if context_decision == "confirm_original":
+                context_pr = context_pr or event.get("original_associated_pr")
+            if _safe_pr_id(context_pr):
+                association = context_pr
+                ensure_direct_row(association)
+                confidence = event.get("effective_association_confidence")
+                if not isinstance(confidence, str) or confidence not in {
+                    "EXPLICIT", "REVIEWED_CONTEXT", "LOW_BEST_EFFORT_CONTEXT",
+                    "LOW_BEST_EFFORT", "LOW_BEST_EFFORT_HEAD", "BEST_EFFORT",
+                    "BRANCH_SNAPSHOT_LOW", "BRANCH_ONLY_LOW", "BRANCH_ONLY_LOW_HEAD",
+                    "BRANCH_ONLY_HEAD_MATCH", "BRANCH_HEAD_MATCH", "high", "medium",
+                    "low", "UNASSIGNED_CONTEXT",
+                }:
+                    confidence = "UNKNOWN"
+                basis = event.get("association_method")
+                if not isinstance(basis, str) or basis not in {"context_override", "context_confirmed_original",
+                                 "reviewed_context_association", "context_associated"}:
+                    basis = "reviewed_context_association"
+                association_kind = "context"
+                coverage["reviewed_context_override_messages" if context_decision == "override"
+                          else "reviewed_context_confirmed_messages"] += 1
+            else:
+                coverage["reviewed_unassigned_messages"] += 1
+                coverage["no_single_pr_unassigned_messages"] += 1
+        elif context_decision:
+            # Preserve future or unsupported explicit decisions as unassigned.
+            coverage["reviewed_unassigned_messages"] += 1
+            coverage["no_single_pr_unassigned_messages"] += 1
+        else:
+            if isinstance(binding, dict):
+                coverage["unmatched_direct_bindings"] += 1
+            repository = safe_repo(event.get("repository") or event.get("repository_url"))
+            branch = event.get("git_branch") or event.get("branch")
+            time_candidates, all_candidates = branch_candidates(repository, branch, at)
+            commit = event.get("commit_hash")
+            exact_head = [(key, pr) for key, pr in all_candidates
+                          if commit and pr.get("headRefOid") == commit]
+            low_context = (
+                "low_confidence" in str(event.get("branch_source") or "")
+                or "not_event_time" in str(event.get("branch_basis") or "")
+                or "snapshot" in str(event.get("branch_basis") or "")
+            )
+            if len(exact_head) == 1:
+                association = exact_head[0][0]
+                confidence = "LOW_BEST_EFFORT_HEAD" if low_context else "BRANCH_HEAD_MATCH"
+                basis, association_kind = "repo_branch_exact_head", "branch"
+            elif len(time_candidates) == 1:
+                association = time_candidates[0][0]
+                confidence = "LOW_BEST_EFFORT" if low_context else "BEST_EFFORT"
+                basis, association_kind = "best_effort_repo_branch_event_time", "branch"
+            elif len(time_candidates) > 1:
+                coverage["ambiguous_branch_messages"] += 1
+            elif len(all_candidates) == 1:
+                association = all_candidates[0][0]
+                confidence, basis, association_kind = "BRANCH_SNAPSHOT_LOW", "unique_repo_branch_snapshot", "branch"
+            elif len(all_candidates) > 1:
+                coverage["ambiguous_branch_messages"] += 1
+            elif repository is None and branch and at:
+                branch_entries = branch_only_index.get(branch, [])
+                branch_time = candidates_for(branch_entries, at)
+                branch_all = [(key, pr) for key, pr, _, _ in branch_entries]
+                exact_only = [(key, pr) for key, pr in branch_all
+                              if commit and pr.get("headRefOid") == commit]
+                low_context = (
+                    "low_confidence" in str(event.get("branch_source") or "")
+                    or "not_event_time" in str(event.get("branch_basis") or "")
+                    or "snapshot" in str(event.get("branch_basis") or "")
+                )
+                if len(exact_only) == 1:
+                    association = exact_only[0][0]
+                    confidence = "BRANCH_ONLY_LOW_HEAD" if low_context else "BRANCH_ONLY_HEAD_MATCH"
+                    basis, association_kind = "branch_only_exact_head", "branch_only"
+                    coverage["branch_only_messages"] += 1
+                elif len(branch_time) == 1 and len(branch_all) == 1:
+                    association = branch_time[0][0]
+                    confidence, basis = "BRANCH_ONLY_LOW", "best_effort_branch_only_event_time"
+                    association_kind = "branch_only"
+                    coverage["branch_only_messages"] += 1
+                elif len(branch_time) > 1:
+                    coverage["ambiguous_branch_messages"] += 1
+                elif len(branch_all) == 1 and len(branch_only_index.get(branch, [])) == 1:
+                    association = branch_all[0][0]
+                    confidence, basis, association_kind = (
+                        "BRANCH_ONLY_LOW", "unique_branch_only_snapshot", "branch_only"
+                    )
+                    coverage["branch_only_messages"] += 1
+                elif len(branch_all) > 1:
+                    coverage["ambiguous_branch_messages"] += 1
+
+        role = event.get("episode_role")
+        quality_label = event.get("quality_label")
+        if isinstance(quality_label, str):
+            quality_label = quality_label.lower()
+        if quality_label not in ("good", "bad", "mixed", "unknown"):
+            quality_label = "unknown"
+
+        if association is None:
+            if verified:
+                coverage["unassigned_verified_messages"] += 1
+            else:
+                coverage["unassigned_candidates"] += 1
+            if verified and role == "followup" and episode_id:
+                unassigned_episode_labels.setdefault(
+                    (str(event.get("provider")), str(episode_id)), set()
+                ).add(quality_label)
+            if nudge and episode_id:
+                unassigned_nudge_episode_ids.add(str(episode_id))
+            continue
+
+        row = pr_rows[association]
+        row["_assigned_observations"] += 1
+        row["association_basis"].add(basis)
+        branch_source = event.get("branch_source")
+        if not isinstance(branch_source, str) or branch_source not in {"recorded_repository_url", "cached_repository_map",
+                                 "recorded_git_branch", "state_db_snapshot", "session_meta",
+                                 "claude_session_metadata_low_confidence"}:
+            branch_source = None
+        branch_basis = event.get("branch_basis")
+        if not isinstance(branch_basis, str) or branch_basis not in {"recorded_repository_url", "exact_recorded_cwd_lookup",
+                                "exact_recorded_record", "state_db_thread_snapshot",
+                                "session_git_metadata", "first_64_session_records_not_event_time"}:
+            branch_basis = None
+        if branch_source and association_kind in ("branch", "branch_only"):
+            row["association_basis"].add("source:" + branch_source)
+        if branch_basis and association_kind in ("branch", "branch_only"):
+            row["association_basis"].add("context:" + branch_basis)
+        row["_confidences"].add(confidence)
+        if verified:
+            row["raw_verified_messages"] += 1
+            field = {
+                "direct": "direct_verified_messages",
+                "context": "context_associated_verified_messages",
+                "branch": "branch_associated_verified_messages",
+                "branch_only": "branch_only_associated_verified_messages",
+            }[association_kind]
+            row[field] += 1
+            coverage["assigned_verified_messages"] += 1
+            if message_kind in message_kinds:
+                counts = row["message_kind_counts"]
+                counts[message_kind] = counts.get(message_kind, 0) + 1
+            if nudge:
+                row["human_nudge_messages"] += 1
+                if episode_id:
+                    row["_nudge_episode_ids"].add(str(episode_id))
+                    assigned_nudge_episode_ids.add(str(episode_id))
+            if has_score:
+                row["reviewed_scores"].append(score)
+            if message_kind == "initial_task":
+                row["initial_requests"] += 1
+            if role == "followup":
+                if not episode_id:
+                    coverage["followups_without_episode_id"] += 1
+                else:
+                    row["verified_followup_messages"] += 1
+                    row["_episode_labels"].setdefault(
+                        str(episode_id), set()
+                    ).add(quality_label)
+        else:
+            field = {
+                "direct": "direct_candidates",
+                "context": "context_candidates",
+                "branch": "branch_associated_candidates",
+                "branch_only": "branch_only_candidates",
+            }[association_kind]
+            row[field] += 1
+
+    coverage["unassigned_followup_episodes"] = len(unassigned_episode_labels)
+    for labels in unassigned_episode_labels.values():
+        quality = next(iter(labels)) if len(labels) == 1 else "unknown"
+        coverage["unassigned_episodes_by_quality"][quality] += 1
+    coverage["human_nudge_episodes"] = len(all_nudge_episode_ids)
+    coverage["unassigned_nudge_episodes"] = len(all_nudge_episode_ids - assigned_nudge_episode_ids)
+    for row in pr_rows.values():
+        for labels in row["_episode_labels"].values():
+            quality = next(iter(labels)) if len(labels) == 1 else "unknown"
+            row["followup_episodes"] += 1
+            row["episodes_by_quality"][quality] += 1
+        if row["raw_verified_messages"]:
+            row["coverage_status"] = "OBSERVED_SCOPE_ONLY"
+        elif row["direct_candidates"] or row["context_candidates"] or row["branch_associated_candidates"] or row["branch_only_candidates"]:
+            row["coverage_status"] = "CANDIDATE_ONLY"
+        row["human_nudge_episodes"] = len(row.pop("_nudge_episode_ids"))
+        confidences = row.pop("_confidences")
+        if len(confidences) == 1:
+            row["association_confidence"] = next(iter(confidences))
+        elif len(confidences) > 1:
+            row["association_confidence"] = "MIXED"
+        row["association_basis"] = sorted(row["association_basis"])
+        row.pop("_episode_labels", None)
+        row.pop("_assigned_observations", None)
+    return {"coverage": coverage, "per_pr": [pr_rows[key] for key in sorted(pr_rows)]}
 
 
 class Publisher:
@@ -3614,8 +4683,47 @@ def main():
     parser.add_argument("--receipts-dir", default=os.environ.get("PRW_METRICS_RECEIPTS_DIR"), help="Path to directory containing task receipts (run.stats.json, start_*.json, completion_*.json)")
     parser.add_argument("--target-relpath", default="dashboards/prw/README.md", help="Relative path inside roadmap repo")
     parser.add_argument("--stale-hours", type=float, default=float(os.environ.get("PRW_METRICS_STALE_HOURS", "4.5")), help="Threshold hours after which source cutoffs are marked STALE")
-    parser.add_argument("--usage-events", help="JSONL file with native request usage records (for example Anthropic request records)")
+    parser.add_argument("--usage-events", help="JSONL file with native request usage records")
+    parser.add_argument(
+        "--history-root", "--usage-source-dir", dest="history_roots", action="append",
+        metavar="PATH", help="Explicit Claude or Codex native history root; repeat for every configured root",
+    )
+    parser.add_argument(
+        "--history-replay", action="append",
+        help=(
+            "Replay a typed --history-export JSONL without scanning source roots; "
+            "repeat to combine exports"
+        ),
+    )
+    parser.add_argument("--history-annotations", help="Reviewed human metadata and PR bindings JSONL sidecar")
+    parser.add_argument("--history-export", help="Write deterministic normalized usage and human metadata JSONL")
+    parser.add_argument("--state-db", help="Optional read-only Codex thread snapshot database for native roots")
+    parser.add_argument("--repository-map", help="Exact cwd-to-repository map for native history roots")
+    parser.add_argument("--pr-lookup-cache", help="Cached PR branch and lifecycle metadata JSON")
+    parser.add_argument("--days", type=int, default=14, help="History source window length in days (default: 14)")
     parser.add_argument("--usage-rates", help="JSON file with dated rate-card pricing; absent feed flags reuse retained telemetry")
+    parser.add_argument(
+        "--query-metrics", action="store_true",
+        help=(
+            "Run DuckDB PR/token/human metrics; requires DuckDB in the active "
+            "Python environment"
+        ),
+    )
+    parser.add_argument(
+        "--scenario-catalog",
+        help=(
+            "Optional exact-model public-list scenario catalog, separate from "
+            "dated --usage-rates"
+        ),
+    )
+    parser.add_argument(
+        "--query-memory-limit",
+        help="Optional DuckDB memory_limit, for example 4GB",
+    )
+    parser.add_argument(
+        "--query-temp-directory",
+        help="Optional existing Scratch directory for DuckDB temp spill files",
+    )
 
     args = parser.parse_args()
 
@@ -3628,6 +4736,113 @@ def main():
         repos = [r.strip() for r in args.repos.split(",") if r.strip()]
 
     cutoff_dt = parse_iso_utc(args.cutoff) if args.cutoff else datetime.now(timezone.utc)
+    history_roots = args.history_roots or []
+    history_data = None
+    repository_map = None
+    pr_lookup_cache = None
+    if history_roots and args.history_replay:
+        parser.error("choose either --history-root or --history-replay")
+    if args.history_replay and (args.history_export or args.repository_map):
+        parser.error(
+            "replay does not rescan sources; source maps and exports "
+            "are only valid with --history-root"
+        )
+    if history_roots or args.history_replay:
+        history_cutoff = _parse_utc_instant(args.cutoff) if args.cutoff else cutoff_dt
+        if history_cutoff is None:
+            parser.error("history cutoff must be a valid UTC-aware instant")
+        if args.days <= 0:
+            parser.error("--days must be a positive integer")
+        try:
+            from scripts.native_usage_collector import (
+                collect_native_history,
+                load_normalized_history,
+                write_normalized_history, enrich_replay_state,
+            )
+        except ModuleNotFoundError:
+            from native_usage_collector import (
+                collect_native_history,
+                load_normalized_history,
+                write_normalized_history, enrich_replay_state,
+            )
+        if args.repository_map:
+            with open(args.repository_map, encoding="utf-8") as stream:
+                repository_map_payload = json.load(stream)
+            if not isinstance(repository_map_payload, dict):
+                parser.error("--repository-map must contain a JSON object")
+            if not isinstance(repository_map_payload.get("cwdToRepo"), dict):
+                parser.error(
+                    "--repository-map must contain cwdToRepo entries with "
+                    "native_origin_validated status"
+                )
+            repository_map = {}
+            for cwd, entry in repository_map_payload["cwdToRepo"].items():
+                if not isinstance(cwd, str) or not isinstance(entry, dict):
+                    continue
+                repo = entry.get("repo")
+                if entry.get("status") == "native_origin_validated" and isinstance(repo, str):
+                    if re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo):
+                        repository_map[cwd] = repo
+        if args.pr_lookup_cache:
+            with open(args.pr_lookup_cache, encoding="utf-8") as stream:
+                pr_lookup_cache = json.load(stream)
+            if not isinstance(pr_lookup_cache, dict) or not isinstance(pr_lookup_cache.get("prs"), list):
+                parser.error("--pr-lookup-cache must contain a JSON object with a prs list")
+        if args.history_replay:
+            history_data = {
+                "usage_records": [], "human_records": [], "export_records": [],
+                "stats": None,
+            }
+            for replay_path in args.history_replay:
+                replay = load_normalized_history(
+                    replay_path, cutoff=history_cutoff, days=args.days,
+                    annotation_path=args.history_annotations,
+                )
+                for key in ("usage_records", "human_records", "export_records"):
+                    history_data[key].extend(replay[key])
+                if history_data["stats"] is None:
+                    history_data["stats"] = replay["stats"]
+                else:
+                    for key, value in replay["stats"].items():
+                        if key == "source_exports":
+                            history_data["stats"][key].extend(value)
+                        elif isinstance(value, int) and not isinstance(value, bool):
+                            history_data["stats"][key] += value
+            quality = [item["status"] for item in history_data["stats"]["source_exports"]]
+            history_data["stats"]["source_quality"] = next(
+                (status for status in ("FAILED", "PARTIAL", "UNKNOWN", "COMPLETE") if status in quality),
+                "UNKNOWN",
+            )
+            seen_replay_usage = set()
+            duplicate_replay_usage = 0
+            for row in history_data["usage_records"]:
+                identity = (row.get("provider"), row.get("request_id"))
+                if identity[1] and identity in seen_replay_usage:
+                    duplicate_replay_usage += 1
+                elif identity[1]:
+                    seen_replay_usage.add(identity)
+            history_data["stats"]["duplicate_usage_records"] = duplicate_replay_usage
+            if args.state_db:
+                enrich_replay_state(history_data["usage_records"], args.state_db)
+                enrich_replay_state(history_data["human_records"], args.state_db)
+        else:
+            history_data = collect_native_history(
+                history_roots,
+                cutoff=history_cutoff,
+                days=args.days,
+                annotation_path=args.history_annotations,
+                repository_map=repository_map,
+                state_db=args.state_db,
+            )
+        if repository_map is not None:
+            history_data["stats"]["repository_map_entries"] = len(repository_map)
+        if args.history_export:
+            write_normalized_history(args.history_export, history_data["export_records"])
+    elif (
+        args.history_annotations or args.history_export or args.repository_map or args.state_db
+        or args.pr_lookup_cache or args.history_replay
+    ):
+        parser.error("history annotations, exports, and PR lookup inputs require --history-root")
 
     collector = Collector(repos=repos, cutoff_dt=cutoff_dt)
     collected = collector.collect_all(
@@ -3651,6 +4866,7 @@ def main():
         timeline_events=timeline,
         sources=sources,
         handoff_records=handoff_records,
+        handoff_receipt_stats=collected.get("handoff_receipt_stats"),
         time_semantics_pilot=pilot_events,
         human_episodes=human_episodes,
         stale_threshold_hours=args.stale_hours,
@@ -3659,25 +4875,81 @@ def main():
     usage_summary = None
     usage_events = []
     rates = []
+    native_source_stats = history_data["stats"] if history_data else None
     if args.usage_events:
         rates = load_rate_table(args.usage_rates) if args.usage_rates else []
         providers = {rate["provider"] for rate in rates}
-        if len(providers) > 1:
-            raise ValueError("usage feed must use one provider rate card")
-        events = load_usage_events(args.usage_events, provider=next(iter(providers), None))
+        provider = next(iter(providers)) if len(providers) == 1 else None
+        events = load_usage_events(args.usage_events, provider=provider)
     elif collected.get("usage_events"):
-        rates = load_rate_table(collected["usage_rates"]) if collected.get("usage_rates", {}).get("rates") else []
+        rates = load_rate_table(args.usage_rates) if args.usage_rates else (
+            load_rate_table(collected["usage_rates"])
+            if collected.get("usage_rates", {}).get("rates") else []
+        )
         providers = {rate["provider"] for rate in rates}
-        events = load_usage_events(collected["usage_events"], provider=next(iter(providers), None))
+        provider = next(iter(providers)) if len(providers) == 1 else None
+        events = load_usage_events(collected["usage_events"], provider=provider)
     else:
+        rates = load_rate_table(args.usage_rates) if args.usage_rates else []
+        events = []
+
+    if history_data:
+        native_events = load_usage_events(history_data["usage_records"])
+        events.extend(native_events)
+    if not events and not args.usage_events and not collected.get("usage_events") and not history_roots and not history_data:
         events = None
     if events is not None:
         usage_events = events
         usage_summary = aggregate_usage(events, rates, window_start=aggregator.w1_start_dt, window_end=cutoff_dt)
+        if native_source_stats is not None:
+            usage_summary["coverage"]["native_source"] = native_source_stats
         summary_data["usage_summary"] = _retained_usage_summary(usage_summary)
 
     if collected.get("status") in ("FAILED", "PARTIAL_FAILURE"):
         summary_data["status"] = collected["status"]
+    query_prs = prs
+    if history_data:
+        branch_prs = _merge_pr_branch_metadata(
+            prs, pr_lookup_cache.get("prs", []) if pr_lookup_cache else []
+        )
+        query_prs = branch_prs
+        if usage_summary is not None:
+            _attach_usage_snapshot_attributions(
+                usage_summary["query_events"], history_data["usage_records"], branch_prs
+            )
+        steering_stats = dict(history_data["stats"])
+        if pr_lookup_cache:
+            cache_meta = pr_lookup_cache.get("cache")
+            cache_meta = cache_meta if isinstance(cache_meta, dict) else {}
+            steering_stats["branch_lookup_cache_sha256"] = cache_meta.get("sha256")
+            steering_stats["branch_lookup_fetched_at"] = pr_lookup_cache.get("fetchedAtUtc")
+            steering_stats["branch_lookup_pr_count"] = len(pr_lookup_cache.get("prs", []))
+        summary_data["human_summary"] = aggregate_native_human_steering(
+            history_data["human_records"],
+            branch_prs,
+            window_start=history_data["stats"].get("window_start"),
+            window_end=history_data["stats"].get("window_end"),
+            source_stats=steering_stats,
+        )
+
+    query_summary = None
+    if (
+        args.query_metrics or args.scenario_catalog or args.history_replay
+        or args.query_memory_limit or args.query_temp_directory
+    ):
+        try:
+            from scripts.prw_metrics_queries import run_query
+        except ModuleNotFoundError:
+            from prw_metrics_queries import run_query
+        query_summary = run_query(
+            events_path=usage_summary["query_events"] if usage_summary else [],
+            pr_snapshots_path=query_prs or [],
+            snapshot_at_utc=format_iso_utc(cutoff_dt),
+            human_summary_path=summary_data.get("human_summary"),
+            rate_catalog_path=args.scenario_catalog,
+            duckdb_memory_limit=args.query_memory_limit,
+            duckdb_temp_directory=args.query_temp_directory,
+        )
 
     renderer = DashboardRenderer()
     md_output = renderer.render(summary_data)
@@ -3685,6 +4957,12 @@ def main():
         md_output = md_output.replace(
             "## 6. Definitions & Limitations",
             "\n".join(render_usage_summary(usage_summary)) + "\n\n## 6. Definitions & Limitations",
+        )
+    if query_summary is not None:
+        md_output = md_output.replace(
+            "## 6. Definitions & Limitations",
+            render_prw_query_summary(query_summary)
+            + "\n\n## 6. Definitions & Limitations",
         )
 
     if args.output:
@@ -3696,11 +4974,14 @@ def main():
         print(md_output)
 
     if args.publish and args.roadmap_repo:
+        publication_status = summary_data["status"]
+        if native_source_stats and native_source_stats["status"] == "FAILED":
+            publication_status = "FAILED"
         pub_res = publish_dashboard(
             markdown_text=md_output,
             repo_path=args.roadmap_repo,
             target_relpath=args.target_relpath,
-            status=summary_data["status"],
+            status=publication_status,
             publish_telemetry=True,
             summary_data=summary_data,
             pilot_events=collected.get("pilot_events"),
@@ -3719,6 +5000,8 @@ def main():
 
     if summary_data["status"] == "FAILED":
         sys.exit(2)
+    if native_source_stats and native_source_stats["status"] == "FAILED":
+        sys.exit(3)
 
 
 USAGE_LIST_PRICE_LABEL = "public model-list equivalent (not actual invoiced spend)"
@@ -3784,6 +5067,7 @@ def _sanitize_usage_event_record(row):
     clean_usage = {
         "input_tokens": _usage_count(raw.get("input_tokens")),
         "cache_read_input_tokens": _usage_count(raw.get("cache_read_input_tokens")),
+        "cache_write_input_tokens": _usage_count(raw.get("cache_write_input_tokens")),
         "cache_creation_input_tokens": _usage_count(raw.get("cache_creation_input_tokens")),
         "cache_creation": {
             "ephemeral_5m_input_tokens": _usage_count(_get_nested(raw, "cache_creation.ephemeral_5m_input_tokens")),
@@ -3836,6 +5120,7 @@ def _usage_event_record(event):
     raw_usage = {
         "input_tokens": event.get("input_tokens"),
         "cache_read_input_tokens": event.get("cache_read_tokens"),
+        "cache_write_input_tokens": event.get("cache_write_input_tokens"),
         "cache_creation": cache_creation,
         "output_tokens": event.get("output_tokens"),
         "output_tokens_details": {"thinking_tokens": event.get("reasoning_tokens")},
@@ -3896,6 +5181,10 @@ def load_usage_events(path, provider=None):
     else:
         with open(path, encoding="utf-8") as stream:
             records = [json.loads(line) for line in stream if line.strip()]
+    records = [
+        row for row in records
+        if not (isinstance(row, dict) and row.get("record_type") == "human")
+    ]
     events = []
     for line_no, row in enumerate(records, 1):
             if not isinstance(row, dict) or not isinstance(row.get("raw_usage"), dict):
@@ -3906,14 +5195,15 @@ def load_usage_events(path, provider=None):
             event = {
                 "provider": _usage_label(row.get("provider") or provider),
                 "sku": sku,
-                "usage_id": row.get("request_id") or row.get("message_id"),
-                "session_id": row.get("session_id"),
+                "usage_id": _retained_hash(row.get("request_id") or row.get("message_id")),
+                "session_id": _retained_hash(row.get("session_id")),
                 "timestamp": row.get("timestamp"),
                 "source": "native_usage_jsonl",
                 "purpose": "unknown",
                 "input_tokens": _usage_count(raw_usage.get("input_tokens")),
                 "input_includes_cache": False,
                 "cache_read_tokens": _usage_count(raw_usage.get("cache_read_input_tokens")),
+                "cache_write_input_tokens": _usage_count(raw_usage.get("cache_write_input_tokens")),
                 "cache_write_5m_tokens": _usage_count(_get_nested(raw_usage, "cache_creation.ephemeral_5m_input_tokens")),
                 "cache_write_1h_tokens": _usage_count(_get_nested(raw_usage, "cache_creation.ephemeral_1h_input_tokens")),
                 "output_tokens": _usage_count(raw_usage.get("output_tokens")),
@@ -3930,9 +5220,17 @@ def load_usage_events(path, provider=None):
                     if not isinstance(attr, dict):
                         continue
                     refs = attr.get("receipt_refs")
+                    weight = attr.get("weight")
+                    try:
+                        parsed_weight = Decimal(str(weight))
+                    except (InvalidOperation, TypeError, ValueError):
+                        pass
+                    else:
+                        if parsed_weight.is_finite() and 0 < parsed_weight <= 1:
+                            weight = str(parsed_weight.normalize())
                     event["attributions"].append({
                         "pr": attr.get("pr") if _safe_pr_id(attr.get("pr")) else None,
-                        "weight": attr.get("weight"), "method": attr.get("method"),
+                        "weight": weight, "method": attr.get("method"),
                         "basis": attr.get("basis"), "convention_ref": attr.get("convention_ref"),
                         "receipt_refs": [clean for ref in refs if (clean := _usage_receipt_ref(ref))]
                         if isinstance(refs, list) else [],
@@ -4059,6 +5357,29 @@ def _supported_usage_attribution(attr):
     return None
 
 
+def _summarize_observed_pr_costs(prs):
+    """Summarize only attributed PRs whose observed usage was entirely priced."""
+    values = [
+        row["known_cost_usd"]
+        for row in prs.values()
+        if (
+            row.get("pricing_status") == "observed-priced"
+            and row.get("event_count", 0) > 0
+        )
+    ]
+    percentiles = calculate_nearest_rank_percentiles(values)
+    return {
+        "n": len(values),
+        **{
+            f"p{p}_usd": (
+                round(percentiles[f"p{p}"], 7)
+                if percentiles[f"p{p}"] is not None else None
+            )
+            for p in (50, 90, 99)
+        },
+    }
+
+
 def _retained_usage_summary(summary):
     """Persist sanitized numeric totals, per-event buckets, and rate provenance only."""
     rates = []
@@ -4086,6 +5407,7 @@ def _retained_usage_summary(summary):
                         "event_count": summary["unallocated"]["event_count"],
                         "unknown_cost_events": summary["unallocated"]["unknown_cost_events"]},
         "tokens_by_bucket": summary["tokens_by_bucket"],
+        "pr_cost_distribution": summary["pr_cost_distribution"],
         "reasoning_tokens": summary["reasoning_tokens"],
         "coverage": summary["coverage"],
         "prs": {key: {"known_cost_usd": str(row["known_cost_usd"]), "unknown": row["unknown"],
@@ -4099,9 +5421,25 @@ def _retained_usage_summary(summary):
     }
 
 
+def _same_usage_except_observation_timestamp(left, right):
+    """Treat timestamp-only observations as one request while keeping the first clock."""
+    return (
+        {key: value for key, value in left.items() if key != "timestamp"}
+        == {key: value for key, value in right.items() if key != "timestamp"}
+    )
+
+
 def aggregate_usage(raw_events, rates, window_start=None, window_end=None):
     """Aggregate real feed events without inventing missing cost or PR allocation."""
     raw_events = list(raw_events)
+    price_catalog_version = (
+        "sha256:" + hashlib.sha256(
+            json.dumps(
+                rates, sort_keys=True, default=str, separators=(",", ":")
+            ).encode()
+        ).hexdigest()
+        if rates else None
+    )
     source_records = len(raw_events)
     undated_count, outside_window_count = 0, 0
     if window_start is not None and window_end is not None:
@@ -4127,7 +5465,8 @@ def aggregate_usage(raw_events, rates, window_start=None, window_end=None):
             continue
         if identity in seen:
             prior_index = seen[identity]
-            if rows[prior_index] != raw:
+            if (rows[prior_index] != raw
+                    and not _same_usage_except_observation_timestamp(rows[prior_index], raw)):
                 prior = dict(rows[prior_index], unknown_reasons=reason + ["conflicting_duplicate"])
                 for field in _USAGE_TOKEN_BUCKETS:
                     prior[field] = None
@@ -4164,8 +5503,13 @@ def aggregate_usage(raw_events, rates, window_start=None, window_end=None):
         partial += status == "partial"
         unknown += status == "unknown"
         known_cost += cost or Decimal(0)
-        priced_rows.append({"status": status, "known_cost_usd": cost, "unknown_buckets": unknown_buckets,
-                            "tokens_by_bucket": billable})
+        priced_row = {
+            "status": status,
+            "known_cost_usd": cost,
+            "unknown_buckets": unknown_buckets,
+            "tokens_by_bucket": billable,
+        }
+        priced_rows.append(priced_row)
         for bucket, count in billable.items():
             if isinstance(count, int) and not isinstance(count, bool) and count >= 0:
                 totals[bucket] += count
@@ -4175,8 +5519,23 @@ def aggregate_usage(raw_events, rates, window_start=None, window_end=None):
         weights = [_supported_usage_attribution(a) for a in attrs]
         valid = (bool(attrs) and len({attr.get("pr") for attr in attrs}) == len(attrs)
                  and all(w is not None for w in weights) and sum(weights) <= 1)
+        validated_attributions = []
         if valid:
             for attr, weight in zip(attrs, weights):
+                validated_attributions.append({
+                    "pr": attr["pr"],
+                    "weight": str(weight),
+                    "method": attr["method"],
+                    "basis": (
+                        "separable_breakdown"
+                        if attr.get("basis") == "separable_breakdown" else None
+                    ),
+                    "convention_ref": _usage_label(attr.get("convention_ref")),
+                    "receipt_refs": [
+                        receipt for value in attr["receipt_refs"]
+                        if (receipt := _usage_receipt_ref(value))
+                    ],
+                })
                 item = prs[attr["pr"]]
                 item["event_count"] += 1
                 if status != "priced":
@@ -4193,6 +5552,107 @@ def aggregate_usage(raw_events, rates, window_start=None, window_end=None):
             for attr in attrs:
                 if _safe_pr_id(attr.get("pr")):
                     prs[attr["pr"]]["unknown"] = True
+
+        reasons = set(raw.get("unknown_reasons", []))
+        usage_id_missing = "usage_identity_missing" in reasons
+        provider = raw.get("provider")
+        usage_id = raw.get("usage_id")
+        event_id = None
+        if provider and usage_id and not usage_id_missing:
+            event_id = _retained_hash(f"{provider}\0{usage_id}")
+        source_identity = raw.get("source_fingerprint") or raw.get("source_id")
+        source_id = _retained_hash(source_identity) if source_identity else None
+        session_id_hash = (
+            _retained_hash(raw["session_id"]) if raw.get("session_id") else None
+        )
+
+        input_uncached = billable.get("input_uncached")
+        cache_read = billable.get("cache_read")
+        cache_write_5m = billable.get("cache_write_5m")
+        cache_write_1h = billable.get("cache_write_1h")
+        generic_cache_write = raw.get("cache_write_input_tokens")
+        if (
+            isinstance(generic_cache_write, bool)
+            or not isinstance(generic_cache_write, int)
+            or generic_cache_write < 0
+        ):
+            generic_cache_write = None
+        ttl_cache_writes = (cache_write_5m, cache_write_1h)
+        if generic_cache_write is not None:
+            cache_write_input = generic_cache_write
+        elif raw.get("provider") == "openai":
+            cache_write_input = None
+        elif all(
+            isinstance(value, int) and not isinstance(value, bool) and value >= 0
+            for value in ttl_cache_writes
+        ):
+            cache_write_input = cache_write_5m + cache_write_1h
+        else:
+            cache_write_input = None
+        output_tokens = billable.get("output")
+        if raw.get("provider") == "openai":
+            components = (input_uncached, cache_read, output_tokens)
+        else:
+            components = (input_uncached, cache_read, cache_write_input, output_tokens)
+        token_complete = all(
+            isinstance(value, int) and not isinstance(value, bool) and value >= 0
+            for value in components
+        )
+        total_tokens = sum(components) if token_complete else None
+        reasoning_tokens_value = raw.get("reasoning_tokens")
+        if (
+            not isinstance(reasoning_tokens_value, int)
+            or isinstance(reasoning_tokens_value, bool)
+            or reasoning_tokens_value < 0
+            or source_conflict
+        ):
+            reasoning_tokens_value = None
+        timestamp = _parse_utc_instant(raw.get("timestamp"))
+
+        safe_unknown_reasons = sorted(
+            reason for reason in reasons
+            if reason in {
+                "source_usage_conflict", "conflicting_duplicate",
+                "usage_identity_missing", "unsupported_sku",
+            }
+        )
+        if valid:
+            attribution_status = "VALIDATED"
+        elif attrs:
+            attribution_status = "INVALID_OR_UNSUPPORTED"
+        else:
+            attribution_status = "UNBOUND"
+        priced_row.update({
+            "event_id": event_id,
+            "source_id": source_id,
+            "request_id_present": not usage_id_missing and bool(usage_id),
+            "session_id_hash": session_id_hash,
+            "provider": _usage_label(provider),
+            "model": _usage_label(raw.get("sku")),
+            "timestamp": format_iso_utc(timestamp) if timestamp else None,
+            "request_duration_seconds": valid_duration_sec(
+                raw.get("request_duration_seconds")
+            ),
+            "dedup_conflict": "conflicting_duplicate" in reasons,
+            "source_conflict": "source_usage_conflict" in reasons,
+            "validated_attributions": validated_attributions,
+            "attribution_status": attribution_status,
+            "unknown_reasons": safe_unknown_reasons,
+            "token_complete": token_complete,
+            "total_tokens": total_tokens,
+            "reasoning_output_tokens": reasoning_tokens_value,
+            "cache_write_input_tokens": cache_write_input,
+            "observed_cost_usd": None,
+            "list_equivalent_cost_usd": (
+                str(cost) if rates and cost is not None else None
+            ),
+            "cost_currency": "USD" if rates and cost is not None else None,
+            "cost_basis": (
+                USAGE_LIST_PRICE_LABEL if rates and cost is not None else None
+            ),
+            "price_catalog_version": price_catalog_version,
+            "cost_status": status if rates else "UNKNOWN_NO_RATE_CARD",
+        })
     return {
         "label": USAGE_LIST_PRICE_LABEL,
         "scope": "observed feed; population completeness not established",
@@ -4214,9 +5674,145 @@ def aggregate_usage(raw_events, rates, window_start=None, window_end=None):
                      "session_count": len(coverage["sessions"])},
         "prs": {key: {**value, "pricing_status": "partial" if value["unknown"] else "observed-priced"}
                 for key, value in prs.items()},
+        "pr_cost_distribution": _summarize_observed_pr_costs({
+            key: {
+                **value,
+                "pricing_status": "partial" if value["unknown"] else "observed-priced",
+            }
+            for key, value in prs.items()
+        }),
         "events": priced_rows,
+        "query_events": priced_rows,
         "rate_records": [{k: (str(v) if isinstance(v, (Decimal, datetime)) else v) for k, v in r.items()} for r in rates],
     }
+
+
+def render_prw_query_summary(result):
+    """Render existing query results with compact per-PR tables."""
+    lines = [
+        "## PRW Query Metrics (DuckDB)", "",
+        f"Window: {result['window_start_utc']} through "
+        f"{result['snapshot_at_utc']} (14 days).",
+        "Query cohorts use observed records only; missing fields remain UNKNOWN.",
+        "LOW associations use repository and branch snapshots; request-time ownership is UNKNOWN.", "",
+    ]
+
+    def show(value):
+        return "UNKNOWN" if value is None else value
+
+    def table(title, headers, rows):
+        if not rows:
+            return
+        lines.extend([
+            f"### {title}", "", "| " + " | ".join(headers) + " |",
+            "|" + "|".join("---" for _ in headers) + "|",
+        ])
+        lines.extend(
+            "| " + " | ".join(str(value) for value in row) + " |"
+            for row in rows
+        )
+        lines.append("")
+
+    metrics = result.get("pr_metrics", [])
+
+    def pr_label(row):
+        return f"{row.get('repository', 'UNKNOWN')}#{row.get('pr_number', 'UNKNOWN')}"
+
+    table(
+        "Per-PR direct token totals",
+        ["PR", "Uncached input", "Cache read", "Output"],
+        [
+        (
+            pr_label(row), show(row.get("direct_uncached_input_tokens")),
+            show(row.get("direct_cache_read_input_tokens")),
+            show(row.get("direct_output_tokens")),
+        ) for row in metrics
+        ],
+    )
+
+    def cache_write_total(row):
+        short = row.get("direct_cache_write_5m_input_tokens")
+        long = row.get("direct_cache_write_1h_input_tokens")
+        if isinstance(short, (int, float)) and isinstance(long, (int, float)):
+            return short + long
+        return "UNKNOWN"
+
+    table(
+        "Per-PR cache writes and request totals",
+        ["PR", "Cache write", "Total tokens", "Requests"],
+        [
+        (
+            pr_label(row), cache_write_total(row),
+            show(row.get("direct_total_tokens")),
+            show(row.get("direct_usage_observation_count")),
+        ) for row in metrics
+        ],
+    )
+    table(
+        "Per-PR request token distribution",
+        ["PR", "Average / p50", "p90 / p99", "N"],
+        [
+        (
+            pr_label(row),
+            f"{show(row.get('direct_request_total_tokens_average'))} / "
+            f"{show(row.get('direct_request_total_tokens_p50'))}",
+            f"{show(row.get('direct_request_total_tokens_p90'))} / "
+            f"{show(row.get('direct_request_total_tokens_p99'))}",
+            show(row.get("direct_request_total_tokens_n")),
+        ) for row in metrics
+        ],
+    )
+
+    def human_count(row, field):
+        if row.get("human_coverage_status") in (None, "UNKNOWN"):
+            return "UNKNOWN"
+        return show(row.get(field))
+
+    table(
+        "Per-PR human steering",
+        ["PR", "Verified messages", "Initial requests", "Follow-up episodes"],
+        [
+        (
+            pr_label(row), human_count(row, "raw_verified_human_message_count"),
+            human_count(row, "verified_initial_human_message_count"),
+            human_count(row, "reviewed_followup_episode_count"),
+        ) for row in metrics
+        ],
+    )
+
+    scenarios = result.get("catalog_scenario_pr_metrics", [])
+    table(
+        "Public-list scenarios (not actual billing)",
+        ["PR / model", "Status", "Known subtotal USD", "Scenario USD"],
+        [
+        (
+            f"{row.get('pr', 'UNKNOWN')} / {row.get('model_id', 'UNKNOWN')}",
+            show(row.get("scenario_status")),
+            show(row.get("known_component_subtotal_usd")),
+            show(row.get("scenario_cost_usd")),
+        ) for row in scenarios
+        ],
+    )
+    if not scenarios:
+        lines.extend(["No exact-model public-list scenario catalog was supplied.", ""])
+
+    cohorts = result.get("metric_cohorts", [])
+    table(
+        "Query cohort distributions",
+        ["Repository / cohort / metric / basis", "Average / p50", "p90 / p99", "Obs N / PR N"],
+        [
+        (
+            f"{row.get('repository', 'UNKNOWN')} / "
+            f"{row.get('cohort_definition', 'UNKNOWN')} / "
+            f"{row.get('metric_family', 'UNKNOWN')}:{row.get('measure', 'UNKNOWN')} / "
+            f"{show(row.get('average_basis'))}",
+            f"{show(row.get('average'))} / {show(row.get('p50'))}",
+            f"{show(row.get('p90'))} / {show(row.get('p99'))}",
+            f"{show(row.get('observation_n'))} / {show(row.get('cohort_pr_n'))}",
+        ) for row in cohorts
+        ],
+    )
+    return "\n".join(lines).rstrip()
 
 
 def render_usage_summary(summary):
@@ -4231,6 +5827,38 @@ def render_usage_summary(summary):
     rate_bases = {rate.get("rate_basis") for rate in summary["rate_records"] if rate.get("rate_basis")}
     rate_scope = ("standard / global / standard (tier / region / speed); mismatches or missing metadata stay UNKNOWN"
                   if rate_bases == {"standard_global_public_list_price"} else "not fully declared; affected usage stays UNKNOWN")
+    native_source = summary["coverage"].get("native_source")
+    if isinstance(native_source, dict):
+        native_status = native_source.get("status", "UNKNOWN")
+        native_counts = ", ".join(
+            f"{key}={native_source.get(key, 0)}"
+            for key in (
+                "roots_requested", "roots_available", "missing_roots", "files_scanned",
+                "duplicate_files", "usage_records_in_window", "duplicate_usage_records",
+                "outside_window_records", "undated_records", "human_candidates", "human_verified",
+                "human_unannotated", "pr_bound_usage_records", "malformed_lines", "read_errors",
+            )
+        )
+        native_scope = native_source.get("runtime_coverage", "runtime coverage UNKNOWN")
+        source_label = (
+            "Native history replay" if native_status == "REPLAYED"
+            else "Native source acquisition"
+        )
+        native_line = (
+            f"- {source_label}: {native_status} ({native_counts}); "
+            f"scope: {native_scope}."
+        )
+        if native_status == "REPLAYED":
+            exports = native_source.get("source_exports", [])
+            details = "; ".join(
+                f"export {index}: {item.get('status', 'UNKNOWN')}, "
+                f"window {item.get('window_start', 'UNKNOWN')} to {item.get('window_end', 'UNKNOWN')}, "
+                f"malformed={item.get('malformed_lines', 'UNKNOWN')}, read_errors={item.get('read_errors', 'UNKNOWN')}"
+                for index, item in enumerate(exports, 1)
+            )
+            native_line += f"\n- Upstream export quality: {native_source.get('source_quality', 'UNKNOWN')}; {details}."
+    else:
+        native_line = None
     lines = ["## Usage Cost Summary", "",
              f"> {summary['label']}. Observed feed only; population completeness is unknown, so this is not a fleet or PR total.", "",
              f"- Source records: {summary['source_records']}; priced: {summary['priced_event_count']}; "
@@ -4245,6 +5873,22 @@ def render_usage_summary(summary):
              "- Tokens by bucket: " + ", ".join(f"`{k}` {v if v is not None else 'UNKNOWN'}" for k, v in sorted(summary["tokens_by_bucket"].items())),
              f"- Reasoning tokens: {summary['reasoning_tokens']} (included in output tokens; diagnostic subset).",
              "- Per-PR costs are shown only for explicit supported attribution."]
+    if native_line:
+        lines.insert(5, native_line)
+    cost_distribution = summary.get("pr_cost_distribution") or {"n": 0}
+    if cost_distribution.get("n", 0):
+        cost_values = ", ".join(
+            f"p{percentile}={chr(36)}{cost_distribution.get(f'p{percentile}_usd'):.7f}"
+            for percentile in (50, 90, 99)
+        )
+        lines.append(
+            f"- Per-PR observed priced cost distribution: n={cost_distribution['n']}; "
+            f"{cost_values}. Only PRs with an explicitly attributed, fully priced "
+            "event are included; this sample does not establish lifecycle-wide or "
+            "complete PR cost coverage."
+        )
+    else:
+        lines.append("- Per-PR observed priced cost distribution: n=0; UNKNOWN.")
     if summary["prs"]:
         lines.extend(["", "| PR | Known subtotal | Coverage |", "|---|---:|---|"])
         for key, row in sorted(summary["prs"].items()):
