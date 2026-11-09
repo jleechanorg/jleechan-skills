@@ -12,6 +12,8 @@ For capacity-driven handoffs, follow
 for host selection and task ownership; this skill owns Linux transport and
 response proof.
 
+Follow the [lightweight caller contract](../linux-remote/SKILL.md#lightweight-caller-remote-execution-owner): the caller drives transport and verifies receipts; the target agent owns execution.
+
 ## Setup (once, per pair of machines)
 
 This skill assumes you've already got:
