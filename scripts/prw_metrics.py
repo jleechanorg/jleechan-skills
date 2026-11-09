@@ -4056,9 +4056,13 @@ def aggregate_native_human_steering(
                 association = context_pr
                 ensure_direct_row(association)
                 confidence = event.get("effective_association_confidence")
-                if not isinstance(confidence, str) or confidence not in {"EXPLICIT", "REVIEWED_CONTEXT", "LOW_BEST_EFFORT_CONTEXT",
-                                      "LOW_BEST_EFFORT", "LOW_BEST_EFFORT_HEAD", "BEST_EFFORT"}:
-                    confidence = "REVIEWED_CONTEXT"
+                if not isinstance(confidence, str) or confidence not in {
+                    "EXPLICIT", "REVIEWED_CONTEXT", "LOW_BEST_EFFORT_CONTEXT",
+                    "LOW_BEST_EFFORT", "LOW_BEST_EFFORT_HEAD", "BEST_EFFORT",
+                    "BRANCH_SNAPSHOT_LOW", "BRANCH_ONLY_LOW", "BRANCH_ONLY_LOW_HEAD",
+                    "BRANCH_ONLY_HEAD_MATCH", "BRANCH_HEAD_MATCH", "high", "medium",
+                }:
+                    confidence = "UNKNOWN"
                 basis = event.get("association_method")
                 if not isinstance(basis, str) or basis not in {"context_override", "context_confirmed_original",
                                  "reviewed_context_association"}:
