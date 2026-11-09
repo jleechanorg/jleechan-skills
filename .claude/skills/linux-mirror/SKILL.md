@@ -59,14 +59,19 @@ Also resolve `$AGENT_CLI`: the CLI **that is calling this skill**, i.e. the oper
 For Claude, preserve the selected profile without transferring credentials. Resolve `CLAUDE_LAUNCHER` before pushing: use `claudewa` when source `CLAUDE_CONFIG_DIR` explicitly ends in `.claude-wa`, and `claude` only when the profile is unset or selects the default `~/.claude`; stop for any other profile without a matching target wrapper. Keep `$AGENT_CLI=claude`. Before pushing, verify the selected target wrapper and intended profile/account; if unavailable or unverified, report the scoped blocker instead of falling back. Never copy credentials or silently switch profiles/accounts.
 
 ```bash
-CLAUDE_LAUNCHER=claude
+CLAUDE_LAUNCHER=""
 if [ "$AGENT_CLI" = claude ]; then
+  CLAUDE_LAUNCHER=claude
   case "${CLAUDE_CONFIG_DIR:-}" in
     */.claude-wa|.claude-wa) CLAUDE_LAUNCHER=claudewa ;;
     ""|"$HOME/.claude"|~/.claude) ;;
     *) echo "ERROR: explicitly selected Claude profile has no known matching target wrapper; refusing profile fallback" >&2; exit 75 ;;
   esac
 fi
+case "$AGENT_CLI" in
+  pi|claude|codex|agy) ;;
+  *) echo "ERROR: unsupported AGENT_CLI '$AGENT_CLI' (pi|claude|codex|agy)" >&2; exit 75 ;;
+esac
 ```
 
 If `$BRANCH` is empty (detached HEAD) or `$DIRTY` is non-empty, stop and tell the user — commit/name the branch first.
@@ -139,6 +144,10 @@ esac
 AGENT_CLI=$(printf '%s' "$5" | base64 -d)
 CLAUDE_LAUNCHER=$(printf '%s' "$6" | base64 -d)
 INTENDED_SHA=$(printf '%s' "$7" | base64 -d)
+case "$AGENT_CLI:$CLAUDE_LAUNCHER" in
+  claude:claude|claude:claudewa|pi:|codex:|agy:) ;;
+  *) echo "FAILED:$REL_PATH — invalid CLI/profile selection; refusing mirror reuse" >&2; exit 75 ;;
+esac
 if [[ ! "$INTENDED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
   echo "FAILED:$REL_PATH — invalid intended source SHA" >&2
   exit 75
@@ -242,6 +251,15 @@ if tmux has-session -t "=$SESSION" 2>/dev/null; then
   }
   [ "$SESSION_BRANCH" = "$BRANCH" ] || {
     echo "FAILED:$SESSION — existing session branch mismatch" >&2
+    exit 75
+  }
+  SESSION_AGENT_CLI=$(tmux show-option -qv -t "=$SESSION" @mirror-agent-cli 2>/dev/null || true)
+  [ -n "$SESSION_AGENT_CLI" ] || {
+    echo "FAILED:$SESSION — existing session has no recorded CLI; refusing RESUMED" >&2
+    exit 75
+  }
+  [ "$SESSION_AGENT_CLI" = "$AGENT_CLI" ] || {
+    echo "FAILED:$SESSION — existing session CLI mismatch ($SESSION_AGENT_CLI != $AGENT_CLI); refusing RESUMED" >&2
     exit 75
   }
   if [ "$AGENT_CLI" = "claude" ]; then
@@ -400,7 +418,11 @@ else
   # call) so a session that dies immediately — missing `claude` binary,
   # PATH not resolving it under a non-login tmux shell, a crash — leaves a
   # dead-but-inspectable pane instead of vanishing outright.
-tmux new-session -d -s "$SESSION" -c "$TARGET" "${LAUNCH[@]}" \; set-option -t "$SESSION" remain-on-exit on \; set-option -t "$SESSION" @mirror-claude-launcher "$CLAUDE_LAUNCHER" 9>&-
+if [ "$AGENT_CLI" = "claude" ]; then
+  tmux new-session -d -s "$SESSION" -c "$TARGET" "${LAUNCH[@]}" \; set-option -t "$SESSION" remain-on-exit on \; set-option -t "$SESSION" @mirror-agent-cli "$AGENT_CLI" \; set-option -t "$SESSION" @mirror-claude-launcher "$CLAUDE_LAUNCHER" 9>&-
+else
+  tmux new-session -d -s "$SESSION" -c "$TARGET" "${LAUNCH[@]}" \; set-option -t "$SESSION" remain-on-exit on \; set-option -t "$SESSION" @mirror-agent-cli "$AGENT_CLI" 9>&-
+fi
   # Poll for the trust dialog and accept it with fixed navigation keys
   # (Down, Enter) — never $CONTEXT — so this carries none of the
   # injection risk the original send-keys-typed-$CONTEXT bug had. This
