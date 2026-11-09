@@ -38,7 +38,7 @@ workers are all origin-scoped. Verified end to end on 2026-11-09:
 
 | check | result |
 |---|---|
-| two **simultaneous** launches on one dir | fails (`ProcessSingleton`) — so we serialize |
+| two **simultaneous** launches on one dir | fails (`ProcessSingleton`) — rejection, not queueing |
 | three **concurrent** `instinct probe` runs | all 3 succeed, serialized, ~17 s total |
 | dot cookies after instinct ran 4× | **68 hosts/12**, up from 66/11 — intact and **grew** |
 | `.web.whatsapp.com` cookies | 2, coexisting with chatgpt/google/youtube/openai |
@@ -62,11 +62,14 @@ workers are all origin-scoped. Verified end to end on 2026-11-09:
    serializes concurrent invocations and concurrent launches are "the caller's own risk". So the lock
    alone does **not** implement mutual exclusion, and it is not a gap to be silently patched here.
 
-   The hard guarantee is Chromium's own `ProcessSingleton`, which makes two simultaneous launches on one
-   `user_data_dir` impossible — measured: the second fails with *"Failed to create a ProcessSingleton for
-   your profile directory."* The lock exists to make instinct **yield politely** (wait, then retry)
-   instead of colliding, and to keep its own concurrent runs serialized. Two-way exclusion would need
-   `dot.sh` to take the same lockfile, which is a `/dot` ownership decision (bead `jleechan-5jzs`).
+   What Chromium supplies is a *rejection*, not a queue: two simultaneous launches on one `user_data_dir`
+   cannot both succeed — measured, the second fails with *"Failed to create a ProcessSingleton for your
+   profile directory."* It does not schedule the loser, and there is a check-to-launch race here
+   (`acquireLock` inspects, then launches) that only the operator reliably closes. Dot's own stale-lock
+   cleanup (`dot_chrome.mjs:297-325`) has a similar conditional check-and-unlink window, so this is not a
+   categorical guarantee on either side. The lock's real jobs are: make instinct **yield politely**
+   (wait, then retry) instead of colliding, and serialize instinct's own concurrent runs.
+   **Operator serialization remains necessary.**
 
 Tuning: `INSTINCT_LOCK_WAIT_MS` / `INSTINCT_PROFILE_WAIT_MS` (default 300 s each). Exit 7 only if a
 live Chrome still holds the profile past the window.
@@ -104,9 +107,13 @@ interactively, because pairing needs a human to scan a QR code from the phone:
   ~/.claude/skills/instinct/scripts/instinct.mjs login
 ```
 
-`login` opens a visible Chrome, holds the advisory lock for the whole session (so `dot.sh` cannot
-grab the profile mid-scan), waits up to `INSTINCT_LOGIN_WAIT_MS` (default 600 s) for the chat list to
-appear, then closes cleanly and prints `LINKED`. **Verified working 2026-11-09.**
+`login` opens a visible Chrome, holds the advisory lock for the whole session, waits up to
+`INSTINCT_LOGIN_WAIT_MS` (default 600 s) for the chat list to appear, then closes cleanly and prints
+`LINKED`. **Verified working 2026-11-09.**
+
+The lock keeps a concurrent *instinct* run waiting; it does **not** stop `dot.sh`, which takes no lock
+(see the one-sided lock note above). If Dot launches mid-scan, Chromium rejects the second launch with a
+`ProcessSingleton` error rather than queueing it, so **do not start a Dot call while `login` is open**.
 
 A visible Chrome opens on `web.whatsapp.com`. On the phone: **WhatsApp → Settings → Linked devices →
 Link a device**, then scan. **Do not close the window yourself** — `login` detects the chat list, waits
