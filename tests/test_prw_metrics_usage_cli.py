@@ -1,12 +1,16 @@
 """CLI-level checks for actual usage feed and rate-card wiring."""
 
+import io
 import json
 import os
 import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
+from datetime import datetime, timezone
 from pathlib import Path
+from unittest import mock
 
 from scripts.prw_metrics import (
     _retained_usage_summary,
@@ -16,6 +20,7 @@ from scripts.prw_metrics import (
     collect_claude_native_usage,
     load_rate_table,
     load_usage_events,
+    main,
     parse_iso_utc,
 )
 
@@ -492,6 +497,59 @@ class NativeClaudeUsageSourceTests(unittest.TestCase):
         output = self._collect(telemetry_dir=telemetry).stdout
         self.assertIn("Source records: 2; priced: 0; partially priced: 0; unknown: 1.", output)
         self.assertIn("Known usage subtotal: UNKNOWN (no priced usage).", output)
+
+    def test_publish_receives_failed_status_when_configured_native_source_is_missing(self):
+        now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        collected = {
+            "prs": [{
+                "number": 1, "repo": "example/repo", "url": "https://example.invalid/pull/1",
+                "headRefOid": "abcdef123456", "state": "OPEN", "title": "fresh fixture",
+                "createdAt": now, "updatedAt": now, "labels": [],
+            }],
+            "timeline": [], "handoff_records": [],
+            "sources": {"example/repo": {"status": "COMPLETE", "cutoff": now}},
+            "status": "COMPLETE",
+        }
+        publish = mock.Mock(return_value={"action": "RETAINED_PRIOR", "committed": False})
+        args = [
+            str(self.script), "--offline", "--publish", "--roadmap-repo", str(self.root),
+            "--usage-source-dir", str(self.root / "missing-source"),
+            "--cutoff", now,
+        ]
+        with redirect_stdout(io.StringIO()), \
+                mock.patch("scripts.prw_metrics.Collector.collect_all", return_value=collected), \
+                mock.patch("scripts.prw_metrics.publish_dashboard", publish), \
+                mock.patch("sys.argv", args):
+            with self.assertRaises(SystemExit) as raised:
+                main()
+        self.assertEqual(raised.exception.code, 3)
+        self.assertTrue(publish.called)
+        self.assertEqual(publish.call_args.kwargs["status"], "FAILED")
+
+    def test_partial_native_source_keeps_existing_publication_status(self):
+        self.events.write_text("{malformed}\n", encoding="utf-8")
+        now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        collected = {
+            "prs": [{
+                "number": 1, "repo": "example/repo", "url": "https://example.invalid/pull/1",
+                "headRefOid": "abcdef123456", "state": "OPEN", "title": "fresh fixture",
+                "createdAt": now, "updatedAt": now, "labels": [],
+            }],
+            "timeline": [], "handoff_records": [],
+            "sources": {"example/repo": {"status": "COMPLETE", "cutoff": now}},
+            "status": "COMPLETE",
+        }
+        publish = mock.Mock(return_value={"action": "RETAINED_PRIOR", "committed": False})
+        args = [
+            str(self.script), "--offline", "--publish", "--roadmap-repo", str(self.root),
+            "--usage-source-dir", str(self.source), "--cutoff", now,
+        ]
+        with redirect_stdout(io.StringIO()), \
+                mock.patch("scripts.prw_metrics.Collector.collect_all", return_value=collected), \
+                mock.patch("scripts.prw_metrics.publish_dashboard", publish), \
+                mock.patch("sys.argv", args):
+            main()
+        self.assertEqual(publish.call_args.kwargs["status"], "FRESH")
 
     def test_missing_native_source_is_visible_and_returns_failure(self):
         self.source.rmdir()

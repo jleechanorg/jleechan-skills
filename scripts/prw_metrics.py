@@ -3721,11 +3721,14 @@ def main():
         print(md_output)
 
     if args.publish and args.roadmap_repo:
+        publication_status = summary_data["status"]
+        if native_source_stats and native_source_stats["status"] == "FAILED":
+            publication_status = "FAILED"
         pub_res = publish_dashboard(
             markdown_text=md_output,
             repo_path=args.roadmap_repo,
             target_relpath=args.target_relpath,
-            status=summary_data["status"],
+            status=publication_status,
             publish_telemetry=True,
             summary_data=summary_data,
             pilot_events=collected.get("pilot_events"),
