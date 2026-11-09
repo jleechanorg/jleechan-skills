@@ -364,3 +364,9 @@ both formats, and retained loading exposes reconstructed summary_snapshots.
 Caller-supplied summary parts are reconstructed and privacy-projected before
 publication. Same-window replacement removes stale summary parts as well as usage
 parts; small, empty, shrinking, corrupt and repeated snapshots have focused proof.
+
+The final publisher validates every telemetry blob, including manifests and other
+metadata, against the 32 MiB hard limit before any Git write. If metadata itself
+exceeds that limit, publication fails explicitly without dropping records or
+committing a partial dashboard. Test-only part budgets are separate from this
+hard limit; production defaults bind both to 32 MiB.

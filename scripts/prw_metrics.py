@@ -537,7 +537,8 @@ TELEMETRY_FILES = (
 
 
 # Keep generated Git blobs well below GitHub's 100 MiB limit.
-USAGE_SHARD_BYTES = 32 * 1024 * 1024
+TELEMETRY_BLOB_BYTES = 32 * 1024 * 1024
+USAGE_SHARD_BYTES = TELEMETRY_BLOB_BYTES
 _USAGE_PART_RE = re.compile(r"usage_events\.part-[0-9]{6}\.jsonl")
 _USAGE_MANIFEST = "usage_events.manifest.json"
 
@@ -4665,6 +4666,13 @@ class Publisher:
         except (ValueError, TypeError, KeyError) as exc:
             return {"action": "BLOCKED", "committed": False,
                     "reason": f"Invalid summary telemetry bundle: {exc}"}
+
+        # The part budget also bounds metadata: manifests and any other generated
+        # telemetry must fail before Git writes, never truncate or partially publish.
+        for path, content in telemetry_staged_files.items():
+            if len(content.encode("utf-8")) > TELEMETRY_BLOB_BYTES:
+                return {"action": "BLOCKED", "committed": False,
+                        "reason": f"Telemetry blob exceeds byte limit: {path}"}
 
         # Check existing content at origin/main:<target_relpath>
         current_content = None

@@ -119,6 +119,36 @@ class RetainedUsageShards(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     m._read_summary_bundle(broken, broken.__getitem__)
 
+    def test_oversized_manifests_block_before_any_git_publication(self):
+        # Separate injected part and hard-blob budgets: parts fit, metadata does
+        # not. Production defaults are independently both 32 MiB.
+        summary = {"w2_bounds": ["2026-11-02T00:00:00Z", "x"],
+                   "usage_summary": {"events": [{"status": "UNKNOWN"} for _ in range(300)]}}
+        cases = [
+            ({"summary_data": summary}, "summary_snapshot.manifest.json"),
+            ({"summary_data": {"w2_bounds": summary["w2_bounds"]},
+              "usage_events": m.load_usage_events(self.rows(100))}, "usage_events.manifest.json"),
+        ]
+        for kwargs, manifest_name in cases:
+            with self.subTest(manifest=manifest_name), tempfile.TemporaryDirectory() as temp:
+                publisher = m.Publisher(temp)
+                with mock.patch.object(m, "USAGE_SHARD_BYTES", 900), \
+                     mock.patch.object(m, "TELEMETRY_BLOB_BYTES", 1100, create=True), \
+                     mock.patch.object(m.subprocess, "run", return_value=subprocess.CompletedProcess(
+                         [], 0, stdout="synthetic-hash\n", stderr="")) as git_calls:
+                    bundle = publisher.write_telemetry_bundle(**kwargs)
+                    manifest = next(content for path, content in bundle.items() if path.endswith(manifest_name))
+                    self.assertGreater(len(manifest.encode()), 1100)
+                    self.assertTrue(all(len(content.encode()) <= 900 for path, content in bundle.items()
+                                        if ".part-" in path))
+                    result = publisher.publish("# Dashboard\n", verify_private_fn=lambda _: True,
+                                               publish_telemetry=True, **kwargs)
+                    self.assertEqual(result["action"], "BLOCKED", result)
+                    self.assertFalse(result["committed"])
+                    self.assertIn(manifest_name, result["reason"])
+                    git_calls.assert_not_called()
+                self.assertEqual(list(Path(temp).iterdir()), [])
+
     def test_retained_full_record_index_preserves_equality_and_scales(self):
         class CountedRecord(dict):
             comparisons = 0
@@ -195,6 +225,7 @@ class RetainedUsageShards(unittest.TestCase):
                     tree = git(remote, 'ls-tree', '-r', '-l', 'main', '--', 'dashboards/prw/telemetry/20261102')
                     for entry in tree.splitlines():
                         metadata, name = entry.split('\t', 1)
+                        self.assertLessEqual(int(metadata.split()[3]), m.TELEMETRY_BLOB_BYTES)
                         if name.endswith('/summary_snapshot.json') or '.part-' in name:
                             self.assertLessEqual(int(metadata.split()[3]), 1500)
                     exported = root/f'export-{count}'
