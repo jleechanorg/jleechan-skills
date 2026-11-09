@@ -12,11 +12,13 @@ publication; evidence-standards owns evidence classes. Do not restate those here
 
 ## 1. Pin the question and complete scope
 
-Before queueing reviewers, apply §5 Resubmission and applicability; request only missing or affected independent
-judgment, or an explicitly requested further review.
+Before queueing reviewers, inspect existing verdicts under §5's resubmission and applicability rules. An eligible approval for unchanged
+claims needs no phase, format or frozen-head restamp. Preserve original eligibility; request only genuinely missing
+or affected independent judgment, or an explicitly requested further review.
 
-Every reviewer gets only static-review's cold input. The orchestrator answers the user's `[question]` from the
-reviewers' findings in the §5 report, noting any gap the template cannot surface. Send a pointer to
+Every reviewer gets only the static-review channel preamble and its filled template: no user question, summary,
+excerpt or framing. Keep the user's `[question]` with the orchestrator, record it in the §5 report, and answer it
+from the reviewers' findings; if the template cannot surface what the question needs, report that gap. Send a pointer to
 the complete change, never a transcription. A verdict built on unrecovered truncated input is never APPROVED; if display/tool output truncates, complete required content recovered via narrower range requests within the attempt deadline satisfies full coverage.
 
 - **Revision review** covers exactly the pinned commit.
@@ -173,7 +175,9 @@ acknowledgement, reaction or promise. Route availability does not override discl
 Static reviewers follow [static-review](../static-review/SKILL.md) for cold input, full coverage, identity, deadlines
 and receipts. Spawn each native seat (for example Codex `spawn_agent`) with packet-only context, its preamble and
 template, never a parent-history fork such as `fork_turns: "all"`. Admit them in tier 2 with an eligible Hermes
-instance when needed under §2's caps; each counted verdict covers the whole scope. Eligible CLI pairs, CLI plus static, or eligible outside combinations may supply the quorum.
+instance when needed; §2's aggregate caps still apply (static reviewers collectively at most one vote, Hermes
+instances collectively at most one), and each counted verdict covers the whole scope. Eligible CLI pairs, CLI plus
+static, or eligible outside combinations may supply the quorum.
 There is no generic remote minimum or remote-only prohibition; preserve any separately explicit outside-review
 obligation. Review votes never replace missing substantive evidence.
 
@@ -220,7 +224,11 @@ Mac or Ubuntu machine); try or record each host separately. When the tiers canno
   deadline. For outside routes, `C` covers only readback and receipt writing. Record queue boundary, deadline and
   actual exit in the receipt, never the prompt; the orchestrator's bounded tool call is the mechanism.
 - **Outcome.** Setup, delivery, review, capture, receipt writing and cleanup all count against `B`; the deadline
-  decides eligibility, not a real-time guarantee. Receipt clocks and archive handling follow static-review §5.
+  decides eligibility, not a real-time guarantee. The captured pre-dispatch prompt/hash and actual completion
+  timestamp govern the attempt receipt; later sanitized PR/gist publication and protected or encrypted session
+  archives do not alter that clock or invalidate a verified plaintext dispatch receipt. Receipt archive handling
+  follows static-review §5. Shared immutable preparation may precede the attempt; per-seat setup, capture, technical
+  receipt and cleanup stay inside this section's bound.
   Cleanup or receipt overrun makes the
   attempt nonzero and voids its vote. A late, incomplete, failed or timed-out result is not approval: keep partial
   findings and cleanup status, then use another eligible reviewer. Do not wait on unresolved cleanup, reuse an
@@ -258,7 +266,8 @@ writes, credential changes or unrelated destructive actions. Original state must
 remain unchanged. Failed copy checks or unresolved cleanup make an attempt
 non-countable, while findings are retained. Copies live in configured Scratch,
 never a code/home tree or new `/tmp` clone; remove only exact owned copies after
-process exit, preserving source and private receipts.
+process exit, preserving source and private receipts. Technical receipt and cleanup complete within the attempt
+budget; later sanitized publication is separate and retains the original clocks.
 
 ## 5. Reconcile and report
 
@@ -271,9 +280,10 @@ whole receipt, since a failed late rewrite can leave an older success-looking on
 directory removal does not prove its descendants exited: record that and do not count the attempt.
 
 **Verdict.** Reconcile disagreements within the declared scope yourself; do not ask the user to pick between
-reviewers. A competent blocking (P0) objection, even from a partial-coverage reviewer, means `NOT APPROVED`; partial
-coverage never supplies an approval. Non-blocking (P1/P2) findings alone neither withhold approval nor require another
-round: the author batches them and records each fix or disposition in the report. Without the required independent full-coverage approvals under §2's tier caps, the result is
+reviewers. A competent blocking objection, even from a partial-coverage reviewer, means `NOT APPROVED`; partial
+coverage never supplies an approval. P1/P2 findings are nonblocking and alone neither withhold approval nor require
+another round; the author batches them and records each fix or disposition in the report. Without the required
+independent full-coverage approvals under §2's tier caps, the result is
 `WITHHELD`.
 
 **Report.** Give the full 40-hex reviewed SHA for revision-bound review or `DOCUMENTS sha256:<bundle hash>` for a
@@ -288,9 +298,11 @@ for bundle-only saved-content review, `DOCUMENTS sha256:<bundle hash>` takes the
 [review-routing's SHA-binding rule](../pr-lifecycle/review-routing.md#sha-binding-rule-critical--applies-to-every-gate-in-this-chain)
 and is not a new vote. Before any re-dispatch, the author fixes every blocking finding in one batch, then (a) searches
 all reviewed artifacts for each restatement of a corrected requirement and fixes every one, not only the cited line;
-(b) verifies every cited path, line, link and artifact exists at the new pin. When that rule's record is partially
-applicable with named gaps, send the affected review to the same seat as static-review §4's addendum; otherwise
-request the complete review. Classify instruction changes by behaviour and contract effect, never by path.
+(b) verifies every cited path, line, link and artifact exists at the new pin. Inspect the complete delta, claims,
+evidence and phase; applicability is not a new vote, and material uncovered changes need affected independent
+review. When that rule's record is partially applicable with named gaps, send the affected review to the same seat
+as static-review §4's addendum; otherwise request the complete review. Classify instruction changes by behaviour
+and contract effect, never by path.
 Never claim approval, applicability or publication without its receipt.
 
 For visual follow-up, use [visual-verification's reuse and scoped follow-up](../visual-verification/SKILL.md#reuse-and-scoped-follow-up).

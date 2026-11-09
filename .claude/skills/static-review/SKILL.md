@@ -21,8 +21,10 @@ Each source approver reads the complete pinned diff and every changed path at
 both revisions, or verifies absence. Include binary, mode, symlink, submodule
 and LFS payloads. Verify unchanged spans before reusing a fully read version;
 changed hunks with small context do not establish full-file coverage. Missing
-or unretrievable required content means WITHHELD after the templates' bounded
-recovery. Never combine partial reviewers into one complete vote.
+or unretrievable required content means WITHHELD after bounded recovery with
+narrower ranges inside the fixed attempt deadline (600 seconds for static review;
+advice §3's deadline for other seats; no timer reset). Never combine partial
+reviewers into one complete vote.
 
 ## 1. Cold input and access mode
 
@@ -37,7 +39,10 @@ A revision verdict binds the verified head, comparison base and declared scope.
 A document verdict binds only the named documents and bundle hash. A hash
 establishes integrity, not immutable storage or correct contents.
 An independent source/document verdict does not wait for prior approval or a
-completed review; report readiness, quorum and evidence gaps separately.
+completed review; report readiness, quorum and evidence gaps separately. Prefer
+read-only GitHub/API or an existing checkout when it supplies complete pinned
+objects. Use an export, saved revision packet or isolated clone only when needed
+for complete access or isolation; independence alone does not require a copy.
 
 ## 2. Templates
 
@@ -56,10 +61,10 @@ script variable or reading only a required-content subset is not coverage). If r
 or cannot be retrieved completely by the deadline, report incomplete COVERAGE and
 withhold.
 Report every supported finding in this one pass with file:line, tagged P0
-(blocking) or P1/P2 (non-blocking), and MODEL: for the reviewer's actual
+(blocking) or P1/P2 (nonblocking), and MODEL: for the reviewer's actual
 runtime/model when exposed, or `unreported` when hidden. Never name the
 reviewed system or scope as the model. Add COVERAGE: naming all files and the diff read. Approve source only with
-no P0 and full coverage. Report separate readiness/evidence
+no P0 and full coverage; P1/P2 are nonblocking. Report separate readiness/evidence
 gaps without presenting this source vote as quorum or merge authority. End with exactly one line:
 VERDICT: APPROVED|NOT APPROVED|WITHHELD at <SHA> (WITHHELD with a reason).
 ```
@@ -78,10 +83,10 @@ model must directly read all content (fetching bytes into a script variable or
 reading only a required-content subset is not coverage). If required content is missing, unreadable or
 cannot be retrieved completely by the deadline, report incomplete COVERAGE and
 withhold. Report every supported finding in this one pass with file:line, tagged P0
-(blocking) or P1/P2 (non-blocking), and MODEL: for the reviewer's actual
+(blocking) or P1/P2 (nonblocking), and MODEL: for the reviewer's actual
 runtime/model when exposed, or `unreported` when hidden. Never name the
 reviewed system or scope as the model. Add COVERAGE: naming every file and diff actually read. Approve source only with
-no P0 and full coverage. Keep readiness, quorum and merge
+no P0 and full coverage; P1/P2 are nonblocking. Keep readiness, quorum and merge
 authority separate. End with exactly one line:
 VERDICT: APPROVED|NOT APPROVED|WITHHELD at <SHA> (WITHHELD with a reason).
 ```
@@ -105,10 +110,10 @@ model must directly read all content (fetching bytes into a script variable or
 reading only a required-content subset is not coverage). If required content is missing or cannot be
 retrieved completely by the deadline, report incomplete COVERAGE and WITHHELD.
 Report every supported finding in this one pass with file:line, tagged P0
-(blocking) or P1/P2 (non-blocking), and MODEL: for the reviewer's actual
+(blocking) or P1/P2 (nonblocking), and MODEL: for the reviewer's actual
 runtime/model when exposed, or `unreported` when hidden. Never name the reviewed
 system or scope as the model. Add COVERAGE: naming the files and diff actually read.
-Approve only with no P0 and full coverage. Bind revision approval only to verified revision metadata;
+Approve only with no P0 and full coverage; P1/P2 are nonblocking. Bind revision approval only to verified revision metadata;
 otherwise approve only the named documents, never code or HEAD. End with exactly one line:
 VERDICT: APPROVED|NOT APPROVED|WITHHELD at <REVIEW TARGET> (WITHHELD with a reason).
 ```
@@ -194,8 +199,13 @@ Set `<SUBJECT>` to the revision SHA or `DOCUMENTS sha256:<BUNDLE HASH>`.
 Advice owns required count, reviewer-class caps and identity verification
 (§2 Identity). Native static subagents collectively supply at most one advice
 vote, even when their models differ. Identity eligibility never creates an extra
-vote or combines partial coverage. Static identity is its type, harness and
-actual model; preserve any stronger user/repository requirement.
+vote or combines partial coverage. Report the actual model from reliable runtime
+metadata when exposed; a CLI seat without a verified actual model is unavailable.
+Outside interfaces may omit the underlying runtime model; never invent a SKU.
+The orchestrator verifies configured account/session and independence privately;
+missing public fields alone do not make the account unverified. Static identity
+is its type, harness and actual model; preserve any stronger user/repository
+requirement.
 
 Static attempts have a 600-second end-to-end deadline; other advice attempts
 use advice §3. The orchestrator records queue/return and cleanup, not the model.
@@ -218,13 +228,14 @@ Keep the exact prompt/hash, scope and revision/bundle, actual identity,
 queue/return, native exit/completion, coverage, verdict and the advice §4
 mode-specific checks. The orchestrator captures the exact dispatched prompt and its
 SHA256 before queueing and records managed completion/return at the moment the
-attempt finishes, within the attempt deadline. A managed native completion replaces a CLI exit; never
+attempt finishes within the attempt deadline. A managed native completion replaces a CLI exit; never
 demand a clone path or process cleanup for a mode that created neither.
+Keep the original checkout, refs, local configuration and hooks unchanged.
 
 Capture the private technical receipt and required cleanup within the attempt
 deadline. Later sanitized publication is a separate lifecycle step, preserving
-original times and hashes; never time it against the attempt budget or replace
-actual completion clocks with its timestamps. Publish final review and technical receipts; exclude
+original times and hashes; never time later publication against the attempt
+budget or replace actual completion clocks with publication timestamps. Publish final review and technical receipts; exclude
 private reasoning, secrets and credentials. If a filled prompt contains private
 paths/hosts, publish only its hash and template name outside the authorized
 workspace; retain the exact original privately.

@@ -23,7 +23,7 @@ An unqualified `/prw` (`/pr-workflow`) defaults to driving the PR to **`FINAL_RE
 
 ## Continuation through the requested endpoint
 
-Execute the PR's next unmet obligation continuously through `FINAL_READY`. Status replies do not end the request: answer briefly, then resume. Own delegated lanes through results under `parallelize-to-ceiling`. Stop only at the requested endpoint, user stop, or genuine external blocker.
+Execute the PR's next unmet obligation continuously through `FINAL_READY`. Status replies do not end the request: refresh live state, answer briefly, then resume. Own started jobs and delegated lanes through results under `parallelize-to-ceiling`; integrate their artifacts. Stop only at the requested endpoint, user stop, or genuine external blocker.
 
 ## Precedence and scope
 
@@ -45,8 +45,8 @@ Drive the PR through this continuous cycle without stopping at intermediate chec
    - **Candidate or base changed:** inspect the complete delta; request only affected judgment per [review-routing.md](review-routing.md#sha-binding-rule-critical--applies-to-every-gate-in-this-chain).
    - **Verdicts applicable, next action authorized:** start it now; optional polish stays off the critical path.
    - **Proven hold:** record handle, blocked action and resumption trigger; continue independent authorized work.
-   While subagents, reviewers or CI run, first do every authorized step not needing their result (publish finished evidence, record received receipts, dispatch the next obligation). Only when none remains, make one longest-timeout wait or yield; never repeat short waits, sleeps or status pings (each costs a 15–30 s round-trip at 400k+ context).
-2. **Own Asynchronous Work & Dependencies:** Record the job handle and verified callback or resume mechanism in the execution record, never short polling; written wake conditions alone do not cause resumption. Retain ownership of blocking dependency PRs through their required endpoint or verified accepted handoff; delivery alone does not unblock the parent.
+   While subagents, reviewers or CI run, first do every authorized step not needing their result (publish finished evidence, record received receipts, dispatch the next obligation). Only when none remains, make one longest-timeout wait or yield; never repeat short waits, sleeps or status pings. An acknowledged dispatch is not pickup: verify actual reviewer/job start, record its handle and callback or resume mechanism, and keep ownership through returned artifacts.
+2. **Own Asynchronous Work & Dependencies:** Record each actual job handle and verified callback or resume mechanism in the current execution record; written wake conditions alone do not cause resumption. Retain ownership of blocking dependency PRs through their required endpoint or verified accepted handoff; delivery alone does not unblock the parent. While waiting, integrate completed artifacts and begin any authorized next obligation that does not depend on the outstanding result.
 3. **Synchronize Presentation:** Synchronize title, labels, and description ledger from current obligation state.
 4. **Final Readiness and Merge:** When all draft and closing obligations pass, current checks are green, and receipts are published, synchronize `FINAL_READY` (scoping readiness strictly to the PR's own applicable obligations, while keeping any additional unreviewed runtime or measurement closure claims marked `UNVERIFIED` per [review-records.md](review-records.md#unified-obligation-and-review-ledger) without holding the PR for an optional report).
    - **Headline claim-to-proof check before `FINAL_READY`:** Before synchronizing `FINAL_READY` (or closing a broader task claim alongside a PR), check each headline claim directly against its actual proof:
@@ -54,9 +54,11 @@ Drive the PR through this continuous cycle without stopping at intermediate chec
      - **Source events and arithmetic for metrics/reports:** Trace headline numbers to raw source timestamps/events, verify timestamp subtraction per attempt, leave unobserved intervals `UNKNOWN`/`null` rather than `0`, avoid keyword/repo heuristics for route claims, and label pre-change window cutoffs as baselines rather than post-change effect.
      - **Exact reviewed artifacts for coverage:** Approving a PR diff covers only the exact files and SHA reviewed, never separately generated audit scripts, measurements, or external closure claims outside that diff.
      Missing proof stays `UNVERIFIED`; a stage label or narrower file approval cannot fill it.
-   Once `FINAL_READY` is verified and merge authority holds at the exact head, execute the merge immediately before optional post-merge reporting, telemetry snapshots, or secondary bookkeeping (while mandatory pre-merge gates, exact-head verification, and required receipt publication/readback still precede merge).
+   Once `FINAL_READY` is verified and merge authority holds at the exact head, execute the merge immediately before optional post-merge reporting, telemetry snapshots, or secondary bookkeeping so optional bookkeeping cannot delay an authorized merge (while mandatory pre-merge gates, exact-head verification, and required receipt publication/readback still precede merge).
 
-**Handoff transitions:** Without an unattended gap, the active owner dispatches required review once proof is readable at the candidate SHA (`evidence_ready_at` → `review_requested_at`), verifies actual pickup (`actual_review_started_at`, not acknowledgment), and on return starts the next substantive action (`review_return_at` → `next_substantive_action_started_at`).
+**Handoff transitions:** The active driver owns both handoffs without an unattended gap:
+- **Evidence ready to review start:** When required proof is complete and readable at the candidate SHA (`evidence_ready_at`), dispatch the required review immediately (`review_requested_at`) and verify actual reviewer pickup (`actual_review_started_at`); acknowledgment alone is not review start.
+- **Reviewer return to next action:** Immediately on reviewer return (`review_return_at`), start the next substantive action (`next_substantive_action_started_at`): apply supported fixes, advance the stage, or execute an authorized merge. Keep any independent authorized work moving while another result is pending.
 
 ## Canonical lifecycle
 
