@@ -558,8 +558,14 @@ def _usage_file(name):
     return name in ("usage_events.jsonl", _USAGE_MANIFEST) or bool(_USAGE_PART_RE.fullmatch(name))
 
 
+def _usage_candidate(name):
+    # Reserved usage-family names must survive discovery so malformed parts fail
+    # visibly instead of disappearing before the completeness check.
+    return name.startswith("usage_events.")
+
+
 def _telemetry_file(name):
-    return name in TELEMETRY_FILES or _usage_file(name)
+    return name in TELEMETRY_FILES or _usage_candidate(name)
 
 
 def _usage_parts(records, max_bytes=None):
@@ -614,7 +620,9 @@ def _usage_manifest(content):
 
 def _read_usage_bundle(names, read):
     """Read exactly the authoritative family; reject incomplete or ambiguous snapshots."""
-    names = {name for name in names if _usage_file(name)}
+    names = {name for name in names if _usage_candidate(name)}
+    if any(not _usage_file(name) for name in names):
+        raise ValueError("unexpected retained usage filename")
     if _USAGE_MANIFEST not in names:
         if names - {"usage_events.jsonl"}:
             raise ValueError("retained usage shards lack manifest")
@@ -625,11 +633,14 @@ def _read_usage_bundle(names, read):
     records = []
     for entry in manifest["parts"]:
         content = read(entry["name"])
-        raw = content.encode("utf-8")
-        rows = [json.loads(line) for line in content.splitlines() if line.strip()]
-        if (len(raw) != entry["bytes"] or hashlib.sha256(raw).hexdigest() != entry["sha256"]
-                or len(rows) != entry["records"]):
+        # Filesystem readers supply raw bytes. In-memory generated/sanitized
+        # content is UTF-8 text; never normalize on-disk newlines before hashing.
+        raw = content if isinstance(content, bytes) else content.encode("utf-8")
+        if len(raw) != entry["bytes"] or hashlib.sha256(raw).hexdigest() != entry["sha256"]:
             raise ValueError("retained usage shard integrity mismatch")
+        rows = [json.loads(line) for line in raw.decode("utf-8").splitlines() if line.strip()]
+        if len(rows) != entry["records"]:
+            raise ValueError("retained usage shard record count mismatch")
         records.extend(rows)
     return records
 
@@ -669,7 +680,7 @@ def export_published_telemetry(roadmap_repo, dest_dir, ref="refs/remotes/origin/
                 continue
             blob = git("show", f"{ref}:{rel}")
             if blob.returncode != 0:
-                if _usage_file(os.path.basename(rel)):
+                if _usage_candidate(os.path.basename(rel)):
                     raise ValueError("cannot export published usage telemetry")
                 continue
             out_path = os.path.join(dest_dir, *rel[len(TELEMETRY_RELDIR) + 1:].split("/"))
@@ -1617,7 +1628,7 @@ class Collector:
                             sink.append(record)
 
             def read_usage(name):
-                with open(os.path.join(bundle_dir, name), encoding="utf-8") as f:
+                with open(os.path.join(bundle_dir, name), "rb") as f:
                     return f.read()
             usage_events.extend(_read_usage_bundle(os.listdir(bundle_dir), read_usage))
             rates_path = os.path.join(bundle_dir, "usage_rates.json")

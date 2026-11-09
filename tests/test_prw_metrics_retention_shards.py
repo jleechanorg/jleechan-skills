@@ -51,6 +51,61 @@ class RetainedUsageShards(unittest.TestCase):
         with self.assertRaises(ValueError):
             m._read_usage_bundle({'usage_events.part-000000.jsonl'}, lambda _: '{}\n')
 
+    def export_fixture(self, root):
+        repo = root / "repo"
+        def git(*args):
+            return subprocess.check_output(['git', '-C', str(repo), *args], stderr=subprocess.PIPE)
+        git('init', '-q'); git('config', 'user.name', 'Test Bot')
+        git('config', 'user.email', 'test@example.invalid')
+        git('add', '.'); git('commit', '-qm', 'retained fixture')
+        git('update-ref', 'refs/remotes/origin/main', 'HEAD')
+        exported = root / 'exported'
+        self.assertTrue(m.export_published_telemetry(str(repo), str(exported)))
+        return exported
+
+    def test_crlf_tampering_rejected_before_and_after_git_export(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            bundle = root / 'repo/dashboards/prw/telemetry/20261109'
+            bundle.mkdir(parents=True)
+            with mock.patch.object(m, 'USAGE_SHARD_BYTES', 1500):
+                parts = m._usage_parts(self.rows(5))
+            for name, content in parts.items():
+                (bundle / name).write_bytes(content.encode())
+            part = 'usage_events.part-000000.jsonl'
+            original = (bundle / part).read_bytes()
+            tampered = original.replace(b'\n', b'\r\n')
+            self.assertNotEqual(tampered, original)
+            (bundle / part).write_bytes(tampered)
+            with self.assertRaisesRegex(ValueError, 'integrity mismatch'):
+                m.Collector().load_retained_telemetry(str(bundle))
+            exported = self.export_fixture(root) / '20261109'
+            self.assertEqual((exported / part).read_bytes(), tampered)
+            with self.assertRaisesRegex(ValueError, 'integrity mismatch'):
+                m.Collector().collect_all(telemetry_dir=str(exported), offline=True)
+
+    def test_malformed_part_names_survive_discovery_export_and_fail_closed(self):
+        malformed = 'usage_events.part-00000.jsonl'
+        with self.assertRaisesRegex(ValueError, 'unexpected retained usage filename'):
+            m._read_usage_bundle({malformed}, lambda _: b'{}\n')
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for window in ['20261108', '20261109']:
+                bundle = root / 'repo/dashboards/prw/telemetry' / window
+                bundle.mkdir(parents=True)
+                (bundle / malformed).write_bytes(b'{}\n')
+                if window == '20261109':
+                    (bundle / 'usage_events.jsonl').write_bytes(b'{}\n')
+                self.assertIn(str(bundle), m.retained_telemetry_dirs(str(bundle)))
+                with self.assertRaisesRegex(ValueError, 'unexpected retained usage filename'):
+                    m.Collector().load_retained_telemetry(str(bundle))
+            exported = self.export_fixture(root)
+            for window in ['20261108', '20261109']:
+                bundle = exported / window
+                self.assertEqual((bundle / malformed).read_bytes(), b'{}\n')
+                with self.assertRaisesRegex(ValueError, 'unexpected retained usage filename'):
+                    m.Collector().collect_all(telemetry_dir=str(bundle), offline=True)
+
     def test_retained_full_record_index_preserves_equality_and_scales(self):
         class CountedRecord(dict):
             comparisons = 0
