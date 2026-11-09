@@ -27,7 +27,9 @@ Follow [pr-lifecycle's retained review integrations](../pr-lifecycle/SKILL.md#re
 
 `/er` approves evidence for the actual claims, not full source correctness or an
 `/advice` vote. `/er` is not source approval and does not count toward source-review
-quorum. Read the complete base-to-head diff to derive explicit and implicit claims,
+quorum; likewise, a source-only reviewer vote does not count as evidence
+approval or establish that raw evidence was reviewed. Read the complete
+base-to-head diff to derive explicit and implicit claims,
 then inspect claim-relevant source, artifacts, and provenance. Do not require prior
 source approval or an adjacent, undeclared source-review log. If claim-relevant
 source or provenance is missing, withhold the affected evidence claim rather than
@@ -39,6 +41,26 @@ proof. This scope boundary does not waive real-service, auth, provider, BQ,
 source/provenance, visual or integrity gates, independent code/advice quorum, or
 separate user/merge authority. An observed acceptance violation remains FAIL,
 never a limitation or nonblocking P1.
+
+For every claim being reviewed, directly open and inspect **all available
+claim-scoped raw evidence content and source records**, including failed and
+incomplete attempts. Reconcile the underlying records to the claim, provenance,
+and any derived summary; independently check the content, not only hashes,
+filenames, manifests, ledgers, or another reviewer's summary. Record which raw
+items were inspected and which were unavailable, with the affected claim and
+reason. This requires the full relevant evidence set, not unrelated repository
+data or new evidence classes.
+
+Apply the redaction and protected-original comparison requirements in
+[evidence-standards](../evidence-standards/SKILL.md). Never request or expose
+secrets, read `.env` files, or put unredacted credentials in reviewer/model
+output. If raw evidence required for a claim cannot be opened or independently
+reconciled, and no inspected artifact establishes a contradiction or acceptance
+violation, mark that claim **INCONCLUSIVE** and do not approve it. A contradiction
+or observed acceptance violation in inspected evidence remains **FAIL** under the
+verdict rubric, even when another portion is unavailable. Label summary-only
+review as limited; it cannot replace the raw-evidence review gate. Record other
+claims' independently supported coverage separately.
 
 Every review dispatch, including coordinator asks, must explicitly say: remain
 read-only; do not mutate source/evidence, post, push, update branches, or change
@@ -169,7 +191,12 @@ For each applicable video requirement, verify:
 - Before/after clips come from fresh runs of each build; any re-cut or reused baseline is labeled `derived` with its source.
 - This `/er` verdict (and any `/advice` on the evidence) comes from a different agent/lane than the one that produced the evidence, and the verdict names that lane (lanes may share one GitHub account).
 
-A missing applicable artifact yields **PARTIAL**. Record inapplicable formats as N/A with a reason; do not impose terminal and browser video on every PR.
+A missing or inaccessible media format yields **PARTIAL** only when it is
+supplemental and the claim's decisive raw evidence has been inspected. If the
+media is the claim's decisive raw proof and cannot be opened, mark the claim
+**INCONCLUSIVE** under the raw-coverage rule above, unless inspected evidence
+establishes **FAIL**. Record inapplicable formats as N/A with a reason; do not
+impose terminal and browser video on every PR.
 
 **Video acceptance needs an independent content review.** When a video backs an acceptance claim, an independent AI reviewer (not the author or orchestrator) extracts frames from the published video itself (not the capture's own screenshots) and returns PASS/FAIL per acceptance step with the timestamp where it is visible. Privacy masking, decode/playback, upload read-back, captions, and turn-record or coverage-judge JSON are separate checks and never substitute. No content review → **PARTIAL**; a step the frames contradict → **FAIL**.
 
@@ -184,7 +211,10 @@ Apply this check when inline or linked media backs a claim; it does not by itsel
 - Never make evidence public, or change bucket access, merely to pass a link check.
 - A `github.com/.../releases/download/untagged-*` link is a red flag: the release is a draft and the asset is not reliably reachable.
 
-Media the intended reviewer cannot open or play in the form section 4 requires = **PARTIAL**.
+Media the intended reviewer cannot open or play is **INCONCLUSIVE** when it is
+the claim's decisive raw proof; it is **PARTIAL** only for a supplemental format
+when the claim's raw evidence has already been inspected. An inspected
+contradiction or acceptance violation remains **FAIL**.
 
 ### 6. Self-contained / clean-computer reproducibility
 
@@ -263,8 +293,11 @@ Continue necessary review and already-authorized fixes within the task scope and
 
 ### Phase 1 — Inventory
 
-1. Enumerate all artifacts referenced by the subject (bundle dir, PR description, run.json, metadata.json, gist, release assets)
-2. Enumerate all claims (from PR description, commit messages, or user-provided claim list)
+1. Enumerate all artifacts referenced by the subject (bundle dir, PR description,
+   run.json, metadata.json, gist, release assets), including the complete
+   claim-scoped raw set and failed or incomplete attempts. Record unavailable
+   items with the affected claim and reason.
+2. Enumerate all claims (from PR description, commit messages, or user-provided claim list).
 
 ### Phase 2 — Claim-to-Artifact Mapping
 
@@ -290,6 +323,7 @@ Produce output in this format:
 
 **Subject**: <what was reviewed>
 **Bundle**: <path>
+**Raw coverage**: inspected <claim/items>; unavailable <claim/item, reason> (or None)
 **Overall**: PASS | PARTIAL | FAIL | INCONCLUSIVE
 **Confidence**: HIGH | MEDIUM | LOW
 
@@ -331,8 +365,8 @@ Produce output in this format:
 - **Self-referencing claims**: `evidence.md` cites itself instead of raw artifacts → WEAK
 - **Circular provenance**: the bypass gate reads the reference file it's supposed to match against → artifact INVALID, overall FAIL
 - **Reproduction directions missing or inaccessible**: no accessible link or inline directions meeting section 6 → PARTIAL, even if evidence files were committed.
-- **Inline media the reviewer cannot open**: e.g. a private-repo release asset GitHub won't proxy, or an `untagged-*` release link → broken GIF → PARTIAL (see check 5)
-- **Required media inaccessible**: an attachment or hosted artifact cannot be accessed in the form required by section 4 → PARTIAL. Verify access rather than inferring failure from the attachment method.
+- **Inline media the reviewer cannot open**: e.g. a private-repo release asset GitHub won't proxy, or an `untagged-*` release link → **INCONCLUSIVE** when it is the claim's decisive raw proof; **PARTIAL** only for a missing supplemental format after the raw claim evidence was inspected (see check 5).
+- **Required media inaccessible**: mark the claim **INCONCLUSIVE** when the inaccessible artifact is decisive raw proof; use **PARTIAL** only for a supplemental format when the claim's raw evidence has already been inspected. An inspected contradiction or acceptance violation remains **FAIL**. Verify access rather than inferring failure from the attachment method.
 - **Static screenshot offered as required flow video**: it does not show before/action/after behavior → FAIL for that flow claim.
 - **`echo "PASS"` in terminal video instead of real test runner output**: hard block → FAIL
 - **Pre/post git SHA mismatch** in terminal video: test was run against a different commit than claimed → FAIL
@@ -349,19 +383,20 @@ Produce output in this format:
 
 **Verdict synthesis.** Combine this skill's evidence findings with the
 applicable evidence-standards compliance result into one raw overall verdict.
-Goal-driving harnesses own any further normalization under their own policy:
+Goal-driving harnesses own any further normalization under their own policy.
+Evaluate rows from top to bottom; the first matching row wins. A FAIL in either
+input takes precedence over PARTIAL or INCONCLUSIVE in the other.
 
 | ER verdict | ES verdict | Raw overall verdict | Harness-normalized |
 |-----------|-----------|---------------------|--------------------|
+| any | FAIL | FAIL | FAIL |
+| FAIL | any | FAIL | FAIL |
 | PASS | PASS | PASS | PASS |
 | PASS | WARN | WARN | PASS |
-| PASS | FAIL | FAIL | FAIL |
 | PASS | PARTIAL | PARTIAL | FAIL |
 | WARN | PASS | WARN | PASS |
 | WARN | WARN | WARN | PASS |
-| WARN | FAIL | FAIL | FAIL |
 | PARTIAL | any | PARTIAL | FAIL |
-| FAIL | any | FAIL | FAIL |
 | INCONCLUSIVE | any | INCONCLUSIVE | FAIL |
 
 **Normalization constraint:** A harness may normalize `WARN` to `PASS` only when all mandatory proof, required artifacts, and claim coverage are fully verified (i.e., the warning is strictly advisory/non-blocking and all mandatory checks pass). A normalization label can NEVER establish `PASS` while mandatory proof or required claim coverage is missing; in such cases the verdict remains capped at `PARTIAL` or `FAIL` under the applicable mandatory check in sections 1–4 (and at `PARTIAL` per check 2 when `verification_report.json` is `WARN`/`PARTIAL`). Under no circumstance may a harness or reviewer promote missing mandatory proof to PASS.
