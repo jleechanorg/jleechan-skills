@@ -85,7 +85,7 @@ Phase 0 for later deltas rather than relabeling old evidence.
 | Verdict | Meaning |
 |---------|---------|
 | **PASS** | Every claim has a matching artifact of STRONG quality and every applicable mandatory check below passes. Satisfies the draft-phase `/er` gate when `/er` is applicable. |
-| **PARTIAL** | Claims are supported but one or more mandatory checks soft-warn (e.g., WARN in an optional verification_report.json, missing a required downloadable MP4). Does not satisfy the draft-phase `/er` gate. |
+| **PARTIAL** | Some required claims are supported, but coverage is incomplete because at least one required claim lacks proof or a warning identifies a gap in required proof or evidence integrity (including a relevant warning in an optional verification_report.json). An unrelated optional warning does not change the verdict. Does not satisfy the draft-phase `/er` gate. |
 | **FAIL** | A claim is contradicted by an artifact, or integrity is broken (sha256 mismatch, dirty capture producing the claim, scope exclusion). |
 | **INCONCLUSIVE** | Not enough artifact data exists to decide. Request more. |
 
@@ -164,7 +164,7 @@ fi
 - Missing and not claimed → record "verification_report.json absent / not applicable"; no verdict ceiling by itself.
 - Missing but claimed → **INCONCLUSIVE** for that verifier claim until the report is supplied.
 - `PASS` → proceed
-- `WARN` or `PARTIAL` → verdict ceiling is **PARTIAL** (never promote to PASS without resolving each violation)
+- `WARN` or `PARTIAL` → affects the overall verdict only when it identifies a gap in a required claim, required proof, or evidence integrity; an unrelated warning is recorded as a note and does not cap the verdict
 - `FAIL` → verdict ceiling is **FAIL**
 
 ### 3. Scope note consistency
@@ -399,11 +399,11 @@ input takes precedence over PARTIAL or INCONCLUSIVE in the other.
 | PARTIAL | any | PARTIAL | FAIL |
 | INCONCLUSIVE | any | INCONCLUSIVE | FAIL |
 
-**Normalization constraint:** A harness may normalize `WARN` to `PASS` only when all mandatory proof, required artifacts, and claim coverage are fully verified (i.e., the warning is strictly advisory/non-blocking and all mandatory checks pass). A normalization label can NEVER establish `PASS` while mandatory proof or required claim coverage is missing; in such cases the verdict remains capped at `PARTIAL` or `FAIL` under the applicable mandatory check in sections 1–4 (and at `PARTIAL` per check 2 when `verification_report.json` is `WARN`/`PARTIAL`). Under no circumstance may a harness or reviewer promote missing mandatory proof to PASS.
+**Normalization constraint:** A harness may normalize `WARN` to `PASS` only when all mandatory proof, required artifacts, and claim coverage are fully verified (i.e., the warning is strictly advisory/non-blocking and all mandatory checks pass). A normalization label can NEVER establish `PASS` while mandatory proof or required claim coverage is missing; in such cases the verdict remains capped at `PARTIAL` or `FAIL` under the applicable mandatory check in sections 1–4. An optional `verification_report.json` warning is non-blocking unless it identifies a gap in required claims, required proof, or evidence integrity. Under no circumstance may a harness or reviewer promote missing mandatory proof to PASS.
 
 **Proves vs does NOT prove reconfirmation is mandatory.** For every claim, the final report restates what the evidence proves and does NOT prove, even when both passes PASS.
 
 ## Historical Lessons (keep the bar high)
 
 - **2026-04-11 PR #6161**: GIFs hosted on private `your-project.com` release returned 404. Moved to public `agent-orchestrator` release. → Added mandatory check 5 (now deferring to evidence-standards hosting rules, with GCS as the default host).
-- **Pre-existing**: dirty GREEN captures (working tree dirty during the run that produced the artifact) require explicit exception in `verification_report.json` with rationale; a WARN/PARTIAL report stays a ceiling under check 2.
+- **Pre-existing**: dirty GREEN captures (working tree dirty during the run that produced the artifact) require explicit exception in `verification_report.json` with rationale; a WARN/PARTIAL report affects the verdict when it identifies an issue with required claims, required proof, or evidence integrity under check 2.

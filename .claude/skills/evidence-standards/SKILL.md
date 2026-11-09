@@ -60,10 +60,10 @@ Check the producer and publisher, not only the output container: trace the artif
 
 Before the first expensive call (real-LLM batch, browser run, replay sweep), write one sentence:
 
-> "This campaign will explain **<the reported symptom>**, and if it comes back
+> "This campaign will explain **<the reported symptom or requested acceptance claim>**, and if it comes back
 > <expected result>, the explanation is <X>."
 
-If you cannot name a reported symptom (a user complaint, a production rate, a failing turn), **you are not gathering evidence, you are decorating a claim.** Stop and re-aim.
+For a new feature with no reported failure, name the requested acceptance claim and the observable result that will satisfy it. If neither a reported symptom nor an acceptance claim can be stated, **you are not gathering evidence, you are decorating a claim.** Stop and re-aim.
 
 Hard rules:
 
@@ -143,7 +143,7 @@ Reachability is **computed, never a hardcoded list** (a frozen "X is unreachable
 
 ## Evidence Sequencing — expensive evidence runs LAST, once
 
-Before a behavior fix, obtain fresh evidence of the reported failure at the lowest sufficient layer and preserve the baseline revision, inputs and output. Source/trace inspection and authorized diagnostic instrumentation may be needed to build that reproducer. A missing reproducer blocks an unproven fix claim, not continued diagnosis. Real-service failures still need the real boundary; a fast unit test cannot substitute for a cross-service reproduction.
+Before a behavior fix, use the existing smallest suitable harness to reproduce the reported failure against the exact pre-change revision, then run the same scenario against the candidate and preserve both revisions, inputs and outputs. Source/trace inspection and authorized diagnostic instrumentation may be needed to build that reproducer. A missing reproducer blocks an unproven fix claim, not continued diagnosis. Real-service failures still need the real boundary; a fast unit test cannot substitute for a cross-service reproduction.
 
 Cheap gates (unit/focused tests, lint, compile) iterate freely per commit. Review scheduling follows `pr-lifecycle/SKILL.md`'s canonical lifecycle; keep enforcing the required correctness and evidence checks. Final expensive evidence (real-server + real-LLM runs, packaged RED/GREEN comparisons, browser/video capture, bundle assembly) runs ONCE, at the END, after code is complete: all review findings resolved or explicitly deferred, focused tests green, no known remaining code work. Freeze the HEAD, then run the expensive stack against it. Mid-iteration runs are voided by the next fix (PR #9604/#9640, 2026-09-01: ~40 of 50 commits were evidence churn, and the RED/GREEN pair and bundle still needed a full rerun). The final comparison may replay the preserved baseline beside the completed candidate; scheduling that package last does not defer the initial failure reproduction past the fix.
 
