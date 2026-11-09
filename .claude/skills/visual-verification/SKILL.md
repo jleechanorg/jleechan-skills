@@ -38,16 +38,24 @@ the realtime APIs, samples frames. Motion review is therefore **all-frame
 analysis**: decode every frame and account for each one yourself.
 
 1. **Provenance.** Record the media SHA-256 (and the transcoded file's hash, if
-   different), duration, frame rate, decoded frame count and presentation
-   timestamps (`ffprobe -show_entries stream=r_frame_rate,nb_frames:format=duration`).
+   different), duration, nominal frame rates/time base, actual decoded frame
+   count and each frame's presentation timestamp (PTS). Obtain these with
+   `ffprobe -v error -select_streams v:0 -count_frames -show_frames -show_entries stream=r_frame_rate,avg_frame_rate,time_base,nb_frames,nb_read_frames:format=duration:frame=best_effort_timestamp,best_effort_timestamp_time -of json clip.mp4`.
+   `nb_frames` is container metadata and may be absent or inaccurate; use
+   `nb_read_frames` and the returned `frames[]` records for the decoded count.
+   Preserve actual PTS, including variable spacing. If a reliable count or PTS
+   is unavailable, state what is missing and leave complete coverage unproven.
    Work in a directory from the [Scratch Space skill](../scratch-space/SKILL.md).
-2. **Decode everything.** `ffmpeg -i clip.mp4 -vsync 0 frames/f%04d.png`. Confirm
-   the file count equals the probed frame count.
-3. **Partition mechanically.** Diff each frame against the previous one with a
-   low threshold (for example, luma change >12 on >50 px). Consecutive frames
-   above the threshold form *change runs*; the rest form *still runs*. Never
-   raise the threshold to shrink the review. Uniform timestamps and the diff
-   series also expose dropped or duplicated frames and cadence problems.
+2. **Decode everything.** `ffmpeg -i clip.mp4 -fps_mode passthrough frames/f%04d.png`.
+   Confirm the extracted image count equals `nb_read_frames` and the number of
+   returned frame records; report any mismatch and leave uncovered frames unverified.
+3. **Partition mechanically.** Compare consecutive decoded frames for exact
+   pixel equality, including dimensions. Group frames into a *still run* only
+   when every frame is pixel-identical to its predecessor; every non-identical
+   frame is a change frame to inspect. A nonzero difference threshold may help
+   triage or prioritize frames, but never grants coverage or an inspection
+   exemption. Use each frame's PTS; do not assume uniform spacing. Compare the
+   PTS sequence and decoded frames to identify cadence anomalies or duplicates.
 4. **View every change frame, in order, at readable detail.**
    - Overview: labelled sheets of at most 6 consecutive frames, each at least
      640 px wide, stamped with frame index and timestamp.
@@ -58,25 +66,30 @@ analysis**: decode every frame and account for each one yourself.
      while the body translates, facing versus direction of travel, depth order,
      and overlap with props and characters.
    - Inspect suspicious frames at full resolution before deciding.
-5. **Cover still runs.** A still run is mechanically proven unchanged. View its
-   first frame and the full-resolution frames on both sides of every change
-   point (for example, dialogue advances and UI changes). Read text and UI state
-   at those boundaries.
+5. **Cover still runs.** Boundary viewing may cover a run only after exact
+   decoded-pixel equality proves every frame in it identical. View its first
+   frame and the full-resolution frames on both sides of every change point
+   (for example, dialogue advances and UI changes). Read text and UI state at
+   those boundaries.
 6. **Separate layers.** Tell game UI apart from evidence overlays such as
    caption bars, provenance boxes and the OS cursor. Label any claim that comes
    from reading code rather than from pixels.
-7. **Coverage manifest.** Keep running notes per frame range. Every frame index
-   must be either a viewed change frame or inside a still run covered by viewed
-   boundaries. Reconcile the manifest against the decoded count, with no gaps.
+7. **Coverage manifest.** Keep running notes per frame range. Every decoded
+   frame index must be either a viewed change frame or inside an exact-pixel-
+   identical still run with its boundaries viewed. Reconcile the manifest with
+   `nb_read_frames` and the returned frame records, with no gaps. If the actual
+   total cannot be established, report the unknown count and leave full-clip
+   coverage unproven.
 8. **Long clips.** Split the clip into disjoint contiguous ranges for cheap
    parallel lanes, with boundary frames shared by adjacent lanes. The parent
    integrates the findings and reconciles the manifest.
-9. **Report.** Give each finding with its frame indices and timestamps and a
-   severity. Consider whether capture cadence explains an apparent defect before
-   blaming the product. Label the method "all-frame analysis"; do not claim
-   subjective "feel". A sampled video-model pass (for example Gemini at its fps
-   cap) is supplementary only; record the sampling it actually used. If anything
-   could not be decoded or viewed, state the exact covered ranges.
+9. **Report.** Give each finding with its frame indices and actual PTS and a
+   severity; do not infer timestamps from a nominal frame rate. Consider whether
+   capture cadence explains an apparent defect before blaming the product. Label
+   the method "all-frame analysis"; do not claim subjective "feel". A sampled
+   video-model pass (for example Gemini at its fps cap) is supplementary only;
+   record the sampling it actually used. If anything could not be decoded or
+   viewed, state the exact covered ranges.
 10. In `/es` or `/er`, bind visual claims to the media SHA, frame rate, frame
     count, coverage manifest and the inspected images.
 
