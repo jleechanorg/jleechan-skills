@@ -4333,6 +4333,14 @@ def _retained_usage_summary(summary):
 def aggregate_usage(raw_events, rates, window_start=None, window_end=None):
     """Aggregate real feed events without inventing missing cost or PR allocation."""
     raw_events = list(raw_events)
+    price_catalog_version = (
+        "sha256:" + hashlib.sha256(
+            json.dumps(
+                rates, sort_keys=True, default=str, separators=(",", ":")
+            ).encode()
+        ).hexdigest()
+        if rates else None
+    )
     source_records = len(raw_events)
     undated_count, outside_window_count = 0, 0
     if window_start is not None and window_end is not None:
@@ -4395,8 +4403,13 @@ def aggregate_usage(raw_events, rates, window_start=None, window_end=None):
         partial += status == "partial"
         unknown += status == "unknown"
         known_cost += cost or Decimal(0)
-        priced_rows.append({"status": status, "known_cost_usd": cost, "unknown_buckets": unknown_buckets,
-                            "tokens_by_bucket": billable})
+        priced_row = {
+            "status": status,
+            "known_cost_usd": cost,
+            "unknown_buckets": unknown_buckets,
+            "tokens_by_bucket": billable,
+        }
+        priced_rows.append(priced_row)
         for bucket, count in billable.items():
             if isinstance(count, int) and not isinstance(count, bool) and count >= 0:
                 totals[bucket] += count
@@ -4406,8 +4419,23 @@ def aggregate_usage(raw_events, rates, window_start=None, window_end=None):
         weights = [_supported_usage_attribution(a) for a in attrs]
         valid = (bool(attrs) and len({attr.get("pr") for attr in attrs}) == len(attrs)
                  and all(w is not None for w in weights) and sum(weights) <= 1)
+        validated_attributions = []
         if valid:
             for attr, weight in zip(attrs, weights):
+                validated_attributions.append({
+                    "pr": attr["pr"],
+                    "weight": str(weight),
+                    "method": attr["method"],
+                    "basis": (
+                        "separable_breakdown"
+                        if attr.get("basis") == "separable_breakdown" else None
+                    ),
+                    "convention_ref": _usage_label(attr.get("convention_ref")),
+                    "receipt_refs": [
+                        receipt for value in attr["receipt_refs"]
+                        if (receipt := _usage_receipt_ref(value))
+                    ],
+                })
                 item = prs[attr["pr"]]
                 item["event_count"] += 1
                 if status != "priced":
@@ -4424,6 +4452,102 @@ def aggregate_usage(raw_events, rates, window_start=None, window_end=None):
             for attr in attrs:
                 if _safe_pr_id(attr.get("pr")):
                     prs[attr["pr"]]["unknown"] = True
+
+        reasons = set(raw.get("unknown_reasons", []))
+        usage_id_missing = "usage_identity_missing" in reasons
+        provider = raw.get("provider")
+        usage_id = raw.get("usage_id")
+        event_id = None
+        if provider and usage_id and not usage_id_missing:
+            event_id = _retained_hash(f"{provider}\0{usage_id}")
+        source_identity = raw.get("source_fingerprint") or raw.get("source_id")
+        source_id = _retained_hash(source_identity) if source_identity else None
+        session_id_hash = (
+            _retained_hash(raw["session_id"]) if raw.get("session_id") else None
+        )
+
+        input_uncached = billable.get("input_uncached")
+        cache_read = billable.get("cache_read")
+        cache_write_5m = billable.get("cache_write_5m")
+        cache_write_1h = billable.get("cache_write_1h")
+        generic_cache_write = raw.get("cache_write_input_tokens")
+        if (
+            isinstance(generic_cache_write, bool)
+            or not isinstance(generic_cache_write, int)
+            or generic_cache_write < 0
+        ):
+            generic_cache_write = None
+        ttl_cache_writes = (cache_write_5m, cache_write_1h)
+        if generic_cache_write is not None:
+            cache_write_input = generic_cache_write
+        elif all(
+            isinstance(value, int) and not isinstance(value, bool) and value >= 0
+            for value in ttl_cache_writes
+        ):
+            cache_write_input = cache_write_5m + cache_write_1h
+        else:
+            cache_write_input = None
+        output_tokens = billable.get("output")
+        components = (input_uncached, cache_read, cache_write_input, output_tokens)
+        token_complete = all(
+            isinstance(value, int) and not isinstance(value, bool) and value >= 0
+            for value in components
+        )
+        total_tokens = sum(components) if token_complete else None
+        reasoning_tokens_value = raw.get("reasoning_tokens")
+        if (
+            not isinstance(reasoning_tokens_value, int)
+            or isinstance(reasoning_tokens_value, bool)
+            or reasoning_tokens_value < 0
+            or source_conflict
+        ):
+            reasoning_tokens_value = None
+        timestamp = _parse_utc_instant(raw.get("timestamp"))
+
+        safe_unknown_reasons = sorted(
+            reason for reason in reasons
+            if reason in {
+                "source_usage_conflict", "conflicting_duplicate",
+                "usage_identity_missing", "unsupported_sku",
+            }
+        )
+        if valid:
+            attribution_status = "VALIDATED"
+        elif attrs:
+            attribution_status = "INVALID_OR_UNSUPPORTED"
+        else:
+            attribution_status = "UNBOUND"
+        priced_row.update({
+            "event_id": event_id,
+            "source_id": source_id,
+            "request_id_present": not usage_id_missing and bool(usage_id),
+            "session_id_hash": session_id_hash,
+            "provider": _usage_label(provider),
+            "model": _usage_label(raw.get("sku")),
+            "timestamp": format_iso_utc(timestamp) if timestamp else None,
+            "request_duration_seconds": valid_duration_sec(
+                raw.get("request_duration_seconds")
+            ),
+            "dedup_conflict": "conflicting_duplicate" in reasons,
+            "source_conflict": "source_usage_conflict" in reasons,
+            "validated_attributions": validated_attributions,
+            "attribution_status": attribution_status,
+            "unknown_reasons": safe_unknown_reasons,
+            "token_complete": token_complete,
+            "total_tokens": total_tokens,
+            "reasoning_output_tokens": reasoning_tokens_value,
+            "cache_write_input_tokens": cache_write_input,
+            "observed_cost_usd": None,
+            "list_equivalent_cost_usd": (
+                str(cost) if rates and cost is not None else None
+            ),
+            "cost_currency": "USD" if rates and cost is not None else None,
+            "cost_basis": (
+                USAGE_LIST_PRICE_LABEL if rates and cost is not None else None
+            ),
+            "price_catalog_version": price_catalog_version,
+            "cost_status": status if rates else "UNKNOWN_NO_RATE_CARD",
+        })
     return {
         "label": USAGE_LIST_PRICE_LABEL,
         "scope": "observed feed; population completeness not established",
@@ -4453,6 +4577,7 @@ def aggregate_usage(raw_events, rates, window_start=None, window_end=None):
             for key, value in prs.items()
         }),
         "events": priced_rows,
+        "query_events": priced_rows,
         "rate_records": [{k: (str(v) if isinstance(v, (Decimal, datetime)) else v) for k, v in r.items()} for r in rates],
     }
 
