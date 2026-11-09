@@ -114,7 +114,7 @@ What this evidence does not prove:
 Outstanding blocker / owner / next permitted action:
 ```
 
-Keep credentials, authentication storage, account identifiers, private communications and unrelated source out of a shareable receipt. Retain sensitive reproduction details only in the authorized private evidence store when needed. Verify the reviewer's access without widening it unnecessarily.
+Keep credentials, authentication storage, private communications and unrelated source out of a shareable receipt. Retain sensitive reproduction details only in the authorized private evidence store when needed. Verify the reviewer's access without widening it unnecessarily.
 
 ## Canonical source
 
