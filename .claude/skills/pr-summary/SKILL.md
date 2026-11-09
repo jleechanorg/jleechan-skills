@@ -58,7 +58,7 @@ Follow `${CLAUDE_HOME:-$HOME/.claude}/skills/human-review-brief/SKILL.md` (canon
 
 ---
 
-- **Persistent Roadmap Document**: Every `/pr-summary` execution MUST persist the complete summary markdown document to `~/roadmap/` named `pr-summary-YYYY-MM-DD-<slug>.md` (or `pr-summary-<pr_number>-<slug>.md` for a single PR), using the canonical `/roadmap` owner's current publication contract. `/pr-summary` does not create a separate summary branch or PR; reporting the published summary does not recursively require another summary artifact.
+- **Persistent Roadmap Document**: Every `/pr-summary` execution MUST persist the complete summary markdown document to `~/roadmap/` named `pr-summary-YYYY-MM-DD-<slug>.md` (or `pr-summary-<pr_number>-<slug>.md` for a single PR), following the roadmap repository's current local publication instructions and assigned owner. `/pr-summary` does not create a separate summary branch or PR; reporting the published summary does not recursively require another summary artifact.
 - **Required Output Links**: Every `/pr-summary` report MUST explicitly provide:
   - The full clickable GitHub URL for each summarized PR (e.g. `https://github.com/jleechanorg/worldarchitect.ai/pull/10107`).
   - The local file URL with `file:///` scheme (e.g. `[Local Roadmap Doc](file:///$HOME/roadmap/pr-summary-YYYY-MM-DD-<slug>.md)`) AND the unabbreviated plaintext filesystem path (e.g. `$HOME/roadmap/pr-summary-YYYY-MM-DD-<slug>.md`).

@@ -85,7 +85,7 @@ Phase 0 for later deltas rather than relabeling old evidence.
 | Verdict | Meaning |
 |---------|---------|
 | **PASS** | Every claim has a matching artifact of STRONG quality and every applicable mandatory check below passes. Satisfies the draft-phase `/er` gate when `/er` is applicable. |
-| **PARTIAL** | Claims are supported but one or more required claims lack proof, or a warning identifies a gap in required proof or evidence integrity (including a relevant warning in an optional verification_report.json). An unrelated optional warning does not change the verdict. Does not satisfy the draft-phase `/er` gate. |
+| **PARTIAL** | Some required claims are supported, but coverage is incomplete because at least one required claim lacks proof or a warning identifies a gap in required proof or evidence integrity (including a relevant warning in an optional verification_report.json). An unrelated optional warning does not change the verdict. Does not satisfy the draft-phase `/er` gate. |
 | **FAIL** | A claim is contradicted by an artifact, or integrity is broken (sha256 mismatch, dirty capture producing the claim, scope exclusion). |
 | **INCONCLUSIVE** | Not enough artifact data exists to decide. Request more. |
 
