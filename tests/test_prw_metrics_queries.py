@@ -618,6 +618,8 @@ class TestPRWMetricsQueries(unittest.TestCase):
                 "cache_write_input_tokens": 10,
                 "cache_write_5m_tokens": None, "cache_write_1h_tokens": None,
                 "reasoning_tokens": 8,
+                "service_tier": "standard", "inference_geo": "global",
+                "speed": "standard",
                 "attributions": [{
                     "pr": pr, "weight": 1, "method": "direct",
                     "basis": "separable_breakdown", "receipt_refs": ["receipt-openai"],
@@ -644,8 +646,9 @@ class TestPRWMetricsQueries(unittest.TestCase):
             set(event["unknown_buckets"]), {"cache_write_5m", "cache_write_1h"}
         )
         self.assertEqual(event["list_equivalent_cost_usd"], "0.000124")
+        query_events = json.loads(json.dumps(aggregate["query_events"], default=str))
         self._base_files(
-            aggregate["query_events"],
+            query_events,
             [{
                 "repo": "example-org/repo-alpha", "number": 13, "state": "MERGED",
                 "createdAt": "2026-11-08T19:00:00Z", "mergedAt": "2026-11-08T21:00:00Z",
@@ -656,7 +659,7 @@ class TestPRWMetricsQueries(unittest.TestCase):
         row = self._query()["pr_metrics"][0]
         self.assertEqual(row["direct_total_tokens"], 130)
         self.assertEqual(row["direct_token_complete_observation_n"], 1)
-        self.assertEqual(row["cost_status"], "UNKNOWN_NO_RATE_CARD")
+        self.assertEqual(row["cost_status"], "PARTIAL")
 
     def test_canonical_aggregate_event_export_feeds_query_without_rereading_raw_usage(
         self,
