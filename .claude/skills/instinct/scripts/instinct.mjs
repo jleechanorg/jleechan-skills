@@ -103,7 +103,7 @@ function chromeLaunchOptions(headed) {
 
 /**
  * Refuse to launch over a live holder. Dot's verdict: sharing a profile is sound only
- * with "serialized ownership plus clean shutdown", so this is the serialization gate.
+ * with "serialized ownership plus clean shutdown", so this yields rather than colliding.
  *
  * Two traps, both real:
  *  - Chrome's SingletonLock is a DANGLING symlink to "<hostname>-<pid>"; existsSync()
@@ -144,10 +144,12 @@ function liveHolderPid(dir) {
 }
 
 /**
- * Serialize against every other consumer (dot.sh, another instinct run).
+ * Yield to a busy profile instead of colliding with it.
  *
- * Dot's verdict was "serialized ownership plus clean shutdown", so this WAITS for a
- * busy profile instead of dying — a concurrent caller is normal contention, not an error.
+ * Dot's verdict was "serialized ownership plus clean shutdown". This lock serializes
+ * instinct's OWN runs and makes instinct WAIT on a profile Chrome already holds; it is
+ * one-sided because dot.sh takes no lock, so it does not by itself exclude Dot. The hard
+ * guarantee is Chromium's ProcessSingleton.
  * The lockfile lives outside the profile dir so it never collides with Chrome's
  * Singleton namespace, and it is released on exit AND on signals so a crash cannot
  * wedge the next run.
@@ -416,8 +418,8 @@ async function compose(page, text) {
 
   if (VERB === 'login') {
     // Interactive one-time device link. Deliberately HEADED and long-lived: the operator
-    // must scan the QR from their phone. The advisory lock is held for the whole session
-    // so dot.sh cannot grab the profile while the operator is scanning.
+    // must scan the QR from their phone. The advisory lock is held for the whole session so
+    // a competing instinct run waits; it does not block dot.sh, which takes no lock.
     if (!fs.existsSync(CHROME)) die(`Chrome binary not found at ${CHROME}`, 3);
     const chromium = await loadChromium();
     const dir = validateProfileDir(PROFILE_DIR);

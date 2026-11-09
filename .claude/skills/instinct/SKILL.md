@@ -57,12 +57,16 @@ workers are all origin-scoped. Verified end to end on 2026-11-09:
    polls until `SingletonLock` is genuinely released (≤10 s) plus a 300 ms settle.
 
    **Be precise about what this does and does not guarantee.** The lock is *one-sided*: instinct takes
-   it, but `dot.sh` does not (it has no lockfile), so the lock alone does **not** implement mutual
-   exclusion. The hard guarantee is Chromium's own `ProcessSingleton`, which makes two simultaneous
-   launches on one `user_data_dir` impossible — measured: the second fails with *"Failed to create a
-   ProcessSingleton for your profile directory."* The lock exists to make instinct **yield politely**
-   (wait, then retry) instead of colliding, and to keep its own concurrent runs serialized. Full
-   two-way exclusion needs `dot.sh` to take the same lockfile — tracked as bead `jleechan-5jzs`.
+   it, but `dot.sh` does not. That is not an oversight — `dot/SKILL.md` records that dot.sh's per-profile
+   kernel flock was **deliberately deleted on 2026-10-20** at the operator's request, so Dot no longer
+   serializes concurrent invocations and concurrent launches are "the caller's own risk". So the lock
+   alone does **not** implement mutual exclusion, and it is not a gap to be silently patched here.
+
+   The hard guarantee is Chromium's own `ProcessSingleton`, which makes two simultaneous launches on one
+   `user_data_dir` impossible — measured: the second fails with *"Failed to create a ProcessSingleton for
+   your profile directory."* The lock exists to make instinct **yield politely** (wait, then retry)
+   instead of colliding, and to keep its own concurrent runs serialized. Two-way exclusion would need
+   `dot.sh` to take the same lockfile, which is a `/dot` ownership decision (bead `jleechan-5jzs`).
 
 Tuning: `INSTINCT_LOCK_WAIT_MS` / `INSTINCT_PROFILE_WAIT_MS` (default 300 s each). Exit 7 only if a
 live Chrome still holds the profile past the window.
