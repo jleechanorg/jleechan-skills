@@ -49,7 +49,6 @@ if [[ -z "${PRW_METRICS_STATE_DIR:-}" ]]; then
     PRW_METRICS_STATE_DIR="/tmp/prw-metrics"
   fi
 fi
-mkdir -p "$PRW_METRICS_STATE_DIR"
 
 # Source configuration with set -a / set +a so assignments without export reach children
 source_config() {
@@ -70,6 +69,10 @@ CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 source_config "$CONFIG_HOME/prw-metrics/config.env"
 source_config "$PRW_METRICS_STATE_DIR/config.env"
 
+# Create the final configured state and lock paths before opening the lock file.
+LOCK_FILE="${PRW_METRICS_LOCK_DIR:-$PRW_METRICS_STATE_DIR/lock}.flock"
+mkdir -p "$PRW_METRICS_STATE_DIR" "$(dirname "$LOCK_FILE")"
+
 # Verify python3 interpreter availability
 if ! command -v python3 >/dev/null 2>&1; then
   echo "ERROR: python3 command not found in PATH." >&2
@@ -79,7 +82,6 @@ fi
 # 5. Acquire a kernel-held advisory lock (flock). The lock belongs to the open file
 # description on fd 9, so it is released when this process and its children exit, even
 # on SIGKILL: no stale-owner recovery, reclaim permit, or PID-reuse check is needed.
-LOCK_FILE="${PRW_METRICS_LOCK_DIR:-$PRW_METRICS_STATE_DIR/lock}.flock"
 exec 9>>"$LOCK_FILE"
 if ! python3 -c 'import fcntl; fcntl.flock(9, fcntl.LOCK_EX | fcntl.LOCK_NB)' 2>/dev/null; then
   echo "Another prw-metrics instance (PID: $(cat "$LOCK_FILE" 2>/dev/null || echo unknown)) is currently running. Exiting cleanly."

@@ -430,6 +430,32 @@ class PRWMetricsSchedulerTests(unittest.TestCase):
         self.assertTrue(output_marker.exists(), "Collector should have executed")
         self.assertEqual(output_marker.read_text().strip(), "hello_world_from_config")
 
+    def test_configured_state_and_lock_parent_are_created_after_config(self):
+        """Creates configured state and lock paths before opening the lock file."""
+        configured_state_dir = self.scratch_dir / "configured-state"
+        configured_lock_dir = self.scratch_dir / "nested" / "configured-lock"
+        config_file = self.scratch_dir / "runtime-config.env"
+        config_file.write_text(
+            f"PRW_METRICS_STATE_DIR={configured_state_dir}\n"
+            f"PRW_METRICS_LOCK_DIR={configured_lock_dir}\n",
+            encoding="utf-8",
+        )
+        marker = self.scratch_dir / "collector-ran.txt"
+
+        result = self._run_wrapper(
+            PRW_METRICS_CONFIG_FILE=str(config_file),
+            GH_TOKEN="test-fixture-token",
+            PRW_METRICS_FORCE_RUN="1",
+            PRW_METRICS_COLLECTOR_CMD=f"touch '{marker}'",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(
+            marker.exists(), "collector should run after acquiring configured lock"
+        )
+        self.assertTrue((configured_state_dir / "last_success_epoch").exists())
+        self.assertTrue(Path(f"{configured_lock_dir}.flock").exists())
+
     def test_missing_roadmap_repo_fails_closed(self):
         """When PRW_METRICS_ROADMAP_REPO is unset and not in config, exits non-zero (fails closed)."""
         self.assertTrue(RUN_SCRIPT.exists(), f"Missing run script: {RUN_SCRIPT}")

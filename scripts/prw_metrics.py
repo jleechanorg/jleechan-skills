@@ -245,7 +245,8 @@ RETAINED_EPISODE_FIELDS = frozenset({
     "episode_id", "message_id", "message_ids", "timestamp", "created_at", "occurred_at",
     "origin", "is_bot", "raw_message_count", "is_initial_assignment", "initial_task_request",
     "is_post_merge", "pr_attribution", "pr_number", "repo", "label", "annotator_a",
-    "annotator_b", "retention_verified",
+    "annotator_b", "retention_verified", "actor_status", "channel", "source_channel",
+    "source_namespace",
 })
 
 
@@ -345,6 +346,8 @@ SUMMARY_SCHEMA = {
         "explicit_waiting_sec", "avoidable_unattended_sec")}],
     "human_interventions": {
         "raw_human_messages": _SC, "initial_task_requests": _SC, "qualifying_episodes": _SC,
+        "raw_message_count_coverage": _SC,
+        "episode_identity_coverage": _SC,
         "unverified_origin_excluded": _SC, "dot_page_tail_partial_count": _SC, "label_breakdown": _LABELS,
         "pr_attributed_count": _SC, "unassigned_count": _SC, "post_merge_count": _SC,
         "channel_coverage": {"dot_history": _SC}, "retention_status": _SC,
@@ -396,7 +399,7 @@ def _sanitize_retained_record(record, allowed, nested=False):
             continue
         value = record[key]
         if key == "message_ids" and isinstance(value, list):
-            out[key] = [_retained_scalar(v) for v in value if isinstance(v, (str, int))]
+            out[key] = [_retained_scalar(v) if isinstance(v, (str, int)) else None for v in value]
         elif key in ("annotator_a", "annotator_b"):
             label = value.get("label") if isinstance(value, dict) else value
             out[key] = {"label": _retained_scalar(label)} if isinstance(value, dict) else _retained_scalar(label)
@@ -1640,13 +1643,8 @@ class Collector:
 class MetricsAggregator:
     VERIFIED_HUMAN_ORIGINS = frozenset({
         "human",
-        "user",
         "operator",
         "user_prompt",
-        "codex_rollout",
-        "agy_transcript",
-        "claude_transcript",
-        "hermes_transcript",
     })
 
     """Computes exact-window aggregations, stage dwell, and honest idle boundaries."""
@@ -1967,7 +1965,10 @@ class MetricsAggregator:
             None,
         )
         if ts is None:
-            return str(ep.get("origin") or "").lower().strip().startswith("dot")
+            origin = str(ep.get("origin") or "").lower().strip()
+            channel = str(ep.get("channel") or "").lower().strip()
+            source_channel = str(ep.get("source_channel") or "").lower().strip()
+            return origin.startswith("dot") or bool({channel, source_channel} & {"dot", "dot_history"})
         return start_dt <= ts < end_dt
 
     def compute_human_interventions(self, episodes, cohort_prs_count=None, retention_manifest=None):
@@ -1975,9 +1976,11 @@ class MetricsAggregator:
         Aggregate human intervention episodes with bot exclusion, initial assignment separation,
         transcript deduplication, dual-annotator calibration, origin verification, and post-merge tracking.
         """
-        verified_origins = self.VERIFIED_HUMAN_ORIGINS
-
         raw_human_messages = 0
+        raw_message_ids = set()
+        raw_message_count_partial = False
+        episode_identity_partial = False
+        accepted_human_rows = 0
         initial_task_requests = 0
         qualifying_episodes = 0
         unverified_origin_excluded = 0
@@ -1988,7 +1991,7 @@ class MetricsAggregator:
         post_merge_count = 0
 
         seen_episode_ids = set()
-        seen_message_ids = set()
+        seen_initial_episode_ids = set()
         dot_has_structured = False
 
         for ep in episodes or []:
@@ -1999,50 +2002,111 @@ class MetricsAggregator:
             if "excerpt" in ep:
                 ep["excerpt"] = redact_sensitive_excerpt(ep["excerpt"])
 
-            # Exclude bot messages
-            if ep.get("is_bot") or ep.get("origin") == "bot":
-                continue
-
             origin = str(ep.get("origin") or "").lower().strip()
-
-            # Handle dot_page_tail or missing message_id/timestamp
-            msg_ids = ep.get("message_ids") or []
-            if ep.get("message_id"):
-                msg_ids = list(msg_ids) + [ep["message_id"]]
-            has_timestamp = bool(ep.get("timestamp") or ep.get("created_at") or ep.get("occurred_at"))
-
-            if origin == "dot_page_tail" or (origin.startswith("dot") and (not msg_ids or not has_timestamp)):
-                dot_page_tail_partial_count += 1
+            actor_status = str(ep.get("actor_status") or "").lower().strip()
+            channels = {
+                str(ep.get(key) or "").lower().strip()
+                for key in ("channel", "source_channel")
+            }
+            if ep.get("is_bot") or origin == "bot" or actor_status in {"bot", "automated"}:
                 continue
 
-            # Verify origin is an explicit verified human origin
-            if origin not in verified_origins:
+            # A Dot row is useful only when the source supplies message identity and a parseable time.
+            raw_message_id_values = []
+            invalid_message_ids = False
+            if "message_ids" in ep:
+                provided_ids = ep["message_ids"]
+                if isinstance(provided_ids, (list, tuple)):
+                    raw_message_id_values.extend(provided_ids)
+                else:
+                    invalid_message_ids = True
+            if "message_id" in ep:
+                raw_message_id_values.append(ep["message_id"])
+
+            msg_ids = []
+            for value in raw_message_id_values:
+                if isinstance(value, str) and value.strip():
+                    msg_ids.append(value.strip())
+                elif isinstance(value, int) and not isinstance(value, bool):
+                    msg_ids.append(str(value))
+                else:
+                    invalid_message_ids = True
+            msg_ids = list(dict.fromkeys(msg_ids))
+            has_timestamp = any(
+                parse_iso_utc(ep.get(key)) is not None
+                for key in ("timestamp", "created_at", "occurred_at")
+            )
+            is_dot = origin.startswith("dot") or bool(channels & {"dot", "dot_history"})
+            is_human = actor_status == "human" or (
+                not actor_status and origin in self.VERIFIED_HUMAN_ORIGINS
+            )
+
+            if origin == "dot_page_tail" or (
+                is_dot and (not msg_ids or invalid_message_ids or not has_timestamp)
+            ):
+                dot_page_tail_partial_count += 1
+                if is_human:
+                    raw_message_count_partial = True
+                continue
+
+            # Structured actor evidence is authoritative; curated legacy origins remain explicit declarations.
+            if not is_human:
                 unverified_origin_excluded += 1
                 continue
+            accepted_human_rows += 1
+            if not msg_ids or invalid_message_ids:
+                raw_message_count_partial = True
+            if not ep.get("episode_id"):
+                episode_identity_partial = True
 
             # Connector coverage comes only from a verified, structured Dot row.
-            if origin.startswith("dot"):
+            if is_dot:
                 dot_has_structured = True
 
-            # Deduplication
             ep_id = ep.get("episode_id")
-            if ep_id and ep_id in seen_episode_ids:
-                continue
-            if msg_ids and all(m in seen_message_ids for m in msg_ids):
-                continue
-
-            if ep_id:
-                seen_episode_ids.add(ep_id)
-            for m in msg_ids:
-                seen_message_ids.add(m)
-
-            raw_msgs = ep.get("raw_message_count", 1)
-            raw_human_messages += raw_msgs
-
+            duplicate_episode = bool(ep_id and ep_id in seen_episode_ids)
             is_initial = bool(ep.get("is_initial_assignment") or ep.get("initial_task_request"))
+            if msg_ids:
+                namespace = (
+                    ep.get("source_namespace")
+                    or ep.get("channel")
+                    or ep.get("source_channel")
+                    or origin
+                    or "unknown"
+                )
+                namespace = str(namespace).strip().lower() or "unknown"
+                message_keys = [(namespace, message_id) for message_id in msg_ids]
+                new_message_ids = [
+                    message_id
+                    for message_id, key in zip(msg_ids, message_keys)
+                    if key not in raw_message_ids
+                ]
+                raw_message_ids.update(key for key in message_keys if key not in raw_message_ids)
+                raw_msgs = len(new_message_ids)
+                raw_human_messages += raw_msgs
+            else:
+                raw_message_count_partial = True
+                duplicate_initial = bool(is_initial and ep_id and ep_id in seen_initial_episode_ids)
+                if is_initial and ep_id:
+                    seen_initial_episode_ids.add(ep_id)
+                legacy_count = ep.get("raw_message_count", 0)
+                if not isinstance(legacy_count, (int, float)) or isinstance(legacy_count, bool):
+                    legacy_count = 0
+                raw_msgs = 0 if duplicate_episode or duplicate_initial else legacy_count
+                raw_human_messages += raw_msgs
+
             if is_initial:
                 initial_task_requests += raw_msgs
                 continue
+
+            if invalid_message_ids and not msg_ids:
+                continue
+            if msg_ids and not new_message_ids:
+                continue
+            if duplicate_episode:
+                continue
+            if ep_id:
+                seen_episode_ids.add(ep_id)
 
             qualifying_episodes += 1
 
@@ -2058,15 +2122,19 @@ class MetricsAggregator:
             # Semantic calibration
             ann_a = ep.get("annotator_a")
             ann_b = ep.get("annotator_b")
-            if ann_a and ann_b:
+            explicit_label = ep.get("label")
+            if isinstance(explicit_label, str) and explicit_label in label_breakdown:
+                resolved_label = explicit_label
+            elif ann_a and ann_b:
                 lbl_a = ann_a.get("label") if isinstance(ann_a, dict) else str(ann_a)
                 lbl_b = ann_b.get("label") if isinstance(ann_b, dict) else str(ann_b)
-                if lbl_a != lbl_b:
-                    resolved_label = "mixed"
-                else:
-                    resolved_label = lbl_a or "unknown"
+                resolved_label = (
+                    lbl_a
+                    if isinstance(lbl_a, str) and lbl_a == lbl_b and lbl_a in label_breakdown
+                    else "unknown"
+                )
             else:
-                resolved_label = ep.get("label") or "unknown"
+                resolved_label = "unknown"
 
             if resolved_label not in label_breakdown:
                 resolved_label = "unknown"
@@ -2082,8 +2150,24 @@ class MetricsAggregator:
         has_retention = bool(retention_manifest) or any(bool(ep.get("retention_verified")) for ep in (episodes or []))
         retention_status = "OK" if has_retention else "UNVERIFIED"
 
+        if raw_message_count_partial:
+            raw_message_count_coverage = "PARTIAL_MISSING_MESSAGE_IDS"
+        elif accepted_human_rows == 0:
+            raw_message_count_coverage = "UNKNOWN_NO_HUMAN_EPISODES"
+        else:
+            raw_message_count_coverage = "COMPLETE_SOURCE_IDS"
+
+        if accepted_human_rows == 0:
+            episode_identity_coverage = "UNKNOWN_NO_HUMAN_EPISODES"
+        elif episode_identity_partial:
+            episode_identity_coverage = "PARTIAL_MISSING_EPISODE_IDS"
+        else:
+            episode_identity_coverage = "COMPLETE_SOURCE_EPISODE_IDS"
+
         return {
             "raw_human_messages": raw_human_messages,
+            "raw_message_count_coverage": raw_message_count_coverage,
+            "episode_identity_coverage": episode_identity_coverage,
             "initial_task_requests": initial_task_requests,
             "qualifying_episodes": qualifying_episodes,
             "unverified_origin_excluded": unverified_origin_excluded,
@@ -2100,9 +2184,9 @@ class MetricsAggregator:
         """Summarize creation-to-merge times for a cohort merged within window."""
         if not merged_prs:
             return {
-                "n": 0, "all_median_hours": 0.0, "all_p75_hours": 0.0,
-                "comparable_n": 0, "comp_median_hours": 0.0, "comp_p75_hours": 0.0,
-                "backlog_n": 0, "backlog_median_hours": 0.0, "backlog_p75_hours": 0.0,
+                "n": 0, "all_median_hours": "UNKNOWN", "all_p75_hours": "UNKNOWN",
+                "comparable_n": 0, "comp_median_hours": "UNKNOWN", "comp_p75_hours": "UNKNOWN",
+                "backlog_n": 0, "backlog_median_hours": "UNKNOWN", "backlog_p75_hours": "UNKNOWN",
             }
 
         durations_all = []
@@ -2126,14 +2210,14 @@ class MetricsAggregator:
 
         return {
             "n": len(durations_all),
-            "all_median_hours": round(calculate_median(durations_all), 2),
-            "all_p75_hours": round(calculate_nearest_rank_p75(durations_all), 2),
+            "all_median_hours": round(calculate_median(durations_all), 2) if durations_all else "UNKNOWN",
+            "all_p75_hours": round(calculate_nearest_rank_p75(durations_all), 2) if durations_all else "UNKNOWN",
             "comparable_n": len(durations_comp),
-            "comp_median_hours": round(calculate_median(durations_comp), 2),
-            "comp_p75_hours": round(calculate_nearest_rank_p75(durations_comp), 2),
+            "comp_median_hours": round(calculate_median(durations_comp), 2) if durations_comp else "UNKNOWN",
+            "comp_p75_hours": round(calculate_nearest_rank_p75(durations_comp), 2) if durations_comp else "UNKNOWN",
             "backlog_n": len(durations_backlog),
-            "backlog_median_hours": round(calculate_median(durations_backlog), 2),
-            "backlog_p75_hours": round(calculate_nearest_rank_p75(durations_backlog), 2),
+            "backlog_median_hours": round(calculate_median(durations_backlog), 2) if durations_backlog else "UNKNOWN",
+            "backlog_p75_hours": round(calculate_nearest_rank_p75(durations_backlog), 2) if durations_backlog else "UNKNOWN",
         }
 
     def compute_stage_dwell(self, prs, timeline_events=None, stages=None):
@@ -2803,6 +2887,10 @@ class DashboardRenderer:
         md.append("## 2. Repository Comparison")
         md.append("")
         has_w1 = any("created_w1" in row for row in data.get("repo_comparison", []))
+
+        def hours(value):
+            return f"{value}h" if isinstance(value, (int, float)) else str(value or "UNKNOWN")
+
         if has_w1:
             md.append("| Repository | Created (W1 -> W2) | Merged (W1 -> W2) | Closed-Unmerged (W1 -> W2) | Closed Total | Open | Creation-to-Merge Median (W1 -> W2) | Nearest-Rank p75 (W1 -> W2) | <=7d Sensitivity Median (W1 -> W2) | Backlog Merges (>7d) (W1 -> W2) |")
         else:
@@ -2812,17 +2900,17 @@ class DashboardRenderer:
             if "created_w1" in row:
                 created_str = f"{row['created_w1']} -> {row['created']}"
                 closed_str = f"{row['closed_unmerged_w1']} -> {row['closed_unmerged_w2']}"
-                all_med_str = f"{row.get('w1_all_median_hours', 0.0)}h -> {row['all_median_hours']}h"
-                all_p75_str = f"{row.get('w1_all_p75_hours', 0.0)}h -> {row['all_p75_hours']}h"
-                comp_med_str = f"{row.get('w1_comp_median_hours', 0.0)}h -> {row['comp_median_hours']}h"
-                backlog_str = f"{row.get('w1_backlog_n', 0)} ({row.get('w1_backlog_median_hours', 0.0)}h) -> {row['backlog_n']} ({row['backlog_median_hours']}h)"
+                all_med_str = f"{hours(row.get('w1_all_median_hours'))} -> {hours(row['all_median_hours'])}"
+                all_p75_str = f"{hours(row.get('w1_all_p75_hours'))} -> {hours(row['all_p75_hours'])}"
+                comp_med_str = f"{hours(row.get('w1_comp_median_hours'))} -> {hours(row['comp_median_hours'])}"
+                backlog_str = f"{row.get('w1_backlog_n', 0)} ({hours(row.get('w1_backlog_median_hours'))}) -> {row['backlog_n']} ({hours(row['backlog_median_hours'])})"
             else:
                 created_str = str(row['created'])
                 closed_str = str(row['closed_unmerged_w2'])
-                all_med_str = f"{row['all_median_hours']}h"
-                all_p75_str = f"{row['all_p75_hours']}h"
-                comp_med_str = f"{row['comp_median_hours']}h"
-                backlog_str = f"{row['backlog_n']} ({row['backlog_median_hours']}h)"
+                all_med_str = hours(row['all_median_hours'])
+                all_p75_str = hours(row['all_p75_hours'])
+                comp_med_str = hours(row['comp_median_hours'])
+                backlog_str = f"{row['backlog_n']} ({hours(row['backlog_median_hours'])})"
 
             md.append(
                 f"| {row['repo']} | {created_str} | {row['merged_w1']} -> {row['merged_w2']} | "
@@ -2940,6 +3028,8 @@ class DashboardRenderer:
         hi = data.get("human_interventions")
         if hi:
             raw_msgs = hi.get("raw_human_messages", 0)
+            raw_message_coverage = hi.get("raw_message_count_coverage", "UNKNOWN")
+            episode_identity_coverage = hi.get("episode_identity_coverage", "UNKNOWN")
             initial_reqs = hi.get("initial_task_requests", 0)
             qual_eps = hi.get("qualifying_episodes", 0)
             unver_excl = hi.get("unverified_origin_excluded", 0)
@@ -2951,10 +3041,11 @@ class DashboardRenderer:
             cov = hi.get("channel_coverage", {})
             ret_stat = hi.get("retention_status", "OK")
 
-            md.append(f"- **Raw Human Messages**: {raw_msgs}")
+            md.append(f"- **Raw Human Messages**: {raw_msgs} (`{raw_message_coverage}`)")
             if initial_reqs:
                 md.append(f"- **Initial Task Requests**: {initial_reqs}")
             md.append(f"- **Qualifying Episodes**: {qual_eps}")
+            md.append(f"- **Episode Identity Coverage**: `{episode_identity_coverage}`")
             if unver_excl:
                 md.append(f"- **Unverified Origin Excluded Messages**: {unver_excl}")
             if dot_tail:

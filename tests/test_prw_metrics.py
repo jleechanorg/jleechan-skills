@@ -888,6 +888,7 @@ class TestTimeSemanticsHumanInterventionsAndTitleParsing(unittest.TestCase):
             {
                 "episode_id": "ep-1",
                 "is_bot": False,
+                "actor_status": "human",
                 "origin": "user",
                 "raw_message_count": 2,
                 "is_initial_assignment": True,
@@ -906,6 +907,7 @@ class TestTimeSemanticsHumanInterventionsAndTitleParsing(unittest.TestCase):
             {
                 "episode_id": "ep-2",
                 "is_bot": False,
+                "actor_status": "human",
                 "origin": "user",
                 "raw_message_count": 1,
                 "is_initial_assignment": False,
@@ -925,6 +927,7 @@ class TestTimeSemanticsHumanInterventionsAndTitleParsing(unittest.TestCase):
         episodes = [
             {
                 "episode_id": "ep-mirror",
+                "actor_status": "human",
                 "message_ids": ["msg-100", "msg-101"],
                 "is_bot": False,
                 "origin": "user",
@@ -936,6 +939,7 @@ class TestTimeSemanticsHumanInterventionsAndTitleParsing(unittest.TestCase):
             # Duplicate mirrored record with same episode_id / message_ids referring to repo-alpha#2
             {
                 "episode_id": "ep-mirror",
+                "actor_status": "human",
                 "message_ids": ["msg-100", "msg-101"],
                 "is_bot": False,
                 "origin": "user",
@@ -950,13 +954,14 @@ class TestTimeSemanticsHumanInterventionsAndTitleParsing(unittest.TestCase):
         self.assertEqual(summary["raw_human_messages"], 2)
 
     def test_unassigned_task_level_episode_and_changed_spec_vs_agent_miss_calibration(self):
-        """Unassigned task-level episodes are preserved, and differing annotators resolve to mixed."""
+        """Unassigned episodes persist while unresolved annotator disagreement stays unknown."""
         agg = MetricsAggregator()
         episodes = [
             # Unassigned task-level episode with differing annotators
             {
                 "episode_id": "ep-task-unassigned",
                 "is_bot": False,
+                "actor_status": "human",
                 "origin": "user",
                 "raw_message_count": 1,
                 "is_initial_assignment": False,
@@ -968,7 +973,8 @@ class TestTimeSemanticsHumanInterventionsAndTitleParsing(unittest.TestCase):
         summary = agg.compute_human_interventions(episodes)
         self.assertEqual(summary["unassigned_count"], 1)
         self.assertEqual(summary["pr_attributed_count"], 0)
-        self.assertEqual(summary["label_breakdown"]["mixed"], 1)
+        self.assertEqual(summary["label_breakdown"]["unknown"], 1)
+        self.assertEqual(summary["label_breakdown"]["mixed"], 0)
         self.assertEqual(summary["label_breakdown"]["good"], 0)
         self.assertEqual(summary["label_breakdown"]["bad"], 0)
 
@@ -979,6 +985,7 @@ class TestTimeSemanticsHumanInterventionsAndTitleParsing(unittest.TestCase):
             {
                 "episode_id": "ep-post-merge",
                 "is_bot": False,
+                "actor_status": "human",
                 "origin": "user",
                 "raw_message_count": 1,
                 "is_initial_assignment": False,
@@ -1002,7 +1009,7 @@ class TestTimeSemanticsHumanInterventionsAndTitleParsing(unittest.TestCase):
                 f.write(json.dumps({"pr_number": 1, "span_kind": "observed_active_execution", "duration_sec": 1200}) + "\n")
 
             with open(os.path.join(telem_dir, "human_episodes.jsonl"), "w") as f:
-                f.write(json.dumps({"episode_id": "ep-ret-1", "is_bot": False, "origin": "user", "raw_message_count": 1, "is_initial_assignment": False, "label": "good"}) + "\n")
+                f.write(json.dumps({"episode_id": "ep-ret-1", "is_bot": False, "actor_status": "human", "origin": "user", "raw_message_count": 1, "is_initial_assignment": False, "label": "good"}) + "\n")
 
             with open(os.path.join(telem_dir, "calibration_audit.json"), "w") as f:
                 json.dump({"audit_status": "CALIBRATED", "disagreement_rate": 0.05}, f)
