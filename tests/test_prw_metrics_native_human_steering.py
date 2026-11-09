@@ -123,6 +123,17 @@ class NativeHumanSteeringTests(unittest.TestCase):
                 "headRefOid": "sha-3", "createdAt": "2026-10-01T00:00:00Z",
                 "closedAt": None, "url": "https://github.com/example/worldai/pull/3",
             },
+            {
+                "repo": "example/old-project", "number": 4, "headRefName": "shared-history",
+                "headRefOid": "sha-4", "createdAt": "2026-10-01T00:00:00Z",
+                "closedAt": "2026-10-04T00:00:00Z",
+                "url": "https://github.com/example/old-project/pull/4",
+            },
+            {
+                "repo": "example/new-project", "number": 5, "headRefName": "shared-history",
+                "headRefOid": "sha-5", "createdAt": "2026-10-01T00:00:00Z",
+                "closedAt": None, "url": "https://github.com/example/new-project/pull/5",
+            },
         ]
         events = [
             {
@@ -134,6 +145,11 @@ class NativeHumanSteeringTests(unittest.TestCase):
                 "event_id": "ambiguous-main", "provider": "codex",
                 "timestamp": "2026-10-05T00:00:00Z", "origin_status": "verified_human",
                 "git_branch": "main", "branch_source": "recorded_git_branch",
+            },
+            {
+                "event_id": "ambiguous-history", "provider": "codex",
+                "timestamp": "2026-10-05T00:00:00Z", "origin_status": "verified_human",
+                "git_branch": "shared-history", "branch_source": "recorded_git_branch",
             },
         ]
         result = aggregate_native_human_steering(
@@ -150,8 +166,8 @@ class NativeHumanSteeringTests(unittest.TestCase):
         self.assertIn("best_effort_branch_only_event_time", unique["association_basis"])
         self.assertIn("source:recorded_git_branch", unique["association_basis"])
         self.assertEqual(result["coverage"]["branch_only_messages"], 1)
-        self.assertEqual(result["coverage"]["ambiguous_branch_messages"], 1)
-        self.assertEqual(result["coverage"]["unassigned_verified_messages"], 1)
+        self.assertEqual(result["coverage"]["ambiguous_branch_messages"], 2)
+        self.assertEqual(result["coverage"]["unassigned_verified_messages"], 2)
 
     def test_rendered_tables_have_matching_gfm_columns_and_empty_handoffs_are_not_collected(self):
         steering = aggregate_native_human_steering(

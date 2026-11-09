@@ -4068,7 +4068,7 @@ def aggregate_native_human_steering(
                     confidence = "BRANCH_ONLY_LOW_HEAD" if low_context else "BRANCH_ONLY_HEAD_MATCH"
                     basis, association_kind = "branch_only_exact_head", "branch_only"
                     coverage["branch_only_messages"] += 1
-                elif len(branch_time) == 1:
+                elif len(branch_time) == 1 and len(branch_all) == 1:
                     association = branch_time[0][0]
                     confidence, basis = "BRANCH_ONLY_LOW", "best_effort_branch_only_event_time"
                     association_kind = "branch_only"
