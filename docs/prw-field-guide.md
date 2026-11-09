@@ -1,6 +1,6 @@
-# /prw: make an AI-assisted game change reviewable
+# PR workflow: make an AI-assisted game change reviewable
 
-Use `/prw` to connect a small game change to tests, a visible before/after comparison and independent review. Start with one player action and follow the worked example below.
+Use PR workflow (`/prw` for short) to connect a small game change to tests, a visible before/after comparison and independent review. Start with one player action and follow the worked example below.
 
 Status: experimental. Updated 2026-11-09. Source: [jleechan-skills](../README.md). Licence: [MIT](../LICENSE); the notice is reproduced below.
 
