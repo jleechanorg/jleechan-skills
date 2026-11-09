@@ -30,13 +30,13 @@ skip that helper/source and use a bounded query over permitted inputs only.
   permitted and in scope; otherwise adapt to explicit permitted paths or skip.
   A hosted runtime with connector history does not need local session access.
 - **Provenance:** Keep the returned message/thread ID or exact permitted file
-  path, timestamp, source/runtime, task scope, and at most 200 characters per
+  path, timestamp, source/runtime, task scope, and at most 500 characters per
   excerpt. Use only returned/verified links. Distinguish matched, no-match,
   unavailable/denied, and not-searched/partial sources. Never invent history
   or infer that an unavailable source contains no matches.
 
 Use plain text in nonterminal channels. Do not emit ANSI codes into chat.
-Preserve the five-result/200-character default budgets in every branch.
+Preserve the five-result/500-character default budgets in every branch.
 
 ## Purpose
 
@@ -63,7 +63,7 @@ without loading full transcripts, or when you want a quick multi-source sweep.
   false despite a human event. Check only the permitted bounded receipt tail
   and available context for a positive event; do not widen the source search.
 - Each retained event records its exact message/event ID, timestamp,
-  source/runtime, and an excerpt of at most 200 characters. Attribute a PR
+  source/runtime, and an excerpt of at most 500 characters. Attribute a PR
   only from an explicit or independently corroborated identifier; otherwise
   mark it unassigned.
 - For cmux terminal evidence, apply the shared full-buffer rule in
@@ -108,19 +108,21 @@ Example commands after admitting the named source:
 
 ```bash
 # Bounded overview of an admitted local source
-python3 "$HISTORY_HELPER" --source claude --limit 5 --max-chars 200
+python3 "$HISTORY_HELPER" --source claude --limit 5 --max-chars 500
 
 # Query the same admitted source; HISTORY_HELPER is its resolved absolute path
-python3 "$HISTORY_HELPER" --source claude --limit 5 --max-chars 200 -- "$HIST_QUERY"
+python3 "$HISTORY_HELPER" --source claude --limit 5 --max-chars 500 -- "$HIST_QUERY"
 
 # Single source with JSON output
-python3 "$HISTORY_HELPER" --source agy --limit 5 --max-chars 200 --json -- "$HIST_QUERY"
+python3 "$HISTORY_HELPER" --source agy --limit 5 --max-chars 500 --json -- "$HIST_QUERY"
 ```
 
 ## Sparse defaults and explicit audit budgets
 
 - Never `cat` full history files. Prefer metadata and bounded excerpts.
-- The helper defaults to five results per source and 200 characters per snippet.
+- The helper defaults to five results per source and 500 characters per snippet.
+  JSON metadata truncates titles longer than 160 characters and sets
+  `metadata.title_truncated: true`; IDs and timestamps remain intact.
   `--limit` and `--max-chars` accept positive integers. For an authorized larger
   audit, choose explicit finite budgets, retain full result artifacts locally,
   and summarize aggregate counts with bounded representative excerpts.
@@ -220,7 +222,7 @@ scan is partial coverage, and filename-only search still reads file content.
 
 Pass the admitted selected filenames as a JSON array in `HISTORY_FILES_JSON`
 to the snippet parser below. It samples at most five user excerpts total, each
-200 characters. If selection finds nothing or fails, report that exact scope
+500 characters. If selection finds nothing or fails, report that exact scope
 and coverage gap; do not broaden to every project or infer no history exists.
 
 ### 3) Sample Claude prompts only (sparse + colored)
@@ -271,7 +273,7 @@ for path in files:
                     if content and len(content) > 15:
                         n += 1
                         ts = obj.get("timestamp", "")[:16]
-                        snippet = content[:200].replace("\n", " ")
+                        snippet = content[:500].replace("\n", " ")
                         print(ansify("claude", f"{ts} | {snippet}", query))
                         remaining -= 1
                         if n >= 3 or remaining == 0: break
@@ -293,7 +295,7 @@ or every similarly named directory as an active profile. Resolved home
 aliases and duplicate indexed thread IDs are deduplicated.
 
 ```bash
-python3 "$HISTORY_HELPER" --source codex --codex-home "$PERMITTED_CODEX_HOME" --limit 5 --max-chars 200 --json -- "$HIST_QUERY"
+python3 "$HISTORY_HELPER" --source codex --codex-home "$PERMITTED_CODEX_HOME" --limit 5 --max-chars 500 --json -- "$HIST_QUERY"
 
 # A selected profile; repeat --codex-home for each resolved home in the audit.
 python3 "$HISTORY_HELPER" --source codex --codex-home "$PERMITTED_CODEX_HOME" --json -- "$HIST_QUERY"
@@ -340,14 +342,14 @@ if not os.path.exists(db):
 con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
 cur = con.cursor()
 
-# Sparse example: 200 characters per snippet and five hits; use explicit positive audit budgets when expanding.
+# Sparse example: 500 characters per snippet and five hits; use explicit positive audit budgets when expanding.
 LIMIT = 5
 
 try:
     rows = cur.execute("""
         SELECT s.title, s.source,
                datetime(m.timestamp,'unixepoch','localtime') as ts,
-               m.role, substr(m.content, 1, 200)
+               m.role, substr(m.content, 1, 500)
         FROM messages m
         JOIN sessions s ON m.session_id = s.id
         WHERE m.id IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?)
@@ -360,7 +362,7 @@ except sqlite3.OperationalError:
     rows = cur.execute("""
         SELECT s.title, s.source,
                datetime(m.timestamp,'unixepoch','localtime') as ts,
-               m.role, substr(m.content, 1, 200)
+               m.role, substr(m.content, 1, 500)
         FROM messages m
         JOIN sessions s ON m.session_id = s.id
         WHERE m.content LIKE ? OR m.tool_name LIKE ? OR m.tool_calls LIKE ?
@@ -384,7 +386,7 @@ con.close()
 
 agy CLI (Antigravity CLI wrapper; locate it with `command -v agy`) stores conversation
 metadata in a SQLite summaries DB. This read-only example samples five rows with
-200-character snippets; use the explicit audit budgets when expanding. Wrap every result line with `ansify("agy", ..., query)` so the
+500-character snippets; use the explicit audit budgets when expanding. Wrap every result line with `ansify("agy", ..., query)` so the
 label is yellow and matched substrings are yellow-highlighted.
 
 ```python
@@ -405,7 +407,7 @@ else:
     LIMIT = 5
     try:
         rows = cur.execute("""
-            SELECT conversation_id, title, substr(preview, 1, 200),
+            SELECT conversation_id, title, substr(preview, 1, 500),
                    step_count, last_modified_time, workspace_uris, agent_name
             FROM conversation_summaries
             WHERE (title LIKE ? OR preview LIKE ? OR workspace_uris LIKE ?)
@@ -416,7 +418,7 @@ else:
     except sqlite3.OperationalError:
         # Fallback: most-recent N conversations matching the basename heuristic
         rows = cur.execute("""
-            SELECT conversation_id, title, substr(preview, 1, 200),
+            SELECT conversation_id, title, substr(preview, 1, 500),
                    step_count, last_modified_time, workspace_uris, agent_name
             FROM conversation_summaries
             WHERE workspace_uris LIKE ?
@@ -426,7 +428,7 @@ else:
         """, (f"%{cwd_basename}%", LIMIT)).fetchall()
 
     for cid, title, preview, steps, mtime, ws, agent in rows:
-        snippet = (preview or "").replace("\n", " ")[:200]
+        snippet = (preview or "").replace("\n", " ")[:500]
         steps_str = f"steps={steps}" if steps is not None else "steps=?"
         body = f"{(mtime or '')[:10]} | {(title or '?')[:40]} | {agent or 'agy'} | {steps_str} | {snippet}"
         print(ansify("agy", body, q))
@@ -439,7 +441,7 @@ When the DB is missing entirely (agy CLI not installed), print a single
 ### 7) Sample Cursor conversations (sparse JSON + chats)
 
 Cursor stores a flat prompt history file plus per-conversation chat blobs and agent transcripts.
-This read-only example samples three prompt hits with 200-character snippets.
+This read-only example samples three prompt hits with 500-character snippets.
 Use the explicit audit budgets when expanding. Wrap every line with
 `ansify("cursor", ..., query)` so the label is green and matched substrings
 are yellow.
@@ -474,7 +476,7 @@ try:
             continue
         if not text or (q and q.lower() not in text.lower()):
             continue
-        snippet = text[:200].replace("\n", " ")
+        snippet = text[:500].replace("\n", " ")
         ts = str(entry.get("timestamp") or entry.get("ts") or "")[:16] if isinstance(entry, dict) else ""
         print(ansify("cursor", f"prompt_history {ts} | {snippet}", q))
         hits += 1
@@ -503,7 +505,7 @@ if hits < LIMIT:
                 if match_at < 0:
                     continue
                 start = max(0, match_at - 60)
-                snippet = chunk[start:start + 200].replace("\n", " ")
+                snippet = chunk[start:start + 500].replace("\n", " ")
                 label = os.path.basename(path)[:50]
                 print(ansify("cursor", f"chat {label} | {snippet}", q))
                 hits += 1
@@ -527,7 +529,7 @@ print(ansify("cursor", "source coverage: " + json.dumps(coverage, sort_keys=True
 > as parsed JSON then sliced — never `cat` the raw file. Chat JSON files are
 > sampled via `f.read(2048)` so we never pull a full conversation into context.
 > A chat search examines the full sampled 2048-character prefix, then returns a
-> 200-character excerpt around a hit. Unread tails, other files, and agent
+> 500-character excerpt around a hit. Unread tails, other files, and agent
 > transcripts remain unsearched. Report these as partial coverage even with
 > zero hits; missing sources and read/parse errors have their own statuses.
 
@@ -544,10 +546,10 @@ prompts, thinking blocks, or tool-result payloads. Wrap every result line with
 `ansify("pi", ..., query)` so the label is bright magenta.
 
 ```bash
-python3 "$HISTORY_HELPER" --source pi --limit 5 --max-chars 200 -- "$HIST_QUERY"
+python3 "$HISTORY_HELPER" --source pi --limit 5 --max-chars 500 -- "$HIST_QUERY"
 
 # Structured output for an audit (per-match metadata.file/path/model/is_user)
-python3 "$HISTORY_HELPER" --source pi --limit 5 --max-chars 200 --json -- "$HIST_QUERY"
+python3 "$HISTORY_HELPER" --source pi --limit 5 --max-chars 500 --json -- "$HIST_QUERY"
 ```
 
 Each match includes `metadata.session_cwd` (decoded from the session header),
@@ -563,7 +565,7 @@ Return:
 - Explicit coverage gaps; omit unavailable local-source sections rather than fabricating results.
 - Recent request themes from Claude history.
 - Recent request themes from Codex history.
-- Recent Hermes hits with bounded snippets (200 characters by default).
+- Recent Hermes hits with bounded snippets (500 characters by default).
 - Recent agy conversations (preview/title only).
 - Recent Cursor prompts (one-liner each).
 - Recent Pi prompts (one-liner each; decoded session cwd as the label).

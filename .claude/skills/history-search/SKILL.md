@@ -1,6 +1,6 @@
 ---
 name: history-search
-description: Multi-source conversation history search across Claude Code, Codex, and Hermes — runs all three in parallel.
+description: Deep multi-source history search for /history --deep or when sparse search is insufficient; runs admitted sources in parallel.
 type: search
 scope: user
 ---
@@ -29,7 +29,7 @@ Searches Claude Code JSONL, Codex SQLite threads, Hermes messages (FTS5), and An
 
 ## Execution
 
-When `/history <query>` is invoked, run these searches **in parallel** as subagents (or parallel Bash blocks), then merge and display results.
+When `/history --deep` is invoked, or the sparse search explicitly returns insufficient results, run these searches **in parallel** as subagents (or parallel Bash blocks), then merge and display results.
 
 ### Parallel block A — Claude Code JSONL search
 

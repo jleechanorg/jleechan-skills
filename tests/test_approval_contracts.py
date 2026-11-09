@@ -134,7 +134,7 @@ class ApprovalContractsTest(unittest.TestCase):
             self.assertNotIn("UNSELECTED_FOURTH_FILE", selected)
         snippets = [line.split(" | ", 1)[1] for line in output.splitlines() if line.startswith("[Claude]")]
         self.assertEqual(len(snippets), 5)
-        self.assertTrue(all(len(snippet) <= 200 for snippet in snippets))
+        self.assertTrue(all(len(snippet) <= 500 for snippet in snippets))
         self.assertNotIn("SYNTHETIC_PRIVATE_PAYLOAD", output)
         self.assertNotIn('"message"', output)
 
@@ -169,7 +169,7 @@ class ApprovalContractsTest(unittest.TestCase):
             output = run_history_fixture(history_example(7), root, HIST_QUERY="needle")
             hits = [line.split(" | ", 1)[1] for line in output.splitlines() if line.startswith("[cursor] chat ")]
             self.assertEqual(len(hits), 2)
-            self.assertTrue(all("needle" in snippet and len(snippet) <= 200 for snippet in hits))
+            self.assertTrue(all("needle" in snippet and len(snippet) <= 500 for snippet in hits))
             self.assertTrue(cursor_coverage(output)["chats"].startswith("partial"))
             tail = run_history_fixture(history_example(7), root, HIST_QUERY="tail-only")
             self.assertIn("zero returned hits", tail)
@@ -187,7 +187,7 @@ class ApprovalContractsTest(unittest.TestCase):
             output = run_history_fixture(history_example(7), root, HIST_QUERY="needle")
             snippets = [line.split(" | ", 1)[1] for line in output.splitlines() if line.startswith("[cursor] prompt_history ")]
             self.assertEqual(len(snippets), 3)
-            self.assertTrue(all(len(snippet) <= 200 for snippet in snippets))
+            self.assertTrue(all(len(snippet) <= 500 for snippet in snippets))
             coverage = cursor_coverage(output)
             self.assertTrue(coverage["prompt_history"].startswith("partial"))
             self.assertEqual(coverage["chats"], "not searched")
