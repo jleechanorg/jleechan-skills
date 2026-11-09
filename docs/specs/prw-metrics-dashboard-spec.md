@@ -250,10 +250,14 @@ a public model-list equivalent, not actual invoice amounts. A single session fee
 not a fleet or PR population. For direct recurring collection, the optional
 --usage-source-dir <directory> CLI argument reads native Claude Code session JSONL
 files under that explicitly selected
-directory, recursively. The collector extracts only assistant request ID, message ID,
+directory, recursively. This source covers Claude Code only; Codex and other runtimes
+remain uncollected and the dashboard labels that coverage limit. The collector extracts
+only assistant request ID, message ID,
 timestamp, model, and token counters. It deduplicates by request ID and reports files
 scanned, usage rows, unique and duplicate requests, malformed lines, read errors, and
-rejected rows. It never retains raw session text or source paths. The source is opt-in;
+rejected rows in the dashboard's retained usage coverage. Missing sources are marked
+FAILED and return a failing CLI status; parse/read issues are marked PARTIAL. It never
+retains raw session text or source paths. The source is opt-in;
 a scheduled wrapper may provide it through the existing configured collector command.
 
 The cache-write TTL buckets remain separate and never

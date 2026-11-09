@@ -157,6 +157,13 @@ class UsageFeedCliTests(unittest.TestCase):
     def test_summary_retention_round_trip_keeps_only_numeric_usage_and_rates(self):
         events = load_usage_events(self.events_path, provider="example-provider")
         summary = aggregate_usage(events, load_rate_table(self.rates_path))
+        summary["coverage"]["native_source"] = {
+            "status": "COMPLETE",
+            "runtime_coverage": "Claude Code session JSONL only; Codex and other runtimes not collected",
+            "files_scanned": 1, "assistant_usage_rows": 2,
+            "unique_requests": 1, "duplicate_requests": 1, "malformed_lines": 0,
+            "read_errors": 0, "rejected_rows": 0,
+        }
         files = Publisher(repo_path=self.tempdir.name).write_telemetry_bundle({
             "usage_summary": _retained_usage_summary(summary), "w2_bounds": ["2026-11-01", "2026-11-08"],
         })
@@ -168,6 +175,10 @@ class UsageFeedCliTests(unittest.TestCase):
         self.assertEqual(projected["reasoning_tokens"], 100000)
         self.assertEqual(projected["coverage"]["service_tiers"], ["standard"])
         self.assertEqual(projected["coverage"]["regions"], ["global"])
+        self.assertEqual(projected["coverage"]["native_source"]["status"], "COMPLETE")
+        self.assertIn("Codex and other runtimes not collected",
+                      projected["coverage"]["native_source"]["runtime_coverage"])
+        self.assertEqual(projected["coverage"]["native_source"]["unique_requests"], 1)
         self.assertEqual(len(projected["rate_records"]), 5)
         self.assertIsNone(projected["events"][1]["known_cost_usd"])
         self.assertEqual(projected["known_cost_usd"], "17.6")
@@ -371,26 +382,27 @@ class NativeClaudeUsageSourceTests(unittest.TestCase):
     def tearDown(self):
         self.tempdir.cleanup()
 
-    def _collect(self):
+    def _collect(self, *, check=True, telemetry_dir=None):
+        command = [
+            sys.executable, str(self.script), "--offline",
+            "--cutoff", "2026-11-08T00:00:00Z",
+            "--usage-source-dir", str(self.source),
+            "--usage-rates", str(self.rates),
+        ]
+        if telemetry_dir:
+            command.extend(["--telemetry-dir", str(telemetry_dir)])
         return subprocess.run(
-            [sys.executable, str(self.script), "--offline",
-             "--cutoff", "2026-11-08T00:00:00Z",
-             "--usage-source-dir", str(self.source),
-             "--usage-rates", str(self.rates)],
-            check=True, capture_output=True, text=True, timeout=30,
+            command, check=check, capture_output=True, text=True, timeout=30,
         )
 
-    def test_new_native_request_is_seen_once_on_each_successive_collection(self):
-        before = self._collect()
-        self.assertIn("Source records: 0;", before.stdout)
-
-        native = {
+    def _native_event(self, input_tokens=100):
+        return {
             "type": "assistant", "timestamp": "2026-11-07T12:00:00Z",
             "requestId": "req-native-1",
             "message": {
                 "id": "msg-native-1", "model": "claude-test",
                 "usage": {
-                    "input_tokens": 100, "cache_read_input_tokens": 20,
+                    "input_tokens": input_tokens, "cache_read_input_tokens": 20,
                     "cache_creation": {
                         "ephemeral_5m_input_tokens": 30,
                         "ephemeral_1h_input_tokens": 40,
@@ -401,10 +413,16 @@ class NativeClaudeUsageSourceTests(unittest.TestCase):
                 "content": [{"type": "text", "text": "PRIVATE_RESPONSE_MUST_NOT_LEAK"}],
             },
         }
+
+    def test_new_native_request_is_seen_once_on_each_successive_collection(self):
+        before = self._collect()
+        self.assertIn("Source records: 0;", before.stdout)
+
+        native = self._native_event()
         self.events.write_text(json.dumps(native) + "\n" + json.dumps(native) + "\n", encoding="utf-8")
         outputs = [self._collect().stdout for _ in range(2)]
         for output in outputs:
-            self.assertIn("Source records: 1;", output)
+            self.assertIn("Source records: 2; priced: 1; partially priced: 0; unknown: 0.", output)
             self.assertIn("`input_uncached` 100", output)
             self.assertIn("`cache_read` 20", output)
             self.assertIn("`cache_write_5m` 30", output)
@@ -415,8 +433,9 @@ class NativeClaudeUsageSourceTests(unittest.TestCase):
             self.assertIn("unique_requests=1", output)
             self.assertIn("duplicate_requests=1", output)
             self.assertNotIn("PRIVATE_RESPONSE_MUST_NOT_LEAK", output)
-            records, _ = collect_claude_native_usage(str(self.source))
-            self.assertEqual(len(records), 1)
+            records, source_stats = collect_claude_native_usage(str(self.source))
+            self.assertEqual(len(records), 2)
+            self.assertEqual({record["request_id"] for record in records}, {"req-native-1"})
             serialized = json.dumps(records)
             self.assertNotIn("PRIVATE_RESPONSE_MUST_NOT_LEAK", serialized)
             self.assertNotIn(str(self.source), serialized)
@@ -424,19 +443,76 @@ class NativeClaudeUsageSourceTests(unittest.TestCase):
                 set(records[0]),
                 {"provider", "request_id", "message_id", "timestamp", "model", "raw_usage"},
             )
+            rates = load_rate_table(self.rates)
+            normalized = load_usage_events(records, provider="anthropic")
+            summary = aggregate_usage(normalized, rates)
+            summary["coverage"]["native_source"] = source_stats
+            bundle = Publisher(repo_path=str(self.root)).write_telemetry_bundle(
+                {"usage_summary": _retained_usage_summary(summary)},
+                usage_events=normalized,
+                usage_rates=rates,
+            )
+            retained = json.dumps(bundle)
+            self.assertNotIn("PRIVATE_RESPONSE_MUST_NOT_LEAK", retained)
+            self.assertNotIn(str(self.source), retained)
+            self.assertNotIn('"content"', retained)
+
+    def test_conflicting_native_duplicate_is_unknown_instead_of_first_price(self):
+        self.events.write_text(
+            json.dumps(self._native_event(100)) + "\n"
+            + json.dumps(self._native_event(200)) + "\n",
+            encoding="utf-8",
+        )
+        output = self._collect().stdout
+        self.assertIn("Source records: 2; priced: 0; partially priced: 0; unknown: 1.", output)
+        self.assertIn("Known usage subtotal: UNKNOWN (no priced usage).", output)
+        self.assertIn("Native source acquisition: COMPLETE", output)
+        self.assertIn("Codex and other runtimes not collected", output)
+        self.assertIn("unique_requests=1", output)
+        self.assertIn("duplicate_requests=1", output)
+
+    def test_conflicting_retained_and_fresh_native_observations_reach_aggregator(self):
+        telemetry = self.root / "telemetry"
+        telemetry.mkdir()
+        retained = {
+            "provider": "anthropic", "request_id": "req-native-1",
+            "message_id": "msg-native-1", "timestamp": "2026-11-07T12:00:00Z",
+            "model": "claude-test",
+            "raw_usage": {
+                "input_tokens": 200, "cache_read_input_tokens": 20,
+                "cache_creation": {
+                    "ephemeral_5m_input_tokens": 30, "ephemeral_1h_input_tokens": 40,
+                },
+                "output_tokens": 50, "service_tier": "standard",
+                "inference_geo": "global", "speed": "standard",
+            },
+        }
+        (telemetry / "usage_events.jsonl").write_text(json.dumps(retained) + "\n", encoding="utf-8")
+        self.events.write_text(json.dumps(self._native_event(100)) + "\n", encoding="utf-8")
+        output = self._collect(telemetry_dir=telemetry).stdout
+        self.assertIn("Source records: 2; priced: 0; partially priced: 0; unknown: 1.", output)
+        self.assertIn("Known usage subtotal: UNKNOWN (no priced usage).", output)
+
+    def test_missing_native_source_is_visible_and_returns_failure(self):
+        self.source.rmdir()
+        proc = self._collect(check=False)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("Native source acquisition: FAILED", proc.stdout)
+        self.assertIn("read_errors=1", proc.stdout)
+        self.assertNotIn(str(self.source), proc.stdout)
 
     def test_scan_counts_malformed_and_unusable_rows_without_exposing_source_paths(self):
         self.events.write_text(
             "{malformed}\n"
             + json.dumps({
-                "type": "assistant", "timestamp": "not-a-time", "requestId": "req-bad",
+                "type": "assistant", "timestamp": "2026-11-07T12:00:00", "requestId": "req-bad",
                 "message": {"model": "claude-test", "usage": {"input_tokens": 2}},
             }) + "\n",
             encoding="utf-8",
         )
         output = self._collect().stdout
         self.assertIn("Source records: 0;", output)
-        self.assertIn("files=1", output)
+        self.assertIn("files_scanned=1", output)
         self.assertIn("assistant_usage_rows=1", output)
         self.assertIn("malformed_lines=1", output)
         self.assertIn("rejected_rows=1", output)

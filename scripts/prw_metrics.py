@@ -358,7 +358,16 @@ SUMMARY_SCHEMA = {
         "partially_priced_event_count": _SC, "unknown_event_count": _SC, "known_cost_usd": _SC,
         "reasoning_tokens": _SC, "scope": _SC, "window_start": _SC, "window_end": _SC,
         "outside_window_count": _SC, "undated_count": _SC,
-        "coverage": {"providers": [_SC], "models": [_SC], "service_tiers": [_SC], "regions": [_SC], "speeds": [_SC], "session_count": _SC},
+        "coverage": {
+            "providers": [_SC], "models": [_SC], "service_tiers": [_SC], "regions": [_SC],
+            "speeds": [_SC], "session_count": _SC,
+            "native_source": {
+                "status": _SC, "runtime_coverage": _SC,
+                "files_scanned": _SC, "assistant_usage_rows": _SC,
+                "unique_requests": _SC, "duplicate_requests": _SC, "malformed_lines": _SC,
+                "read_errors": _SC, "rejected_rows": _SC,
+            },
+        },
         "unallocated": {"known_cost_usd": _SC, "event_count": _SC, "unknown_cost_events": _SC},
         "tokens_by_bucket": ("map", _SC),
         "prs": ("map", {"known_cost_usd": _SC, "unknown": _SC, "event_count": _SC, "pricing_status": _SC}),
@@ -3682,16 +3691,14 @@ def main():
         native_records, native_source_stats = collect_claude_native_usage(args.usage_source_dir)
         providers = {rate["provider"] for rate in rates}
         native_events = load_usage_events(native_records, provider=next(iter(providers), "anthropic"))
-        seen = {ev.get("usage_id") for ev in events or []}
-        for event in native_events:
-            if event.get("usage_id") not in seen:
-                events.append(event)
-                seen.add(event.get("usage_id"))
+        events.extend(native_events)
     if not events and not args.usage_events and not collected.get("usage_events") and not args.usage_source_dir:
         events = None
     if events is not None:
         usage_events = events
         usage_summary = aggregate_usage(events, rates, window_start=aggregator.w1_start_dt, window_end=cutoff_dt)
+        if native_source_stats is not None:
+            usage_summary["coverage"]["native_source"] = native_source_stats
         summary_data["usage_summary"] = _retained_usage_summary(usage_summary)
 
     if collected.get("status") in ("FAILED", "PARTIAL_FAILURE"):
@@ -3703,18 +3710,6 @@ def main():
         md_output = md_output.replace(
             "## 6. Definitions & Limitations",
             "\n".join(render_usage_summary(usage_summary)) + "\n\n## 6. Definitions & Limitations",
-        )
-
-    if native_source_stats is not None:
-        print(
-            "Native usage source: "
-            f"files={native_source_stats['files_scanned']} "
-            f"assistant_usage_rows={native_source_stats['assistant_usage_rows']} "
-            f"unique_requests={native_source_stats['unique_requests']} "
-            f"duplicate_requests={native_source_stats['duplicate_requests']} "
-            f"malformed_lines={native_source_stats['malformed_lines']} "
-            f"read_errors={native_source_stats['read_errors']} "
-            f"rejected_rows={native_source_stats['rejected_rows']}"
         )
 
     if args.output:
@@ -3749,6 +3744,8 @@ def main():
 
     if summary_data["status"] == "FAILED":
         sys.exit(2)
+    if native_source_stats and native_source_stats["status"] == "FAILED":
+        sys.exit(3)
 
 
 USAGE_LIST_PRICE_LABEL = "public model-list equivalent (not actual invoiced spend)"
@@ -3982,17 +3979,22 @@ def load_usage_events(path, provider=None):
 def collect_claude_native_usage(source_dir):
     """Extract only native request IDs, timestamps, model names, and token counts."""
     stats = {
+        "runtime_coverage": "Claude Code session JSONL only; Codex and other runtimes not collected",
         "files_scanned": 0, "assistant_usage_rows": 0, "unique_requests": 0,
         "duplicate_requests": 0, "malformed_lines": 0, "read_errors": 0,
         "rejected_rows": 0,
     }
     if not os.path.isdir(source_dir):
         stats["read_errors"] = 1
+        stats["status"] = "FAILED"
         return [], stats
 
     records = []
     seen_requests = set()
-    for root, dirs, files in os.walk(source_dir):
+    def record_walk_error(_error):
+        stats["read_errors"] += 1
+
+    for root, dirs, files in os.walk(source_dir, onerror=record_walk_error):
         dirs.sort()
         for filename in sorted(files):
             if not filename.endswith(".jsonl"):
@@ -4020,14 +4022,14 @@ def collect_claude_native_usage(source_dir):
                     request_id = _usage_label(row.get("requestId"))
                     model = _usage_label(message.get("model"))
                     timestamp = row.get("timestamp")
-                    timestamp_dt = parse_iso_utc(timestamp) if isinstance(timestamp, str) else None
+                    timestamp_dt = _parse_utc_instant(timestamp)
                     if not request_id or not model or not timestamp_dt:
                         stats["rejected_rows"] += 1
                         continue
                     if request_id in seen_requests:
                         stats["duplicate_requests"] += 1
-                        continue
-                    seen_requests.add(request_id)
+                    else:
+                        seen_requests.add(request_id)
                     raw = message["usage"]
                     raw_usage = {
                         "input_tokens": raw.get("input_tokens"),
@@ -4058,7 +4060,13 @@ def collect_claude_native_usage(source_dir):
                         "model": model,
                         "raw_usage": raw_usage,
                     })
-    stats["unique_requests"] = len(records)
+    stats["unique_requests"] = len(seen_requests)
+    if stats["read_errors"] and not stats["files_scanned"]:
+        stats["status"] = "FAILED"
+    elif stats["read_errors"] or stats["malformed_lines"] or stats["rejected_rows"]:
+        stats["status"] = "PARTIAL"
+    else:
+        stats["status"] = "COMPLETE"
     return records, stats
 
 
@@ -4344,6 +4352,23 @@ def render_usage_summary(summary):
     rate_bases = {rate.get("rate_basis") for rate in summary["rate_records"] if rate.get("rate_basis")}
     rate_scope = ("standard / global / standard (tier / region / speed); mismatches or missing metadata stay UNKNOWN"
                   if rate_bases == {"standard_global_public_list_price"} else "not fully declared; affected usage stays UNKNOWN")
+    native_source = summary["coverage"].get("native_source")
+    if isinstance(native_source, dict):
+        native_status = native_source.get("status", "UNKNOWN")
+        native_counts = ", ".join(
+            f"{key}={native_source.get(key, 0)}"
+            for key in (
+                "files_scanned", "assistant_usage_rows", "unique_requests", "duplicate_requests",
+                "malformed_lines", "read_errors", "rejected_rows",
+            )
+        )
+        native_scope = native_source.get("runtime_coverage", "runtime coverage UNKNOWN")
+        native_line = (
+            f"- Native source acquisition: {native_status} ({native_counts}); "
+            f"scope: {native_scope}."
+        )
+    else:
+        native_line = None
     lines = ["## Usage Cost Summary", "",
              f"> {summary['label']}. Observed feed only; population completeness is unknown, so this is not a fleet or PR total.", "",
              f"- Source records: {summary['source_records']}; priced: {summary['priced_event_count']}; "
@@ -4358,6 +4383,8 @@ def render_usage_summary(summary):
              "- Tokens by bucket: " + ", ".join(f"`{k}` {v if v is not None else 'UNKNOWN'}" for k, v in sorted(summary["tokens_by_bucket"].items())),
              f"- Reasoning tokens: {summary['reasoning_tokens']} (included in output tokens; diagnostic subset).",
              "- Per-PR costs are shown only for explicit supported attribution."]
+    if native_line:
+        lines.insert(5, native_line)
     if summary["prs"]:
         lines.extend(["", "| PR | Known subtotal | Coverage |", "|---|---:|---|"])
         for key, row in sorted(summary["prs"].items()):
