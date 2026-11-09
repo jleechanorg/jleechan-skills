@@ -47,7 +47,9 @@ class NativeUsageCollectorTests(unittest.TestCase):
     def test_codex_per_response_usage_and_user_metadata_are_normalized_without_text(self):
         secret = "PRIVATE_PROMPT_MUST_NOT_BE_EXPORTED; incidental PR #999 is not a binding"
         rows = [
-            {"type": "session_meta", "payload": {"id": "thread-codex"}},
+            {"type": "session_meta", "payload": {
+                "id": "thread-codex", "cwd": "/fixture/cwd", "git_branch": "topic",
+            }},
             {"type": "turn_context", "timestamp": "2026-10-28T09:00:00Z",
              "payload": {"turn_id": "turn-a", "model": "fixture-codex-model"}},
             {"type": "response_item", "timestamp": "2026-10-28T09:00:01Z",
@@ -218,17 +220,45 @@ class NativeUsageCollectorTests(unittest.TestCase):
             {"type": "session_meta", "payload": {"id": "thread-codex"}},
             {"type": "turn_context", "payload": {"turn_id": "turn-a", "model": "fixture-codex-model"}},
             {"type": "response_item", "timestamp": "2026-10-28T09:00:01Z",
-             "payload": {"role": "user", "content": secret}},
+             "payload": {"id": "prompt-cli", "role": "user", "content": secret}},
+            {"type": "response_item", "timestamp": "2026-10-28T09:00:03Z",
+             "payload": {"id": "prompt-branch", "role": "user", "content": "candidate"}},
             self._codex_usage("2026-10-28T09:00:02Z", "response-cli"),
         ])
         caller = self.base / "external-caller"
         caller.mkdir()
         report = self.base / "out" / "dashboard.md"
         exported = self.base / "out" / "history.jsonl"
+        annotations = self.base / "reviewed.jsonl"
+        annotations.write_text(json.dumps({
+            "event_id": "prompt-cli", "human_origin": "verified_human",
+            "pr_binding": {"pr": "example/repo#5", "weight": "1", "method": "direct"},
+        }) + "\n", encoding="utf-8")
+        lookup = self.base / "pr_lookup.json"
+        lookup.write_text(json.dumps({
+            "fetchedAtUtc": "2026-11-10T00:00:00Z",
+            "cache": {"sha256": "sha256:lookup"},
+            "prs": [{
+                "repo": "example/repo", "number": 5, "headRefName": "topic",
+                "headRefOid": "sha-pr5", "state": "OPEN",
+                "createdAt": "2026-10-01T00:00:00Z", "closedAt": None,
+                "url": "https://github.com/example/repo/pull/5",
+            }],
+        }), encoding="utf-8")
+        repository_map = self.base / "repository_map.json"
+        repository_map.write_text(json.dumps({
+            "cwdToRepo": {
+                "/fixture/cwd": {
+                    "repo": "example/repo", "status": "native_origin_validated",
+                },
+            },
+        }), encoding="utf-8")
         script = Path(__file__).resolve().parents[1] / "scripts" / "prw_metrics.py"
         proc = subprocess.run(
             [sys.executable, str(script), "--offline", "--history-root", str(self.codex),
              "--cutoff", "2026-11-10T00:00:00Z", "--days", "14",
+             "--history-annotations", str(annotations), "--pr-lookup-cache", str(lookup),
+             "--repository-map", str(repository_map),
              "--history-export", str(exported), "--output", str(report)],
             cwd=caller, check=True, capture_output=True, text=True, timeout=30,
         )
@@ -238,6 +268,14 @@ class NativeUsageCollectorTests(unittest.TestCase):
         dashboard = report.read_text(encoding="utf-8")
         export = exported.read_text(encoding="utf-8")
         self.assertIn("Native source acquisition: COMPLETE", dashboard)
+        self.assertIn("Observed Native Human Activity by PR", dashboard)
+        self.assertIn("[#5](https://github.com/example/repo/pull/5)", dashboard)
+        self.assertIn("reviewed_direct_pr_binding", dashboard)
+        self.assertIn("Repo/branch candidates", dashboard)
+        self.assertIn("Branch-only candidates", dashboard)
+        self.assertIn("PR branch snapshot", dashboard)
+        self.assertNotIn("/fixture/cwd", dashboard)
+        self.assertNotIn("/fixture/cwd", export)
         self.assertIn('"request_id": "response-cli"', export)
         self.assertEqual(len(load_usage_events(str(exported))), 1)
         self.assertNotIn(secret, export)

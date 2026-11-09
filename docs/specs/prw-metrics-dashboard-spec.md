@@ -271,6 +271,26 @@ from --history-annotations <jsonl>; an explicit provider/request-ID binding can 
 a PR attribution with the existing evidence fields. Incidental PR mentions do not bind
 usage.
 
+For per-PR human steering, --pr-lookup-cache <json> supplies a cached PR snapshot
+with validated repository, branch, and lifecycle timestamps. --repository-map <json>
+may supply exact recorded-CWD-to-repository mappings; only native_origin_validated
+entries are passed to the collector, and no CWD paths are exported. The dashboard
+joins human events first by an exact reviewed PR binding, then by exact repository,
+branch, and event-time overlap. A branch-only join is allowed only when the branch is
+unique across the configured PR snapshot and is labeled low confidence. Ambiguous
+branches remain unassigned. Direct, repository/branch, and branch-only message counts
+stay separate. Per-PR rows with no attributed event show UNKNOWN coverage, not zero
+steering.
+
+The retained and rendered human_summary.per_pr rows expose direct reviewed PR
+bindings separately from branch-context associations. Exact reviewed bindings are
+explicit evidence; exact repository + branch + event-time matches are best-effort.
+When repository context is unavailable, a globally unique branch may be shown as a
+separate low-confidence association. Ambiguous branches remain unassigned. Each row
+shows verified messages, candidate messages, explicit initial requests, and only
+follow-up episode labels from retained annotations. No first-message rule, keyword
+classification, or absence-as-zero steering verdict is used.
+
 --history-export <jsonl> writes a deterministic combined JSONL of normalized usage
 and human metadata, with no raw prompt/response text or source paths; this file can be
 fed back through --usage-events. The dashboard records root/file coverage, window

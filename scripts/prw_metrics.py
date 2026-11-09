@@ -254,7 +254,7 @@ RETAINED_EPISODE_FIELDS = frozenset({
 RETAINED_PR_FIELDS = frozenset({
     "number", "repo", "title", "operational_status", "operational_detail", "legacy_stage", "state",
     "isDraft", "createdAt", "updatedAt", "mergedAt", "closedAt", "additions", "deletions",
-    "changedFiles", "headRefOid", "labels", "url", "stage_transitions", "has_continuous_observation",
+    "changedFiles", "headRefOid", "headRefName", "labels", "url", "stage_transitions", "has_continuous_observation",
     "telemetry_coverage", "eligible_intervals", "evidence_ready_at", "review_requested_at",
     "actual_review_started_at", "queued_at", "review_returned_at", "review_completed_at",
     "next_action_started_at", "authority_ready_at", "final_ready", "merge_authority",
@@ -352,6 +352,29 @@ SUMMARY_SCHEMA = {
         "unverified_origin_excluded": _SC, "dot_page_tail_partial_count": _SC, "label_breakdown": _LABELS,
         "pr_attributed_count": _SC, "unassigned_count": _SC, "post_merge_count": _SC,
         "channel_coverage": {"dot_history": _SC}, "retention_status": _SC,
+    },
+    "human_summary": {
+        "coverage": {
+            "source_status": _SC, "runtime_coverage": _SC, "verified_messages": _SC,
+            "candidate_messages": _SC, "assigned_verified_messages": _SC,
+            "unassigned_verified_messages": _SC, "unassigned_candidates": _SC,
+            "branch_only_messages": _SC, "ambiguous_branch_messages": _SC,
+            "unmatched_direct_bindings": _SC,
+            "followups_without_episode_id": _SC, "deduplicated_records": _SC,
+            "branch_lookup_cache_sha256": _SC, "branch_lookup_fetched_at": _SC,
+            "branch_lookup_pr_count": _SC, "repository_map_entries": _SC,
+            "repository_map_resolved_events": _SC,
+        },
+        "per_pr": [{
+            "pr": _SC, "url": _SC, "coverage_status": _SC, "raw_verified_messages": _SC,
+            "direct_verified_messages": _SC, "branch_associated_verified_messages": _SC,
+            "branch_only_associated_verified_messages": _SC,
+            "direct_candidates": _SC, "branch_associated_candidates": _SC,
+            "branch_only_candidates": _SC,
+            "initial_requests": _SC, "followup_episodes": _SC,
+            "episodes_by_quality": {key: _SC for key in ("good", "bad", "mixed", "unknown")},
+            "association_basis": [_SC], "association_confidence": _SC,
+        }],
     },
     "usage_summary": {
         "label": _SC, "source_records": _SC, "event_count": _SC, "priced_event_count": _SC,
@@ -886,6 +909,9 @@ class Collector:
             head_sha = p.get("headRefOid")
         elif p.get("head_sha"):
             head_sha = p.get("head_sha")
+        head_branch = p.get("headRefName") or p.get("head_ref_name")
+        if not head_branch and isinstance(p.get("head"), dict):
+            head_branch = p["head"].get("ref")
 
         url = p.get("html_url") or p.get("url")
         repo = p.get("repo") or default_repo
@@ -936,6 +962,7 @@ class Collector:
             "deletions": int(p.get("deletions") or 0),
             "changedFiles": int(p.get("changed_files") or p.get("changedFiles") or 0),
             "headRefOid": head_sha,
+            "headRefName": head_branch,
             "labels": norm_labels,
             "url": url,
             # Telemetry, handoff, and stage fields
@@ -3121,6 +3148,80 @@ class DashboardRenderer:
             md.append(f"- **Retention Status**: `{ret_stat}`")
         else:
             md.append("*No human intervention telemetry available.*")
+
+        steering = data.get("human_summary")
+        if steering:
+            coverage = steering.get("coverage", {})
+            md.append("")
+            md.append("### Observed Native Human Activity by PR")
+            md.append("")
+            md.append(
+                f"- **Source coverage**: {coverage.get('source_status', 'UNKNOWN')}; "
+                f"{coverage.get('runtime_coverage', 'runtime coverage UNKNOWN')}."
+            )
+            md.append(
+                f"- **Verified messages**: {coverage.get('verified_messages', 0)}; "
+                f"unverified candidates: {coverage.get('candidate_messages', 0)}; "
+                f"unassigned verified messages: {coverage.get('unassigned_verified_messages', 0)}; "
+                f"ambiguous branch matches: {coverage.get('ambiguous_branch_messages', 0)}; "
+                f"branch-only matches: {coverage.get('branch_only_messages', 0)}; "
+                f"validated repository-map entries: {coverage.get('repository_map_entries', 0)}."
+            )
+            if coverage.get("branch_lookup_cache_sha256"):
+                md.append(
+                    f"- **PR branch snapshot**: {coverage.get('branch_lookup_pr_count', 0)} PRs; "
+                    f"fetched {coverage.get('branch_lookup_fetched_at', 'UNKNOWN')} UTC; "
+                    f"SHA-256 {coverage['branch_lookup_cache_sha256']}."
+                )
+            md.append(
+                "- Counts are observed records only. No attributed rows means UNKNOWN coverage, "
+                "not zero human steering; branch-only rows are best-effort associations."
+            )
+            rows = steering.get("per_pr", [])
+            if rows:
+                md.append("")
+                md.append(
+                    "| PR | Direct verified | Repo/branch verified | Branch-only verified | "
+                    "Direct candidates | Repo/branch candidates | Branch-only candidates | "
+                    "Initial requests | Follow-up episodes (good / bad / mixed / unknown) | "
+                    "Association basis / confidence | Coverage |"
+                )
+                md.append("|---|---:|---:|---:|---:|---:|---:|---:|---|---|")
+                for row in rows:
+                    pr_number = row["pr"].rsplit("#", 1)[1]
+                    label = (f"[#{pr_number}]({row['url']})" if row.get("url")
+                             else row["pr"])
+                    if row["coverage_status"] == "UNKNOWN":
+                        direct = branch = branch_only = "UNKNOWN"
+                        direct_candidates = branch_candidates = branch_only_candidates = "UNKNOWN"
+                        initial = episodes = "UNKNOWN"
+                    else:
+                        direct = str(row["direct_verified_messages"])
+                        branch = str(row["branch_associated_verified_messages"])
+                        branch_only = str(row["branch_only_associated_verified_messages"])
+                        direct_candidates = str(row["direct_candidates"])
+                        branch_candidates = str(row["branch_associated_candidates"])
+                        branch_only_candidates = str(row["branch_only_candidates"])
+                        if row["followup_episodes"]:
+                            quality = row["episodes_by_quality"]
+                            episodes = (
+                                f"{row['followup_episodes']} "
+                                f"({quality['good']} / {quality['bad']} / {quality['mixed']} / "
+                                f"{quality['unknown']})"
+                            )
+                        else:
+                            episodes = "UNKNOWN (no reviewed follow-up episode)"
+                        initial = str(row["initial_requests"])
+                    basis = ", ".join(row.get("association_basis", [])) or "none"
+                    basis = f"{basis} / {row.get('association_confidence', 'UNKNOWN')}"
+                    md.append(
+                        f"| {label} | {direct} | {branch} | {branch_only} | "
+                        f"{direct_candidates} | {branch_candidates} | {branch_only_candidates} | "
+                        f"{initial} | {episodes} | {basis} | "
+                        f"{row['coverage_status']} |"
+                    )
+            else:
+                md.append("*No per-PR native human records could be associated.*")
         md.append("")
 
         # Section 6: Definitions & Limitations
@@ -3184,6 +3285,293 @@ def extract_github_repo_slug(url):
     if not all(re.fullmatch(r"[A-Za-z0-9_.-]+", c) and c not in (".", "..") for c in components):
         return None
     return "/".join(components)
+
+
+
+
+def _merge_pr_branch_metadata(prs, cached_prs):
+    """Fill PR branch context from the bounded lookup snapshot without replacing live fields."""
+    merged = {}
+
+    def key_for(pr):
+        repo = pr.get("repo")
+        number = pr.get("number")
+        if not isinstance(repo, str) or number is None:
+            return None
+        key = f"{repo}#{number}"
+        return key if _safe_pr_id(key) else None
+
+    for pr in prs or []:
+        if not isinstance(pr, dict):
+            continue
+        key = key_for(pr)
+        if key:
+            merged[key] = dict(pr)
+
+    branch_fields = (
+        "headRefName", "headRefOid", "createdAt", "updatedAt", "closedAt", "mergedAt", "url", "state",
+    )
+    for pr in cached_prs or []:
+        if not isinstance(pr, dict):
+            continue
+        key = key_for(pr)
+        if not key:
+            continue
+        current = merged.setdefault(key, dict(pr))
+        for field in branch_fields:
+            if pr.get(field) not in (None, ""):
+                current[field] = pr[field]
+    return [merged[key] for key in sorted(merged)]
+
+
+def aggregate_native_human_steering(
+    human_records, prs, *, window_start, window_end, source_stats=None
+):
+    """Aggregate observed verified human records by explicit or branch context."""
+    start = _parse_utc_instant(window_start)
+    end = _parse_utc_instant(window_end)
+    source_stats = source_stats or {}
+    pr_rows, pr_sources, branch_index, branch_only_index = {}, {}, {}, {}
+
+    def safe_repo(value):
+        if not isinstance(value, str) or not value:
+            return None
+        if re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", value):
+            return value
+        return extract_github_repo_slug(value)
+
+    def pr_key(repo, number):
+        if not repo or number is None:
+            return None
+        key = f"{repo}#{number}"
+        return key if _safe_pr_id(key) else None
+
+    def parsed_time(value):
+        return _parse_utc_instant(value)
+
+    def new_row(key, repo, number, pr=None):
+        return {
+            "pr": key, "url": pr.get("url") if pr else None,
+            "raw_verified_messages": 0, "direct_verified_messages": 0,
+            "branch_associated_verified_messages": 0,
+            "branch_only_associated_verified_messages": 0, "direct_candidates": 0,
+            "branch_associated_candidates": 0, "branch_only_candidates": 0,
+            "initial_requests": 0,
+            "followup_episodes": 0,
+            "episodes_by_quality": {"good": 0, "bad": 0, "mixed": 0, "unknown": 0},
+            "association_basis": set(), "coverage_status": "UNKNOWN",
+            "association_confidence": "UNKNOWN", "_episode_labels": {},
+            "_assigned_observations": 0, "_confidences": set(),
+        }
+
+    for pr in prs or []:
+        repo = safe_repo(pr.get("repo"))
+        key = pr_key(repo, pr.get("number"))
+        if not key:
+            continue
+        created = parsed_time(pr.get("createdAt") or pr.get("created_at"))
+        closed = parsed_time(pr.get("mergedAt") or pr.get("merged_at") or
+                             pr.get("closedAt") or pr.get("closed_at"))
+        if start and end and created and (created >= end or (closed and closed < start)):
+            continue
+        pr_rows[key] = new_row(key, repo, pr.get("number"), pr)
+        pr_sources[key] = pr
+        branch = pr.get("headRefName") or pr.get("head_ref_name")
+        if branch:
+            entry = (key, pr, created, closed)
+            branch_index.setdefault((repo, branch), []).append(entry)
+            branch_only_index.setdefault(branch, []).append(entry)
+
+    def ensure_direct_row(key):
+        if key in pr_rows:
+            return pr_rows[key]
+        repo, number = key.rsplit("#", 1)
+        pr = {"repo": repo, "number": int(number), "url": None}
+        row = new_row(key, repo, number)
+        pr_rows[key] = row
+        pr_sources[key] = pr
+        return row
+
+    def candidates_for(entries, at):
+        return [
+            (key, pr) for key, pr, created, closed in entries
+            if created and created <= at and (closed is None or at <= closed)
+        ]
+
+    def branch_candidates(repo, branch, at):
+        if not repo or not branch:
+            return [], []
+        entries = branch_index.get((repo, branch), [])
+        return candidates_for(entries, at), [(key, pr) for key, pr, _, _ in entries]
+
+    coverage = {
+        "source_status": source_stats.get("status", "UNKNOWN"),
+        "runtime_coverage": source_stats.get("runtime_coverage", "runtime coverage UNKNOWN"),
+        "verified_messages": 0, "candidate_messages": 0,
+        "assigned_verified_messages": 0, "unassigned_verified_messages": 0,
+        "unassigned_candidates": 0, "branch_only_messages": 0,
+        "ambiguous_branch_messages": 0,
+        "unmatched_direct_bindings": 0, "followups_without_episode_id": 0,
+        "deduplicated_records": 0,
+        "branch_lookup_cache_sha256": source_stats.get("branch_lookup_cache_sha256"),
+        "branch_lookup_fetched_at": source_stats.get("branch_lookup_fetched_at"),
+        "branch_lookup_pr_count": source_stats.get("branch_lookup_pr_count", 0),
+        "repository_map_entries": source_stats.get("repository_map_entries", 0),
+        "repository_map_resolved_events": source_stats.get("repository_map_resolved_events", 0),
+    }
+    seen = set()
+    for event in human_records or []:
+        if not isinstance(event, dict):
+            continue
+        event_id = event.get("event_id")
+        identity = (event.get("provider"), event_id)
+        if event_id and identity in seen:
+            coverage["deduplicated_records"] += 1
+            continue
+        if event_id:
+            seen.add(identity)
+        at = parsed_time(event.get("timestamp"))
+        if at is None or (start and at < start) or (end and at >= end):
+            continue
+        verified = event.get("origin_status") == "verified_human"
+        coverage["verified_messages" if verified else "candidate_messages"] += 1
+        if event.get("branch_source") == "cached_repository_map":
+            coverage["repository_map_resolved_events"] += 1
+
+        association, confidence, basis = None, None, None
+        binding = event.get("pr_binding")
+        direct_pr = binding.get("pr") if isinstance(binding, dict) else None
+        if _safe_pr_id(direct_pr):
+            association = direct_pr
+            ensure_direct_row(association)
+            confidence, basis = "EXPLICIT", "reviewed_direct_pr_binding"
+        else:
+            if isinstance(binding, dict):
+                coverage["unmatched_direct_bindings"] += 1
+            repository = safe_repo(event.get("repository") or event.get("repository_url"))
+            branch = event.get("git_branch") or event.get("branch")
+            time_candidates, all_candidates = branch_candidates(repository, branch, at)
+            commit = event.get("commit_hash")
+            exact_head = [(key, pr) for key, pr in all_candidates
+                          if commit and pr.get("headRefOid") == commit]
+            low_context = (
+                "low_confidence" in str(event.get("branch_source") or "")
+                or "not_event_time" in str(event.get("branch_basis") or "")
+                or "snapshot" in str(event.get("branch_basis") or "")
+            )
+            if len(exact_head) == 1:
+                association = exact_head[0][0]
+                confidence = "LOW_BEST_EFFORT_HEAD" if low_context else "BRANCH_HEAD_MATCH"
+                basis = "repo_branch_exact_head"
+            elif len(time_candidates) == 1:
+                association = time_candidates[0][0]
+                confidence = "LOW_BEST_EFFORT" if low_context else "BEST_EFFORT"
+                basis = "best_effort_repo_branch_event_time"
+            elif len(time_candidates) > 1:
+                coverage["ambiguous_branch_messages"] += 1
+            elif len(all_candidates) == 1:
+                association = all_candidates[0][0]
+                confidence, basis = "BRANCH_SNAPSHOT_LOW", "unique_repo_branch_snapshot"
+            elif len(all_candidates) > 1:
+                coverage["ambiguous_branch_messages"] += 1
+            elif repository is None and branch and at:
+                branch_entries = branch_only_index.get(branch, [])
+                branch_time = candidates_for(branch_entries, at)
+                branch_all = [(key, pr) for key, pr, _, _ in branch_entries]
+                exact_only = [(key, pr) for key, pr in branch_all
+                              if commit and pr.get("headRefOid") == commit]
+                low_context = (
+                    "low_confidence" in str(event.get("branch_source") or "")
+                    or "not_event_time" in str(event.get("branch_basis") or "")
+                    or "snapshot" in str(event.get("branch_basis") or "")
+                )
+                if len(exact_only) == 1:
+                    association = exact_only[0][0]
+                    confidence = "BRANCH_ONLY_LOW_HEAD" if low_context else "BRANCH_ONLY_HEAD_MATCH"
+                    basis = "branch_only_exact_head"
+                    coverage["branch_only_messages"] += 1
+                elif len(branch_time) == 1:
+                    association = branch_time[0][0]
+                    confidence, basis = "BRANCH_ONLY_LOW", "best_effort_branch_only_event_time"
+                    coverage["branch_only_messages"] += 1
+                elif len(branch_time) > 1:
+                    coverage["ambiguous_branch_messages"] += 1
+                elif len(branch_all) == 1:
+                    association = branch_all[0][0]
+                    confidence, basis = "BRANCH_ONLY_LOW", "unique_branch_only_snapshot"
+                    coverage["branch_only_messages"] += 1
+                elif len(branch_all) > 1:
+                    coverage["ambiguous_branch_messages"] += 1
+
+        if association is None:
+            if verified:
+                coverage["unassigned_verified_messages"] += 1
+            else:
+                coverage["unassigned_candidates"] += 1
+            continue
+
+        row = pr_rows[association]
+        row["_assigned_observations"] += 1
+        row["association_basis"].add(basis)
+        branch_source = _usage_label(event.get("branch_source"))
+        branch_basis = _usage_label(event.get("branch_basis"))
+        if branch_source and confidence != "EXPLICIT":
+            row["association_basis"].add("source:" + branch_source)
+        if branch_basis and confidence != "EXPLICIT":
+            row["association_basis"].add("context:" + branch_basis)
+        row["_confidences"].add(confidence)
+        if verified:
+            row["raw_verified_messages"] += 1
+            if confidence == "EXPLICIT":
+                row["direct_verified_messages"] += 1
+            elif confidence.startswith("BRANCH_ONLY"):
+                row["branch_only_associated_verified_messages"] += 1
+            else:
+                row["branch_associated_verified_messages"] += 1
+            coverage["assigned_verified_messages"] += 1
+        else:
+            if confidence == "EXPLICIT":
+                row["direct_candidates"] += 1
+            elif confidence.startswith("BRANCH_ONLY"):
+                row["branch_only_candidates"] += 1
+            else:
+                row["branch_associated_candidates"] += 1
+
+        role = event.get("episode_role")
+        episode_id = event.get("episode_id")
+        if verified and role == "initial":
+            row["initial_requests"] += 1
+        elif verified and role == "followup":
+            if not episode_id:
+                coverage["followups_without_episode_id"] += 1
+                continue
+            label = event.get("quality_label")
+            label = label.lower() if isinstance(label, str) else "unknown"
+            if label not in ("good", "bad", "mixed", "unknown"):
+                label = "unknown"
+            row["_episode_labels"].setdefault(str(episode_id), set()).add(label)
+
+    for row in pr_rows.values():
+        for labels in row["_episode_labels"].values():
+            label = next(iter(labels)) if len(labels) == 1 else "unknown"
+            row["followup_episodes"] += 1
+            row["episodes_by_quality"][label] += 1
+        if row["raw_verified_messages"]:
+            row["coverage_status"] = "OBSERVED_SCOPE_ONLY"
+        elif row["direct_candidates"] or row["branch_associated_candidates"]:
+            row["coverage_status"] = "CANDIDATE_ONLY"
+        confidences = row.pop("_confidences")
+        if len(confidences) == 1:
+            row["association_confidence"] = next(iter(confidences))
+        elif len(confidences) > 1:
+            row["association_confidence"] = "MIXED"
+        row["association_basis"] = sorted(row["association_basis"])
+        row.pop("_episode_labels", None)
+        row.pop("_assigned_observations", None)
+
+    return {"coverage": coverage, "per_pr": [pr_rows[key] for key in sorted(pr_rows)]}
+
+
 
 
 class Publisher:
@@ -3632,6 +4020,8 @@ def main():
     )
     parser.add_argument("--history-annotations", help="Reviewed human metadata and PR bindings JSONL sidecar")
     parser.add_argument("--history-export", help="Write deterministic normalized usage and human metadata JSONL")
+    parser.add_argument("--repository-map", help="Exact cwd-to-repository map for native history roots")
+    parser.add_argument("--pr-lookup-cache", help="Cached PR branch and lifecycle metadata JSON")
     parser.add_argument("--days", type=int, default=14, help="History source window length in days (default: 14)")
     parser.add_argument("--usage-rates", help="JSON file with dated rate-card pricing; absent feed flags reuse retained telemetry")
 
@@ -3648,6 +4038,8 @@ def main():
     cutoff_dt = parse_iso_utc(args.cutoff) if args.cutoff else datetime.now(timezone.utc)
     history_roots = args.history_roots or []
     history_data = None
+    repository_map = None
+    pr_lookup_cache = None
     if history_roots:
         history_cutoff = _parse_utc_instant(args.cutoff) if args.cutoff else cutoff_dt
         if history_cutoff is None:
@@ -3658,16 +4050,44 @@ def main():
             from scripts.native_usage_collector import collect_native_history, write_normalized_history
         except ModuleNotFoundError:
             from native_usage_collector import collect_native_history, write_normalized_history
+        if args.repository_map:
+            with open(args.repository_map, encoding="utf-8") as stream:
+                repository_map_payload = json.load(stream)
+            if not isinstance(repository_map_payload, dict):
+                parser.error("--repository-map must contain a JSON object")
+            if isinstance(repository_map_payload.get("cwdToRepo"), dict):
+                repository_map = {}
+                for cwd, entry in repository_map_payload["cwdToRepo"].items():
+                    if not isinstance(cwd, str) or not isinstance(entry, dict):
+                        continue
+                    repo = entry.get("repo")
+                    if entry.get("status") == "native_origin_validated" and isinstance(repo, str):
+                        if re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo):
+                            repository_map[cwd] = repo
+            else:
+                repository_map = {
+                    cwd: repo for cwd, repo in repository_map_payload.items()
+                    if isinstance(cwd, str) and isinstance(repo, str)
+                    and re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo)
+                }
+        if args.pr_lookup_cache:
+            with open(args.pr_lookup_cache, encoding="utf-8") as stream:
+                pr_lookup_cache = json.load(stream)
+            if not isinstance(pr_lookup_cache, dict) or not isinstance(pr_lookup_cache.get("prs"), list):
+                parser.error("--pr-lookup-cache must contain a JSON object with a prs list")
         history_data = collect_native_history(
             history_roots,
             cutoff=history_cutoff,
             days=args.days,
             annotation_path=args.history_annotations,
+            repository_map=repository_map,
         )
+        if repository_map is not None:
+            history_data["stats"]["repository_map_entries"] = len(repository_map)
         if args.history_export:
             write_normalized_history(args.history_export, history_data["export_records"])
-    elif args.history_annotations or args.history_export:
-        parser.error("--history-annotations and --history-export require --history-root")
+    elif args.history_annotations or args.history_export or args.repository_map or args.pr_lookup_cache:
+        parser.error("history annotations, exports, and PR lookup inputs require --history-root")
 
     collector = Collector(repos=repos, cutoff_dt=cutoff_dt)
     collected = collector.collect_all(
@@ -3729,6 +4149,24 @@ def main():
 
     if collected.get("status") in ("FAILED", "PARTIAL_FAILURE"):
         summary_data["status"] = collected["status"]
+    if history_data:
+        branch_prs = _merge_pr_branch_metadata(
+            prs, pr_lookup_cache.get("prs", []) if pr_lookup_cache else []
+        )
+        steering_stats = dict(history_data["stats"])
+        if pr_lookup_cache:
+            cache_meta = pr_lookup_cache.get("cache")
+            cache_meta = cache_meta if isinstance(cache_meta, dict) else {}
+            steering_stats["branch_lookup_cache_sha256"] = cache_meta.get("sha256")
+            steering_stats["branch_lookup_fetched_at"] = pr_lookup_cache.get("fetchedAtUtc")
+            steering_stats["branch_lookup_pr_count"] = len(pr_lookup_cache.get("prs", []))
+        summary_data["human_summary"] = aggregate_native_human_steering(
+            history_data["human_records"],
+            branch_prs,
+            window_start=history_data["stats"].get("window_start"),
+            window_end=history_data["stats"].get("window_end"),
+            source_stats=steering_stats,
+        )
 
     renderer = DashboardRenderer()
     md_output = renderer.render(summary_data)
