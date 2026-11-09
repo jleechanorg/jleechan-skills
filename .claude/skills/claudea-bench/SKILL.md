@@ -26,8 +26,8 @@ Safe mode disables user/project guidance, skills, custom agents, hooks, MCP serv
 For matched-model runs, use the installed Claude print interface in separate working directories and preserve structured receipts:
 
 ```sh
-(cd "$WORKDIR_A" && claudea --print --no-session-persistence --output-format json --model "$MODEL" --effort "$EFFORT" < "$PROMPT_A") > "$OUTPUT_A"
-(cd "$WORKDIR_B" && claude --print --no-session-persistence --output-format json --model "$MODEL" --effort "$EFFORT" < "$PROMPT_B") > "$OUTPUT_B"
+(cd "$WORKDIR_A" && claudea --print --output-format json --model "$MODEL" --effort "$EFFORT" < "$PROMPT_A") > "$OUTPUT_A"
+(cd "$WORKDIR_B" && claude --print --output-format json --model "$MODEL" --effort "$EFFORT" < "$PROMPT_B") > "$OUTPUT_B"
 ```
 
 For strict as-used runs, omit `--model "$MODEL" --effort "$EFFORT"` from both commands and retain each wrapper's configured defaults. For matched-model runs, use `claude-fable-5-2` unless the caller selects another matched model. Verify actual response/model-usage metadata, not just the requested label. A model-access error leaves the comparison incomplete; preserve its exact sanitized error and never fall back automatically. Safe mode does not load `/claudea-bench`; orchestrate this skill from the normal agent session.
@@ -37,6 +37,8 @@ For split-work, keep shared instructions and rubric identical, include only each
 ## Evaluate and report
 
 Where feasible, freeze both outputs (including hashes), label them A/B, and adjudicate before revealing which command produced which. Independently check each claimed issue against the pinned source and rubric. Deduplicate equivalent findings. Count valid unique findings by arm; record severity, false positives, missed planted or independently verified requirements, and task completion/correctness/safety. For split-work, report completion and correctness per assigned unit as well as per arm, and compare resource use only when measured on equivalent scopes. Treat task mix, input-size, audit, tool, and configuration differences as confounds; describe the observed outcomes without attributing them to a causal advantage from cleanliness or partitioning. Treat unknown recall as unknown, never as zero. More findings, longer answers, or more confident wording do not by themselves win. Correct, safe task completion takes priority over finding count.
+
+Preserve native session transcripts when root/descendant usage verification is required; do not add `--no-session-persistence` if it removes those receipts. Capture root and descendant model/token/context data separately when exposed. Record the CLI version and field semantics; do not assume `modelUsage` separates or aggregates child usage without verification. Mark missing descendant usage or context explicitly unavailable, never zero. Keep transcripts private and publish only sanitized task-scoped extracts.
 
 Compare elapsed time, tool use, output size, and token/cached-token data only when actually available; cached tokens are not dollars. Separate observed measurements from estimates. State confounds and what the result cannot establish.
 
