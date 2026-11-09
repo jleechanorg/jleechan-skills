@@ -348,11 +348,13 @@ async function openContact(page, name) {
     );
   }
 
-  // Select and click the SAME node in one evaluated pass. Earlier versions filtered an
-  // evaluated title list and then applied that index to a differently-filtered locator,
-  // which could point at an empty-title span or a node that shifted between snapshot and
-  // click (found by Dot review at fb657cb2d). Doing selection inside the page removes both
-  // the index/filter mismatch and the snapshot-to-click window.
+  // Selection: one page.evaluate pass finds the title nodes, requires exactly one whose
+  // title === name, and marks THAT node by reference. Playwright then clicks the marked
+  // element. This removes the earlier index/filter mismatch (a filtered list's index applied
+  // to a differently-filtered locator). It does NOT make selection and click atomic: the
+  // marker is a DOM attribute read a tick later, so the node could in principle be replaced
+  // or duplicated in between. Duplicates are therefore rejected before clicking, and the
+  // header guard below is the authoritative check before any typing.
   const clicked = await page.evaluate((wanted) => {
     const nodes = [...document.querySelectorAll('#pane-side span[title]')];
     const hits = nodes.filter((n) => n.getAttribute('title') === wanted);
@@ -371,18 +373,44 @@ async function openContact(page, name) {
       5
     );
   }
-  await page.locator('[data-instinct-target="1"]').first().click({ timeout: 20_000 });
-  await page.evaluate(() => {
-    const el = document.querySelector('[data-instinct-target="1"]');
-    if (el) el.removeAttribute('data-instinct-target');
-  });
-  // Wait for the conversation pane to actually render the header, not a fixed guess.
+  const marked = page.locator('[data-instinct-target="1"]');
+  let markerCount = 0;
+  try {
+    markerCount = await marked.count();
+  } catch {}
+  if (markerCount !== 1) {
+    await page
+      .evaluate(() =>
+        document
+          .querySelectorAll('[data-instinct-target]')
+          .forEach((el) => el.removeAttribute('data-instinct-target'))
+      )
+      .catch(() => {});
+    die(
+      `expected exactly 1 marked chat node, found ${markerCount}; refusing to click`,
+      5
+    );
+  }
+  try {
+    await marked.click({ timeout: 20_000 });
+  } finally {
+    // Always clear every marker, including on a click failure.
+    await page
+      .evaluate(() =>
+        document
+          .querySelectorAll('[data-instinct-target]')
+          .forEach((el) => el.removeAttribute('data-instinct-target'))
+      )
+      .catch(() => {});
+  }
+  // Wait for the header to show THIS contact, not merely "a header is visible" — a visible
+  // previous header would satisfy a presence check without navigation having happened.
   await page
     .locator('[data-testid="conversation-info-header"]')
+    .filter({ hasText: name })
     .first()
     .waitFor({ state: 'visible', timeout: 30_000 })
     .catch(() => {});
-  await page.waitForTimeout(600);
 
   // Verify the OPEN chat is the requested contact before anyone types into it.
   // NOTE: `header span[title]` is NOT the chat title here — it matches the "Business Account"
