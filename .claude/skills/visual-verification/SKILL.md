@@ -83,13 +83,16 @@ analysis**: decode every frame and account for each one yourself.
 8. **Long clips.** Split the clip into disjoint contiguous ranges for cheap
    parallel lanes, with boundary frames shared by adjacent lanes. The parent
    integrates the findings and reconciles the manifest.
-9. **Report.** Give each finding with its frame indices and actual PTS and a
-   severity; do not infer timestamps from a nominal frame rate. Consider whether
-   capture cadence explains an apparent defect before blaming the product. Label
-   the method "all-frame analysis"; do not claim subjective "feel". A sampled
+9. **Report.** State the actual inspection method and covered frame/time
+   ranges. Give each finding with its frame indices and actual PTS and a severity;
+   do not infer timestamps from a nominal frame rate. Consider whether capture
+   cadence explains an apparent defect before blaming the product. Label the
+   method "all-frame analysis"; do not claim subjective "feel". A sampled
    video-model pass (for example Gemini at its fps cap) is supplementary only;
-   record the sampling it actually used. If anything could not be decoded or
-   viewed, state the exact covered ranges.
+   record the sampling it actually used. Where repository policy requires
+   playback, record the actual playback outcome and action-to-result time range;
+   frame analysis is supplementary. If anything could not be decoded or viewed,
+   state the exact covered ranges.
 10. In `/es` or `/er`, bind visual claims to the media SHA, frame rate, frame
     count, coverage manifest and the inspected images.
 
