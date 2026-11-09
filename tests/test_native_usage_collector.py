@@ -303,6 +303,48 @@ class NativeUsageCollectorTests(unittest.TestCase):
         self.assertIn("other runtimes not collected", stats["runtime_coverage"])
         self.assertNotIn(str(self.claude), json.dumps(stats))
 
+    def test_reviewed_actor_and_context_override_native_role_and_keep_reasoning_private(self):
+        secret_rationale = "PRIVATE_REVIEW_REASON_MUST_NOT_BE_RETAINED"
+        self._write(self.claude, "project/session.jsonl", [
+            {"type": "user", "timestamp": "2026-11-08T10:00:00Z", "promptId": "event-bot",
+             "userType": "human", "turnOrigin": "human", "sessionId": "session-1",
+             "message": {"role": "user", "content": [{"type": "text", "text": "message"}]}},
+        ])
+        annotation_path = self.base / "corrected.jsonl"
+        annotation_path.write_text(json.dumps({
+            "event_id": "event-bot", "actor_kind": "automated_watch",
+            "context_pr_decision": "unassigned_multi_pr",
+            "context_associated_pr": None, "effective_associated_pr": None,
+            "original_associated_pr": "example/repo#5",
+            "association_method": "context_semantic_unassigned",
+            "annotation_confidence": "explicit", "effective_association_confidence": "UNASSIGNED_CONTEXT",
+            "original_association_basis": "best_effort_repo_branch_time",
+            "original_association_confidence": "LOW_BEST_EFFORT",
+            "human_nudge_eligible": False, "message_kind": "continuation/followthrough_nudge",
+            "effective_association_confidence": "UNASSIGNED_CONTEXT",
+            "original_association_confidence": "LOW_BEST_EFFORT",
+            "episode_id": "episode-bot", "episode_role": "followup",
+            "quality_label": "bad", "quality_rationale": secret_rationale,
+            "context_rationale": secret_rationale,
+        }) + "\n", encoding="utf-8")
+        data = collect_native_history(
+            [self.claude], cutoff=self.cutoff, days=14, annotation_path=annotation_path,
+        )
+        row = data["human_records"][0]
+        self.assertEqual(row["origin_status"], "excluded_automated")
+        self.assertEqual(row["actor_kind"], "automated_watch")
+        self.assertEqual(row["context_pr_decision"], "unassigned_multi_pr")
+        self.assertEqual(row["effective_associated_pr"], None)
+        self.assertEqual(row["original_associated_pr"], "example/repo#5")
+        self.assertEqual(row["human_nudge_eligible"], False)
+        self.assertEqual(row["message_kind"], "continuation/followthrough_nudge")
+        self.assertEqual(row["association_method"], "context_semantic_unassigned")
+        self.assertEqual(row["effective_association_confidence"], "UNASSIGNED_CONTEXT")
+        serialized = json.dumps(data["export_records"])
+        self.assertNotIn(secret_rationale, serialized)
+        self.assertNotIn("context_rationale", serialized)
+        self.assertNotIn("quality_rationale", serialized)
+
     def test_annotations_bind_by_exact_event_id_and_leave_new_candidates_unreviewed(self):
         rows = [
             {"type": "response_item", "timestamp": "2026-11-08T10:00:01Z",

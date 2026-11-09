@@ -9,9 +9,9 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 if __package__:
-    from .prw_metrics import _parse_utc_instant, _usage_count, _usage_label, format_iso_utc
+    from .prw_metrics import _parse_utc_instant, _safe_pr_id, _usage_count, _usage_label, format_iso_utc
 else:
-    from prw_metrics import _parse_utc_instant, _usage_count, _usage_label, format_iso_utc
+    from prw_metrics import _parse_utc_instant, _safe_pr_id, _usage_count, _usage_label, format_iso_utc
 
 
 def write_normalized_history(path, records):
@@ -83,7 +83,7 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                  files_scanned=0, duplicate_files=0, malformed_lines=0, read_errors=0,
                  outside_window_records=0, undated_records=0, usage_records_in_window=0,
                  duplicate_usage_records=0, human_candidates=0, human_verified=0,
-                 human_unannotated=0, pr_bound_usage_records=0,
+                 human_unannotated=0, automated_excluded_messages=0, pr_bound_usage_records=0,
                  tool_result_records_excluded=0, context_records_excluded=0)
     stats["runtime_coverage"] = "Claude and Codex configured roots; other runtimes not collected"
     usage, humans, exported, seen_files, seen_usage = [], [], [], set(), set()
@@ -237,23 +237,65 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                             annotation = annotations.get(event_id)
                             if annotation is None:
                                 annotation = next((annotations[alias] for alias in aliases if alias in annotations), None)
+                            actor_kind = None
                             if annotation:
-                                if annotation.get("human_origin") == "verified_human":
+                                actor_kind = annotation.get("actor_kind")
+                                human_origin = annotation.get("human_origin")
+                                if actor_kind in ("human", "automated_watch"):
+                                    record["actor_kind"] = actor_kind
+                                    record["origin_status"] = (
+                                        "excluded_automated" if actor_kind == "automated_watch"
+                                        else "verified_human"
+                                    )
+                                elif human_origin in ("automated_watch", "automated_watch_excluded"):
+                                    record["actor_kind"] = "automated_watch"
+                                    record["origin_status"] = "excluded_automated"
+                                elif human_origin == "verified_human":
                                     record["origin_status"] = "verified_human"
-                                for key in ("episode_id", "episode_role", "quality_label", "score_source", "review_id"):
+                                controlled_fields = (
+                                    "episode_id", "episode_role", "quality_label", "score_source",
+                                    "review_id", "context_pr_decision", "association_method",
+                                    "annotation_confidence", "effective_association_confidence",
+                                    "original_association_basis", "original_association_confidence",
+                                )
+                                for key in controlled_fields:
                                     value = _usage_label(annotation.get(key))
                                     if value is not None:
                                         record[key] = value
+                                for key in ("context_associated_pr", "effective_associated_pr",
+                                            "original_associated_pr"):
+                                    if key not in annotation:
+                                        continue
+                                    value = annotation[key]
+                                    if value is None:
+                                        record[key] = None
+                                    elif _safe_pr_id(value):
+                                        record[key] = value
+                                message_kinds = {
+                                    "initial_task", "new_requirement/domain_judgment",
+                                    "status_request", "continuation/followthrough_nudge",
+                                }
+                                if annotation.get("message_kind") in message_kinds:
+                                    record["message_kind"] = annotation["message_kind"]
+                                if isinstance(annotation.get("human_nudge_eligible"), bool):
+                                    record["human_nudge_eligible"] = annotation["human_nudge_eligible"]
                                 score = annotation.get("score")
                                 if isinstance(score, (int, float)) and not isinstance(score, bool) and math.isfinite(score):
                                     record["score"] = score
                                 binding = annotation.get("pr_binding")
                                 if isinstance(binding, dict):
-                                    record["pr_binding"] = {key: value for key, value in binding.items()
-                                        if key in ("pr", "method", "weight") and isinstance(value, (str, int, float))}
-                            stats["human_candidates"] += 1
-                            stats["human_verified"] += record["origin_status"] == "verified_human"
-                            stats["human_unannotated"] += annotation is None
+                                    pr_id = binding.get("pr")
+                                    if _safe_pr_id(pr_id):
+                                        record["pr_binding"] = {key: binding[key] for key in
+                                            ("pr", "method", "weight") if key in binding and
+                                            isinstance(binding[key], (str, int, float))}
+                            automated = actor_kind == "automated_watch"
+                            if automated:
+                                stats["automated_excluded_messages"] += 1
+                            else:
+                                stats["human_candidates"] += 1
+                                stats["human_verified"] += record["origin_status"] == "verified_human"
+                                stats["human_unannotated"] += annotation is None
                             humans.append(record)
                             exported.append(dict(record, record_type="human"))
             except (OSError, UnicodeError):

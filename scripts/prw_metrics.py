@@ -384,18 +384,30 @@ SUMMARY_SCHEMA = {
             "unassigned_verified_messages": _SC, "unassigned_candidates": _SC,
             "branch_only_messages": _SC, "ambiguous_branch_messages": _SC,
             "unmatched_direct_bindings": _SC,
+            "reviewed_unassigned_messages": _SC, "multi_pr_unassigned_messages": _SC,
+            "global_scope_unassigned_messages": _SC, "no_single_pr_unassigned_messages": _SC,
+            "reviewed_context_confirmed_messages": _SC, "reviewed_context_override_messages": _SC,
+            "automated_excluded_messages": _SC, "human_nudge_messages": _SC,
+            "human_nudge_episodes": _SC, "unassigned_nudge_episodes": _SC,
+            "unassigned_followup_episodes": _SC,
+            "unassigned_episodes_by_quality": {
+                key: _SC for key in ("good", "bad", "mixed", "unknown")
+            },
             "followups_without_episode_id": _SC, "deduplicated_records": _SC,
+            "reviewed_score_observations": _SC, "message_kind_counts": ("map", _SC),
             "branch_lookup_cache_sha256": _SC, "branch_lookup_fetched_at": _SC,
             "branch_lookup_pr_count": _SC, "repository_map_entries": _SC,
             "repository_map_resolved_events": _SC,
         },
         "per_pr": [{
             "pr": _SC, "url": _SC, "coverage_status": _SC, "raw_verified_messages": _SC,
-            "direct_verified_messages": _SC, "branch_associated_verified_messages": _SC,
-            "branch_only_associated_verified_messages": _SC,
-            "direct_candidates": _SC, "branch_associated_candidates": _SC,
-            "branch_only_candidates": _SC,
-            "initial_requests": _SC, "followup_episodes": _SC,
+            "direct_verified_messages": _SC, "context_associated_verified_messages": _SC,
+            "branch_associated_verified_messages": _SC, "branch_only_associated_verified_messages": _SC,
+            "direct_candidates": _SC, "context_candidates": _SC,
+            "branch_associated_candidates": _SC, "branch_only_candidates": _SC,
+            "initial_requests": _SC, "human_nudge_messages": _SC, "human_nudge_episodes": _SC,
+            "message_kind_counts": ("map", _SC), "reviewed_scores": [_SC],
+            "followup_episodes": _SC,
             "episodes_by_quality": {key: _SC for key in ("good", "bad", "mixed", "unknown")},
             "association_basis": [_SC], "association_confidence": _SC,
         }],
@@ -3370,7 +3382,9 @@ class DashboardRenderer:
             md.append(
                 f"- **Verified messages**: {coverage.get('verified_messages', 0)}; "
                 f"unverified candidates: {coverage.get('candidate_messages', 0)}; "
-                f"unassigned verified messages: {coverage.get('unassigned_verified_messages', 0)}; "
+                f"automated actors excluded: {coverage.get('automated_excluded_messages', 0)}; "
+                f"unassigned verified messages: {coverage.get('unassigned_verified_messages', 0)} "
+                f"(reviewed unassigned: {coverage.get('reviewed_unassigned_messages', 0)}); "
                 f"ambiguous branch matches: {coverage.get('ambiguous_branch_messages', 0)}; "
                 f"branch-only matches: {coverage.get('branch_only_messages', 0)}."
             )
@@ -3394,12 +3408,14 @@ class DashboardRenderer:
                 md.append("|" + "|".join("---" for _ in headers) + "|")
                 basis_labels = {
                     "reviewed_direct_pr_binding": "reviewed direct PR binding",
-                    "best_effort_repo_branch_event_time": "repo + branch + event time (low)",
-                    "repo_branch_time_exact_head": "repo + branch + head match (low)",
-                    "unique_repo_branch_snapshot": "unique repo + branch snapshot (low)",
-                    "best_effort_branch_only_event_time": "unique branch + event time (low)",
-                    "branch_only_exact_head": "unique branch + head match (low)",
-                    "unique_branch_only_snapshot": "unique branch snapshot (low)",
+                    "context_override": "reviewed context override",
+                    "context_confirmed_original": "reviewed context confirmation",
+                    "best_effort_repo_branch_event_time": "repository + branch + event-time match",
+                    "repo_branch_exact_head": "repository + branch + head match",
+                    "unique_repo_branch_snapshot": "unique repository + branch snapshot",
+                    "best_effort_branch_only_event_time": "unique branch + event-time match",
+                    "branch_only_exact_head": "unique branch + head match",
+                    "unique_branch_only_snapshot": "unique branch snapshot",
                 }
                 for row in rows:
                     pr_number = row["pr"].rsplit("#", 1)[1]
@@ -3409,26 +3425,60 @@ class DashboardRenderer:
                         association = "UNKNOWN"
                         episodes = "UNKNOWN"
                     else:
+                        kinds = row["message_kind_counts"]
+                        scores = row["reviewed_scores"]
                         messages = (
                             f"verified: direct {row['direct_verified_messages']}, "
-                            f"repo + branch {row['branch_associated_verified_messages']}, "
-                            f"branch only {row['branch_only_associated_verified_messages']}; "
+                            f"context {row['context_associated_verified_messages']}, "
+                            f"repo/branch {row['branch_associated_verified_messages']}, "
+                            f"branch-only {row['branch_only_associated_verified_messages']}; "
                             f"candidates: direct {row['direct_candidates']}, "
-                            f"repo + branch {row['branch_associated_candidates']}, "
-                            f"branch only {row['branch_only_candidates']}; "
-                            f"initial requests {row['initial_requests']}"
+                            f"context {row['context_candidates']}, "
+                            f"repo/branch {row['branch_associated_candidates']}, "
+                            f"branch-only {row['branch_only_candidates']}; "
+                            f"initial requests {row['initial_requests']}; "
+                            f"message kinds: initial {kinds.get('initial_task', 0)}, "
+                            f"new requirement {kinds.get('new_requirement/domain_judgment', 0)}, "
+                            f"status {kinds.get('status_request', 0)}; "
+                            f"nudge messages/episodes {row['human_nudge_messages']}/"
+                            f"{row['human_nudge_episodes']}"
                         )
-                        basis = [basis_labels.get(item, item) for item in row.get("association_basis", [])]
-                        association = "; ".join(basis) if basis else "UNKNOWN"
+                        basis = []
+                        for item in row.get("association_basis", []):
+                            if item.startswith("source:"):
+                                basis.append("source metadata")
+                            elif item.startswith("context:") and (
+                                "snapshot" in item or "not_event_time" in item
+                            ):
+                                basis.append("snapshot metadata (not prompt-time proof)")
+                            else:
+                                basis.append(basis_labels.get(item, "reviewed metadata"))
+                        basis = list(dict.fromkeys(basis))
+                        confidence = row.get("association_confidence", "UNKNOWN")
+                        if confidence in ("BEST_EFFORT", "LOW_BEST_EFFORT", "LOW_BEST_EFFORT_HEAD",
+                                          "BRANCH_SNAPSHOT_LOW", "BRANCH_ONLY_LOW",
+                                          "BRANCH_ONLY_LOW_HEAD", "BRANCH_ONLY_HEAD_MATCH"):
+                            confidence = "low confidence"
+                        elif confidence == "EXPLICIT":
+                            confidence = "explicit"
+                        elif confidence == "MIXED":
+                            confidence = "mixed"
+                        association = (
+                            f"{'; '.join(basis)}; {confidence}" if basis else confidence
+                        )
+                        score_text = (
+                            f"; reviewed scores {', '.join(map(str, scores))}" if scores else ""
+                        )
                         if row["followup_episodes"]:
                             quality = row["episodes_by_quality"]
                             episodes = (
                                 f"{row['followup_episodes']} reviewed; "
                                 f"good {quality['good']}, bad {quality['bad']}, "
                                 f"mixed {quality['mixed']}, unknown {quality['unknown']}"
+                                f"{score_text}"
                             )
                         else:
-                            episodes = "UNKNOWN (no reviewed follow-up episode)"
+                            episodes = "UNKNOWN (no reviewed follow-up episode)" + score_text
                     cells = (label, messages, association, episodes)
                     md.append("| " + " | ".join(cells) + " |")
             else:
@@ -3542,7 +3592,7 @@ def _merge_pr_branch_metadata(prs, cached_prs):
 def aggregate_native_human_steering(
     human_records, prs, *, window_start, window_end, source_stats=None
 ):
-    """Aggregate observed verified human records by explicit or branch context."""
+    """Aggregate observed human messages and reviewed episodes by PR evidence."""
     start = _parse_utc_instant(window_start)
     end = _parse_utc_instant(window_end)
     source_stats = source_stats or {}
@@ -3564,22 +3614,28 @@ def aggregate_native_human_steering(
     def parsed_time(value):
         return _parse_utc_instant(value)
 
-    def new_row(key, repo, number, pr=None):
+    def new_row(key, pr=None):
         return {
             "pr": key, "url": pr.get("url") if pr else None,
             "raw_verified_messages": 0, "direct_verified_messages": 0,
+            "context_associated_verified_messages": 0,
             "branch_associated_verified_messages": 0,
             "branch_only_associated_verified_messages": 0, "direct_candidates": 0,
-            "branch_associated_candidates": 0, "branch_only_candidates": 0,
-            "initial_requests": 0,
+            "context_candidates": 0, "branch_associated_candidates": 0,
+            "branch_only_candidates": 0, "initial_requests": 0,
+            "human_nudge_messages": 0, "human_nudge_episodes": 0,
+            "message_kind_counts": {}, "reviewed_scores": [],
             "followup_episodes": 0,
             "episodes_by_quality": {"good": 0, "bad": 0, "mixed": 0, "unknown": 0},
             "association_basis": set(), "coverage_status": "UNKNOWN",
             "association_confidence": "UNKNOWN", "_episode_labels": {},
-            "_assigned_observations": 0, "_confidences": set(),
+            "_nudge_episode_ids": set(), "_assigned_observations": 0,
+            "_confidences": set(),
         }
 
     for pr in prs or []:
+        if not isinstance(pr, dict):
+            continue
         repo = safe_repo(pr.get("repo"))
         key = pr_key(repo, pr.get("number"))
         if not key:
@@ -3589,7 +3645,7 @@ def aggregate_native_human_steering(
                              pr.get("closedAt") or pr.get("closed_at"))
         if start and end and created and (created >= end or (closed and closed < start)):
             continue
-        pr_rows[key] = new_row(key, repo, pr.get("number"), pr)
+        pr_rows[key] = new_row(key, pr)
         pr_sources[key] = pr
         branch = pr.get("headRefName") or pr.get("head_ref_name")
         if branch:
@@ -3602,9 +3658,8 @@ def aggregate_native_human_steering(
             return pr_rows[key]
         repo, number = key.rsplit("#", 1)
         pr = {"repo": repo, "number": int(number), "url": None}
-        row = new_row(key, repo, number)
-        pr_rows[key] = row
-        pr_sources[key] = pr
+        row = new_row(key, pr)
+        pr_rows[key], pr_sources[key] = row, pr
         return row
 
     def candidates_for(entries, at):
@@ -3625,9 +3680,16 @@ def aggregate_native_human_steering(
         "verified_messages": 0, "candidate_messages": 0,
         "assigned_verified_messages": 0, "unassigned_verified_messages": 0,
         "unassigned_candidates": 0, "branch_only_messages": 0,
-        "ambiguous_branch_messages": 0,
-        "unmatched_direct_bindings": 0, "followups_without_episode_id": 0,
-        "deduplicated_records": 0,
+        "ambiguous_branch_messages": 0, "unmatched_direct_bindings": 0,
+        "reviewed_unassigned_messages": 0, "multi_pr_unassigned_messages": 0,
+        "global_scope_unassigned_messages": 0, "no_single_pr_unassigned_messages": 0,
+        "reviewed_context_confirmed_messages": 0, "reviewed_context_override_messages": 0,
+        "automated_excluded_messages": 0, "human_nudge_messages": 0,
+        "human_nudge_episodes": 0, "unassigned_nudge_episodes": 0,
+        "unassigned_followup_episodes": 0,
+        "unassigned_episodes_by_quality": {"good": 0, "bad": 0, "mixed": 0, "unknown": 0},
+        "followups_without_episode_id": 0, "deduplicated_records": 0,
+        "reviewed_score_observations": 0, "message_kind_counts": {},
         "branch_lookup_cache_sha256": source_stats.get("branch_lookup_cache_sha256"),
         "branch_lookup_fetched_at": source_stats.get("branch_lookup_fetched_at"),
         "branch_lookup_pr_count": source_stats.get("branch_lookup_pr_count", 0),
@@ -3635,6 +3697,18 @@ def aggregate_native_human_steering(
         "repository_map_resolved_events": source_stats.get("repository_map_resolved_events", 0),
     }
     seen = set()
+    unassigned_episode_labels, all_nudge_episode_ids = {}, set()
+    assigned_nudge_episode_ids, unassigned_nudge_episode_ids = set(), set()
+    message_kinds = {
+        "initial_task", "new_requirement/domain_judgment",
+        "status_request", "continuation/followthrough_nudge",
+    }
+    context_unassigned = {
+        "unassigned_global_scope": "global_scope_unassigned_messages",
+        "unassigned_multi_pr": "multi_pr_unassigned_messages",
+        "unassigned_no_single_pr": "no_single_pr_unassigned_messages",
+    }
+
     for event in human_records or []:
         if not isinstance(event, dict):
             continue
@@ -3648,18 +3722,69 @@ def aggregate_native_human_steering(
         at = parsed_time(event.get("timestamp"))
         if at is None or (start and at < start) or (end and at >= end):
             continue
-        verified = event.get("origin_status") == "verified_human"
+        actor_kind = event.get("actor_kind")
+        if actor_kind == "automated_watch" or event.get("origin_status") == "excluded_automated":
+            coverage["automated_excluded_messages"] += 1
+            continue
+        verified = actor_kind == "human" or event.get("origin_status") == "verified_human"
         coverage["verified_messages" if verified else "candidate_messages"] += 1
         if event.get("branch_source") == "cached_repository_map":
             coverage["repository_map_resolved_events"] += 1
 
-        association, confidence, basis = None, None, None
+        message_kind = event.get("message_kind")
+        if verified and message_kind in message_kinds:
+            coverage["message_kind_counts"][message_kind] = (
+                coverage["message_kind_counts"].get(message_kind, 0) + 1
+            )
+        nudge = (
+            verified and message_kind == "continuation/followthrough_nudge"
+            and event.get("human_nudge_eligible") is True
+        )
+        episode_id = event.get("episode_id")
+        if nudge:
+            coverage["human_nudge_messages"] += 1
+            if episode_id:
+                all_nudge_episode_ids.add(str(episode_id))
+            else:
+                coverage["followups_without_episode_id"] += 1
+        score = event.get("score")
+        has_score = (
+            verified and isinstance(score, (int, float)) and not isinstance(score, bool)
+            and math.isfinite(score)
+        )
+        if has_score:
+            coverage["reviewed_score_observations"] += 1
+
+        association, confidence, basis, association_kind = None, None, None, None
         binding = event.get("pr_binding")
         direct_pr = binding.get("pr") if isinstance(binding, dict) else None
+        context_decision = event.get("context_pr_decision")
         if _safe_pr_id(direct_pr):
             association = direct_pr
             ensure_direct_row(association)
-            confidence, basis = "EXPLICIT", "reviewed_direct_pr_binding"
+            confidence, basis, association_kind = "EXPLICIT", "reviewed_direct_pr_binding", "direct"
+        elif context_decision in context_unassigned:
+            coverage["reviewed_unassigned_messages"] += 1
+            coverage[context_unassigned[context_decision]] += 1
+        elif context_decision in ("confirm_original", "override"):
+            context_pr = event.get("effective_associated_pr") or event.get("context_associated_pr")
+            if context_decision == "confirm_original":
+                context_pr = context_pr or event.get("original_associated_pr")
+            if _safe_pr_id(context_pr):
+                association = context_pr
+                ensure_direct_row(association)
+                confidence = event.get("effective_association_confidence") or "REVIEWED_CONTEXT"
+                basis = event.get("association_method") or "reviewed_context_association"
+                association_kind = "context"
+                coverage["reviewed_context_override_messages" if context_decision == "override"
+                          else "reviewed_context_confirmed_messages"] += 1
+            else:
+                coverage["reviewed_unassigned_messages"] += 1
+                coverage["no_single_pr_unassigned_messages"] += 1
+        elif context_decision:
+            # Preserve future or unsupported explicit decisions as unassigned.
+            coverage["reviewed_unassigned_messages"] += 1
+            coverage["no_single_pr_unassigned_messages"] += 1
         else:
             if isinstance(binding, dict):
                 coverage["unmatched_direct_bindings"] += 1
@@ -3677,16 +3802,16 @@ def aggregate_native_human_steering(
             if len(exact_head) == 1:
                 association = exact_head[0][0]
                 confidence = "LOW_BEST_EFFORT_HEAD" if low_context else "BRANCH_HEAD_MATCH"
-                basis = "repo_branch_exact_head"
+                basis, association_kind = "repo_branch_exact_head", "branch"
             elif len(time_candidates) == 1:
                 association = time_candidates[0][0]
                 confidence = "LOW_BEST_EFFORT" if low_context else "BEST_EFFORT"
-                basis = "best_effort_repo_branch_event_time"
+                basis, association_kind = "best_effort_repo_branch_event_time", "branch"
             elif len(time_candidates) > 1:
                 coverage["ambiguous_branch_messages"] += 1
             elif len(all_candidates) == 1:
                 association = all_candidates[0][0]
-                confidence, basis = "BRANCH_SNAPSHOT_LOW", "unique_repo_branch_snapshot"
+                confidence, basis, association_kind = "BRANCH_SNAPSHOT_LOW", "unique_repo_branch_snapshot", "branch"
             elif len(all_candidates) > 1:
                 coverage["ambiguous_branch_messages"] += 1
             elif repository is None and branch and at:
@@ -3703,26 +3828,42 @@ def aggregate_native_human_steering(
                 if len(exact_only) == 1:
                     association = exact_only[0][0]
                     confidence = "BRANCH_ONLY_LOW_HEAD" if low_context else "BRANCH_ONLY_HEAD_MATCH"
-                    basis = "branch_only_exact_head"
+                    basis, association_kind = "branch_only_exact_head", "branch_only"
                     coverage["branch_only_messages"] += 1
                 elif len(branch_time) == 1:
                     association = branch_time[0][0]
                     confidence, basis = "BRANCH_ONLY_LOW", "best_effort_branch_only_event_time"
+                    association_kind = "branch_only"
                     coverage["branch_only_messages"] += 1
                 elif len(branch_time) > 1:
                     coverage["ambiguous_branch_messages"] += 1
                 elif len(branch_all) == 1:
                     association = branch_all[0][0]
-                    confidence, basis = "BRANCH_ONLY_LOW", "unique_branch_only_snapshot"
+                    confidence, basis, association_kind = (
+                        "BRANCH_ONLY_LOW", "unique_branch_only_snapshot", "branch_only"
+                    )
                     coverage["branch_only_messages"] += 1
                 elif len(branch_all) > 1:
                     coverage["ambiguous_branch_messages"] += 1
+
+        role = event.get("episode_role")
+        quality_label = event.get("quality_label")
+        if isinstance(quality_label, str):
+            quality_label = quality_label.lower()
+        if quality_label not in ("good", "bad", "mixed", "unknown"):
+            quality_label = "unknown"
 
         if association is None:
             if verified:
                 coverage["unassigned_verified_messages"] += 1
             else:
                 coverage["unassigned_candidates"] += 1
+            if verified and role == "followup" and episode_id:
+                unassigned_episode_labels.setdefault(
+                    (str(event.get("provider")), str(episode_id)), set()
+                ).add(quality_label)
+            if nudge and episode_id:
+                unassigned_nudge_episode_ids.add(str(episode_id))
             continue
 
         row = pr_rows[association]
@@ -3730,51 +3871,65 @@ def aggregate_native_human_steering(
         row["association_basis"].add(basis)
         branch_source = _usage_label(event.get("branch_source"))
         branch_basis = _usage_label(event.get("branch_basis"))
-        if branch_source and confidence != "EXPLICIT":
+        if branch_source and association_kind in ("branch", "branch_only"):
             row["association_basis"].add("source:" + branch_source)
-        if branch_basis and confidence != "EXPLICIT":
+        if branch_basis and association_kind in ("branch", "branch_only"):
             row["association_basis"].add("context:" + branch_basis)
         row["_confidences"].add(confidence)
         if verified:
             row["raw_verified_messages"] += 1
-            if confidence == "EXPLICIT":
-                row["direct_verified_messages"] += 1
-            elif confidence.startswith("BRANCH_ONLY"):
-                row["branch_only_associated_verified_messages"] += 1
-            else:
-                row["branch_associated_verified_messages"] += 1
+            field = {
+                "direct": "direct_verified_messages",
+                "context": "context_associated_verified_messages",
+                "branch": "branch_associated_verified_messages",
+                "branch_only": "branch_only_associated_verified_messages",
+            }[association_kind]
+            row[field] += 1
             coverage["assigned_verified_messages"] += 1
+            if message_kind in message_kinds:
+                counts = row["message_kind_counts"]
+                counts[message_kind] = counts.get(message_kind, 0) + 1
+            if nudge:
+                row["human_nudge_messages"] += 1
+                if episode_id:
+                    row["_nudge_episode_ids"].add(str(episode_id))
+                    assigned_nudge_episode_ids.add(str(episode_id))
+            if has_score:
+                row["reviewed_scores"].append(score)
+            if message_kind == "initial_task":
+                row["initial_requests"] += 1
+            if role == "followup":
+                if not episode_id:
+                    coverage["followups_without_episode_id"] += 1
+                else:
+                    row["_episode_labels"].setdefault(
+                        str(episode_id), set()
+                    ).add(quality_label)
         else:
-            if confidence == "EXPLICIT":
-                row["direct_candidates"] += 1
-            elif confidence.startswith("BRANCH_ONLY"):
-                row["branch_only_candidates"] += 1
-            else:
-                row["branch_associated_candidates"] += 1
+            field = {
+                "direct": "direct_candidates",
+                "context": "context_candidates",
+                "branch": "branch_associated_candidates",
+                "branch_only": "branch_only_candidates",
+            }[association_kind]
+            row[field] += 1
 
-        role = event.get("episode_role")
-        episode_id = event.get("episode_id")
-        if verified and role == "initial":
-            row["initial_requests"] += 1
-        elif verified and role == "followup":
-            if not episode_id:
-                coverage["followups_without_episode_id"] += 1
-                continue
-            label = event.get("quality_label")
-            label = label.lower() if isinstance(label, str) else "unknown"
-            if label not in ("good", "bad", "mixed", "unknown"):
-                label = "unknown"
-            row["_episode_labels"].setdefault(str(episode_id), set()).add(label)
-
+    coverage["unassigned_followup_episodes"] = len(unassigned_episode_labels)
+    for labels in unassigned_episode_labels.values():
+        quality = next(iter(labels)) if len(labels) == 1 else "unknown"
+        coverage["unassigned_episodes_by_quality"][quality] += 1
+    coverage["human_nudge_episodes"] = len(all_nudge_episode_ids)
+    coverage["unassigned_nudge_episodes"] = len(all_nudge_episode_ids - assigned_nudge_episode_ids)
     for row in pr_rows.values():
         for labels in row["_episode_labels"].values():
-            label = next(iter(labels)) if len(labels) == 1 else "unknown"
+            quality = next(iter(labels)) if len(labels) == 1 else "unknown"
             row["followup_episodes"] += 1
-            row["episodes_by_quality"][label] += 1
+            row["episodes_by_quality"][quality] += 1
         if row["raw_verified_messages"]:
             row["coverage_status"] = "OBSERVED_SCOPE_ONLY"
-        elif row["direct_candidates"] or row["branch_associated_candidates"]:
+        elif row["direct_candidates"] or row["context_candidates"] or row["branch_associated_candidates"] or row["branch_only_candidates"]:
             row["coverage_status"] = "CANDIDATE_ONLY"
+        row["human_nudge_episodes"] = len(row.pop("_nudge_episode_ids"))
         confidences = row.pop("_confidences")
         if len(confidences) == 1:
             row["association_confidence"] = next(iter(confidences))
@@ -3783,11 +3938,11 @@ def aggregate_native_human_steering(
         row["association_basis"] = sorted(row["association_basis"])
         row.pop("_episode_labels", None)
         row.pop("_assigned_observations", None)
-
     return {"coverage": coverage, "per_pr": [pr_rows[key] for key in sorted(pr_rows)]}
 
 
-
+class Publisher:
+    """Publishes dashboard Markdown to a designated Git repository using an isolated index file."""
 
 class Publisher:
     """Publishes dashboard Markdown to a designated Git repository using an isolated index file."""

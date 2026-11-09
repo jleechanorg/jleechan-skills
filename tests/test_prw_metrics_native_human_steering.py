@@ -51,7 +51,7 @@ class NativeHumanSteeringTests(unittest.TestCase):
                 "event_id": "initial-1", "provider": "codex", "timestamp": "2026-10-07T10:00:00Z",
                 "origin_status": "verified_human", "repository": "example/repo", "git_branch": "topic",
                 "episode_id": "initial-episode", "episode_role": "initial",
-                "source_fingerprint": "sha256:initial",
+                "message_kind": "initial_task", "source_fingerprint": "sha256:initial",
             },
             {
                 "event_id": "candidate-1", "provider": "codex", "timestamp": "2026-10-08T10:00:00Z",
@@ -265,6 +265,100 @@ class NativeHumanSteeringTests(unittest.TestCase):
         self.assertEqual(row["association_confidence"], "BRANCH_SNAPSHOT_LOW")
         self.assertIn("unique_repo_branch_snapshot", row["association_basis"])
         self.assertIn("context:first_64_session_records_not_event_time", row["association_basis"])
+
+    def test_reviewed_unassigned_context_suppresses_branch_fallback_and_counts_nudge(self):
+        event = {
+            "event_id": "multi-pr", "provider": "claude", "timestamp": "2026-10-05T10:00:00Z",
+            "origin_status": "verified_human", "actor_kind": "human",
+            "repository": "example/repo", "git_branch": "topic",
+            "original_associated_pr": "example/repo#5",
+            "context_pr_decision": "unassigned_multi_pr",
+            "context_associated_pr": None, "effective_associated_pr": None,
+            "association_method": "context_semantic_unassigned",
+            "effective_association_confidence": "UNASSIGNED_CONTEXT",
+            "episode_id": "multi-episode", "episode_role": "followup",
+            "quality_label": "bad", "message_kind": "continuation/followthrough_nudge",
+            "human_nudge_eligible": True,
+        }
+        result = aggregate_native_human_steering(
+            [event], self.prs,
+            window_start="2026-10-01T00:00:00Z", window_end="2026-10-20T00:00:00Z",
+            source_stats=self.stats,
+        )
+        pr5 = next(row for row in result["per_pr"] if row["pr"] == "example/repo#5")
+        self.assertEqual(pr5["raw_verified_messages"], 0)
+        self.assertEqual(result["coverage"]["unassigned_verified_messages"], 1)
+        self.assertEqual(result["coverage"]["multi_pr_unassigned_messages"], 1)
+        self.assertEqual(result["coverage"]["human_nudge_messages"], 1)
+
+    def test_context_override_uses_effective_pr_and_separates_nudge_categories(self):
+        event = {
+            "event_id": "context-override", "provider": "claude", "timestamp": "2026-10-05T10:00:00Z",
+            "origin_status": "verified_human", "actor_kind": "human",
+            "repository": "example/repo", "git_branch": "topic",
+            "original_associated_pr": "example/repo#5",
+            "context_pr_decision": "override",
+            "context_associated_pr": "example/repo#6", "effective_associated_pr": "example/repo#6",
+            "association_method": "context_override",
+            "effective_association_confidence": "LOW_BEST_EFFORT_CONTEXT",
+            "episode_id": "followup-6", "episode_role": "followup",
+            "quality_label": "mixed", "message_kind": "continuation/followthrough_nudge",
+            "human_nudge_eligible": True,
+        }
+        result = aggregate_native_human_steering(
+            [event], self.prs,
+            window_start="2026-10-01T00:00:00Z", window_end="2026-10-20T00:00:00Z",
+            source_stats=self.stats,
+        )
+        rows = {row["pr"]: row for row in result["per_pr"]}
+        self.assertEqual(rows["example/repo#5"]["raw_verified_messages"], 0)
+        pr6 = rows["example/repo#6"]
+        self.assertEqual(pr6["context_associated_verified_messages"], 1)
+        self.assertEqual(pr6["association_confidence"], "LOW_BEST_EFFORT_CONTEXT")
+        self.assertEqual(pr6["human_nudge_messages"], 1)
+        self.assertEqual(pr6["human_nudge_episodes"], 1)
+        self.assertEqual(pr6["message_kind_counts"]["continuation/followthrough_nudge"], 1)
+        self.assertEqual(pr6["episodes_by_quality"]["mixed"], 1)
+
+    def test_initial_episode_role_does_not_infer_initial_task_from_nudge_kind(self):
+        event = {
+            "event_id": "first-captured-nudge", "provider": "claude",
+            "timestamp": "2026-10-06T10:00:00Z", "origin_status": "verified_human",
+            "actor_kind": "human", "pr_binding": {"pr": "example/repo#5"},
+            "episode_id": "episode-first-captured", "episode_role": "initial",
+            "message_kind": "continuation/followthrough_nudge",
+            "human_nudge_eligible": True, "quality_label": "unknown",
+        }
+        result = aggregate_native_human_steering(
+            [event], self.prs,
+            window_start="2026-10-01T00:00:00Z", window_end="2026-10-20T00:00:00Z",
+            source_stats=self.stats,
+        )
+        pr5 = next(row for row in result["per_pr"] if row["pr"] == "example/repo#5")
+        self.assertEqual(pr5["initial_requests"], 0)
+        self.assertEqual(pr5["message_kind_counts"]["continuation/followthrough_nudge"], 1)
+        self.assertEqual(pr5["human_nudge_messages"], 1)
+        self.assertEqual(pr5["human_nudge_episodes"], 1)
+
+    def test_automated_actor_override_excludes_native_human_role_and_nudge(self):
+        event = {
+            "event_id": "bot-watch", "provider": "claude", "timestamp": "2026-10-05T10:00:00Z",
+            "origin_status": "verified_human", "actor_kind": "automated_watch",
+            "pr_binding": {"pr": "example/repo#5"},
+            "episode_id": "bot-episode", "episode_role": "followup",
+            "quality_label": "bad", "message_kind": "continuation/followthrough_nudge",
+            "human_nudge_eligible": False,
+        }
+        result = aggregate_native_human_steering(
+            [event], self.prs,
+            window_start="2026-10-01T00:00:00Z", window_end="2026-10-20T00:00:00Z",
+            source_stats=self.stats,
+        )
+        pr5 = next(row for row in result["per_pr"] if row["pr"] == "example/repo#5")
+        self.assertEqual(result["coverage"]["automated_excluded_messages"], 1)
+        self.assertEqual(result["coverage"]["verified_messages"], 0)
+        self.assertEqual(pr5["raw_verified_messages"], 0)
+        self.assertEqual(pr5["human_nudge_messages"], 0)
 
     def test_candidate_metadata_never_inflates_verified_message_counts(self):
         candidates = [dict(

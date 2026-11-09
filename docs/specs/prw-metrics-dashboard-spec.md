@@ -295,8 +295,14 @@ joins human events first by an exact reviewed PR binding, then by exact reposito
 branch, and event-time overlap. A branch-only join is allowed only when the branch is
 unique across the configured PR snapshot and is labeled low confidence. Ambiguous
 branches remain unassigned. Direct, repository/branch, and branch-only message counts
-stay separate. Per-PR rows with no attributed event show UNKNOWN coverage, not zero
-steering.
+stay separate. Reviewed actor_kind=automated_watch excludes a row even when the native
+role says user. Reviewed context decisions (confirm, override, or unassigned) take
+precedence over best-effort branch association; reviewed multi-PR/global unassignment
+stays unassigned, while the original branch association remains audit metadata.
+Nudge messages and episodes require the explicit message_kind, human_nudge_eligible,
+and episode ID fields. Initial task, new requirement, status request, and follow-through
+categories come only from reviewed annotations. Per-PR rows with no attributed event
+show UNKNOWN coverage, not zero steering.
 
 The retained and rendered human_summary.per_pr rows expose direct reviewed PR
 bindings separately from branch-context associations. Exact reviewed bindings are
