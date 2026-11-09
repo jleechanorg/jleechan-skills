@@ -306,6 +306,23 @@ class NativeUsageCollectorTests(unittest.TestCase):
         self.assertEqual(exported["attributions"][0]["rationale"], "retained")
         self.assertNotIn("PRIVATE_BINDING_RATIONALE_FIXTURE", json.dumps(exported))
 
+    def test_prw_cli_rejects_unvalidated_flat_repository_map(self):
+        caller = self.base / "unvalidated-map-caller"
+        caller.mkdir()
+        repository_map = self.base / "flat_repository_map.json"
+        repository_map.write_text(
+            json.dumps({"/fixture/cwd": "example/repo"}), encoding="utf-8"
+        )
+        script = Path(__file__).resolve().parents[1] / "scripts" / "prw_metrics.py"
+        proc = subprocess.run(
+            [sys.executable, str(script), "--offline", "--history-root", str(self.codex),
+             "--cutoff", "2026-11-10T00:00:00Z", "--days", "14",
+             "--repository-map", str(repository_map)],
+            cwd=caller, check=False, capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("native_origin_validated", proc.stderr)
+
     def test_prw_cli_collects_explicit_history_from_external_working_directory(self):
         secret = "EXTERNAL_CWD_PROMPT_MUST_NOT_LEAK"
         self._write(self.codex, "nested/rollout.jsonl", [

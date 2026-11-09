@@ -43,7 +43,9 @@ class TestPRWMetricsQueries(unittest.TestCase):
         )
 
     @staticmethod
-    def _event(event_id, pr, tokens, request_duration, *, cost="0.0001000"):
+    def _event(
+        event_id, pr, tokens, request_duration, *, cost="0.0001000", weight="1"
+    ):
         token_values = list(tokens.values()) if tokens is not None else []
         total = (
             sum(token_values)
@@ -75,7 +77,7 @@ class TestPRWMetricsQueries(unittest.TestCase):
             "unknown_buckets": {},
             "validated_attributions": [{
                 "pr": pr,
-                "weight": "1",
+                "weight": weight,
                 "method": "direct",
                 "basis": "separable_breakdown",
                 "convention_ref": None,
@@ -100,6 +102,34 @@ class TestPRWMetricsQueries(unittest.TestCase):
             attempt_observations_path=self.attempts_path,
             snapshot_at_utc=self.CUTOFF,
         )
+
+    def test_request_duration_remains_observed_while_tokens_are_attribution_weighted(self):
+        pr_id = "example-org/repo-alpha#1"
+        event = self._event(
+            "sha256:weighted-request", pr_id,
+            {"input_uncached": 10, "cache_read": 0, "cache_write_5m": 0,
+             "cache_write_1h": 0, "output": 0},
+            20.0, weight="0.5",
+        )
+        prs = [{
+            "repo": "example-org/repo-alpha", "number": 1, "state": "MERGED",
+            "createdAt": "2026-11-02T00:00:00Z", "mergedAt": "2026-11-02T10:00:00Z",
+            "closedAt": "2026-11-02T10:00:00Z", "headRefName": "feature/one",
+            "headRefOid": "a1", "commit_shas": ["a1"],
+        }]
+        self._base_files(events=[event], prs=prs)
+
+        result = self._query()
+        row = next(item for item in result["pr_metrics"] if item["pr_number"] == 1)
+        self.assertEqual(row["direct_uncached_input_tokens"], 5)
+        self.assertEqual(row["direct_request_duration_average_seconds"], 20.0)
+        duration_cohort = next(
+            item for item in result["metric_cohorts"]
+            if item["metric_family"] == "direct_request"
+            and item["measure"] == "request_duration_seconds"
+            and item["cohort_definition"] == "all_14d_merges"
+        )
+        self.assertEqual(duration_cohort["average"], 20.0)
 
     def test_one_row_per_pr_with_direct_tokens_and_source_reviewed_branch_counts(self):
         pr1 = "example-org/repo-alpha#1"

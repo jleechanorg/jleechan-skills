@@ -1267,7 +1267,11 @@ class Collector:
                                 dict(item, source_receipt=fpath)
                                 for item in data if isinstance(item, dict)
                             )
-                    except (OSError, json.JSONDecodeError):
+                    except OSError:
+                        stats["receipt_read_errors"] += 1
+                        continue
+                    except (json.JSONDecodeError, UnicodeDecodeError):
+                        stats["receipt_parse_errors"] += 1
                         continue
                 elif fname == "transition-events.jsonl":
                     stats["files_scanned"] += 1
@@ -2685,7 +2689,10 @@ class MetricsAggregator:
             normalized = {
                 "event_id": event_id, "event_type": event_type,
                 "repo": repo, "number": number, "candidate_sha": candidate_sha.lower(),
-                "attempt_number": attempt, "occurred_at": format_iso_utc(occurred),
+                "attempt_number": attempt,
+                "occurred_at": occurred.isoformat(timespec="auto").replace(
+                    "+00:00", "Z"
+                ),
                 "observed_at": row.get("observed_at"),
             }
             existing = by_id.get(event_id)
@@ -2715,6 +2722,10 @@ class MetricsAggregator:
                 if len(start_rows) != 1 or len(end_rows) != 1:
                     continue
                 start_row, end_row = start_rows[0], end_rows[0]
+                start_at = _parse_utc_instant(start_row["occurred_at"])
+                end_at = _parse_utc_instant(end_row["occurred_at"])
+                if start_at is None or end_at is None or end_at < start_at:
+                    continue
                 pair_receipt = hashlib.sha256(
                     "|".join((key[0], key[1], key[2], str(key[3]), name,
                               start_row["event_id"], end_row["event_id"])).encode()
@@ -4708,21 +4719,19 @@ def main():
                 repository_map_payload = json.load(stream)
             if not isinstance(repository_map_payload, dict):
                 parser.error("--repository-map must contain a JSON object")
-            if isinstance(repository_map_payload.get("cwdToRepo"), dict):
-                repository_map = {}
-                for cwd, entry in repository_map_payload["cwdToRepo"].items():
-                    if not isinstance(cwd, str) or not isinstance(entry, dict):
-                        continue
-                    repo = entry.get("repo")
-                    if entry.get("status") == "native_origin_validated" and isinstance(repo, str):
-                        if re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo):
-                            repository_map[cwd] = repo
-            else:
-                repository_map = {
-                    cwd: repo for cwd, repo in repository_map_payload.items()
-                    if isinstance(cwd, str) and isinstance(repo, str)
-                    and re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo)
-                }
+            if not isinstance(repository_map_payload.get("cwdToRepo"), dict):
+                parser.error(
+                    "--repository-map must contain cwdToRepo entries with "
+                    "native_origin_validated status"
+                )
+            repository_map = {}
+            for cwd, entry in repository_map_payload["cwdToRepo"].items():
+                if not isinstance(cwd, str) or not isinstance(entry, dict):
+                    continue
+                repo = entry.get("repo")
+                if entry.get("status") == "native_origin_validated" and isinstance(repo, str):
+                    if re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo):
+                        repository_map[cwd] = repo
         if args.pr_lookup_cache:
             with open(args.pr_lookup_cache, encoding="utf-8") as stream:
                 pr_lookup_cache = json.load(stream)
@@ -5120,7 +5129,7 @@ def load_usage_events(path, provider=None):
             event = {
                 "provider": _usage_label(row.get("provider") or provider),
                 "sku": sku,
-                "usage_id": row.get("request_id") or row.get("message_id"),
+                "usage_id": _retained_hash(row.get("request_id") or row.get("message_id")),
                 "session_id": row.get("session_id"),
                 "timestamp": row.get("timestamp"),
                 "source": "native_usage_jsonl",

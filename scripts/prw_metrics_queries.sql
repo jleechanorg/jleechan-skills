@@ -179,7 +179,7 @@ SELECT
     split_part(attributed_pr, '#', 1) AS repository,
     TRY_CAST(split_part(attributed_pr, '#', 2) AS BIGINT) AS pr_number,
     total_tokens * attribution_weight AS weighted_total_tokens,
-    request_duration_seconds * attribution_weight AS weighted_request_duration_seconds
+    request_duration_seconds AS observed_request_duration_seconds
 FROM prw_explicit_attributions
 WHERE attribution_method = 'direct'
   AND attributed_pr IS NOT NULL
@@ -191,7 +191,7 @@ SELECT
     split_part(attributed_pr, '#', 1) AS repository,
     TRY_CAST(split_part(attributed_pr, '#', 2) AS BIGINT) AS pr_number,
     total_tokens * attribution_weight AS weighted_total_tokens,
-    request_duration_seconds * attribution_weight AS weighted_request_duration_seconds
+    request_duration_seconds AS observed_request_duration_seconds
 FROM prw_explicit_attributions
 WHERE attribution_method = 'convention'
   AND attributed_pr IS NOT NULL
@@ -247,19 +247,19 @@ SELECT
         FILTER (WHERE weighted_total_tokens IS NOT NULL)
         AS direct_request_total_tokens_p99,
     COUNT(weighted_total_tokens) AS direct_request_total_tokens_n,
-    AVG(weighted_request_duration_seconds)
-        FILTER (WHERE weighted_request_duration_seconds IS NOT NULL)
+    AVG(observed_request_duration_seconds)
+        FILTER (WHERE observed_request_duration_seconds IS NOT NULL)
         AS direct_request_duration_average_seconds,
-    QUANTILE_DISC(weighted_request_duration_seconds, 0.50)
-        FILTER (WHERE weighted_request_duration_seconds IS NOT NULL)
+    QUANTILE_DISC(observed_request_duration_seconds, 0.50)
+        FILTER (WHERE observed_request_duration_seconds IS NOT NULL)
         AS direct_request_duration_p50_seconds,
-    QUANTILE_DISC(weighted_request_duration_seconds, 0.90)
-        FILTER (WHERE weighted_request_duration_seconds IS NOT NULL)
+    QUANTILE_DISC(observed_request_duration_seconds, 0.90)
+        FILTER (WHERE observed_request_duration_seconds IS NOT NULL)
         AS direct_request_duration_p90_seconds,
-    QUANTILE_DISC(weighted_request_duration_seconds, 0.99)
-        FILTER (WHERE weighted_request_duration_seconds IS NOT NULL)
+    QUANTILE_DISC(observed_request_duration_seconds, 0.99)
+        FILTER (WHERE observed_request_duration_seconds IS NOT NULL)
         AS direct_request_duration_p99_seconds,
-    COUNT(weighted_request_duration_seconds) AS direct_request_duration_n,
+    COUNT(observed_request_duration_seconds) AS direct_request_duration_n,
     SUM(list_equivalent_cost_amount * attribution_weight)
         AS direct_list_equivalent_cost_amount,
     COUNT(*) FILTER (WHERE cost_status = 'priced') AS direct_fully_priced_observation_n,
@@ -810,7 +810,7 @@ SELECT
     c.cohort_definition,
     'direct_request' AS metric_family,
     'request_duration_seconds' AS measure,
-    a.weighted_request_duration_seconds AS value,
+    a.observed_request_duration_seconds AS value,
     'seconds' AS unit,
     'request_observation' AS average_basis
 FROM prw_cohort_prs c

@@ -645,6 +645,39 @@ class NativeClaudeUsageSourceTests(unittest.TestCase):
         self.assertIn("usage_records_in_window=2", output)
         self.assertIn("duplicate_usage_records=1", output)
 
+    def test_retained_hashed_request_id_deduplicates_fresh_native_request_and_keeps_distinct_ids(self):
+        rates = load_rate_table(self.rates)
+        fresh = load_usage_events([
+            {
+                "provider": "anthropic", "request_id": "req-roundtrip",
+                "model": "claude-test", "timestamp": "2026-11-01T00:00:00Z",
+                "raw_usage": {"input_tokens": 10, "output_tokens": 0,
+                              "service_tier": "standard", "inference_geo": "global",
+                              "speed": "standard"},
+            },
+            {
+                "provider": "anthropic", "request_id": "req-distinct",
+                "model": "claude-test", "timestamp": "2026-11-01T00:01:00Z",
+                "raw_usage": {"input_tokens": 30, "output_tokens": 0,
+                              "service_tier": "standard", "inference_geo": "global",
+                              "speed": "standard"},
+            },
+        ], provider="anthropic")
+        bundle = Publisher(repo_path=self.tempdir.name).write_telemetry_bundle(
+            None, usage_events=fresh, usage_rates=rates,
+        )
+        retained_jsonl = next(
+            value for key, value in bundle.items() if key.endswith("usage_events.jsonl")
+        )
+        retained = load_usage_events(
+            [json.loads(line) for line in retained_jsonl.splitlines()],
+            provider="anthropic",
+        )
+
+        combined = aggregate_usage(retained + fresh, rates)
+        self.assertEqual(combined["event_count"], 2)
+        self.assertEqual(combined["tokens_by_bucket"]["input_uncached"], 40)
+
     def test_conflicting_retained_and_fresh_native_observations_reach_aggregator(self):
         telemetry = self.root / "telemetry"
         telemetry.mkdir()

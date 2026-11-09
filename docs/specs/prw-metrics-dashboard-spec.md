@@ -289,14 +289,17 @@ usage.
 
 For per-PR human steering, --pr-lookup-cache <json> supplies a cached PR snapshot
 with validated repository, branch, and lifecycle timestamps. --repository-map <json>
-may supply exact recorded-CWD-to-repository mappings; only native_origin_validated
-entries are passed to the collector, and no CWD paths are exported. The dashboard
-joins human events first by an exact reviewed PR binding, then by exact repository,
-branch, and event-time overlap. A branch-only join is allowed only when the branch is
-unique across the configured PR snapshot and is labeled low confidence. Ambiguous
-branches remain unassigned. Direct, repository/branch, and branch-only message counts
-stay separate. Reviewed actor_kind=automated_watch excludes a row even when the native
-role says user. Reviewed context decisions (confirm, override, or unassigned) take
+uses exact recorded-CWD mappings under cwdToRepo; only entries with
+native_origin_validated status are passed to the collector, and no CWD paths are
+exported. The dashboard joins human events first by an exact reviewed PR binding,
+then by exact repository, branch, and event-time overlap. If no PR lifecycle interval
+overlaps but the exact repository + branch identifies one PR across the full snapshot,
+that snapshot association is retained at low confidence; it is not event-time proof.
+When repository context is unavailable, a branch-only join is allowed only when the
+branch is unique across the configured PR snapshot and is labeled low confidence.
+Ambiguous branches remain unassigned. Direct, repository/branch, and branch-only
+message counts stay separate. Reviewed actor_kind=automated_watch excludes a row even
+when the native role says user. Reviewed context decisions (confirm, override, or unassigned) take
 precedence over best-effort branch association; reviewed multi-PR/global unassignment
 stays unassigned, while the original branch association remains audit metadata.
 Nudge messages and episodes require the explicit message_kind, human_nudge_eligible,

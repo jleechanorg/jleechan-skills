@@ -14,8 +14,9 @@ import shutil
 import subprocess
 import tempfile
 import unittest
-from unittest import mock
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from unittest import mock
 
 # We will import from scripts.prw_metrics
 # Before implementation, this will fail or functions will be missing (RED).
@@ -788,7 +789,10 @@ class TestStageDwellAndHandoffAggregation(unittest.TestCase):
                 prs, handoff_records=receipts, receipt_stats=collector.receipt_scan_stats,
             )
 
-        evidence = next(row for row in handoffs if row["name"] == "evidence_ready -> review_requested")
+        evidence = next(
+            row for row in handoffs
+            if row["name"] == "evidence_ready -> review_requested"
+        )
         review = next(row for row in handoffs if row["name"] == "review_requested -> actual_review_started")
         returned = next(row for row in handoffs if row["name"] == "review_return -> next_substantive_action")
         self.assertEqual(evidence["median_sec"], 600.0)
@@ -800,6 +804,53 @@ class TestStageDwellAndHandoffAggregation(unittest.TestCase):
         self.assertEqual(evidence["receipt_parse_errors"], 1)
         self.assertEqual(evidence["receipt_status"], "PARTIAL")
 
+    def test_invalid_utf8_optional_json_receipt_is_counted_without_aborting(self):
+        collector = Collector(cutoff_dt=datetime(2026, 11, 9, 12, 0, tzinfo=timezone.utc))
+        with tempfile.TemporaryDirectory() as receipts_dir:
+            Path(receipts_dir, "run.stats.json").write_bytes(b"\xff")
+            receipts = collector.collect_receipts_from_dir(receipts_dir)
+
+        self.assertEqual(receipts, [])
+        self.assertEqual(collector.receipt_scan_stats["status"], "PARTIAL")
+        self.assertEqual(collector.receipt_scan_stats["receipt_parse_errors"], 1)
+
+    def test_transition_receipts_preserve_fractional_seconds_and_reject_reversed_order(self):
+        aggregator = MetricsAggregator()
+        prs = [{"repo": "example-org/repo-alpha", "number": 20}]
+        records = [
+            {
+                "record_type": "transition_event", "event_id": "fractional-start",
+                "event_type": "evidence_ready", "occurred_at": "2026-11-05T10:00:00.900Z",
+                "pr_id": "example-org/repo-alpha#20", "candidate_sha": "a" * 40,
+                "attempt_number": 1,
+            },
+            {
+                "record_type": "transition_event", "event_id": "fractional-end",
+                "event_type": "review_requested", "occurred_at": "2026-11-05T10:00:01.100Z",
+                "pr_id": "example-org/repo-alpha#20", "candidate_sha": "a" * 40,
+                "attempt_number": 1,
+            },
+            {
+                "record_type": "transition_event", "event_id": "reversed-start",
+                "event_type": "evidence_ready", "occurred_at": "2026-11-05T10:00:02.900Z",
+                "pr_id": "example-org/repo-alpha#20", "candidate_sha": "b" * 40,
+                "attempt_number": 2,
+            },
+            {
+                "record_type": "transition_event", "event_id": "reversed-end",
+                "event_type": "review_requested", "occurred_at": "2026-11-05T10:00:02.100Z",
+                "pr_id": "example-org/repo-alpha#20", "candidate_sha": "b" * 40,
+                "attempt_number": 2,
+            },
+        ]
+
+        _, pairing = aggregator.adapt_transition_event_receipts(records, prs)
+        handoffs = aggregator.compute_handoff_breakdown(prs, handoff_records=records)
+        evidence = next(row for row in handoffs if row["name"] == "evidence_ready -> review_requested")
+        self.assertEqual(pairing["receipt_pairs"], 1)
+        self.assertEqual(pairing["receipt_events_unmatched"], 2)
+        self.assertEqual(evidence["observed_n"], 1)
+        self.assertEqual(evidence["median_sec"], 0.2)
 
     def test_missing_transition_feed_is_unknown_and_does_not_fail_collection(self):
         collector = Collector(cutoff_dt=datetime(2026, 11, 9, 12, 0, tzinfo=timezone.utc))
