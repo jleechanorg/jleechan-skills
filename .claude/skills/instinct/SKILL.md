@@ -1,12 +1,12 @@
 ---
 name: instinct
-description: Use when the user invokes /instinct or /in, or asks to "message Instinct", "ask Instinct", "tell Instinct", "check Instinct", or read WhatsApp replies from the contact "Instinct WhatsApp" on the jleechan@gmail.com account.
+description: Use when the user invokes /instinct or /in, or asks to "message Instinct", "ask Instinct", "tell Instinct", "check Instinct", or read WhatsApp replies from the contact "Instinct WhatsApp" on the account's configured Gmail identity.
 ---
 
 # /instinct (`/in`)
 
 Talk to the **Instinct** assistant over **WhatsApp Web**, in an agent-owned Chrome profile, on the
-`jleechan@gmail.com` account. Modelled on `/dot`, but the transport is WhatsApp instead of ChatGPT.
+The Google account identity. Modelled on `/dot`, but the transport is WhatsApp instead of ChatGPT.
 
 `scripts/instinct.mjs` is a thin mechanical I/O pointer: `probe`, `read`, `open`, `send`, `whoami`.
 Every judgment call lives in this file.
@@ -80,7 +80,7 @@ live Chrome still holds the profile past the window.
   Use the script; do not hand-roll a Playwright launch against this dir.
 - **Never run `dot.sh restore-session`.** It wholesale-replaces the Cookies DB with `Cookies.snapshot`,
   which can predate the WhatsApp link and would silently unlink the device. Its `profile_is_idle` guard
-  is also broken (dangling-symlink test — bead `jleechan-5jzs`).
+  is also broken (dangling-symlink test — the Dot idle-check bead).
 - **Do not delete `SingletonLock`.** It is a dangling symlink by design; removing it while Chrome is
   live is how profiles corrupt. The script waits instead.
 - **Profile directory exclusivity still bans a *third* tool.** `~/.codex/AGENTS.md:332` forbids
@@ -91,7 +91,7 @@ live Chrome still holds the profile past the window.
 
 ### The account is still shared, the session is not
 
-`jleechan@gmail.com` is the identity behind both: the `jleechan` Dot account and this WhatsApp link.
+The same Google identity backs both the configured Dot account and this WhatsApp link.
 The profile is the browser state; the WhatsApp device link lives in that profile's IndexedDB for
 `web.whatsapp.com` and is the same linked device on every run.
 
@@ -213,7 +213,7 @@ WhatsApp rather than guessing variants.
   process. Treating that as "dead" would delete a live lock. Only `ESRCH` means gone.
 
 Both are fixed in `scripts/instinct.mjs`. The same `[[ -e ]]` flaw still exists in
-`~/.claude/skills/dot/scripts/dot.sh:357` (`profile_is_idle`) — tracked as bead `jleechan-5jzs`; it
+`~/.claude/skills/dot/scripts/dot.sh:357` (`profile_is_idle`) — tracked as the Dot idle-check bead; it
 means `restore-session` can pass its idle check while Chrome is live. Fix there belongs to `/dot`,
 not this skill.
 
@@ -313,8 +313,7 @@ its own pairing:
 ```bash
 # headless host: give it a virtual display, screenshot the QR, scan from the phone
 xvfb-run -a --server-args="-screen 0 1280x900x24" \
-  /home/jleechan/.nvm/versions/node/v22.23.1/bin/node \
-  ~/.claude/skills/instinct/scripts/instinct.mjs login
+  "$(command -v node)" ~/.claude/skills/instinct/scripts/instinct.mjs login
 ```
 
 `probe` is the only valid preflight on either host; a populated profile directory is not proof of a link.
