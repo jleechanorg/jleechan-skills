@@ -19,7 +19,10 @@ else:
 def _apply_replay_annotation(record, annotation):
     actor_kind = annotation.get("actor_kind")
     human_origin = annotation.get("human_origin")
-    if actor_kind in ("human", "automated_watch"):
+    if actor_kind == "unknown" or human_origin in ("unknown", "unverified_candidate"):
+        record["actor_kind"] = "unknown"
+        record["origin_status"] = "unverified_candidate"
+    elif actor_kind in ("human", "automated_watch"):
         record["actor_kind"] = actor_kind
         record["origin_status"] = (
             "excluded_automated"
@@ -31,6 +34,17 @@ def _apply_replay_annotation(record, annotation):
         record["origin_status"] = "excluded_automated"
     elif human_origin == "verified_human":
         record["origin_status"] = "verified_human"
+    # Explicit null is a reviewed retraction; absent keys leave historical
+    # metadata unchanged. Retractions apply before aggregation deduplicates IDs.
+    for key in (
+        "episode_id", "episode_role", "quality_label", "score_source", "review_id",
+        "context_pr_decision", "association_method", "annotation_confidence",
+        "effective_association_confidence", "original_association_basis",
+        "original_association_confidence", "message_kind", "human_nudge_eligible",
+        "score", "pr_binding",
+    ):
+        if key in annotation and annotation[key] is None:
+            record.pop(key, None)
     for key in (
         "episode_id", "episode_role", "quality_label", "score_source", "review_id",
         "context_pr_decision", "association_method", "annotation_confidence",
@@ -502,58 +516,8 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                             annotation = annotations.get(event_id)
                             if annotation is None:
                                 annotation = next((annotations[alias] for alias in aliases if alias in annotations), None)
-                            actor_kind = None
-                            if annotation:
-                                actor_kind = annotation.get("actor_kind")
-                                human_origin = annotation.get("human_origin")
-                                if actor_kind in ("human", "automated_watch"):
-                                    record["actor_kind"] = actor_kind
-                                    record["origin_status"] = (
-                                        "excluded_automated" if actor_kind == "automated_watch"
-                                        else "verified_human"
-                                    )
-                                elif human_origin in ("automated_watch", "automated_watch_excluded"):
-                                    record["actor_kind"] = "automated_watch"
-                                    record["origin_status"] = "excluded_automated"
-                                elif human_origin == "verified_human":
-                                    record["origin_status"] = "verified_human"
-                                controlled_fields = (
-                                    "episode_id", "episode_role", "quality_label", "score_source",
-                                    "review_id", "context_pr_decision", "association_method",
-                                    "annotation_confidence", "effective_association_confidence",
-                                    "original_association_basis", "original_association_confidence",
-                                )
-                                for key in controlled_fields:
-                                    value = _usage_label(annotation.get(key))
-                                    if value is not None:
-                                        record[key] = value
-                                for key in ("context_associated_pr", "effective_associated_pr",
-                                            "original_associated_pr"):
-                                    if key not in annotation:
-                                        continue
-                                    value = annotation[key]
-                                    if value is None:
-                                        record[key] = None
-                                    elif _safe_pr_id(value):
-                                        record[key] = value
-                                message_kinds = {
-                                    "initial_task", "new_requirement/domain_judgment",
-                                    "status_request", "continuation/followthrough_nudge",
-                                }
-                                if annotation.get("message_kind") in message_kinds:
-                                    record["message_kind"] = annotation["message_kind"]
-                                if isinstance(annotation.get("human_nudge_eligible"), bool):
-                                    record["human_nudge_eligible"] = annotation["human_nudge_eligible"]
-                                score = annotation.get("score")
-                                if isinstance(score, (int, float)) and not isinstance(score, bool) and math.isfinite(score):
-                                    record["score"] = score
-                                binding = annotation.get("pr_binding")
-                                if isinstance(binding, dict):
-                                    pr_id = binding.get("pr")
-                                    if _safe_pr_id(pr_id):
-                                        record["pr_binding"] = {key: binding[key] for key in
-                                            ("pr", "method", "weight") if key in binding and
-                                            isinstance(binding[key], (str, int, float))}
+                            if annotation is not None:
+                                _apply_replay_annotation(record, annotation)
                             automated = (
                                 record.get("actor_kind") == "automated_watch"
                                 or record.get("origin_status") == "excluded_automated"

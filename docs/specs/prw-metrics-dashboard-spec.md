@@ -370,3 +370,25 @@ metadata, against the 32 MiB hard limit before any Git write. If metadata itself
 exceeds that limit, publication fails explicitly without dropping records or
 committing a partial dashboard. Test-only part budgets are separate from this
 hard limit; production defaults bind both to 32 MiB.
+
+### Reviewed human-metadata retractions
+
+Exact-event annotations may retract prior unsupported metadata. Explicit
+actor_kind=unknown or human_origin=unknown/unverified_candidate marks the record
+as an unverified candidate, never an automated message. Explicit null clears
+optional episode/quality/review, message-kind/nudge, score and direct-PR-binding
+fields; omitted keys preserve prior values. Explicit context unassignment remains
+necessary to prevent branch fallback when no single PR is supported. Original
+source evidence and previous annotations remain in their immutable audit records.
+
+Fresh acquisition and normalized replay use one application function, before
+provider/event-ID deduplication. Every copy receives the correction; unrelated
+IDs and usage records are unchanged. Candidate counts are observations, not proof
+of human origin. UNKNOWN per-PR verified-message/episode totals must remain NULL
+in query results rather than become an asserted actual-human zero. Synthetic
+fresh/replay, duplicate, alias, omitted-field and query fixtures prove this boundary;
+no correction implies all other annotation rows are false.
+
+Risk: an incorrect reviewed correction can retract valid evidence, so only explicit
+fields on exact selected event IDs change; keep the previous feed and correction
+provenance. No new user interface is introduced, so visual mocks are not applicable.
