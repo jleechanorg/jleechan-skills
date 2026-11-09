@@ -228,3 +228,28 @@ See [User Story: PRW Metrics Dashboard](../user-stories/prw-metrics-dashboard.md
 | **Telemetry Loss Across Host Rotations** | Medium | Sanitized event logs (fixed scalar fields) and receipts are committed under `dashboards/prw/telemetry/` in `<org>/roadmap`, guaranteeing reproducible audit studies and deterministic rebuilds even when local Scratch is rotated. |
 | **Subjective Human Intervention Scoring** | Medium | Grounded in four strict semantic categories authored by model/human evaluation with cited evidence rationales, origin metadata checks (excluding bots), cross-annotator calibration, and explicit preservation of `unassigned` task episodes. |
 | **Host Sleep / Network Interruption** | Low | If the host is asleep or offline during a scheduled slot, the job runs on next wake; the previous dashboard remains intact and is explicitly stamped with its prior cutoff and `STALE` status. |
+
+## Usage Feed Slice
+
+The existing `scripts/prw_metrics.py` command accepts `--usage-events <jsonl>` and
+`--usage-rates <json>`. The JSONL feed contains native request usage wrappers with
+`request_id`, `message_id`, `timestamp`, `model`, `raw_usage`,
+and optional `usage_conflict` and `attributions`. Rates may be supplied as dated
+records or as a provider rate card keyed by exact model SKU.
+
+Supported native Anthropic usage fields include uncached input, cache reads, separate
+5 minute and 1 hour cache writes, and output. Reasoning is reported as a diagnostic
+subset included in output. Unknown SKUs, unsupported records, missing prices, and
+conflicts remain unknown. No per-PR share is inferred: only supported explicit
+attribution with evidence references and a rationale produces a PR subtotal; any
+remainder stays unallocated.
+
+The retention snapshot keeps sanitized token/cost totals and rate provenance and
+excludes prompts, responses, request paths, and rationale text. The rate card provides
+a public model-list equivalent, not actual invoice amounts. A single session feed is
+not a fleet or PR population. The cache-write TTL buckets remain separate and never
+use a generic cache-write price. The card's `standard_global_public_list_price` basis
+prices only events with explicit `standard` service tier, `global` inference geography,
+and `standard` speed. Missing or different metadata stays unpriced. Events are limited
+to the existing dashboard interval `[cutoff - 14 days, cutoff)`; outside-window and
+undated records are reported separately.
