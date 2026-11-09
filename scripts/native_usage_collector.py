@@ -3,8 +3,10 @@ import argparse
 import hashlib
 import json
 import math
+import re
 from datetime import timedelta
 from pathlib import Path
+from urllib.parse import urlparse
 
 if __package__:
     from .prw_metrics import _parse_utc_instant, _usage_count, _usage_label, format_iso_utc
@@ -18,9 +20,54 @@ def write_normalized_history(path, records):
     target.write_text("".join(json.dumps(row, sort_keys=True) + "\n" for row in records), encoding="utf-8")
 
 
-def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=None):
+_GITHUB_SLUG = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+
+
+def _repository_slug(value):
+    if not isinstance(value, str) or not value.strip():
+        return None
+    value = value.strip()
+    if _GITHUB_SLUG.fullmatch(value):
+        return value.lower()
+    parsed = urlparse(value)
+    if parsed.hostname not in ("github.com", "www.github.com"):
+        return None
+    slug = parsed.path.strip("/").removesuffix(".git")
+    return slug.lower() if _GITHUB_SLUG.fullmatch(slug) else None
+
+
+def _git_metadata(row, payload, repository_map):
+    meta = payload.get("meta")
+    meta = meta if isinstance(meta, dict) else {}
+    branch = row.get("gitBranch") or row.get("git_branch") or payload.get("git_branch") or meta.get("git_branch")
+    commit = row.get("commit_hash") or payload.get("commit_hash") or meta.get("commit_hash")
+    repo_url = (row.get("repository_url") or payload.get("repository_url")
+                or meta.get("repository_url") or row.get("repositoryURL"))
+    repo = _repository_slug(repo_url)
+    source = "recorded_repository_url" if repo else None
+    basis = "recorded_repository_url" if repo else None
+    if not repo:
+        cwd = row.get("cwd") or payload.get("cwd") or meta.get("cwd")
+        mapped = repository_map.get(cwd) if isinstance(cwd, str) else None
+        repo = _repository_slug(mapped)
+        if repo:
+            source, basis = "cached_repository_map", "exact_recorded_cwd_lookup"
+    branch = (branch.strip() or None) if isinstance(branch, str) else None
+    commit = (commit.strip() or None) if isinstance(commit, str) else None
+    if branch and source is None:
+        source, basis = "recorded_git_branch", "exact_recorded_record"
+    result = {"git_branch": branch, "repository": repo, "branch_source": source,
+              "branch_basis": basis}
+    if commit:
+        result["commit_hash"] = commit
+    return result
+
+
+def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=None,
+                           repository_map=None):
     if cutoff.tzinfo is None or days <= 0:
         raise ValueError("An aware cutoff and positive window are required")
+    repository_map = repository_map if isinstance(repository_map, dict) else {}
     start = cutoff - timedelta(days=days)
     annotations, bindings = {}, {}
     if annotation_path:
@@ -36,7 +83,8 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                  files_scanned=0, duplicate_files=0, malformed_lines=0, read_errors=0,
                  outside_window_records=0, undated_records=0, usage_records_in_window=0,
                  duplicate_usage_records=0, human_candidates=0, human_verified=0,
-                 human_unannotated=0, pr_bound_usage_records=0)
+                 human_unannotated=0, pr_bound_usage_records=0,
+                 tool_result_records_excluded=0, context_records_excluded=0)
     stats["runtime_coverage"] = "Claude and Codex configured roots; other runtimes not collected"
     usage, humans, exported, seen_files, seen_usage = [], [], [], set(), set()
     for root in history_roots:
@@ -52,7 +100,7 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                 stats["duplicate_files"] += 1
                 continue
             seen_files.add(identity)
-            models, session = {}, None
+            models, session, session_git = {}, None, {}
             digest = hashlib.sha256()
             try:
                 with path.open("rb") as stream:
@@ -69,6 +117,7 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                             continue
                         if row.get("type") == "session_meta":
                             session = _usage_label(payload.get("id"))
+                            session_git = _git_metadata(row, payload, repository_map)
                         if row.get("type") == "turn_context" and payload.get("turn_id"):
                             models[payload["turn_id"]] = _usage_label(payload.get("model"))
                 fingerprint = "sha256:" + digest.hexdigest()
@@ -92,6 +141,15 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                         codex_user = kind == "response_item" and payload.get("role") == "user"
                         if not any((claude_usage, codex_usage, claude_user, codex_user)):
                             continue
+                        content = message.get("content")
+                        if claude_user and isinstance(content, list) and any(
+                            isinstance(block, dict) and block.get("type") == "tool_result" for block in content
+                        ):
+                            stats["tool_result_records_excluded"] += 1
+                            continue
+                        if claude_user and row.get("isMeta") is True:
+                            stats["context_records_excluded"] += 1
+                            continue
                         at = _parse_utc_instant(row.get("timestamp"))
                         if at is None:
                             stats["undated_records"] += 1
@@ -105,6 +163,18 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                         turn = _usage_label(payload.get("turn_id"))
                         common = dict(timestamp=format_iso_utc(at), provider=provider,
                                       session_id=namespace, turn_id=turn, source_fingerprint=fingerprint)
+                        if codex_usage or codex_user:
+                            git_metadata = _git_metadata(row, payload, repository_map)
+                            git_metadata = {key: value for key, value in git_metadata.items() if value is not None}
+                            for key in ("git_branch", "repository", "commit_hash"):
+                                if not git_metadata.get(key) and session_git.get(key):
+                                    git_metadata[key] = session_git[key]
+                                    git_metadata["branch_source"] = session_git.get("branch_source") or "session_meta"
+                                    git_metadata["branch_basis"] = session_git.get("branch_basis") or "session_git_metadata"
+                        else:
+                            git_metadata = _git_metadata(row, {}, repository_map)
+                            git_metadata = {key: value for key, value in git_metadata.items() if value is not None}
+                        common.update(git_metadata)
                         if claude_usage or codex_usage:
                             raw = payload["usage"] if codex_usage else message["usage"]
                             request = payload.get("response_id") or row.get("response_id") if codex_usage else row.get("requestId")
@@ -148,16 +218,25 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                             exported.append(dict(record, record_type="usage"))
                             stats["usage_records_in_window"] += 1
                         else:
-                            event_id = _usage_label(payload.get("id") if codex_user else row.get("promptId") or row.get("uuid"))
+                            aliases = []
+                            event_id = _usage_label(row.get("uuid") or row.get("promptId") or payload.get("id"))
+                            for alias in (payload.get("id"), row.get("promptId"), row.get("uuid")):
+                                alias = _usage_label(alias)
+                                if alias and alias != event_id and alias not in aliases:
+                                    aliases.append(alias)
                             event_id = event_id or namespace + ":" + str(ordinal)
                             origin = row.get("origin", {})
                             origin = origin if isinstance(origin, dict) else {}
                             verified = claude_user and (origin.get("kind") == "human" or row.get("turnOrigin") == "human" or row.get("userType") == "human")
                             record = dict(common, event_id=event_id,
                                           origin_status="verified_human" if verified else "unverified_candidate")
+                            if aliases:
+                                record["event_id_aliases"] = aliases
                             if claude_user:
                                 record["prompt_source"] = _usage_label(row.get("promptSource"))
                             annotation = annotations.get(event_id)
+                            if annotation is None:
+                                annotation = next((annotations[alias] for alias in aliases if alias in annotations), None)
                             if annotation:
                                 if annotation.get("human_origin") == "verified_human":
                                     record["origin_status"] = "verified_human"
