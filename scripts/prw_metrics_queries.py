@@ -7,7 +7,10 @@ from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
 
-from scripts.prw_metrics import format_iso_utc, parse_iso_utc
+try:
+    from scripts.prw_metrics import format_iso_utc, parse_iso_utc
+except ModuleNotFoundError:
+    from prw_metrics import format_iso_utc, parse_iso_utc
 
 
 def _load_jsonl_table(connection, table_name, path):
@@ -16,6 +19,14 @@ def _load_jsonl_table(connection, table_name, path):
             f"CREATE TEMP TABLE {table_name} AS "
             "SELECT NULL::JSON AS json WHERE FALSE"
         )
+        return
+    if isinstance(path, list):
+        connection.execute(f"CREATE TEMP TABLE {table_name} (json JSON)")
+        if path:
+            connection.executemany(
+                f"INSERT INTO {table_name} VALUES (CAST(? AS JSON))",
+                [(json.dumps(row, default=_native_value),) for row in path],
+            )
         return
     source = Path(path)
     if not source.is_file():
@@ -34,8 +45,11 @@ def _load_human_summary(connection, path):
             "SELECT '{}'::JSON AS json"
         )
         return
-    source = Path(path)
-    payload = json.loads(source.read_text(encoding="utf-8"))
+    if isinstance(path, dict):
+        payload = path
+    else:
+        source = Path(path)
+        payload = json.loads(source.read_text(encoding="utf-8"))
     connection.execute(
         "CREATE TEMP TABLE prw_input_human_summary AS "
         "SELECT CAST(? AS JSON) AS json",

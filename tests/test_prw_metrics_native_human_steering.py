@@ -375,3 +375,35 @@ class NativeHumanSteeringTests(unittest.TestCase):
         self.assertEqual(pr5["direct_verified_messages"], 0)
         self.assertEqual(pr5["direct_candidates"], 1)
         self.assertEqual(pr5["coverage_status"], "CANDIDATE_ONLY")
+
+    def test_context_alias_assigns_and_unassigned_blocks_branch_fallback(self):
+        pr606 = "jleechanorg/jleechan-skills#606"
+        event = {
+            "event_id": "2c0a5389-51ed-4081-9516-6af6b85e73ee",
+            "provider": "openai", "timestamp": "2026-10-05T10:00:00Z",
+            "actor_kind": "human", "origin_status": "verified_human",
+            "message_kind": "continuation/followthrough_nudge",
+            "human_nudge_eligible": True, "episode_id": "ep12",
+            "context_pr_decision": "context_associated",
+            "context_associated_pr": pr606, "effective_associated_pr": pr606,
+        }
+        unassigned = {
+            "event_id": "explicit-unassigned", "provider": "openai",
+            "timestamp": "2026-10-05T11:00:00Z", "actor_kind": "human",
+            "origin_status": "verified_human",
+            "message_kind": "continuation/followthrough_nudge",
+            "human_nudge_eligible": True, "episode_id": "ep13",
+            "context_pr_decision": "unassigned_multi_pr",
+            "context_associated_pr": None, "repository": "example/repo",
+            "git_branch": "topic",
+        }
+        result = aggregate_native_human_steering(
+            [event, unassigned], self.prs,
+            window_start="2026-10-01T00:00:00Z",
+            window_end="2026-10-20T00:00:00Z", source_stats=self.stats,
+        )
+        row = next(item for item in result["per_pr"] if item["pr"] == pr606)
+        self.assertEqual(row["context_associated_verified_messages"], 1)
+        self.assertEqual(row["human_nudge_messages"], 1)
+        self.assertEqual(result["coverage"]["unassigned_nudge_episodes"], 1)
+        self.assertEqual(result["coverage"]["human_nudge_messages"], 2)

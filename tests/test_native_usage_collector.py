@@ -8,7 +8,9 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 
-from scripts.native_usage_collector import collect_native_history, write_normalized_history
+from scripts.native_usage_collector import (
+    collect_native_history, load_normalized_history, write_normalized_history,
+)
 from scripts.prw_metrics import (
     _sanitize_usage_event_record,
     _usage_event_record,
@@ -279,7 +281,8 @@ class NativeUsageCollectorTests(unittest.TestCase):
         proc = subprocess.run(
             [sys.executable, str(script), "--offline", "--history-root", str(self.codex),
              "--cutoff", "2026-11-10T00:00:00Z", "--days", "14",
-             "--history-annotations", str(annotations), "--pr-lookup-cache", str(lookup),
+             "--history-annotations", str(annotations),
+             "--pr-lookup-cache", str(lookup),
              "--repository-map", str(repository_map),
              "--history-export", str(exported), "--output", str(report)],
             cwd=caller, check=True, capture_output=True, text=True, timeout=30,
@@ -302,6 +305,41 @@ class NativeUsageCollectorTests(unittest.TestCase):
         self.assertEqual(len(load_usage_events(str(exported))), 1)
         self.assertNotIn(secret, export)
         self.assertNotIn(str(self.codex), export)
+
+        replay = load_normalized_history(
+            exported, cutoff=self.cutoff, days=14, annotation_path=annotations,
+        )
+        self.assertEqual(replay["stats"]["status"], "REPLAYED")
+        exported_usage = next(
+            row for row in map(json.loads, export.splitlines())
+            if row["record_type"] == "usage"
+        )
+        self.assertEqual(
+            replay["usage_records"][0]["source_fingerprint"],
+            exported_usage["source_fingerprint"],
+        )
+        self.assertEqual(replay["human_records"][0]["pr_binding"]["pr"],
+                         "example/repo#5")
+        self.assertEqual(replay["human_records"][0]["origin_status"], "verified_human")
+
+        replay_report = self.base / "out" / "replay-dashboard.md"
+        replay_proc = subprocess.run(
+            [sys.executable, str(script), "--offline",
+             "--cutoff", "2026-11-10T00:00:00Z",
+             "--days", "14", "--history-replay", str(exported),
+             "--history-annotations", str(annotations),
+             "--pr-lookup-cache", str(lookup),
+             "--output", str(replay_report)],
+            cwd=caller, check=False, capture_output=True, text=True, timeout=60,
+        )
+        self.assertEqual(replay_proc.returncode, 0, replay_proc.stderr)
+        replay_dashboard = replay_report.read_text(encoding="utf-8")
+        self.assertIn("Native history replay: REPLAYED", replay_dashboard)
+        self.assertIn("## PRW Query Metrics (DuckDB)", replay_dashboard)
+        self.assertIn("### Per-PR direct token totals", replay_dashboard)
+        self.assertIn("example/repo#5", replay_dashboard)
+        self.assertIn("Observed Native Human Activity by PR", replay_dashboard)
+        self.assertNotIn(str(self.codex), replay_dashboard)
 
     def test_all_roots_and_source_errors_are_reported_without_paths(self):
         self._write(self.claude, "session.jsonl", [

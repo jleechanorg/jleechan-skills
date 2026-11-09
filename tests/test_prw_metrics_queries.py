@@ -5,7 +5,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.prw_metrics import aggregate_usage, load_rate_table
+from scripts.prw_metrics import (
+    _merge_pr_branch_metadata, aggregate_usage, load_rate_table,
+    render_prw_query_summary,
+)
 from scripts.prw_metrics_queries import run_query
 
 try:
@@ -698,6 +701,101 @@ class TestPRWMetricsQueries(unittest.TestCase):
         self.assertEqual(row["cost_status"], "UNKNOWN_NO_RATE_CARD")
         self.assertIsNone(row["list_equivalent_cost_amount"])
         self.assertIsNone(row["observed_cost_amount"])
+
+
+    def test_renderer_keeps_gfm_tables_structural_and_four_columns_max(self):
+        markdown = render_prw_query_summary({
+            "snapshot_at_utc": self.CUTOFF,
+            "window_start_utc": "2026-10-26T03:34:00Z",
+            "pr_metrics": [{
+                "repository": "example/repo", "pr_number": 5,
+                "direct_uncached_input_tokens": 10,
+                "direct_cache_read_input_tokens": 2, "direct_output_tokens": 3,
+                "direct_cache_write_5m_input_tokens": 1,
+                "direct_cache_write_1h_input_tokens": 0,
+                "direct_total_tokens": 16, "direct_usage_observation_count": 1,
+                "direct_request_total_tokens_average": 16,
+                "direct_request_total_tokens_p50": 16,
+                "direct_request_total_tokens_p90": 16,
+                "direct_request_total_tokens_p99": 16,
+                "direct_request_total_tokens_n": 1,
+                "raw_verified_human_message_count": 3,
+                "verified_initial_human_message_count": 1,
+                "reviewed_followup_episode_count": 2,
+            }],
+            "metric_cohorts": [{
+                "cohort_definition": "all_14d_merges", "metric_family": "direct_usage",
+                "measure": "total_tokens", "average": 16, "p50": 16,
+                "p90": 16, "p99": 16, "observation_n": 1,
+            }],
+            "catalog_scenario_pr_metrics": [{
+                "pr": "example/repo#5", "model_id": "model-a",
+                "scenario_status": "PARTIAL_UNKNOWN_COMPONENTS",
+                "known_component_subtotal_usd": "0.000001",
+                "scenario_cost_usd": None,
+            }],
+        })
+        self.assertIn("Average / p50", markdown)
+        self.assertIn("PARTIAL_UNKNOWN_COMPONENTS", markdown)
+        self.assertIn("0.000001", markdown)
+        lines = markdown.splitlines()
+        for index, line in enumerate(lines[:-1]):
+            if not line.startswith("|") or not lines[index + 1].startswith("|---"):
+                continue
+            columns = line.count("|") - 1
+            self.assertLessEqual(columns, 4)
+            row_index = index + 2
+            while row_index < len(lines) and lines[row_index].startswith("|"):
+                self.assertEqual(lines[row_index].count("|") - 1, columns)
+                row_index += 1
+
+    def test_query_accepts_canonical_in_memory_events_and_human_summary(self):
+        pr = "example-org/repo-alpha#1"
+        events = [self._event(
+            "sha256:in-memory", pr,
+            {"input_uncached": 10, "cache_read": 0, "cache_write_5m": 0,
+             "cache_write_1h": 0, "output": 5},
+            2.0,
+        )]
+        prs = [{
+            "repo": "example-org/repo-alpha", "number": 1, "state": "MERGED",
+            "createdAt": "2026-11-02T00:00:00Z",
+            "mergedAt": "2026-11-02T10:00:00Z",
+        }]
+        result = run_query(
+            events_path=events, pr_snapshots_path=prs,
+            human_summary_path={"coverage": {}, "per_pr": []},
+            snapshot_at_utc=self.CUTOFF,
+        )
+        row = result["pr_metrics"][0]
+        self.assertEqual(row["direct_uncached_input_tokens"], 10)
+        self.assertEqual(row["direct_total_tokens"], 15)
+        self.assertEqual(row["direct_request_total_tokens_n"], 1)
+
+
+
+    def test_pr_lookup_fills_missing_fields_without_replacing_primary_snapshot(self):
+        primary = [{
+            "repo": "example/repo", "number": 7, "state": "OPEN",
+            "headRefName": "live-branch", "createdAt": "2026-11-01T00:00:00Z",
+        }]
+        cached = [{
+            "repo": "example/repo", "number": 7, "state": "CLOSED",
+            "headRefName": "cached-branch", "headRefOid": "cached-sha",
+            "createdAt": "2026-10-01T00:00:00Z", "closedAt": "2026-10-02T00:00:00Z",
+        }, {
+            "repo": "example/repo", "number": 8, "state": "OPEN",
+            "createdAt": "2026-11-02T00:00:00Z",
+        }]
+        merged = _merge_pr_branch_metadata(primary, cached)
+        pr7 = next(row for row in merged if row["number"] == 7)
+        pr8 = next(row for row in merged if row["number"] == 8)
+        self.assertEqual(pr7["state"], "OPEN")
+        self.assertEqual(pr7["headRefName"], "live-branch")
+        self.assertEqual(pr7["createdAt"], "2026-11-01T00:00:00Z")
+        self.assertEqual(pr7["headRefOid"], "cached-sha")
+        self.assertEqual(pr8["state"], "OPEN")
+
 
 
 if __name__ == "__main__":

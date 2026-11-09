@@ -4,7 +4,7 @@ import hashlib
 import json
 import math
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -12,6 +12,183 @@ if __package__:
     from .prw_metrics import _parse_utc_instant, _safe_pr_id, _usage_count, _usage_label, format_iso_utc
 else:
     from prw_metrics import _parse_utc_instant, _safe_pr_id, _usage_count, _usage_label, format_iso_utc
+
+
+def _apply_replay_annotation(record, annotation):
+    actor_kind = annotation.get("actor_kind")
+    human_origin = annotation.get("human_origin")
+    if actor_kind in ("human", "automated_watch"):
+        record["actor_kind"] = actor_kind
+        record["origin_status"] = (
+            "excluded_automated"
+            if actor_kind == "automated_watch"
+            else "verified_human"
+        )
+    elif human_origin in ("automated_watch", "automated_watch_excluded"):
+        record["actor_kind"] = "automated_watch"
+        record["origin_status"] = "excluded_automated"
+    elif human_origin == "verified_human":
+        record["origin_status"] = "verified_human"
+    for key in (
+        "episode_id", "episode_role", "quality_label", "score_source", "review_id",
+        "context_pr_decision", "association_method", "annotation_confidence",
+        "effective_association_confidence", "original_association_basis",
+        "original_association_confidence",
+    ):
+        value = annotation.get(key)
+        if isinstance(value, str) and value:
+            record[key] = value
+    for key in (
+        "context_associated_pr", "effective_associated_pr", "original_associated_pr",
+    ):
+        if key in annotation:
+            value = annotation[key]
+            if value is None or _safe_pr_id(value):
+                record[key] = value
+    if annotation.get("message_kind") in {
+        "initial_task", "new_requirement/domain_judgment", "status_request",
+        "continuation/followthrough_nudge",
+    }:
+        record["message_kind"] = annotation["message_kind"]
+    if isinstance(annotation.get("human_nudge_eligible"), bool):
+        record["human_nudge_eligible"] = annotation["human_nudge_eligible"]
+    score = annotation.get("score")
+    if (
+        isinstance(score, (int, float))
+        and not isinstance(score, bool)
+        and math.isfinite(score)
+    ):
+        record["score"] = score
+    binding = annotation.get("pr_binding")
+    if isinstance(binding, dict) and _safe_pr_id(binding.get("pr")):
+        record["pr_binding"] = {
+            key: binding[key] for key in ("pr", "method", "weight")
+            if key in binding and isinstance(binding[key], (str, int, float))
+        }
+
+
+def _load_replay_annotations(path):
+    annotations = {}
+    if path:
+        lines = Path(path).read_text(encoding="utf-8").splitlines()
+        for line_number, line in enumerate(lines, 1):
+            if not line.strip():
+                continue
+            try:
+                item = json.loads(line)
+            except ValueError as exc:
+                raise ValueError(
+                    f"annotation line {line_number} is invalid JSON"
+                ) from exc
+            if not isinstance(item, dict):
+                raise ValueError(f"annotation line {line_number} must be an object")
+            event_id = item.get("event_id")
+            if isinstance(event_id, str) and event_id:
+                annotations[event_id] = item
+    return annotations
+
+
+def load_normalized_history(path, cutoff, days=14, annotation_path=None):
+    """Replay a typed normalized export without reopening native history sources."""
+    if isinstance(cutoff, datetime) and cutoff.tzinfo:
+        cutoff = cutoff.astimezone(timezone.utc)
+    else:
+        cutoff = _parse_utc_instant(cutoff)
+    if cutoff is None or days <= 0:
+        raise ValueError(
+            "normalized history replay requires a UTC cutoff and positive days"
+        )
+    start = cutoff - timedelta(days=days)
+    usage, humans, exported = [], [], []
+    stats = dict(
+        roots_requested=0, roots_available=0, missing_roots=0, files_scanned=0,
+        duplicate_files=0, malformed_lines=0, read_errors=0,
+        outside_window_records=0, undated_records=0, usage_records_in_window=0,
+        duplicate_usage_records=0, human_candidates=0, human_verified=0,
+        human_unannotated=0, automated_excluded_messages=0,
+        pr_bound_usage_records=0, tool_result_records_excluded=0,
+        context_records_excluded=0, status="REPLAYED",
+        runtime_coverage=(
+            "Claude and Codex normalized export; source roots were not reopened"
+        ),
+        window_start=format_iso_utc(start), window_end=format_iso_utc(cutoff),
+    )
+    annotations = _load_replay_annotations(annotation_path)
+    seen_usage = set()
+    with Path(path).open(encoding="utf-8") as stream:
+        for line_number, line in enumerate(stream, 1):
+            if not line.strip():
+                continue
+            try:
+                record = json.loads(line)
+            except (ValueError, UnicodeError) as exc:
+                raise ValueError(
+                    f"normalized history line {line_number} is invalid JSON"
+                ) from exc
+            if (
+                not isinstance(record, dict)
+                or record.get("record_type") not in ("usage", "human")
+            ):
+                raise ValueError(
+                    f"normalized history line {line_number} has an "
+                    "unsupported record type"
+                )
+            if record["record_type"] == "human":
+                annotation = annotations.get(record.get("event_id"))
+                if annotation is None:
+                    aliases = record.get("event_id_aliases")
+                    aliases = aliases if isinstance(aliases, list) else []
+                    annotation = next(
+                        (
+                            annotations[alias]
+                            for alias in aliases
+                            if alias in annotations
+                        ),
+                        None,
+                    )
+                if annotation is not None:
+                    record = dict(record)
+                    _apply_replay_annotation(record, annotation)
+            at = _parse_utc_instant(record.get("timestamp"))
+            if at is None:
+                stats["undated_records"] += 1
+                continue
+            if not start <= at < cutoff:
+                stats["outside_window_records"] += 1
+                continue
+            exported.append(record)
+            if record["record_type"] == "usage":
+                identity = (record.get("provider"), record.get("request_id"))
+                if identity[1] and identity in seen_usage:
+                    stats["duplicate_usage_records"] += 1
+                elif identity[1]:
+                    seen_usage.add(identity)
+                usage.append(record)
+                stats["usage_records_in_window"] += 1
+                stats["pr_bound_usage_records"] += bool(record.get("attributions"))
+            else:
+                humans.append(record)
+                automated = (
+                    record.get("actor_kind") == "automated_watch"
+                    or record.get("origin_status") == "excluded_automated"
+                )
+                stats["automated_excluded_messages"] += automated
+                if not automated:
+                    stats["human_candidates"] += 1
+                    verified = (
+                        record.get("actor_kind") == "human"
+                        or record.get("origin_status") == "verified_human"
+                    )
+                    stats["human_verified"] += verified
+                    stats["human_unannotated"] += (
+                        record.get("origin_status") == "unverified_candidate"
+                    )
+    return {
+        "usage_records": usage,
+        "human_records": humans,
+        "export_records": exported,
+        "stats": stats,
+    }
 
 
 def write_normalized_history(path, records):

@@ -3809,7 +3809,7 @@ def _merge_pr_branch_metadata(prs, cached_prs):
             continue
         current = merged.setdefault(key, dict(pr))
         for field in branch_fields:
-            if pr.get(field) not in (None, ""):
+            if current.get(field) in (None, "") and pr.get(field) not in (None, ""):
                 current[field] = pr[field]
     return [merged[key] for key in sorted(merged)]
 
@@ -3991,7 +3991,7 @@ def aggregate_native_human_steering(
         elif context_decision in context_unassigned:
             coverage["reviewed_unassigned_messages"] += 1
             coverage[context_unassigned[context_decision]] += 1
-        elif context_decision in ("confirm_original", "override"):
+        elif context_decision in ("confirm_original", "override", "context_associated"):
             context_pr = event.get("effective_associated_pr") or event.get("context_associated_pr")
             if context_decision == "confirm_original":
                 context_pr = context_pr or event.get("original_associated_pr")
@@ -4613,12 +4613,33 @@ def main():
         "--history-root", "--usage-source-dir", dest="history_roots", action="append",
         metavar="PATH", help="Explicit Claude or Codex native history root; repeat for every configured root",
     )
+    parser.add_argument(
+        "--history-replay", action="append",
+        help=(
+            "Replay a typed --history-export JSONL without scanning source roots; "
+            "repeat to combine exports"
+        ),
+    )
     parser.add_argument("--history-annotations", help="Reviewed human metadata and PR bindings JSONL sidecar")
     parser.add_argument("--history-export", help="Write deterministic normalized usage and human metadata JSONL")
     parser.add_argument("--repository-map", help="Exact cwd-to-repository map for native history roots")
     parser.add_argument("--pr-lookup-cache", help="Cached PR branch and lifecycle metadata JSON")
     parser.add_argument("--days", type=int, default=14, help="History source window length in days (default: 14)")
     parser.add_argument("--usage-rates", help="JSON file with dated rate-card pricing; absent feed flags reuse retained telemetry")
+    parser.add_argument(
+        "--query-metrics", action="store_true",
+        help=(
+            "Run DuckDB PR/token/human metrics; requires DuckDB in the active "
+            "Python environment"
+        ),
+    )
+    parser.add_argument(
+        "--scenario-catalog",
+        help=(
+            "Optional exact-model public-list scenario catalog, separate from "
+            "dated --usage-rates"
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -4635,16 +4656,31 @@ def main():
     history_data = None
     repository_map = None
     pr_lookup_cache = None
-    if history_roots:
+    if history_roots and args.history_replay:
+        parser.error("choose either --history-root or --history-replay")
+    if args.history_replay and (args.history_export or args.repository_map):
+        parser.error(
+            "replay does not rescan sources; source maps and exports "
+            "are only valid with --history-root"
+        )
+    if history_roots or args.history_replay:
         history_cutoff = _parse_utc_instant(args.cutoff) if args.cutoff else cutoff_dt
         if history_cutoff is None:
             parser.error("history cutoff must be a valid UTC-aware instant")
         if args.days <= 0:
             parser.error("--days must be a positive integer")
         try:
-            from scripts.native_usage_collector import collect_native_history, write_normalized_history
+            from scripts.native_usage_collector import (
+                collect_native_history,
+                load_normalized_history,
+                write_normalized_history,
+            )
         except ModuleNotFoundError:
-            from native_usage_collector import collect_native_history, write_normalized_history
+            from native_usage_collector import (
+                collect_native_history,
+                load_normalized_history,
+                write_normalized_history,
+            )
         if args.repository_map:
             with open(args.repository_map, encoding="utf-8") as stream:
                 repository_map_payload = json.load(stream)
@@ -4670,18 +4706,49 @@ def main():
                 pr_lookup_cache = json.load(stream)
             if not isinstance(pr_lookup_cache, dict) or not isinstance(pr_lookup_cache.get("prs"), list):
                 parser.error("--pr-lookup-cache must contain a JSON object with a prs list")
-        history_data = collect_native_history(
-            history_roots,
-            cutoff=history_cutoff,
-            days=args.days,
-            annotation_path=args.history_annotations,
-            repository_map=repository_map,
-        )
+        if args.history_replay:
+            history_data = {
+                "usage_records": [], "human_records": [], "export_records": [],
+                "stats": None,
+            }
+            for replay_path in args.history_replay:
+                replay = load_normalized_history(
+                    replay_path, cutoff=history_cutoff, days=args.days,
+                    annotation_path=args.history_annotations,
+                )
+                for key in ("usage_records", "human_records", "export_records"):
+                    history_data[key].extend(replay[key])
+                if history_data["stats"] is None:
+                    history_data["stats"] = replay["stats"]
+                else:
+                    for key, value in replay["stats"].items():
+                        if isinstance(value, int) and not isinstance(value, bool):
+                            history_data["stats"][key] += value
+            seen_replay_usage = set()
+            duplicate_replay_usage = 0
+            for row in history_data["usage_records"]:
+                identity = (row.get("provider"), row.get("request_id"))
+                if identity[1] and identity in seen_replay_usage:
+                    duplicate_replay_usage += 1
+                elif identity[1]:
+                    seen_replay_usage.add(identity)
+            history_data["stats"]["duplicate_usage_records"] = duplicate_replay_usage
+        else:
+            history_data = collect_native_history(
+                history_roots,
+                cutoff=history_cutoff,
+                days=args.days,
+                annotation_path=args.history_annotations,
+                repository_map=repository_map,
+            )
         if repository_map is not None:
             history_data["stats"]["repository_map_entries"] = len(repository_map)
         if args.history_export:
             write_normalized_history(args.history_export, history_data["export_records"])
-    elif args.history_annotations or args.history_export or args.repository_map or args.pr_lookup_cache:
+    elif (
+        args.history_annotations or args.history_export or args.repository_map
+        or args.pr_lookup_cache or args.history_replay
+    ):
         parser.error("history annotations, exports, and PR lookup inputs require --history-root")
 
     collector = Collector(repos=repos, cutoff_dt=cutoff_dt)
@@ -4745,10 +4812,12 @@ def main():
 
     if collected.get("status") in ("FAILED", "PARTIAL_FAILURE"):
         summary_data["status"] = collected["status"]
+    query_prs = prs
     if history_data:
         branch_prs = _merge_pr_branch_metadata(
             prs, pr_lookup_cache.get("prs", []) if pr_lookup_cache else []
         )
+        query_prs = branch_prs
         steering_stats = dict(history_data["stats"])
         if pr_lookup_cache:
             cache_meta = pr_lookup_cache.get("cache")
@@ -4764,12 +4833,32 @@ def main():
             source_stats=steering_stats,
         )
 
+    query_summary = None
+    if args.query_metrics or args.scenario_catalog or args.history_replay:
+        try:
+            from scripts.prw_metrics_queries import run_query
+        except ModuleNotFoundError:
+            from prw_metrics_queries import run_query
+        query_summary = run_query(
+            events_path=usage_summary["query_events"] if usage_summary else [],
+            pr_snapshots_path=query_prs or [],
+            snapshot_at_utc=format_iso_utc(cutoff_dt),
+            human_summary_path=summary_data.get("human_summary"),
+            rate_catalog_path=args.scenario_catalog,
+        )
+
     renderer = DashboardRenderer()
     md_output = renderer.render(summary_data)
     if usage_summary is not None:
         md_output = md_output.replace(
             "## 6. Definitions & Limitations",
             "\n".join(render_usage_summary(usage_summary)) + "\n\n## 6. Definitions & Limitations",
+        )
+    if query_summary is not None:
+        md_output = md_output.replace(
+            "## 6. Definitions & Limitations",
+            render_prw_query_summary(query_summary)
+            + "\n\n## 6. Definitions & Limitations",
         )
 
     if args.output:
@@ -5486,6 +5575,126 @@ def aggregate_usage(raw_events, rates, window_start=None, window_end=None):
     }
 
 
+def render_prw_query_summary(result):
+    """Render existing query results with compact per-PR tables."""
+    lines = [
+        "## PRW Query Metrics (DuckDB)", "",
+        f"Window: {result['window_start_utc']} through "
+        f"{result['snapshot_at_utc']} (14 days).",
+        "Query cohorts use observed records only; missing fields remain UNKNOWN.", "",
+    ]
+
+    def show(value):
+        return "UNKNOWN" if value is None else value
+
+    def table(title, headers, rows):
+        if not rows:
+            return
+        lines.extend([
+            f"### {title}", "", "| " + " | ".join(headers) + " |",
+            "|" + "|".join("---" for _ in headers) + "|",
+        ])
+        lines.extend(
+            "| " + " | ".join(str(value) for value in row) + " |"
+            for row in rows
+        )
+        lines.append("")
+
+    metrics = result.get("pr_metrics", [])
+
+    def pr_label(row):
+        return f"{row.get('repository', 'UNKNOWN')}#{row.get('pr_number', 'UNKNOWN')}"
+
+    table(
+        "Per-PR direct token totals",
+        ["PR", "Uncached input", "Cache read", "Output"],
+        [
+        (
+            pr_label(row), show(row.get("direct_uncached_input_tokens")),
+            show(row.get("direct_cache_read_input_tokens")),
+            show(row.get("direct_output_tokens")),
+        ) for row in metrics
+        ],
+    )
+
+    def cache_write_total(row):
+        short = row.get("direct_cache_write_5m_input_tokens")
+        long = row.get("direct_cache_write_1h_input_tokens")
+        if isinstance(short, (int, float)) and isinstance(long, (int, float)):
+            return short + long
+        return "UNKNOWN"
+
+    table(
+        "Per-PR cache writes and request totals",
+        ["PR", "Cache write", "Total tokens", "Requests"],
+        [
+        (
+            pr_label(row), cache_write_total(row),
+            show(row.get("direct_total_tokens")),
+            show(row.get("direct_usage_observation_count")),
+        ) for row in metrics
+        ],
+    )
+    table(
+        "Per-PR request token distribution",
+        ["PR", "Average / p50", "p90 / p99", "N"],
+        [
+        (
+            pr_label(row),
+            f"{show(row.get('direct_request_total_tokens_average'))} / "
+            f"{show(row.get('direct_request_total_tokens_p50'))}",
+            f"{show(row.get('direct_request_total_tokens_p90'))} / "
+            f"{show(row.get('direct_request_total_tokens_p99'))}",
+            show(row.get("direct_request_total_tokens_n")),
+        ) for row in metrics
+        ],
+    )
+    table(
+        "Per-PR human steering",
+        ["PR", "Verified messages", "Initial requests", "Follow-up episodes"],
+        [
+        (
+            pr_label(row), show(row.get("raw_verified_human_message_count")),
+            show(row.get("verified_initial_human_message_count")),
+            show(row.get("reviewed_followup_episode_count")),
+        ) for row in metrics
+        ],
+    )
+
+    scenarios = result.get("catalog_scenario_pr_metrics", [])
+    table(
+        "Public-list scenarios (not actual billing)",
+        ["PR / model", "Status", "Known subtotal USD", "Scenario USD"],
+        [
+        (
+            f"{row.get('pr', 'UNKNOWN')} / {row.get('model_id', 'UNKNOWN')}",
+            show(row.get("scenario_status")),
+            show(row.get("known_component_subtotal_usd")),
+            show(row.get("scenario_cost_usd")),
+        ) for row in scenarios
+        ],
+    )
+    if not scenarios:
+        lines.extend(["No exact-model public-list scenario catalog was supplied.", ""])
+
+    cohorts = result.get("metric_cohorts", [])
+    table(
+        "Query cohort distributions",
+        ["Cohort / metric", "Average / p50", "p90 / p99", "N"],
+        [
+        (
+            f"{row.get('cohort_definition', 'UNKNOWN')} / "
+            f"{row.get('metric_family', 'UNKNOWN')}:"
+            f"{row.get('measure', 'UNKNOWN')}",
+            f"{show(row.get('average'))} / {show(row.get('p50'))}",
+            f"{show(row.get('p90'))} / {show(row.get('p99'))}",
+            show(row.get("observation_n")),
+        ) for row in cohorts
+        ],
+    )
+    return "\n".join(lines).rstrip()
+
+
 def render_usage_summary(summary):
     cost = summary["known_cost_usd"]
     priced_cost = (f"${cost:.7f} USD" if summary["priced_event_count"] or summary["partially_priced_event_count"]
@@ -5511,8 +5720,12 @@ def render_usage_summary(summary):
             )
         )
         native_scope = native_source.get("runtime_coverage", "runtime coverage UNKNOWN")
+        source_label = (
+            "Native history replay" if native_status == "REPLAYED"
+            else "Native source acquisition"
+        )
         native_line = (
-            f"- Native source acquisition: {native_status} ({native_counts}); "
+            f"- {source_label}: {native_status} ({native_counts}); "
             f"scope: {native_scope}."
         )
     else:
