@@ -5674,14 +5674,20 @@ def render_prw_query_summary(result):
         ) for row in metrics
         ],
     )
+
+    def human_count(row, field):
+        if row.get("human_coverage_status") in (None, "UNKNOWN"):
+            return "UNKNOWN"
+        return show(row.get(field))
+
     table(
         "Per-PR human steering",
         ["PR", "Verified messages", "Initial requests", "Follow-up episodes"],
         [
         (
-            pr_label(row), show(row.get("raw_verified_human_message_count")),
-            show(row.get("verified_initial_human_message_count")),
-            show(row.get("reviewed_followup_episode_count")),
+            pr_label(row), human_count(row, "raw_verified_human_message_count"),
+            human_count(row, "verified_initial_human_message_count"),
+            human_count(row, "reviewed_followup_episode_count"),
         ) for row in metrics
         ],
     )

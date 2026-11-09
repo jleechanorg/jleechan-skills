@@ -869,6 +869,32 @@ class TestPRWMetricsQueries(unittest.TestCase):
                 self.assertEqual(lines[row_index].count("|") - 1, columns)
                 row_index += 1
 
+    def test_renderer_preserves_unknown_and_observed_zero_human_coverage(self):
+        markdown = render_prw_query_summary({
+            "snapshot_at_utc": self.CUTOFF,
+            "window_start_utc": "2026-10-26T03:34:00Z",
+            "pr_metrics": [
+                {
+                    "repository": "example/repo", "pr_number": 5,
+                    "human_coverage_status": "UNKNOWN",
+                    "raw_verified_human_message_count": 0,
+                    "verified_initial_human_message_count": 0,
+                    "reviewed_followup_episode_count": 0,
+                },
+                {
+                    "repository": "example/repo", "pr_number": 6,
+                    "human_coverage_status": "OBSERVED_SCOPE_ONLY",
+                    "raw_verified_human_message_count": 0,
+                    "verified_initial_human_message_count": 0,
+                    "reviewed_followup_episode_count": 0,
+                },
+            ],
+        })
+
+        human_table = markdown.split("### Per-PR human steering", 1)[1]
+        self.assertIn("| example/repo#5 | UNKNOWN | UNKNOWN | UNKNOWN |", human_table)
+        self.assertIn("| example/repo#6 | 0 | 0 | 0 |", human_table)
+
     def test_query_accepts_canonical_in_memory_events_and_human_summary(self):
         pr = "example-org/repo-alpha#1"
         events = [self._event(
