@@ -734,6 +734,14 @@ CROSS JOIN prw_parameters q
 WHERE p.merged_at_utc >= q.window_start_utc AND p.merged_at_utc < q.snapshot_at_utc
   AND p.pr_elapsed_seconds > 604800;
 
+CREATE OR REPLACE TEMP VIEW prw_low_usage_by_pr AS
+SELECT
+    split_part(attributed_pr, '#', 1) AS repository,
+    TRY_CAST(split_part(attributed_pr, '#', 2) AS BIGINT) AS pr_number,
+    SUM(weighted_total_tokens) AS low_total_tokens
+FROM prw_source_branch_attributions
+GROUP BY 1, 2;
+
 CREATE OR REPLACE TEMP TABLE prw_metric_observations AS
 SELECT
     repository,
@@ -757,6 +765,44 @@ SELECT
     'request_observation' AS average_basis
 FROM prw_cohort_prs c
 JOIN prw_direct_attributions a USING (repository, pr_number)
+UNION ALL
+SELECT
+    c.repository,
+    c.pr_number,
+    c.cohort_definition,
+    'direct_per_pr' AS metric_family,
+    'total_tokens' AS measure,
+    d.direct_total_tokens AS value,
+    'tokens' AS unit,
+    'per_pr_total' AS average_basis
+FROM prw_cohort_prs c
+JOIN prw_direct_usage_by_pr d USING (repository, pr_number)
+UNION ALL
+SELECT
+    c.repository,
+    c.pr_number,
+    c.cohort_definition,
+    'low_per_pr' AS metric_family,
+    'total_tokens' AS measure,
+    l.low_total_tokens AS value,
+    'tokens' AS unit,
+    'per_pr_total' AS average_basis
+FROM prw_cohort_prs c
+JOIN prw_low_usage_by_pr l USING (repository, pr_number)
+UNION ALL
+SELECT
+    c.repository,
+    c.pr_number,
+    c.cohort_definition,
+    'low_request' AS metric_family,
+    'total_tokens' AS measure,
+    a.weighted_total_tokens AS value,
+    'tokens' AS unit,
+    'request_observation' AS average_basis
+FROM prw_cohort_prs c
+JOIN prw_source_branch_attributions a
+  ON split_part(a.attributed_pr, '#', 1) = c.repository
+ AND TRY_CAST(split_part(a.attributed_pr, '#', 2) AS BIGINT) = c.pr_number
 UNION ALL
 SELECT
     c.repository,
@@ -801,6 +847,9 @@ CROSS JOIN (
 CROSS JOIN (
     VALUES ('pr_elapsed', 'pr_elapsed_seconds', 'seconds', 'per_pr_row'),
            ('direct_request', 'total_tokens', 'tokens', 'request_observation'),
+           ('direct_per_pr', 'total_tokens', 'tokens', 'per_pr_total'),
+           ('low_per_pr', 'total_tokens', 'tokens', 'per_pr_total'),
+           ('low_request', 'total_tokens', 'tokens', 'request_observation'),
            ('direct_request', 'request_duration_seconds', 'seconds', 'request_observation'),
            ('review_attempt', 'attempt_duration_seconds', 'seconds', 'review_attempt_observation')
 ) AS m(metric_family, measure, unit, average_basis);

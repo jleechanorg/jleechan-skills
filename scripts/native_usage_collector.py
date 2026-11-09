@@ -1,6 +1,7 @@
 """Recover native usage and prompt metadata from explicit history roots."""
 import argparse
 import hashlib
+import io
 import json
 import math
 import re
@@ -278,11 +279,11 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                 continue
             seen_files.add(identity)
             models, session, session_git = {}, None, {}
-            digest = hashlib.sha256()
             try:
-                with path.open("rb") as stream:
+                content = path.read_bytes()
+                digest = hashlib.sha256(content)
+                with io.BytesIO(content) as stream:
                     for line in stream:
-                        digest.update(line)
                         try:
                             row = json.loads(line)
                         except (ValueError, UnicodeError):
@@ -299,7 +300,7 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                             models[payload["turn_id"]] = _usage_label(payload.get("model"))
                 fingerprint = "sha256:" + digest.hexdigest()
                 stats["files_scanned"] += 1
-                with path.open(encoding="utf-8") as stream:
+                with io.StringIO(content.decode("utf-8")) as stream:
                     for ordinal, line in enumerate(stream):
                         try:
                             row = json.loads(line)

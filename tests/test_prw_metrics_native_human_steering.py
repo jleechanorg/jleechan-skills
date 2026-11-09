@@ -207,6 +207,7 @@ class NativeHumanSteeringTests(unittest.TestCase):
         self.assertEqual(retained["per_pr"][0]["pr"], "example/repo#5")
         self.assertEqual(retained["per_pr"][0]["raw_verified_messages"], 3)
         self.assertEqual(retained["per_pr"][0]["episodes_by_quality"]["bad"], 1)
+        self.assertEqual(retained["per_pr"][0]["verified_followup_messages"], 2)
 
     def test_event_time_disambiguates_reused_branch_with_low_context_confidence(self):
         prs = [
@@ -265,6 +266,30 @@ class NativeHumanSteeringTests(unittest.TestCase):
         self.assertEqual(row["association_confidence"], "BRANCH_SNAPSHOT_LOW")
         self.assertIn("unique_repo_branch_snapshot", row["association_basis"])
         self.assertIn("context:first_64_session_records_not_event_time", row["association_basis"])
+
+    def test_branch_only_snapshot_requires_global_branch_uniqueness(self):
+        prs = [
+            {"repo": "example/one", "number": 1, "headRefName": "shared",
+             "headRefOid": "one", "state": "CLOSED",
+             "createdAt": "2026-10-01T00:00:00Z", "closedAt": "2026-10-02T00:00:00Z"},
+            {"repo": "example/two", "number": 2, "headRefName": "shared",
+             "headRefOid": "two", "state": "CLOSED",
+             "createdAt": "2026-10-01T00:00:00Z", "closedAt": "2026-10-02T00:00:00Z"},
+        ]
+        event = {
+            "event_id": "cross-repo-shared-branch", "provider": "codex",
+            "timestamp": "2026-10-03T00:00:00Z", "origin_status": "verified_human",
+            "git_branch": "shared",
+        }
+        result = aggregate_native_human_steering(
+            [event], prs,
+            window_start="2026-10-01T00:00:00Z", window_end="2026-10-20T00:00:00Z",
+            source_stats=self.stats,
+        )
+        self.assertEqual(result["coverage"]["ambiguous_branch_messages"], 1)
+        self.assertEqual(
+            sum(row["raw_verified_messages"] for row in result["per_pr"]), 0
+        )
 
     def test_reviewed_unassigned_context_suppresses_branch_fallback_and_counts_nudge(self):
         event = {

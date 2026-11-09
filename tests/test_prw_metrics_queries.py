@@ -943,6 +943,44 @@ class TestPRWMetricsQueries(unittest.TestCase):
         self.assertIn("| example/repo#6 | 1 | 1 | 0 |", human_table)
         self.assertIn("| example/repo#7 | UNKNOWN | UNKNOWN | UNKNOWN |", human_table)
 
+    def test_metric_cohorts_separate_direct_and_low_request_observations(self):
+        event = self._event(
+            "sha256:low-request", "example-org/repo-alpha#1",
+            {"input_uncached": 10, "cache_read": 0, "cache_write_5m": 0,
+             "cache_write_1h": 0, "output": 5}, 1.0,
+        )
+        event["validated_attributions"] = []
+        event["branch_attributions"] = [{
+            "pr": "example-org/repo-alpha#1", "weight": "1",
+            "basis": "repo_branch_unique", "confidence": "low",
+        }]
+        prs = [{
+            "repo": "example-org/repo-alpha", "number": 1, "state": "MERGED",
+            "createdAt": "2026-11-02T00:00:00Z",
+            "mergedAt": "2026-11-02T10:00:00Z",
+        }]
+        result = run_query(
+            events_path=[event], pr_snapshots_path=prs,
+            human_summary_path={"coverage": {}, "per_pr": []},
+            snapshot_at_utc=self.CUTOFF,
+        )
+        low = next(row for row in result["metric_cohorts"] if
+                   row["metric_family"] == "low_request" and
+                   row["cohort_definition"] == "all_14d_merges")
+        self.assertEqual(low["average"], 15.0)
+        self.assertEqual(low["observation_n"], 1)
+        self.assertEqual(low["cohort_pr_n"], 1)
+        low_pr = next(row for row in result["metric_cohorts"] if
+                      row["metric_family"] == "low_per_pr" and
+                      row["cohort_definition"] == "all_14d_merges")
+        self.assertEqual(low_pr["average"], 15.0)
+        self.assertEqual(low_pr["observation_n"], 1)
+        self.assertEqual(low_pr["average_basis"], "per_pr_total")
+        rendered = render_prw_query_summary(result)
+        self.assertIn("Repository / cohort / metric / basis", rendered)
+        self.assertIn("Obs N / PR N", rendered)
+        self.assertIn("example-org/repo-alpha", rendered)
+
     def test_query_accepts_canonical_in_memory_events_and_human_summary(self):
         pr = "example-org/repo-alpha#1"
         events = [self._event(

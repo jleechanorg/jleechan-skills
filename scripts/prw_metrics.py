@@ -412,6 +412,7 @@ SUMMARY_SCHEMA = {
             "direct_candidates": _SC, "context_candidates": _SC,
             "branch_associated_candidates": _SC, "branch_only_candidates": _SC,
             "initial_requests": _SC, "human_nudge_messages": _SC, "human_nudge_episodes": _SC,
+            "verified_followup_messages": _SC,
             "message_kind_counts": ("map", _SC), "reviewed_scores": [_SC],
             "followup_episodes": _SC,
             "episodes_by_quality": {key: _SC for key in ("good", "bad", "mixed", "unknown")},
@@ -4074,7 +4075,7 @@ def aggregate_native_human_steering(
                     coverage["branch_only_messages"] += 1
                 elif len(branch_time) > 1:
                     coverage["ambiguous_branch_messages"] += 1
-                elif len(branch_all) == 1:
+                elif len(branch_all) == 1 and len(branch_only_index.get(branch, [])) == 1:
                     association = branch_all[0][0]
                     confidence, basis, association_kind = (
                         "BRANCH_ONLY_LOW", "unique_branch_only_snapshot", "branch_only"
@@ -4807,14 +4808,16 @@ def main():
     if args.usage_events:
         rates = load_rate_table(args.usage_rates) if args.usage_rates else []
         providers = {rate["provider"] for rate in rates}
-        events = load_usage_events(args.usage_events, provider=next(iter(providers), None))
+        provider = next(iter(providers)) if len(providers) == 1 else None
+        events = load_usage_events(args.usage_events, provider=provider)
     elif collected.get("usage_events"):
         rates = load_rate_table(args.usage_rates) if args.usage_rates else (
             load_rate_table(collected["usage_rates"])
             if collected.get("usage_rates", {}).get("rates") else []
         )
         providers = {rate["provider"] for rate in rates}
-        events = load_usage_events(collected["usage_events"], provider=next(iter(providers), None))
+        provider = next(iter(providers)) if len(providers) == 1 else None
+        events = load_usage_events(collected["usage_events"], provider=provider)
     else:
         rates = load_rate_table(args.usage_rates) if args.usage_rates else []
         events = []
@@ -5712,15 +5715,16 @@ def render_prw_query_summary(result):
     cohorts = result.get("metric_cohorts", [])
     table(
         "Query cohort distributions",
-        ["Cohort / metric", "Average / p50", "p90 / p99", "N"],
+        ["Repository / cohort / metric / basis", "Average / p50", "p90 / p99", "Obs N / PR N"],
         [
         (
+            f"{row.get('repository', 'UNKNOWN')} / "
             f"{row.get('cohort_definition', 'UNKNOWN')} / "
-            f"{row.get('metric_family', 'UNKNOWN')}:"
-            f"{row.get('measure', 'UNKNOWN')}",
+            f"{row.get('metric_family', 'UNKNOWN')}:{row.get('measure', 'UNKNOWN')} / "
+            f"{show(row.get('average_basis'))}",
             f"{show(row.get('average'))} / {show(row.get('p50'))}",
             f"{show(row.get('p90'))} / {show(row.get('p99'))}",
-            show(row.get("observation_n")),
+            f"{show(row.get('observation_n'))} / {show(row.get('cohort_pr_n'))}",
         ) for row in cohorts
         ],
     )
