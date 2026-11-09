@@ -27,7 +27,9 @@ Follow [pr-lifecycle's retained review integrations](../pr-lifecycle/SKILL.md#re
 
 `/er` approves evidence for the actual claims, not full source correctness or an
 `/advice` vote. `/er` is not source approval and does not count toward source-review
-quorum. Read the complete base-to-head diff to derive explicit and implicit claims,
+quorum; likewise, a source-only reviewer vote does not count as evidence
+approval or establish that raw evidence was reviewed. Read the complete
+base-to-head diff to derive explicit and implicit claims,
 then inspect claim-relevant source, artifacts, and provenance. Do not require prior
 source approval or an adjacent, undeclared source-review log. If claim-relevant
 source or provenance is missing, withhold the affected evidence claim rather than
@@ -39,6 +41,25 @@ proof. This scope boundary does not waive real-service, auth, provider, BQ,
 source/provenance, visual or integrity gates, independent code/advice quorum, or
 separate user/merge authority. An observed acceptance violation remains FAIL,
 never a limitation or nonblocking P1.
+
+For every claim being reviewed, directly open and inspect **all available
+claim-scoped raw evidence content and source records**, including failed and
+incomplete attempts. Reconcile the underlying records to the claim, provenance,
+and any derived summary; independently check the content, not only hashes,
+filenames, manifests, ledgers, or another reviewer's summary. Record which raw
+items were inspected and which were unavailable, with the affected claim and
+reason. This requires the full relevant evidence set, not unrelated repository
+data or new evidence classes.
+
+Apply the redaction and protected-original comparison requirements in
+[evidence-standards](../evidence-standards/SKILL.md). Never request or expose
+secrets, read `.env` files, or put unredacted credentials in reviewer/model
+output. When a claim-relevant raw portion cannot be opened or independently
+reconciled, that portion's claim is **INCONCLUSIVE** and cannot receive PASS or
+approval; a limited summary-only review must be labelled as such and cannot
+replace the raw-evidence review gate. Unavailable evidence for one claim does
+not erase independently supported coverage for other claims, but it cannot make
+the affected claim approving.
 
 Every review dispatch, including coordinator asks, must explicitly say: remain
 read-only; do not mutate source/evidence, post, push, update branches, or change

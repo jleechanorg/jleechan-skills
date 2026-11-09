@@ -16,6 +16,25 @@ runtime or artifact proof. Source-only skill guidance follows the lifecycle
 an evidence campaign. This scope clarification does not waive named domain proof
 or grant approval or merge authority.
 
+For every evidence claim, `/es` must deliver the complete claim-scoped raw data
+needed to assess it, including failed and incomplete attempts, through an
+authorized, retrievable access path. Keep summaries separate as navigation and
+interpretation; a summary, manifest, checksum list, or another reviewer's report
+does not replace the underlying records and content. This completeness boundary
+covers only data relevant to the claims and applicable owner requirements; it
+does not require unrelated repository dumps or new evidence classes.
+
+Protect secrets and sensitive data. Preserve raw originals in their authorized
+store and provide reviewers safe, redacted content that retains all substantive
+claim-relevant bytes. Where redaction is necessary, preserve integrity and
+provenance and enable an independent, nondisclosing comparison with protected
+originals (for example, comparisons of preserved body bytes or domain/HMAC
+fields). Credential-only redaction does not justify replacing substantive raw
+content with a summary. Do not expose secrets, read `.env` files, or place
+unredacted credentials in reviewer or model output. Identify each claim-scoped
+raw item as available or unavailable; missing portions and the reason must be
+explicit.
+
 Compact proof keeps primary artifacts, source provenance and hashes; mark irrelevant server/PID/provider fields N/A with reasons instead of inventing runtime metadata. Source hashes alone do not prove execution.
 
 ## Summary

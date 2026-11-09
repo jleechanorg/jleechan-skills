@@ -29,6 +29,12 @@ the complete change, never a transcription. A verdict built on unrecovered trunc
 - Each approver reads the whole declared scope. Partial coverage is never combined across reviewers into an
   approval.
 
+An advice vote scoped only to source or a PR diff is source review; it does not
+approve evidence or establish inspection of underlying raw evidence. Evidence
+approval remains a separate `/er` claim-coverage verdict under
+[evidence-review](../evidence-review/SKILL.md), including its direct raw-data
+inspection and explicit inspected/unavailable coverage requirements.
+
 ## 2. Select independent reviewers
 
 **Required quorum.** Use two independent full-scope source votes by default.
