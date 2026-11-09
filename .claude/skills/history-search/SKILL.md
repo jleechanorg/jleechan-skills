@@ -8,7 +8,7 @@ scope: user
 # /history Search Skill
 
 > ⚠️ **QUOTA GUARD — this is the DEEP/heavy search skill.**
-> The default `/history` command now uses `conversation-history-sparse/SKILL.md` (3 sources, tight budget).
+> The default `/history` command now uses `conversation-history-sparse/SKILL.md` for bounded source selection and previews.
 > This skill is invoked only via `/history --deep` or when the sparse search explicitly returns insufficient results.
 > **Model**: Default to `gpt-6-luna` when parent session is Codex (for research/history lookup work). Override to `gpt-6.1-sol` only if Luna demonstrably fails (5.6 models forbidden, use GPT 6/6.1).
 > **Dedup**: Check for in-flight identical threads before spawning any parallel blocks:

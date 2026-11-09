@@ -100,13 +100,17 @@ class TestHistorySearch(unittest.TestCase):
         self.assertLessEqual(len(default_entry["snippet"]), 500)
         self.assertGreater(len(default_entry["snippet"]), 200)
         self.assertEqual(default_entry["metadata"]["thread_id"], "stable-thread-id")
-        self.assertEqual(default_entry["timestamp"][:4], "2026")
+        self.assertEqual(
+            default_entry["timestamp"],
+            datetime.fromtimestamp(1788283033).strftime("%Y-%m-%d %H:%M:%S"),
+        )
         self.assertTrue(default_entry["metadata"]["title"].endswith("…"))
         self.assertTrue(default_entry["metadata"]["title_truncated"])
 
         expanded_entry = run_cli("--max-chars", "700")
         self.assertLessEqual(len(expanded_entry["snippet"]), 700)
         self.assertGreater(len(expanded_entry["snippet"]), 500)
+        self.assertEqual(expanded_entry["timestamp"], default_entry["timestamp"])
 
     def test_search_claude_indexing_and_malformed_json_tolerance(self) -> None:
         proj_dir = self.temp_dir / "claude_projects" / "-Users-test-myproject"
