@@ -330,3 +330,43 @@ prices only events with explicit `standard` service tier, `global` inference geo
 and `standard` speed. Missing or different metadata stays unpriced. Events are limited
 to the existing dashboard interval `[cutoff - 14 days, cutoff)`; outside-window and
 undated records are reported separately.
+
+### Bounded retained usage publication
+
+Retained usage must preserve every sanitized record while keeping each JSONL Git
+blob at or below 32 MiB. Small and empty snapshots retain the legacy
+`usage_events.jsonl` format; larger snapshots use numbered JSONL parts with an
+ordered byte-count, row-count and SHA256 manifest. A record is never split,
+truncated or sampled. An individually oversized record fails publication visibly.
+
+Retained loading accepts legacy windows and verifies complete shard families,
+including files transported by published-ref export. Missing, corrupt, unexpected or ambiguous usage
+files fail visibly rather than become complete coverage. Republishing a window
+atomically replaces its usage family, including shrinking or empty snapshots;
+other windows, unrelated repository paths and local worktree changes remain intact.
+The privacy projection, unknown values, duplicate/conflict semantics and existing
+retention policy do not change. Focused acceptance uses tiny byte limits and real
+local Git publication/readback; it does not require another native-history scan.
+
+Retained collection indexes full decoded JSON records with the prior Python
+equality semantics, retaining first-seen order and distinct/conflicting records.
+Request IDs alone never determine equality; dictionary key order is immaterial,
+array order and string/number distinctions remain significant, and equivalent
+boolean/integer/float values retain their previous equality behavior.
+
+Complete privacy-projected summary snapshots also obey the 32 MiB per-blob bound.
+Small snapshots keep summary_snapshot.json. Larger snapshots use a verified
+manifest and numbered JSONL transport parts containing base64 fragments of the
+complete UTF-8 JSON document. This preserves every projected summary event and
+field without truncation; fragments may cross UTF-8 boundaries and are decoded
+only after byte-integrity verification and reassembly. Published-ref export carries
+both formats, and retained loading exposes reconstructed summary_snapshots.
+Caller-supplied summary parts are reconstructed and privacy-projected before
+publication. Same-window replacement removes stale summary parts as well as usage
+parts; small, empty, shrinking, corrupt and repeated snapshots have focused proof.
+
+The final publisher validates every telemetry blob, including manifests and other
+metadata, against the 32 MiB hard limit before any Git write. If metadata itself
+exceeds that limit, publication fails explicitly without dropping records or
+committing a partial dashboard. Test-only part budgets are separate from this
+hard limit; production defaults bind both to 32 MiB.

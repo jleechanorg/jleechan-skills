@@ -17,6 +17,7 @@ Portability Invariant:
 """
 
 import argparse
+import base64
 import hashlib
 import json
 import math
@@ -534,14 +535,181 @@ TELEMETRY_FILES = (
 )
 
 
+
+# Keep generated Git blobs well below GitHub's 100 MiB limit.
+TELEMETRY_BLOB_BYTES = 32 * 1024 * 1024
+USAGE_SHARD_BYTES = TELEMETRY_BLOB_BYTES
+_USAGE_PART_RE = re.compile(r"usage_events\.part-[0-9]{6}\.jsonl")
+_USAGE_MANIFEST = "usage_events.manifest.json"
+
+
+def _json_equality_key(value):
+    """Hash decoded JSON with Python's existing equality (including 1 == 1.0 == True).
+
+    Container tags distinguish lists from objects; object order is immaterial,
+    array order is not. Scalar hashes preserve numeric equality, unlike JSON text.
+    """
+    if isinstance(value, dict):
+        return (dict, frozenset((key, _json_equality_key(item)) for key, item in value.items()))
+    if isinstance(value, list):
+        return (list, tuple(_json_equality_key(item) for item in value))
+    return value
+
+
+def _usage_file(name):
+    return name in ("usage_events.jsonl", _USAGE_MANIFEST) or bool(_USAGE_PART_RE.fullmatch(name))
+
+
+def _usage_candidate(name):
+    # Reserved usage-family names must survive discovery so malformed parts fail
+    # visibly instead of disappearing before the completeness check.
+    return name.startswith("usage_events.")
+
+
+def _telemetry_file(name):
+    return name in TELEMETRY_FILES or _usage_candidate(name) or _summary_candidate(name)
+
+
+def _usage_parts(records, max_bytes=None):
+    """Sanitize and split at record boundaries, measuring UTF-8 bytes, never dropping rows."""
+    limit = USAGE_SHARD_BYTES if max_bytes is None else max_bytes
+    parts, lines, size = [], [], 0
+    for record in records:
+        line = json.dumps(_sanitize_usage_event_record(record), ensure_ascii=False) + "\n"
+        length = len(line.encode("utf-8"))
+        if length > limit:
+            raise ValueError("one retained usage record exceeds shard byte limit")
+        if lines and size + length > limit:
+            parts.append("".join(lines))
+            lines, size = [], 0
+        lines.append(line)
+        size += length
+    parts.append("".join(lines))
+    if len(parts) == 1:
+        return {"usage_events.jsonl": parts[0]}
+    files, entries = {}, []
+    for index, content in enumerate(parts):
+        if index > 999999:
+            raise ValueError("too many retained usage shards")
+        name = f"usage_events.part-{index:06d}.jsonl"
+        raw = content.encode("utf-8")
+        files[name] = content
+        entries.append({"name": name, "bytes": len(raw), "records": content.count("\n"),
+                        "sha256": hashlib.sha256(raw).hexdigest()})
+    files[_USAGE_MANIFEST] = json.dumps({"version": 1, "parts": entries}, sort_keys=True)
+    return files
+
+
+def _usage_manifest(content, stem="usage_events"):
+    manifest = json.loads(content)
+    if not isinstance(manifest, dict) or manifest.get("version") != 1:
+        raise ValueError("unsupported retained usage manifest")
+    entries = manifest.get("parts")
+    if not isinstance(entries, list) or not entries:
+        raise ValueError("missing retained usage parts")
+    for index, entry in enumerate(entries):
+        if (not isinstance(entry, dict) or set(entry) != {"name", "bytes", "records", "sha256"}
+                or entry["name"] != f"{stem}.part-{index:06d}.jsonl"
+                or not isinstance(entry["bytes"], int) or isinstance(entry["bytes"], bool)
+                or not 0 < entry["bytes"] <= USAGE_SHARD_BYTES
+                or not isinstance(entry["records"], int) or isinstance(entry["records"], bool)
+                or entry["records"] <= 0
+                or not isinstance(entry["sha256"], str)
+                or not re.fullmatch(r"[0-9a-f]{64}", entry["sha256"])):
+            raise ValueError("invalid retained usage part metadata")
+    return {"version": 1, "parts": entries}
+
+
+def _read_usage_bundle(names, read):
+    """Read exactly the authoritative family; reject incomplete or ambiguous snapshots."""
+    names = {name for name in names if _usage_candidate(name)}
+    if any(not _usage_file(name) for name in names):
+        raise ValueError("unexpected retained usage filename")
+    if _USAGE_MANIFEST not in names:
+        if names - {"usage_events.jsonl"}:
+            raise ValueError("retained usage shards lack manifest")
+        return [json.loads(line) for line in read("usage_events.jsonl").splitlines() if line.strip()] if names else []
+    manifest = _usage_manifest(read(_USAGE_MANIFEST))
+    if names != {_USAGE_MANIFEST, *(entry["name"] for entry in manifest["parts"])}:
+        raise ValueError("retained usage family differs from manifest")
+    records = []
+    for entry in manifest["parts"]:
+        content = read(entry["name"])
+        # Filesystem readers supply raw bytes. In-memory generated/sanitized
+        # content is UTF-8 text; never normalize on-disk newlines before hashing.
+        raw = content if isinstance(content, bytes) else content.encode("utf-8")
+        if len(raw) != entry["bytes"] or hashlib.sha256(raw).hexdigest() != entry["sha256"]:
+            raise ValueError("retained usage shard integrity mismatch")
+        rows = [json.loads(line) for line in raw.decode("utf-8").splitlines() if line.strip()]
+        if len(rows) != entry["records"]:
+            raise ValueError("retained usage shard record count mismatch")
+        records.extend(rows)
+    return records
+
+
+
+def _summary_candidate(name):
+    return name.startswith("summary_snapshot.")
+
+
+def _summary_parts(summary):
+    """Lossless bounded transport for the complete privacy-projected summary."""
+    content = json.dumps(_project_summary(summary), indent=2)
+    raw = content.encode("utf-8")
+    if len(raw) <= USAGE_SHARD_BYTES:
+        return {"summary_snapshot.json": content}
+    # Base64 keeps each transport part valid JSON/text even across UTF-8 boundaries.
+    chunk_bytes = (USAGE_SHARD_BYTES - 128) // 4 * 3
+    if chunk_bytes < 1:
+        raise ValueError("summary shard limit too small")
+    files, entries = {}, []
+    for index, start in enumerate(range(0, len(raw), chunk_bytes)):
+        if index > 999999:
+            raise ValueError("too many summary shards")
+        name = f"summary_snapshot.part-{index:06d}.jsonl"
+        part = json.dumps({"base64": base64.b64encode(raw[start:start + chunk_bytes]).decode("ascii")}) + "\n"
+        encoded = part.encode("utf-8")
+        files[name] = part
+        entries.append({"name": name, "bytes": len(encoded), "records": 1,
+                        "sha256": hashlib.sha256(encoded).hexdigest()})
+    files["summary_snapshot.manifest.json"] = json.dumps({"version": 1, "parts": entries}, sort_keys=True)
+    return files
+
+
+def _read_summary_bundle(names, read):
+    names = {name for name in names if _summary_candidate(name)}
+    if not names:
+        return None
+    if names == {"summary_snapshot.json"}:
+        return _project_summary(json.loads(read("summary_snapshot.json")))
+    manifest_name = "summary_snapshot.manifest.json"
+    if manifest_name not in names:
+        raise ValueError("summary shards lack manifest or have unexpected files")
+    manifest = _usage_manifest(read(manifest_name), stem="summary_snapshot")
+    if names != {manifest_name, *(entry["name"] for entry in manifest["parts"])}:
+        raise ValueError("summary family differs from manifest")
+    chunks = []
+    for entry in manifest["parts"]:
+        content = read(entry["name"])
+        raw = content if isinstance(content, bytes) else content.encode("utf-8")
+        if (len(raw) != entry["bytes"] or hashlib.sha256(raw).hexdigest() != entry["sha256"]
+                or entry["records"] != 1):
+            raise ValueError("summary shard integrity mismatch")
+        row = json.loads(raw)
+        if not isinstance(row, dict) or set(row) != {"base64"} or not isinstance(row["base64"], str):
+            raise ValueError("invalid summary transport part")
+        chunks.append(base64.b64decode(row["base64"], validate=True))
+    return _project_summary(json.loads(b"".join(chunks)))
+
+
 def retained_telemetry_dirs(root):
     """Directories holding retained telemetry: the root itself plus each <window_slug>/ the publisher writes."""
     if not root or not os.path.isdir(root):
         return []
-    dirs = [root] if any(os.path.exists(os.path.join(root, f)) for f in TELEMETRY_FILES) else []
+    dirs = [root] if any(_telemetry_file(f) for f in os.listdir(root)) else []
     for entry in sorted(os.listdir(root)):
         sub = os.path.join(root, entry)
-        if os.path.isdir(sub) and any(os.path.exists(os.path.join(sub, f)) for f in TELEMETRY_FILES):
+        if os.path.isdir(sub) and any(_telemetry_file(f) for f in os.listdir(sub)):
             dirs.append(sub)
     return dirs
 
@@ -565,10 +733,12 @@ def export_published_telemetry(roadmap_repo, dest_dir, ref="refs/remotes/origin/
         exported = False
         for rel in listing.stdout.decode("utf-8").splitlines():
             parts = rel.split("/")
-            if ".." in parts or os.path.basename(rel) not in TELEMETRY_FILES:
+            if ".." in parts or not _telemetry_file(os.path.basename(rel)):
                 continue
             blob = git("show", f"{ref}:{rel}")
             if blob.returncode != 0:
+                if _usage_candidate(os.path.basename(rel)) or _summary_candidate(os.path.basename(rel)):
+                    raise ValueError("cannot export published usage telemetry")
                 continue
             out_path = os.path.join(dest_dir, *rel[len(TELEMETRY_RELDIR) + 1:].split("/"))
             os.makedirs(os.path.dirname(out_path), exist_ok=True)
@@ -612,15 +782,22 @@ def sanitize_telemetry_file(relpath, content):
             if line.strip()
         ]
         return "\n".join(lines) + "\n"
-    if name == "usage_events.jsonl":
+    if name == _USAGE_MANIFEST:
+        return json.dumps(_usage_manifest(content), sort_keys=True)
+    if name == "usage_events.jsonl" or _USAGE_PART_RE.fullmatch(name):
         records = [json.loads(line) for line in content.splitlines() if line.strip()]
-        return "\n".join(json.dumps(_sanitize_usage_event_record(record)) for record in records) + "\n"
+        return "\n".join(json.dumps(_sanitize_usage_event_record(record), ensure_ascii=False) for record in records) + ("\n" if records else "")
     if name == "usage_rates.json":
         return json.dumps(_sanitize_usage_rates_record(json.loads(content)), indent=2)
     if name == "retained_sources.json":
         return json.dumps(_sanitize_retained_sources(json.loads(content)), indent=2)
     if name == "summary_snapshot.json":
         return json.dumps(_project_summary(json.loads(content)), indent=2)
+    if name == "summary_snapshot.manifest.json":
+        return json.dumps(_usage_manifest(content, stem="summary_snapshot"), sort_keys=True)
+    if re.fullmatch(r"summary_snapshot\.part-[0-9]{6}\.jsonl", name):
+        # Privacy projection requires the complete reconstructed object, below in publish.
+        return content
     if name == "retention_manifest.json":
         return json.dumps(_project(json.loads(content), RETENTION_MANIFEST_SCHEMA) or {}, indent=2)
     if name == "calibration_audit.json":
@@ -1487,6 +1664,7 @@ class Collector:
         retained_sources = {}
         usage_events = []
         usage_rates = []
+        summary_snapshots = []
 
         jsonl_sinks = (
             ("pilot_events.jsonl", pilot_events),
@@ -1512,10 +1690,13 @@ class Collector:
                             seen[name].add(key)
                             sink.append(record)
 
-            usage_path = os.path.join(bundle_dir, "usage_events.jsonl")
-            if os.path.exists(usage_path):
-                with open(usage_path, "r", encoding="utf-8") as f:
-                    usage_events.extend(json.loads(line) for line in f if line.strip())
+            def read_usage(name):
+                with open(os.path.join(bundle_dir, name), "rb") as f:
+                    return f.read()
+            usage_events.extend(_read_usage_bundle(os.listdir(bundle_dir), read_usage))
+            summary = _read_summary_bundle(os.listdir(bundle_dir), read_usage)
+            if summary is not None:
+                summary_snapshots.append(summary)
             rates_path = os.path.join(bundle_dir, "usage_rates.json")
             if os.path.exists(rates_path):
                 with open(rates_path, "r", encoding="utf-8") as f:
@@ -1543,6 +1724,7 @@ class Collector:
             "handoff_records": handoff_records,
             "sources": retained_sources,
             "usage_events": usage_events,
+            "summary_snapshots": summary_snapshots,
             "usage_rates": {"rates": list({json.dumps(rate, sort_keys=True): rate for rate in usage_rates}.values())},
         }
 
@@ -1609,6 +1791,7 @@ class Collector:
         pilot_events = []
         human_episodes = []
         retained_usage_events = []
+        seen_usage_records = set()
         retained_usage_rates = []
         calibration_audit = {}
         retention_manifest = {}
@@ -1627,7 +1810,9 @@ class Collector:
                 if ep not in human_episodes:
                     human_episodes.append(ep)
             for ev in retained.get("usage_events", []):
-                if ev not in retained_usage_events:
+                key = _json_equality_key(ev)
+                if key not in seen_usage_records:
+                    seen_usage_records.add(key)
                     retained_usage_events.append(ev)
             for rate in retained.get("usage_rates", {}).get("rates", []):
                 if rate not in retained_usage_rates:
@@ -4335,7 +4520,8 @@ class Publisher:
 
         files = {}
         if summary_data:
-            files[f"{window_dir}/summary_snapshot.json"] = json.dumps(_project_summary(summary_data), indent=2)
+            for name, content in _summary_parts(summary_data).items():
+                files[f"{window_dir}/{name}"] = content
 
         if pilot_events:
             lines = [json.dumps(_sanitize_retained_record(ev, RETAINED_EVENT_FIELDS)) for ev in pilot_events]
@@ -4346,8 +4532,8 @@ class Publisher:
             files[f"{window_dir}/human_episodes.jsonl"] = "\n".join(lines) + "\n"
 
         if usage_events is not None:
-            lines = [json.dumps(_sanitize_usage_event_record(_usage_event_record(ev))) for ev in usage_events]
-            files[f"{window_dir}/usage_events.jsonl"] = "\n".join(lines) + ("\n" if lines else "")
+            for name, content in _usage_parts(_usage_event_record(ev) for ev in usage_events).items():
+                files[f"{window_dir}/{name}"] = content
         if usage_rates is not None:
             rate_payload = {"rates": [{k: (format_iso_utc(v) if isinstance(v, datetime) else str(v) if isinstance(v, Decimal) else v)
                                        for k, v in rate.items()} for rate in usage_rates]}
@@ -4439,7 +4625,54 @@ class Publisher:
                 usage_events=usage_events,
                 usage_rates=usage_rates,
             )
+            # Generated families supersede caller-supplied versions atomically,
+            # including legacy-singleton to sharded-format transitions.
+            for candidate in (_usage_candidate, _summary_candidate):
+                windows = {os.path.dirname(path) for path in tb if candidate(os.path.basename(path))}
+                for path in list(telemetry_staged_files):
+                    if os.path.dirname(path) in windows and candidate(os.path.basename(path)):
+                        del telemetry_staged_files[path]
             telemetry_staged_files.update(tb)
+
+        # A usage family is one atomic replacement, including empty/shrinking snapshots.
+        usage_windows = {os.path.dirname(path) for path in telemetry_staged_files
+                         if _usage_file(os.path.basename(path))}
+        try:
+            for window in usage_windows:
+                family = {os.path.basename(path): content for path, content in telemetry_staged_files.items()
+                          if os.path.dirname(path) == window and _usage_file(os.path.basename(path))}
+                records = _read_usage_bundle(family, family.__getitem__)
+                if any(len(content.encode("utf-8")) > USAGE_SHARD_BYTES
+                       for name, content in family.items() if name.endswith(".jsonl")):
+                    for name in family:
+                        del telemetry_staged_files[f"{window}/{name}"]
+                    for name, content in _usage_parts(records).items():
+                        telemetry_staged_files[f"{window}/{name}"] = content
+        except (ValueError, TypeError, KeyError) as exc:
+            return {"action": "BLOCKED", "committed": False,
+                    "reason": f"Invalid usage telemetry bundle: {exc}"}
+
+        summary_windows = {os.path.dirname(path) for path in telemetry_staged_files
+                           if _summary_candidate(os.path.basename(path))}
+        try:
+            for window in summary_windows:
+                family = {os.path.basename(path): content for path, content in telemetry_staged_files.items()
+                          if os.path.dirname(path) == window and _summary_candidate(os.path.basename(path))}
+                summary = _read_summary_bundle(family, family.__getitem__)
+                for name in family:
+                    del telemetry_staged_files[f"{window}/{name}"]
+                for name, content in _summary_parts(summary).items():
+                    telemetry_staged_files[f"{window}/{name}"] = content
+        except (ValueError, TypeError, KeyError) as exc:
+            return {"action": "BLOCKED", "committed": False,
+                    "reason": f"Invalid summary telemetry bundle: {exc}"}
+
+        # The part budget also bounds metadata: manifests and any other generated
+        # telemetry must fail before Git writes, never truncate or partially publish.
+        for path, content in telemetry_staged_files.items():
+            if len(content.encode("utf-8")) > TELEMETRY_BLOB_BYTES:
+                return {"action": "BLOCKED", "committed": False,
+                        "reason": f"Telemetry blob exceeds byte limit: {path}"}
 
         # Check existing content at origin/main:<target_relpath>
         current_content = None
@@ -4506,6 +4739,21 @@ class Publisher:
                         text=True,
                         env=env,
                     )
+
+                    # Remove only superseded usage files in windows replaced by this run.
+                    for window in sorted(usage_windows | summary_windows):
+                        old_paths = subprocess.run(
+                            ["git", "-C", self.repo_path, "ls-tree", "-r", "--name-only", parent_sha, "--", window],
+                            check=True, capture_output=True, text=True, env=env,
+                        ).stdout.splitlines()
+                        for path in old_paths:
+                            if (os.path.dirname(path) == window
+                                    and ((window in usage_windows and _usage_file(os.path.basename(path)))
+                                         or (window in summary_windows and _summary_candidate(os.path.basename(path))))):
+                                subprocess.run(
+                                    ["git", "-C", self.repo_path, "update-index", "--force-remove", "--", path],
+                                    check=True, capture_output=True, text=True, env=env,
+                                )
 
                     # 3. Hash new markdown blob
                     hash_proc = subprocess.run(
