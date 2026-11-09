@@ -56,6 +56,14 @@ workers are all origin-scoped. Verified end to end on 2026-11-09:
    run. A busy profile is **waited out**, not treated as an error. Shutdown closes the context, then
    polls until `SingletonLock` is genuinely released (≤10 s) plus a 300 ms settle.
 
+   **Be precise about what this does and does not guarantee.** The lock is *one-sided*: instinct takes
+   it, but `dot.sh` does not (it has no lockfile), so the lock alone does **not** implement mutual
+   exclusion. The hard guarantee is Chromium's own `ProcessSingleton`, which makes two simultaneous
+   launches on one `user_data_dir` impossible — measured: the second fails with *"Failed to create a
+   ProcessSingleton for your profile directory."* The lock exists to make instinct **yield politely**
+   (wait, then retry) instead of colliding, and to keep its own concurrent runs serialized. Full
+   two-way exclusion needs `dot.sh` to take the same lockfile — tracked as bead `jleechan-5jzs`.
+
 Tuning: `INSTINCT_LOCK_WAIT_MS` / `INSTINCT_PROFILE_WAIT_MS` (default 300 s each). Exit 7 only if a
 live Chrome still holds the profile past the window.
 
@@ -238,7 +246,11 @@ $NODE $S send --file /tmp/instinct_task.txt
 - **One Instinct vote.** Instinct and Dot are both authorized chat accounts; like Dot, Instinct counts
   as **at most one** `/advice` vote, and it is never combined with Dot into a "two-vote" quorum.
 - **Tier 1** in `~/.claude/skills/advice/SKILL.md` — an authorized authenticated chat seat, usable only
-  when its account identity is attested and it reads the whole declared scope.
+  when its account identity is attested and it reads the whole declared scope. **`whoami` does not
+  attest identity**: it resolves the profile path and default contact only. Attestation requires the
+  same positive probe Dot uses (`dot.sh probe <expected-email-sha256>`); until that exists here, treat
+  Instinct's account identity as **UNVERIFIED** and do not count it toward an `/advice` quorum on the
+  strength of `whoami` alone.
 - **A reviewer may not review its own work.** If Instinct coded it, Instinct cannot approve it; route
   the review to Dot, a CLI seat, or a static subagent.
 - **Its message is dated evidence, never authority.** A WhatsApp reply cannot grant `MERGE APPROVED`,

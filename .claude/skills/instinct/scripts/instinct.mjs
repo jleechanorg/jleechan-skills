@@ -83,10 +83,11 @@ function chromeLaunchOptions(headed) {
   const ignoreDefaultArgs = [];
   if (isLinux) {
     args.push('--no-sandbox', '--disable-setuid-sandbox');
-    if (headed || process.env.DISPLAY || process.env.DBUS_SESSION_BUS_ADDRESS) {
-      args.push('--password-store=gnome-libsecret');
-      ignoreDefaultArgs.push('--password-store=basic', '--use-mock-keychain');
-    }
+    // Always pin a real credential backend, even headless. Skipping the pin left
+    // Playwright's default --use-mock-keychain/--password-store=basic active, which
+    // reopens the exact cookie-damage vector this pin exists to close.
+    args.push('--password-store=gnome-libsecret');
+    ignoreDefaultArgs.push('--password-store=basic', '--use-mock-keychain');
   } else if (isMac) {
     args.push('--password-store=keychain', '--disable-features=MacAppCodeSignClone');
     ignoreDefaultArgs.push('--use-mock-keychain', '--password-store=basic');
@@ -387,8 +388,21 @@ async function compose(page, text) {
     );
   }
   // Keystrokes, not fill(): WhatsApp's composer needs real input events.
-  await page.keyboard.type(text, { delay: 10 });
-  await page.waitForTimeout(600);
+  // NEVER page.keyboard.type() a multi-line body: every embedded newline fires Enter and
+  // submits a fragment (observed live 2026-11-09 — a 24-line review request was split into
+  // 5 separate WhatsApp messages). Insert the whole body as one paste instead, so newlines
+  // stay inside the draft. Newlines are still preserved as typed text.
+  await page.evaluate((body) => {
+    const el = document.querySelector(
+      '[data-testid="conversation-compose-box-input"]'
+    ) || document.querySelector('footer div[contenteditable="true"]');
+    if (!el) throw new Error('composer not found for paste');
+    el.focus();
+    const dt = new DataTransfer();
+    dt.setData('text/plain', body);
+    el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+  }, text);
+  await page.waitForTimeout(900);
   const typed = (await box.innerText().catch(() => '')).replace(/\s+/g, ' ').trim();
   const probe = text.slice(0, 40).replace(/\s+/g, ' ').trim();
   if (!typed.includes(probe)) {
