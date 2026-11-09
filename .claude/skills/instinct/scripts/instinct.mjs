@@ -348,22 +348,40 @@ async function openContact(page, name) {
     );
   }
 
-  const target = titleNodes.filter({ hasText: name }).first();
-  await target.click();
+  // Click THE node whose title equals the name — not filter({hasText}), which is a substring
+  // match and would click "Bob Smith" when asked for "Bob" (found by Dot review).
+  const target = titleNodes.filter({
+    has: page.locator(`xpath=self::*[@title=${JSON.stringify(name)}]`),
+  });
+  // Fallback: scan evaluated nodes so selection is by strict equality, never substring.
+  const idx = titles.indexOf(name);
+  const byAttribute = page.locator(`#pane-side span[title="${name.replace(/"/g, '\\"')}"]`);
+  const chosen = (await byAttribute.count()) > 0 ? byAttribute.first() : target.first();
+  if ((await chosen.count()) === 0) {
+    die(
+      `could not target the title node for "${name}" (index ${idx}); refusing to guess`,
+      5
+    );
+  }
+  await chosen.click();
   await page.waitForTimeout(1800);
 
   // Verify the OPEN chat is the requested contact before anyone types into it.
   // NOTE: `header span[title]` is NOT the chat title here — it matches the "Business Account"
   // badge inside the header (verified live 2026-11-09). The conversation title lives in
   // [data-testid="conversation-info-header"].
+  // Strictly test-id based. No generic-header fallback: a loose fallback could read a badge
+  // or another pane's header and pass the guard for the wrong chat.
   const infoHeader = page.locator('[data-testid="conversation-info-header"]').first();
   let openTitle = '';
   try {
     openTitle = (await infoHeader.innerText({ timeout: 10_000 })).split('\n')[0].trim();
   } catch {
-    openTitle = (await page.locator('#main header').first().innerText().catch(() => ''))
-      .split('\n')[0]
-      .trim();
+    die(
+      'could not read [data-testid="conversation-info-header"]; refusing to send without ' +
+        'confirming the open chat',
+      5
+    );
   }
   if (openTitle !== name) {
     die(
