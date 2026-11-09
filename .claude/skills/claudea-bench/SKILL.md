@@ -23,14 +23,14 @@ Verify the locally available command shape before using it; shells may define `c
 
 Safe mode disables user/project guidance, skills, custom agents, hooks, MCP servers, installed plugins, and auto memory. Authentication, admin policy, built-in tools/plugins, permissions, and normal-profile history remain available; this is configuration isolation, not a separate account or history store. The helper includes the same permission-bypass intent as `codexa`; use only within authorized task scope. It invokes the external CLI, bypassing a shell `claude` function. Record any resulting wrapper difference. Trailing caller flags can override the default model for a task. `claudeac` continues normal-profile history, which may include non-clean sessions; use fresh sessions for benchmarks.
 
-With the installed Claude print interface, run in separate working directories and preserve structured receipts:
+For matched-model runs, use the installed Claude print interface in separate working directories and preserve structured receipts:
 
 ```sh
 (cd "$WORKDIR_A" && claudea --print --no-session-persistence --output-format json --model "$MODEL" --effort "$EFFORT" < "$PROMPT_A") > "$OUTPUT_A"
 (cd "$WORKDIR_B" && claude --print --no-session-persistence --output-format json --model "$MODEL" --effort "$EFFORT" < "$PROMPT_B") > "$OUTPUT_B"
 ```
 
-Use `claude-fable-5-2` unless the caller selects another matched model. Verify actual response/model-usage metadata, not just the requested label. A model-access error leaves the comparison incomplete; preserve its exact sanitized error and never fall back automatically. Safe mode does not load `/claudea-bench`; orchestrate this skill from the normal agent session.
+For strict as-used runs, omit `--model "$MODEL" --effort "$EFFORT"` from both commands and retain each wrapper's configured defaults. For matched-model runs, use `claude-fable-5-2` unless the caller selects another matched model. Verify actual response/model-usage metadata, not just the requested label. A model-access error leaves the comparison incomplete; preserve its exact sanitized error and never fall back automatically. Safe mode does not load `/claudea-bench`; orchestrate this skill from the normal agent session.
 
 For split-work, keep shared instructions and rubric identical, include only each arm's assigned units and inputs, and record their hashes and sizes. For strict same-task, use identical prompt bytes and equivalent inputs. Choose separate workdirs according to the read-only or isolated-mutating setup above. If a local wrapper does not accept this shape, inspect its help/definition and adapt without replacing it with another model, provider, or configuration. Use the caller's/native timeout mechanism. Preserve private raw receipts in the approved scratch location; publish only sanitized material authorized for the task.
 
