@@ -37,12 +37,14 @@ Run this snippet with the calling tool's native timeout set to at most 30 second
 HIST_LIMIT=20
 shown=0
 partial=0
+command_failed=0
 scan_worktree() {
   wt="$1"
   while IFS= read -r oid; do
     if [ "$oid" = "__HIST_FSCK_FAILED__" ]; then
       echo "[fsck:$wt] command failed; coverage partial" >&2
       partial=1
+      command_failed=1
       return 0
     fi
     if description="$(git -C "$wt" show --no-patch --format='%H %s' "$oid" 2>/dev/null)"; then
@@ -51,6 +53,7 @@ scan_worktree() {
     else
       echo "[show:$wt] could not read candidate $oid; coverage partial" >&2
       partial=1
+      command_failed=1
     fi
     if [ "$shown" -ge "$HIST_LIMIT" ]; then
       echo "Candidate display cap reached; coverage partial" >&2
@@ -70,6 +73,7 @@ scan_root() {
   if ! git -C "$root" rev-parse --git-dir >/dev/null 2>&1; then
     echo "[git:$root] unavailable: not an admitted Git checkout" >&2
     partial=1
+    command_failed=1
     return 0
   fi
   worktree_output="$(git -C "$root" worktree list --porcelain 2>/dev/null)"
@@ -77,6 +81,7 @@ scan_root() {
   if [ "$worktree_status" -ne 0 ]; then
     echo "[git:$root] worktree list failed; coverage partial" >&2
     partial=1
+    command_failed=1
     return 0
   fi
   while IFS= read -r wt; do
@@ -96,6 +101,7 @@ elif [ -n "${PROJECTS_DIR:-}" ]; then
     if [ "$root" = "__HIST_FIND_FAILED__" ]; then
       echo "find failed under PROJECTS_DIR; coverage partial" >&2
       partial=1
+      command_failed=1
       continue
     fi
     scan_root "$root"
@@ -118,7 +124,9 @@ else
   scan_root "$current"
 fi
 if [ "$partial" -ne 0 ]; then
-  echo "Git recovery coverage is partial or unavailable; do not report an empty result as no-match." >&2
+  echo "Git recovery coverage is partial or unavailable; do not claim exhaustive results." >&2
+fi
+if [ "$command_failed" -ne 0 ]; then
   exit 2
 fi
 ```
