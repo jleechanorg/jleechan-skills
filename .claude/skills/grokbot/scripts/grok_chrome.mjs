@@ -47,16 +47,113 @@ async function findComposer(page) {
   return null;
 }
 
-const ctx = await chromium.launchPersistentContext(DIR, {
-  executablePath: CHROME, headless: !headed, userAgent: UA,
-  ignoreDefaultArgs: ['--enable-automation', '--use-mock-keychain', '--password-store=basic'],
-  args: [
-    '--no-first-run', '--no-default-browser-check', '--disable-blink-features=AutomationControlled',
-    // Pin a real credential backend. Playwright's defaults include
-    // --use-mock-keychain/--password-store=basic, which corrupt an encrypted store.
-    ...(process.platform === 'darwin' ? ['--password-store=keychain'] : ['--password-store=gnome-libsecret']),
-  ],
-});
+// --- Profile serialization -------------------------------------------------
+// Chromium's ProcessSingleton REJECTS a simultaneous second launch on one
+// user_data_dir; it does not queue it. Without this, a concurrent caller (the
+// agent's own parallel tool calls, or a straggler Chrome helper) crashes the run
+// with an unhandled ProcessSingleton error instead of waiting. The lockfile lives
+// outside the profile dir so it never collides with Chrome's Singleton namespace,
+// and it is released on exit and on signals so a crash cannot wedge the next run.
+function pidAlive(pid) {
+  if (!Number.isFinite(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return e.code === 'EPERM';
+  }
+}
+
+function liveHolderPid(dir) {
+  // A released SingletonLock does NOT mean the profile is idle: an orphaned Chrome
+  // helper (ppid 1) can still hold --user-data-dir. Check the live process table too.
+  try {
+    const lock = path.join(dir, 'SingletonLock');
+    if (fs.lstatSync(lock).isSymbolicLink()) {
+      const pid = Number(String(fs.readlinkSync(lock)).split('-').pop());
+      if (pidAlive(pid)) return pid;
+    }
+  } catch {}
+  try {
+    const out = require('node:child_process')
+      .execFileSync('ps', ['-Ao', 'pid=,command='], { encoding: 'utf8' });
+    for (const line of out.split('\n')) {
+      if (!line.includes(`--user-data-dir=${dir}`)) continue;
+      const pid = Number(line.trim().split(/\s+/)[0]);
+      if (pid !== process.pid && pidAlive(pid)) return pid;
+    }
+  } catch {}
+  return null;
+}
+
+async function acquireLock(dir) {
+  const lockFile = path.join(os.homedir(), '.config', 'grokbot-profile.lock');
+  const lockWait = Number(process.env.GROKBOT_LOCK_WAIT_MS || 300_000);
+  const profileWait = Number(process.env.GROKBOT_PROFILE_WAIT_MS || 300_000);
+  const deadline = Date.now() + Math.max(lockWait, profileWait);
+
+  for (;;) {
+    try {
+      const fd = fs.openSync(lockFile, 'wx', 0o600);
+      fs.writeSync(fd, String(process.pid));
+      fs.closeSync(fd);
+      break;
+    } catch (e) {
+      if (e.code !== 'EEXIST') die(`cannot create ${lockFile}: ${e.code}`, 7);
+      let holder = null;
+      try {
+        holder = Number(fs.readFileSync(lockFile, 'utf8').trim());
+      } catch {}
+      if (holder && !pidAlive(holder)) {
+        try { fs.unlinkSync(lockFile); } catch {}
+        continue;
+      }
+      if (Date.now() > deadline) {
+        die(`another grokbot run (pid ${holder || '?'}) holds ${lockFile} past the ${lockWait}ms wait. Not stealing it.`, 7);
+      }
+      await new Promise((r) => setTimeout(r, 200));
+    }
+  }
+
+  const release = () => {
+    try {
+      if (Number(fs.readFileSync(lockFile, 'utf8').trim()) === process.pid) fs.unlinkSync(lockFile);
+    } catch {}
+  };
+  process.once('exit', release);
+  for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+    process.once(sig, () => { release(); process.exit(130); });
+  }
+
+  let announced = false;
+  for (;;) {
+    const pid = liveHolderPid(dir);
+    if (!pid) return release;
+    if (Date.now() > deadline) {
+      die(`profile ${dir} still owned by Chrome pid ${pid} after the wait window. Close it first - never delete SingletonLock.`, 7);
+    }
+    if (!announced) {
+      console.error(`grokbot: profile busy (pid ${pid}); waiting for it to finish...`);
+      announced = true;
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+}
+
+const releaseLock = await acquireLock(DIR);
+
+let ctx;
+try {
+  ctx = await chromium.launchPersistentContext(DIR, {
+    executablePath: CHROME, headless: !headed, userAgent: UA,
+    ignoreDefaultArgs: ['--enable-automation', '--use-mock-keychain', '--password-store=basic'],
+    args: [
+      '--no-first-run', '--no-default-browser-check', '--disable-blink-features=AutomationControlled',
+      // Pin a real credential backend. Playwright's defaults include
+      // --use-mock-keychain/--password-store=basic, which corrupt an encrypted store.
+      ...(process.platform === 'darwin' ? ['--password-store=keychain'] : ['--password-store=gnome-libsecret']),
+    ],
+  });
 try {
   const page = ctx.pages()[0] || await ctx.newPage();
   const goto = (u) => page.goto(u, { waitUntil: 'domcontentloaded', timeout: 30000 }).then(() => page.waitForTimeout(4000));
@@ -177,6 +274,8 @@ try {
   }
 } catch (e) {
   if (!/^__(draft_present|dryrun)__$/.test(e.message)) throw e;
+}
 } finally {
   await ctx.close().catch(() => {});
+  releaseLock();
 }
