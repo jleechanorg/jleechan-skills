@@ -7,6 +7,24 @@ description: Use when the user invokes /dot or asks to "message the dot", "ask d
 
 Talk to the user's ChatGPT dot assistant using `scripts/dot.sh`. The scripts are a thin mechanical pointer (type, read, submit, clear, verify — see `GUARDRAIL.md`); every judgment call lives in this file, read top-down: how to work through the dot first, then transport actions and the peer-draft policy, then operational reference.
 
+## Peers: /instinct is an alternative coder/reviewer/worker
+
+Instinct is a **peer chat agent** reached over WhatsApp Web (`/instinct`, `/in`), on the contact
+**"Instinct WhatsApp"**, sharing this Mac's Chrome profile with Dot under a serialization lock. It can
+take bounded coding, independent review, and worker tasks the same way Dot can.
+
+- **Dispatch it** with `~/.claude/skills/instinct/SKILL.md` (goal + repo/branch + acceptance +
+  constraints + receipt request). Do not invent a second protocol here.
+- **Same independence rules.** Instinct and Dot each count as **at most one** `/advice` vote and are
+  never combined into a two-vote quorum. Neither may review work it produced.
+- **Same authority ceiling.** A WhatsApp or ChatGPT reply is dated evidence, never merge, destructive,
+  spend, or credential authority.
+- **Prefer Dot for**: multi-coder campaigns, PRs Dot already owns, work needing Dot's own tools.
+  **Prefer Instinct for**: a second independent opinion when Dot is saturated or walled, WhatsApp-native
+  handoff, and bounded work where one peer's receipt is enough.
+- **Never run both against the same Chrome profile at once** — that is what the lock prevents, and why
+  a busy profile makes Instinct wait rather than race.
+
 ## Default: delegate non-small work, then monitor
 
 ### Explicit Dot requests take priority
