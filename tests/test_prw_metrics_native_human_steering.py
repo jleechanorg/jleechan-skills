@@ -1,10 +1,11 @@
 """Per-PR steering aggregation stays evidence-bound and coverage-aware."""
 
 import json
+import re
 import tempfile
 import unittest
 
-from scripts.prw_metrics import Publisher, aggregate_native_human_steering
+from scripts.prw_metrics import DashboardRenderer, Publisher, aggregate_native_human_steering
 
 
 class NativeHumanSteeringTests(unittest.TestCase):
@@ -151,6 +152,43 @@ class NativeHumanSteeringTests(unittest.TestCase):
         self.assertEqual(result["coverage"]["branch_only_messages"], 1)
         self.assertEqual(result["coverage"]["ambiguous_branch_messages"], 1)
         self.assertEqual(result["coverage"]["unassigned_verified_messages"], 1)
+
+    def test_rendered_tables_have_matching_gfm_columns_and_empty_handoffs_are_not_collected(self):
+        steering = aggregate_native_human_steering(
+            self.events[:3], self.prs,
+            window_start="2026-10-01T00:00:00Z", window_end="2026-10-20T00:00:00Z",
+            source_stats=self.stats,
+        )
+        renderer = DashboardRenderer()
+        empty = renderer.render({"human_summary": steering, "handoffs": [
+            {"name": "review_return -> next_action", "observed_n": 0, "total_n": 0,
+             "median_sec": None, "status": "UNKNOWN"},
+        ]})
+        self.assertIn("NOT COLLECTED", empty)
+        self.assertNotIn("| Handoff Transition |", empty)
+        self.assertIn("| PR | Human messages | Association | Reviewed follow-up episodes |", empty)
+
+        measured = renderer.render({"human_summary": steering, "handoffs": [
+            {"name": "review_return -> next_action", "observed_n": 1, "total_n": 2,
+             "median_sec": 60, "status": "PARTIAL"},
+        ]})
+        self.assertIn("| Handoff Transition |", measured)
+        self.assertIn("review_return -> next_action", measured)
+
+        lines = measured.splitlines()
+        for index, line in enumerate(lines[:-1]):
+            if not line.startswith("|") or not lines[index + 1].startswith("|"):
+                continue
+            header = [cell.strip() for cell in line.strip("|").split("|")]
+            delimiter = [cell.strip() for cell in lines[index + 1].strip("|").split("|")]
+            if not delimiter or not all(re.fullmatch(r":?-{3,}:?", cell) for cell in delimiter):
+                continue
+            self.assertEqual(len(header), len(delimiter), line)
+            row_index = index + 2
+            while row_index < len(lines) and lines[row_index].startswith("|"):
+                row = [cell.strip() for cell in lines[row_index].strip("|").split("|")]
+                self.assertEqual(len(header), len(row), lines[row_index])
+                row_index += 1
 
     def test_per_pr_rows_survive_existing_summary_snapshot_projection(self):
         result = aggregate_native_human_steering(

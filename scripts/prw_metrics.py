@@ -3023,20 +3023,30 @@ class DashboardRenderer:
         # Section 4: Handoff Waiting Breakdown
         md.append("## 4. Handoff Waiting Breakdown")
         md.append("")
-        md.append("| Handoff Transition | Observed Events (n / N) | Median Duration | Telemetry Coverage | Status |")
-        md.append("|---|---:|---:|---:|---|")
-        for h in data.get("handoffs", []):
-            cov = "0%"
-            n = h.get("observed_n", 0)
-            tot = h.get("total_n", 0)
-            if tot > 0:
-                cov = f"{(n / tot) * 100:.1f}%"
-            med_sec = h.get("median_sec", "UNKNOWN")
-            med_str = format_duration(med_sec) if isinstance(med_sec, (int, float)) else str(med_sec)
-            status_str = h.get("status", "UNKNOWN" if n == 0 else "PARTIAL")
-            md.append(f"| `{h['name']}` | {n} / {tot} | {med_str} | {cov} | {status_str} |")
-        if not data.get("handoffs"):
-            md.append("| *No handoff transitions recorded* | 0 / 0 | UNKNOWN | 0% | UNKNOWN |")
+        observed_handoffs = [
+            handoff for handoff in data.get("handoffs", [])
+            if handoff.get("observed_n", 0) or handoff.get("total_n", 0)
+        ]
+        if observed_handoffs:
+            md.append("| Handoff Transition | Observed Events (n / N) | Median Duration | Telemetry Coverage | Status |")
+            md.append("|---|---:|---:|---:|---|")
+            for handoff in observed_handoffs:
+                observed = handoff.get("observed_n", 0)
+                total = handoff.get("total_n", 0)
+                coverage = f"{(observed / total) * 100:.1f}%" if total > 0 else "UNKNOWN"
+                median_seconds = handoff.get("median_sec", "UNKNOWN")
+                median = (format_duration(median_seconds)
+                          if isinstance(median_seconds, (int, float)) else str(median_seconds))
+                status = handoff.get("status", "UNKNOWN" if observed == 0 else "PARTIAL")
+                md.append(
+                    f"| `{handoff['name']}` | {observed} / {total} | {median} | "
+                    f"{coverage} | {status} |"
+                )
+        else:
+            md.append(
+                "- **Handoff telemetry**: NOT COLLECTED. Recovered review-stage dwell "
+                "remains separate in Section 3."
+            )
         md.append("")
 
         # Section 4b: Time Semantics & Effort Breakdown (Pilot Cohort)
@@ -3164,8 +3174,7 @@ class DashboardRenderer:
                 f"unverified candidates: {coverage.get('candidate_messages', 0)}; "
                 f"unassigned verified messages: {coverage.get('unassigned_verified_messages', 0)}; "
                 f"ambiguous branch matches: {coverage.get('ambiguous_branch_messages', 0)}; "
-                f"branch-only matches: {coverage.get('branch_only_messages', 0)}; "
-                f"validated repository-map entries: {coverage.get('repository_map_entries', 0)}."
+                f"branch-only matches: {coverage.get('branch_only_messages', 0)}."
             )
             if coverage.get("branch_lookup_cache_sha256"):
                 md.append(
@@ -3174,52 +3183,56 @@ class DashboardRenderer:
                     f"SHA-256 {coverage['branch_lookup_cache_sha256']}."
                 )
             md.append(
-                "- Counts are observed records only. No attributed rows means UNKNOWN coverage, "
-                "not zero human steering; branch-only rows are best-effort associations."
+                "- Counts are observed records only. Missing attribution means UNKNOWN coverage, "
+                "not zero human steering. Branch-context associations are low confidence."
             )
             rows = steering.get("per_pr", [])
             if rows:
-                md.append("")
-                md.append(
-                    "| PR | Direct verified | Repo/branch verified | Branch-only verified | "
-                    "Direct candidates | Repo/branch candidates | Branch-only candidates | "
-                    "Initial requests | Follow-up episodes (good / bad / mixed / unknown) | "
-                    "Association basis / confidence | Coverage |"
+                headers = (
+                    "PR", "Human messages", "Association", "Reviewed follow-up episodes",
                 )
-                md.append("|---|---:|---:|---:|---:|---:|---:|---:|---|---|")
+                md.append("")
+                md.append("| " + " | ".join(headers) + " |")
+                md.append("|" + "|".join("---" for _ in headers) + "|")
+                basis_labels = {
+                    "reviewed_direct_pr_binding": "reviewed direct PR binding",
+                    "best_effort_repo_branch_event_time": "repo + branch + event time (low)",
+                    "repo_branch_time_exact_head": "repo + branch + head match (low)",
+                    "unique_repo_branch_snapshot": "unique repo + branch snapshot (low)",
+                    "best_effort_branch_only_event_time": "unique branch + event time (low)",
+                    "branch_only_exact_head": "unique branch + head match (low)",
+                    "unique_branch_only_snapshot": "unique branch snapshot (low)",
+                }
                 for row in rows:
                     pr_number = row["pr"].rsplit("#", 1)[1]
-                    label = (f"[#{pr_number}]({row['url']})" if row.get("url")
-                             else row["pr"])
+                    label = (f"[#{pr_number}]({row['url']})" if row.get("url") else row["pr"])
                     if row["coverage_status"] == "UNKNOWN":
-                        direct = branch = branch_only = "UNKNOWN"
-                        direct_candidates = branch_candidates = branch_only_candidates = "UNKNOWN"
-                        initial = episodes = "UNKNOWN"
+                        messages = "UNKNOWN (no attributed history)"
+                        association = "UNKNOWN"
+                        episodes = "UNKNOWN"
                     else:
-                        direct = str(row["direct_verified_messages"])
-                        branch = str(row["branch_associated_verified_messages"])
-                        branch_only = str(row["branch_only_associated_verified_messages"])
-                        direct_candidates = str(row["direct_candidates"])
-                        branch_candidates = str(row["branch_associated_candidates"])
-                        branch_only_candidates = str(row["branch_only_candidates"])
+                        messages = (
+                            f"verified: direct {row['direct_verified_messages']}, "
+                            f"repo + branch {row['branch_associated_verified_messages']}, "
+                            f"branch only {row['branch_only_associated_verified_messages']}; "
+                            f"candidates: direct {row['direct_candidates']}, "
+                            f"repo + branch {row['branch_associated_candidates']}, "
+                            f"branch only {row['branch_only_candidates']}; "
+                            f"initial requests {row['initial_requests']}"
+                        )
+                        basis = [basis_labels.get(item, item) for item in row.get("association_basis", [])]
+                        association = "; ".join(basis) if basis else "UNKNOWN"
                         if row["followup_episodes"]:
                             quality = row["episodes_by_quality"]
                             episodes = (
-                                f"{row['followup_episodes']} "
-                                f"({quality['good']} / {quality['bad']} / {quality['mixed']} / "
-                                f"{quality['unknown']})"
+                                f"{row['followup_episodes']} reviewed; "
+                                f"good {quality['good']}, bad {quality['bad']}, "
+                                f"mixed {quality['mixed']}, unknown {quality['unknown']}"
                             )
                         else:
                             episodes = "UNKNOWN (no reviewed follow-up episode)"
-                        initial = str(row["initial_requests"])
-                    basis = ", ".join(row.get("association_basis", [])) or "none"
-                    basis = f"{basis} / {row.get('association_confidence', 'UNKNOWN')}"
-                    md.append(
-                        f"| {label} | {direct} | {branch} | {branch_only} | "
-                        f"{direct_candidates} | {branch_candidates} | {branch_only_candidates} | "
-                        f"{initial} | {episodes} | {basis} | "
-                        f"{row['coverage_status']} |"
-                    )
+                    cells = (label, messages, association, episodes)
+                    md.append("| " + " | ".join(cells) + " |")
             else:
                 md.append("*No per-PR native human records could be associated.*")
         md.append("")
