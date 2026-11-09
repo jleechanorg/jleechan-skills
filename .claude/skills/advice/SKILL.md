@@ -309,3 +309,5 @@ For visual follow-up, use [visual-verification's reuse and scoped follow-up](../
 Repair mechanically verifiable receipt fields yourself rather than dispatching a
 reviewer for bookkeeping; preserve §3 eligibility and original clocks. Such a
 repair cannot supply missing coverage, alter a verdict or revive a void vote.
+For human-judgment prose in a PR body, follow [document-standards' review and
+publication owner](../document-standards/SKILL.md#pr-body-prose-review-and-publication).

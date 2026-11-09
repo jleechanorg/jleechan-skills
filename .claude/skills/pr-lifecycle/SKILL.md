@@ -35,7 +35,7 @@ An existing user or standing authorization keeps covering the same action, targe
 
 ## The autonomous completion loop
 
-Drive the PR through this continuous cycle without stopping at intermediate checkpoints:
+Use the [selected route](review-routing.md) and repository policy to identify required obligations; conditional gates become required when their changed-claim or route conditions hold. Keep optional polish and telemetry off that critical path. Execute the next unmet obligation in the existing [ledger](review-records.md#unified-obligation-and-review-ledger) through this cycle: no parallel checklist or new controller.
 
 1. **Refresh and Choose the Next Action:** On every event or resume, first re-read live PR state (head, base, checks, comments, merged/closed, other writers); stop work already satisfied, closed or owned elsewhere. Then read the earliest unmet [Review Ledger](review-records.md#unified-obligation-and-review-ledger) gate and actual returned artifact:
    - **Missing review input:** produce or retrieve exactly that input; independent work continues. Incomplete packets never approve.
@@ -43,12 +43,13 @@ Drive the PR through this continuous cycle without stopping at intermediate chec
    - **Failed claim or supported blocking defect:** inspect its source or artifact. Fix and reverify every supported behavior blocker; batch affected proof and review. For unsupported claims, produce proof when the task needs them; otherwise narrow them honestly. Rewriting alone is not a fix. Nonblocking findings do not hold merge.
    - **Stale or ambiguous premise:** verify against current source; seek reviewer correction before dependent edits, never fabricating fixes or silently discarding findings.
    - **Candidate or base changed:** inspect the complete delta; request only affected judgment per [review-routing.md](review-routing.md#sha-binding-rule-critical--applies-to-every-gate-in-this-chain).
-   - **Verdicts applicable, next action authorized:** start it now; optional polish stays off the critical path.
+   - **Verdicts applicable, next action authorized:** name and start the earliest unmet required action now; optional polish stays off the critical path.
    - **Proven hold:** record handle, blocked action and resumption trigger; continue independent authorized work.
    While subagents, reviewers or CI run, first do every authorized step not needing their result (publish finished evidence, record received receipts, dispatch the next obligation). Only when none remains, make one longest-timeout wait or yield; never repeat short waits, sleeps or status pings. An acknowledged dispatch is not pickup: verify actual reviewer/job start, record its handle and callback or resume mechanism, and keep ownership through returned artifacts.
 2. **Own Asynchronous Work & Dependencies:** Record each actual job handle and verified callback or resume mechanism in the current execution record; written wake conditions alone do not cause resumption. Retain ownership of blocking dependency PRs through their required endpoint or verified accepted handoff; delivery alone does not unblock the parent. While waiting, integrate completed artifacts and begin any authorized next obligation that does not depend on the outstanding result.
-3. **Synchronize Presentation:** Synchronize title, labels, and description ledger from current obligation state.
-4. **Final Readiness and Merge:** When all draft and closing obligations pass, current checks are green, and receipts are published, synchronize `FINAL_READY` (scoping readiness strictly to the PR's own applicable obligations, while keeping any additional unreviewed runtime or measurement closure claims marked `UNVERIFIED` per [review-records.md](review-records.md#unified-obligation-and-review-ledger) without holding the PR for an optional report).
+3. **Synchronize Presentation:** Derive title, labels, and description ledger from verified current obligations. When live markers lag, synchronize them from the verified obligations without reopening source/prose review solely for that lag. Synchronization and published-state readback remain required; missing, stale, or unreadable required receipts keep the underlying gate open. Apply [document-standards' PR body owner](../document-standards/SKILL.md#pr-body-prose-review-and-publication) to review proposed prose and verify publication.
+4. **Final Readiness and Merge:** `FINAL_READY` is reached only when every applicable draft and closing obligation passes, current checks are green, and required receipts are published and read back from the PR. Synchronize the final presentation and verify it reflects those facts (scoping readiness strictly to the PR's own applicable obligations, while keeping additional unreviewed runtime or measurement closure claims marked `UNVERIFIED` per [review-records.md](review-records.md#unified-obligation-and-review-ledger) without holding the PR for an optional report). For applicable visual claims, confirm published media renders in the PR body per [evidence standards](../evidence-standards/SKILL.md#uimedia-proof), and confirm video visual review accounts for every decoded source frame per [visual verification](../visual-verification/SKILL.md).
+   Where repository policy requires video playback for an action/result claim, require the receipt to state the actual inspection/playback method and covered action-to-result time range; neither sampled frames nor all-frame image analysis substitutes for playback. If required playback is unavailable, keep that claim `PENDING` while retaining useful sampled observations; structural receipt checks prove presence, not perception.
    - **Headline claim-to-proof check before `FINAL_READY`:** Before synchronizing `FINAL_READY` (or closing a broader task claim alongside a PR), check each headline claim directly against its actual proof:
      - **Real caller for activation/runtime claims:** A test harness exercising a substitute helper function or synthetic state proves only that helper's logic, not the real CLI/caller entry point; runtime activation and continuation must be observed through the actual supported caller.
      - **Source events and arithmetic for metrics/reports:** Trace headline numbers to raw source timestamps/events, verify timestamp subtraction per attempt, leave unobserved intervals `UNKNOWN`/`null` rather than `0`, avoid keyword/repo heuristics for route claims, and label pre-change window cutoffs as baselines rather than post-change effect.
@@ -151,11 +152,11 @@ See [review-recovery.md](review-recovery.md#coderabbitbugbot--optional-advisory-
 
 ## Visible six-stage workflow (repository opt-in)
 
-Only for a repository that explicitly adopts it, load [six-stage.md](six-stage.md): specification placement, stage titles/labels (`stage:0-spec` to `stage:5-final-approval`), and Stage 5 closing validation.
+Only for a repository that explicitly adopts it, load the stage-specific rules in [six-stage.md](six-stage.md): specification placement, stage titles/labels (`stage:0-spec` to `stage:5-final-approval`), and Stage 5 closing validation.
 
 ## Review records in the PR description
 
-See [review-records.md](review-records.md) for PR description review ledgers and observational Scratch telemetry.
+See [review-records.md](review-records.md) for PR description review ledgers and observational Scratch telemetry. For every PR, also load [evidence publication](six-stage.md#evidence-attached-to-every-stage-exit), including applicable inline media, receipt indexing and route exemptions; that shared section does not require adopting the six-stage presentation workflow.
 
 ## Proportional exceptions and fast paths
 
