@@ -426,6 +426,32 @@ class UsageFeedCliTests(unittest.TestCase):
         self.assertEqual(pr["known_cost_usd"], 1)
         self.assertEqual(pr["pricing_status"], "partial")
 
+    def test_timestamp_only_duplicate_preserves_one_known_usage_observation(self):
+        base = {
+            "provider": "example-provider", "sku": "model-a", "usage_id": "same-timestamp-id",
+            "timestamp": "2026-11-01T00:00:00Z", "input_tokens": 1000000,
+            "cache_read_tokens": 0, "cache_write_5m_tokens": 0, "cache_write_1h_tokens": 0,
+            "output_tokens": 0, "reasoning_tokens": 0, "service_tier": "standard",
+            "inference_geo": "global", "speed": "standard", "attributions": [],
+        }
+        rates = load_rate_table(self.rates_path)
+        later_observation = dict(base, timestamp="2026-11-01T00:00:01Z")
+        deduplicated = aggregate_usage([base, later_observation], rates)
+        self.assertEqual(deduplicated["source_records"], 2)
+        self.assertEqual(deduplicated["event_count"], 1)
+        self.assertEqual(deduplicated["priced_event_count"], 1)
+        self.assertEqual(deduplicated["unknown_event_count"], 0)
+        self.assertEqual(deduplicated["known_cost_usd"], 1)
+
+        token_conflict = aggregate_usage(
+            [base, dict(base, input_tokens=2000000)], rates
+        )
+        model_conflict = aggregate_usage([base, dict(base, sku="model-b")], rates)
+        for conflict in (token_conflict, model_conflict):
+            self.assertEqual(conflict["event_count"], 1)
+            self.assertEqual(conflict["unknown_event_count"], 1)
+            self.assertEqual(conflict["known_cost_usd"], 0)
+
     def test_identical_duplicate_is_counted_once_and_conflicting_duplicate_is_unknown(self):
         base = {
             "provider": "example-provider", "sku": "model-a", "usage_id": "same-id",

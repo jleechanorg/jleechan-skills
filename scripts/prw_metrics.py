@@ -4991,6 +4991,14 @@ def _retained_usage_summary(summary):
     }
 
 
+def _same_usage_except_observation_timestamp(left, right):
+    """Treat timestamp-only observations as one request while keeping the first clock."""
+    return (
+        {key: value for key, value in left.items() if key != "timestamp"}
+        == {key: value for key, value in right.items() if key != "timestamp"}
+    )
+
+
 def aggregate_usage(raw_events, rates, window_start=None, window_end=None):
     """Aggregate real feed events without inventing missing cost or PR allocation."""
     raw_events = list(raw_events)
@@ -5027,7 +5035,8 @@ def aggregate_usage(raw_events, rates, window_start=None, window_end=None):
             continue
         if identity in seen:
             prior_index = seen[identity]
-            if rows[prior_index] != raw:
+            if (rows[prior_index] != raw
+                    and not _same_usage_except_observation_timestamp(rows[prior_index], raw)):
                 prior = dict(rows[prior_index], unknown_reasons=reason + ["conflicting_duplicate"])
                 for field in _USAGE_TOKEN_BUCKETS:
                     prior[field] = None
