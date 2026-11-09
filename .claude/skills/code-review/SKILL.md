@@ -86,9 +86,13 @@ report it promptly, then continue. An explicit narrower request remains narrow.
 When this review is automatically invoked by a Codex-origin PR workflow, follow
 the PR driver's shared review-dispatch budget before starting either reviewer.
 If no assignment is reserved, perform both axes as self-review when directed,
-without claiming independence; if the budget or authority is unclear, stop
-automatic reviewer dispatch and ask the driver. A direct user request for this
-review and standalone non-PR reviews keep their own applicable rules.
+without claiming independence. If exactly one assignment is reserved, task that
+reviewer with both axes and record its actual independent coverage; if it covers
+only one axis, self-review the other and do not claim independent coverage for
+it. Leave any independently required coverage open. If the budget or authority
+is unclear, stop automatic reviewer dispatch and ask the driver. A direct user
+request for this review and standalone non-PR reviews keep their own applicable
+rules.
 
 For both-axis reviews, dispatch independent Standards and Spec reviewers in
 parallel when the runtime permits. Give each the same pinned scope, relevant
