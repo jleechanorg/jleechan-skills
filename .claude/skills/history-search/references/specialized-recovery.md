@@ -4,6 +4,19 @@ Begin with [the sparse workflow](../../conversation-history-sparse/SKILL.md) for
 
 Use this reference only when the user explicitly requests one of these procedures, or when admitted supported-source results are insufficient and the procedure is relevant. Before running any query, verify that the required path is admitted. If the needed bounded route or tool is unavailable, report that source as unavailable/not searched; do not widen access or silently skip a requested filter.
 
+## Claude per-session deep retrieval
+
+The normal helper CLI accepts a larger `--limit`, but its Claude search still returns at most three matches per JSONL file. When a user requests more results from an admitted Claude history scope, call the same installed helper's `search_claude` function with explicit result, per-file, and excerpt limits. It still scans at most the 10 most relevant project directories; do not treat the returned bounded sample as exhaustive. Resolve `HISTORY_HELPER` and admit its reachable Claude projects as described in [the sparse workflow](../../conversation-history-sparse/SKILL.md).
+
+~~~bash
+HIST_LIMIT=20
+HIST_PER_FILE=20
+HIST_CHARS=500
+python3 -c 'import importlib.util, json, sys; helper, query, cwd, limit, per_file, chars = sys.argv[1:]; spec = importlib.util.spec_from_file_location("history_search", helper); module = importlib.util.module_from_spec(spec); sys.modules[spec.name] = module; spec.loader.exec_module(module); rows = module.search_claude(query=query, cwd=cwd, limit=int(limit), max_per_file=int(per_file), max_chars=int(chars)); print(json.dumps([row.to_dict() for row in rows], ensure_ascii=False, indent=2))' "$HISTORY_HELPER" "$HIST_QUERY" "$PWD" "$HIST_LIMIT" "$HIST_PER_FILE" "$HIST_CHARS"
+~~~
+
+Keep the query as a positional value, retain the exact returned file path and timestamps, and report the chosen bounds. Larger requested previews may raise HIST_CHARS; larger requested samples may raise both result limits, while the 10-project-directory scan bound remains.
+
 ## Antigravity Markdown exports
 
 This is distinct from the helper's agy CLI database/brain-log source. Use it only when the user explicitly requests exported Antigravity Markdown or admitted helper results are insufficient and these exports are relevant. Resolve the directory only from the registered `ANTIGRAVITY_EXPORT_DIR` variable in [the portability registry](../../../../docs/portability-env-vars.md); if unset or not a directory, report unavailable/not searched. A configured value still needs source admission. Do not guess a Dropbox path or inspect backups, credentials, or other Antigravity stores.
@@ -23,25 +36,75 @@ Run this snippet with the calling tool's native timeout set to at most 30 second
 ```bash
 HIST_LIMIT=20
 shown=0
+partial=0
+scan_worktree() {
+  wt="$1"
+  while IFS= read -r oid; do
+    if [ "$oid" = "__HIST_FSCK_FAILED__" ]; then
+      echo "[fsck:$wt] command failed; coverage partial" >&2
+      partial=1
+      return 0
+    fi
+    if description="$(git -C "$wt" show --no-patch --format='%H %s' "$oid" 2>/dev/null)"; then
+      printf '%s\n' "$description"
+      shown=$((shown + 1))
+    else
+      echo "[show:$wt] could not read candidate $oid; coverage partial" >&2
+      partial=1
+    fi
+    if [ "$shown" -ge "$HIST_LIMIT" ]; then
+      echo "Candidate display cap reached; coverage partial" >&2
+      partial=1
+      return 0
+    fi
+  done < <(
+    set -o pipefail
+    git -C "$wt" fsck --no-reflogs --unreachable --no-progress 2>/dev/null | awk '$2 == "commit" { print $3 }'
+    fsck_status=$?
+    set +o pipefail
+    if [ "$fsck_status" -ne 0 ]; then printf '%s\n' "__HIST_FSCK_FAILED__"; fi
+  )
+}
 scan_root() {
   root="$1"
+  if ! git -C "$root" rev-parse --git-dir >/dev/null 2>&1; then
+    echo "[git:$root] unavailable: not an admitted Git checkout" >&2
+    partial=1
+    return 0
+  fi
+  worktree_output="$(git -C "$root" worktree list --porcelain 2>/dev/null)"
+  worktree_status=$?
+  if [ "$worktree_status" -ne 0 ]; then
+    echo "[git:$root] worktree list failed; coverage partial" >&2
+    partial=1
+    return 0
+  fi
   while IFS= read -r wt; do
-    while IFS= read -r oid; do
-      git -C "$wt" show --no-patch --format='%H %s' "$oid"
-      shown=$((shown + 1))
-      if [ "$shown" -ge "$HIST_LIMIT" ]; then return 0; fi
-    done < <(git -C "$wt" fsck --no-reflogs --unreachable --no-progress 2>/dev/null | awk '$2 == "commit" { print $3 }')
+    case "$wt" in
+      "worktree "*) wt=${wt#worktree }; scan_worktree "$wt" ;;
+    esac
     if [ "$shown" -ge "$HIST_LIMIT" ]; then return 0; fi
-  done < <(git -C "$root" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p')
+  done <<EOF
+$worktree_output
+EOF
 }
 
 if [ -n "${1:-}" ]; then
   scan_root "$1"
 elif [ -n "${PROJECTS_DIR:-}" ]; then
   while IFS= read -r -d '' root; do
+    if [ "$root" = "__HIST_FIND_FAILED__" ]; then
+      echo "find failed under PROJECTS_DIR; coverage partial" >&2
+      partial=1
+      continue
+    fi
     scan_root "$root"
     [ "$shown" -lt "$HIST_LIMIT" ] || break
-  done < <(find "$PROJECTS_DIR" -mindepth 1 -maxdepth 1 -type d -print0)
+  done < <(
+    find "$PROJECTS_DIR" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null
+    find_status=$?
+    if [ "$find_status" -ne 0 ]; then printf '%s\0' "__HIST_FIND_FAILED__"; fi
+  )
 elif [ -n "${PROJECT_ROOT:-}" ]; then
   scan_root "$PROJECT_ROOT"
 elif [ -n "${REPO_ROOT:-}" ]; then
@@ -53,6 +116,10 @@ else
     exit 2
   fi
   scan_root "$current"
+fi
+if [ "$partial" -ne 0 ]; then
+  echo "Git recovery coverage is partial or unavailable; do not report an empty result as no-match." >&2
+  exit 2
 fi
 ```
 

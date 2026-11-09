@@ -13,6 +13,8 @@ Use this workflow only for `/history --deep` or when the sparse workflow found i
 
 The source-owned `scripts/history_search.py` helper is the single retrieval implementation for Claude Code, Codex, Hermes, agy, Cursor, and Pi. Resolve its installed absolute path as described by the sparse skill. Run one helper invocation per admitted source, in parallel when independent. Always choose explicit positive `--limit` and `--max-chars` values appropriate to the user's requested audit, and retain the actual values in the result summary. Do not silently truncate a requested larger preview back to the sparse defaults.
 
+`--limit` is a per-source result ceiling, not a guarantee that every source scans farther when it increases. Current internal bounds include at most 10 Claude project directories and 3 matches per Claude JSONL file, 5 recent Codex rollout files in the filesystem fallback, and 5 candidate Cursor agent-transcript files. State these bounds when they apply; a larger CLI limit does not widen them. For a requested larger sample from an admitted Claude session, use the bounded direct-helper procedure in [specialized recovery](references/specialized-recovery.md). Treat other results as bounded samples and do not claim broader coverage than the helper performed.
+
 ```bash
 python3 "$HISTORY_HELPER" --source claude --limit "$HIST_LIMIT" --max-chars "$HIST_CHARS" --json -- "$HIST_QUERY"
 python3 "$HISTORY_HELPER" --source codex --codex-home "$ADMITTED_CODEX_HOME" --limit "$HIST_LIMIT" --max-chars "$HIST_CHARS" --json -- "$HIST_QUERY"
