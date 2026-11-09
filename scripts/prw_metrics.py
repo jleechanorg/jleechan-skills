@@ -399,7 +399,7 @@ def _sanitize_retained_record(record, allowed, nested=False):
             continue
         value = record[key]
         if key == "message_ids" and isinstance(value, list):
-            out[key] = [_retained_scalar(v) for v in value if isinstance(v, (str, int))]
+            out[key] = [_retained_scalar(v) if isinstance(v, (str, int)) else None for v in value]
         elif key in ("annotator_a", "annotator_b"):
             label = value.get("label") if isinstance(value, dict) else value
             out[key] = {"label": _retained_scalar(label)} if isinstance(value, dict) else _retained_scalar(label)

@@ -420,5 +420,28 @@ class TestEmptyDurationDistribution(unittest.TestCase):
         self.assertEqual(result["all_p75_hours"], 0.0)
 
 
+
+class TestInvalidIdentityRetention(unittest.TestCase):
+    def test_invalid_id_evidence_survives_sanitized_replay(self):
+        for invalid in (None, {"private": "payload-must-not-survive"}):
+            with self.subTest(invalid=invalid):
+                row = {
+                    "actor_status": "human", "origin": "dot_history",
+                    "episode_id": "partial-dot", "message_ids": ["m1", invalid],
+                    "timestamp": "2026-11-08T10:00:00Z",
+                }
+                before = MetricsAggregator().compute_human_interventions([row])
+                encoded = sanitize_telemetry_file(
+                    "dashboards/prw/telemetry/20261101/human_episodes.jsonl",
+                    json.dumps(row) + "\n",
+                )
+                retained = json.loads(encoded.strip())
+                after = MetricsAggregator().compute_human_interventions([retained])
+                self.assertEqual(retained["message_ids"], ["m1", None])
+                self.assertNotIn("payload-must-not-survive", encoded)
+                self.assertEqual(after["raw_human_messages"], before["raw_human_messages"])
+                self.assertEqual(after["qualifying_episodes"], before["qualifying_episodes"])
+                self.assertEqual(after["channel_coverage"], before["channel_coverage"])
+
 if __name__ == "__main__":
     unittest.main()
