@@ -79,9 +79,9 @@ Pick a connectivity tier — try in order, stop at first success. Carry the reso
 
 ```bash
 if [ "$CLAUDE_LAUNCHER" = claudewa ]; then
-  ssh "${SSH_ARGS[@]}" "$SSH_TARGET" 'command -v claudewa && top -bn2 -d1 | grep "%Cpu" | tail -1'
+  ssh "${SSH_ARGS[@]}" "$SSH_TARGET" 'command -v claudewa >/dev/null || exit 127; CPU_SAMPLE=$(top -bn2 -d1 | grep "%Cpu" | tail -1); [ -n "$CPU_SAMPLE" ] || { echo "ERROR: top returned no CPU sample" >&2; exit 75; }; printf "%s\n" "$CPU_SAMPLE"'
 else
-  ssh "${SSH_ARGS[@]}" "$SSH_TARGET" 'top -bn2 -d1 | grep "%Cpu" | tail -1'
+  ssh "${SSH_ARGS[@]}" "$SSH_TARGET" 'CPU_SAMPLE=$(top -bn2 -d1 | grep "%Cpu" | tail -1); [ -n "$CPU_SAMPLE" ] || { echo "ERROR: top returned no CPU sample" >&2; exit 75; }; printf "%s\n" "$CPU_SAMPLE"'
 fi
 ```
 
@@ -233,6 +233,17 @@ if tmux has-session -t "=$SESSION" 2>/dev/null; then
     echo "FAILED:$SESSION — existing session branch mismatch" >&2
     exit 75
   }
+  if [ "$AGENT_CLI" = "claude" ]; then
+    SESSION_CLAUDE_LAUNCHER=$(tmux show-option -qv -t "=$SESSION" @mirror-claude-launcher 2>/dev/null || true)
+    [ -n "$SESSION_CLAUDE_LAUNCHER" ] || {
+      echo "FAILED:$SESSION — existing session has no recorded Claude profile; refusing RESUMED" >&2
+      exit 75
+    }
+    [ "$SESSION_CLAUDE_LAUNCHER" = "$CLAUDE_LAUNCHER" ] || {
+      echo "FAILED:$SESSION — existing session Claude profile mismatch ($SESSION_CLAUDE_LAUNCHER != $CLAUDE_LAUNCHER); refusing RESUMED" >&2
+      exit 75
+    }
+  fi
   SESSION_HEAD=$(git -C "$TARGET" rev-parse HEAD 2>/dev/null || true)
   [ "$SESSION_HEAD" = "$INTENDED_SHA" ] || {
     echo "FAILED:$SESSION — active checkout SHA $SESSION_HEAD differs from intended source $INTENDED_SHA; preserving it" >&2
@@ -372,7 +383,7 @@ else
   # call) so a session that dies immediately — missing `claude` binary,
   # PATH not resolving it under a non-login tmux shell, a crash — leaves a
   # dead-but-inspectable pane instead of vanishing outright.
-tmux new-session -d -s "$SESSION" -c "$TARGET" "${LAUNCH[@]}" \; set-option -t "$SESSION" remain-on-exit on 9>&-
+tmux new-session -d -s "$SESSION" -c "$TARGET" "${LAUNCH[@]}" \; set-option -t "$SESSION" remain-on-exit on \; set-option -t "$SESSION" @mirror-claude-launcher "$CLAUDE_LAUNCHER" 9>&-
   # Poll for the trust dialog and accept it with fixed navigation keys
   # (Down, Enter) — never $CONTEXT — so this carries none of the
   # injection risk the original send-keys-typed-$CONTEXT bug had. This
