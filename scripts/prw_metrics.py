@@ -3699,7 +3699,7 @@ class DashboardRenderer:
                         confidence = row.get("association_confidence", "UNKNOWN")
                         if confidence in ("BEST_EFFORT", "LOW_BEST_EFFORT", "LOW_BEST_EFFORT_HEAD",
                                           "BRANCH_SNAPSHOT_LOW", "BRANCH_ONLY_LOW",
-                                          "BRANCH_ONLY_LOW_HEAD", "BRANCH_ONLY_HEAD_MATCH"):
+                                          "BRANCH_ONLY_LOW_HEAD", "BRANCH_ONLY_HEAD_MATCH", "low"):
                             confidence = "low confidence"
                         elif confidence == "EXPLICIT":
                             confidence = "explicit"
@@ -4061,6 +4061,7 @@ def aggregate_native_human_steering(
                     "LOW_BEST_EFFORT", "LOW_BEST_EFFORT_HEAD", "BEST_EFFORT",
                     "BRANCH_SNAPSHOT_LOW", "BRANCH_ONLY_LOW", "BRANCH_ONLY_LOW_HEAD",
                     "BRANCH_ONLY_HEAD_MATCH", "BRANCH_HEAD_MATCH", "high", "medium",
+                    "low", "UNASSIGNED_CONTEXT",
                 }:
                     confidence = "UNKNOWN"
                 basis = event.get("association_method")

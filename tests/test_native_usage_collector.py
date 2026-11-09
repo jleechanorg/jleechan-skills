@@ -613,7 +613,7 @@ class ReplayAnnotationPrivacyTests(unittest.TestCase):
             root = Path(temp)
             source, annotations, output = root / "events.jsonl", root / "annotations.jsonl", root / "report.md"
             rows = []
-            labels = ["BRANCH_SNAPSHOT_LOW", "BRANCH_ONLY_LOW", "high", "medium", "PRIVATE_TOKEN_123"]
+            labels = ["BRANCH_SNAPSHOT_LOW", "BRANCH_ONLY_LOW", "high", "medium", "low", "UNASSIGNED_CONTEXT", "PRIVATE_TOKEN_123"]
             for number, label in enumerate(labels, 1):
                 rows.append({"record_type": "human", "provider": "openai", "event_id": f"e{number}", "session_id": "session", "timestamp": "2026-11-02T00:00:00Z", "origin_status": "verified_human"})
             source.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
@@ -622,11 +622,11 @@ class ReplayAnnotationPrivacyTests(unittest.TestCase):
             summary = aggregate_native_human_steering(replay["human_records"], [], window_start="2026-10-26T00:00:00Z", window_end="2026-11-09T00:00:00Z")
             retained = _project_summary({"human_summary": summary})
             by_pr = {row["pr"]: row["association_confidence"] for row in retained["human_summary"]["per_pr"]}
-            self.assertEqual([by_pr[f"acme/game#{number}"] for number in range(1, 6)], labels[:4] + ["UNKNOWN"])
+            self.assertEqual([by_pr[f"acme/game#{number}"] for number in range(1, len(labels) + 1)], labels[:-1] + ["UNKNOWN"])
             cmd = [sys.executable, "scripts/prw_metrics.py", "--offline", "--history-replay", str(source), "--history-annotations", str(annotations), "--cutoff", "2026-11-09T00:00:00Z", "--output", str(output)]
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
             self.assertEqual(result.returncode, 0, result.stderr)
             text = output.read_text(encoding="utf-8")
-            low_rows = [line for line in text.splitlines() if "acme/game#1" in line or "acme/game#2" in line]
-            self.assertEqual(sum("low confidence" in line for line in low_rows), 2)
+            low_rows = [line for line in text.splitlines() if "acme/game#1" in line or "acme/game#2" in line or "acme/game#5" in line]
+            self.assertEqual(sum("low confidence" in line for line in low_rows), 3)
             self.assertNotIn("PRIVATE_TOKEN_123", text)
