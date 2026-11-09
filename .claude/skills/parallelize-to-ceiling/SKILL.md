@@ -214,6 +214,14 @@ Before spawning any new lane, subprocess fleet, or CLI delegation:
 
 ## Coding and verification lane routing
 
+For automatic review of a Codex-origin PR, the PR driver's shared review-dispatch
+budget governs independent verifier and reviewer lanes, including delegated
+runtimes and fallback attempts. Start only assignments reserved by the driver;
+if the budget or authority is unclear, stop automatic reviewer dispatch and ask
+the driver. Ordinary coder result inspection and tests are not review seats.
+Direct user requests for a specific review, required external gates and non-PR
+work retain their applicable rules.
+
 **Precedence, in order (resolve the "AGY pair" and "cheapest tier" sections
 below by this order, don't pick whichever is more convenient):**
 
