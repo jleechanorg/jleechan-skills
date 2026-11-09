@@ -246,19 +246,38 @@ remainder stays unallocated.
 
 The retention snapshot keeps sanitized token/cost totals and rate provenance and
 excludes prompts, responses, request paths, and rationale text. The rate card provides
-a public model-list equivalent, not actual invoice amounts. A single session feed is
-not a fleet or PR population. For direct recurring collection, the optional
---usage-source-dir <directory> CLI argument reads native Claude Code session JSONL
-files under that explicitly selected
-directory, recursively. This source covers Claude Code only; Codex and other runtimes
-remain uncollected and the dashboard labels that coverage limit. The collector extracts
-only assistant request ID, message ID,
-timestamp, model, and token counters. It deduplicates by request ID and reports files
-scanned, usage rows, unique and duplicate requests, malformed lines, read errors, and
-rejected rows in the dashboard's retained usage coverage. Missing sources are marked
-FAILED and return a failing CLI status; parse/read issues are marked PARTIAL. It never
-retains raw session text or source paths. The source is opt-in;
-a scheduled wrapper may provide it through the existing configured collector command.
+a public model-list equivalent, not actual invoice amounts. For deterministic native
+history collection, repeat --history-root <path> for every configured Claude or Codex
+root. The collector scans every JSONL file under those roots and selects records by the
+half-open UTC interval [cutoff - days, cutoff). --cutoff is the same UTC-aware cutoff
+used by the dashboard; --days defaults to 14. File modification times do not limit the
+history scan.
+
+Claude usage comes from assistant request records and retains request/message IDs,
+timestamp, model, token buckets, and service metadata when present. Codex usage comes
+from each token_usage_record response and its payload.usage; response IDs are
+deduplicated by the existing aggregator, and model identity comes from the matching
+turn_id context. Codex cached input is subtracted from total input only when both
+counts are known and consistent. Reasoning output is a diagnostic subset of output.
+Generic cache-write counts without TTL remain unpriced. Missing model, rate, or billing
+scope metadata stays unknown; API/subscription spend is not inferred from token counts.
+
+Human metadata collection retains structured user-event IDs, timestamps, turn/session
+identifiers, and source fingerprints only. Claude human verification uses explicit
+native origin metadata. Codex user-role records remain candidates until a reviewed
+annotation verifies their origin. Initial/follow-up episode roles, quality labels, and
+scores are never inferred from message order or text. Exact-ID annotations are read
+from --history-annotations <jsonl>; an explicit provider/request-ID binding can supply
+a PR attribution with the existing evidence fields. Incidental PR mentions do not bind
+usage.
+
+--history-export <jsonl> writes a deterministic combined JSONL of normalized usage
+and human metadata, with no raw prompt/response text or source paths; this file can be
+fed back through --usage-events. The dashboard records root/file coverage, window
+exclusions, parse/read errors, duplicate usage rows, explicit PR bindings, and human
+candidate/verified/unannotated counts. Status is scoped to the supplied roots. Only the
+Claude and Codex JSONL sources are collected; other runtimes and unconfigured roots are
+not claimed as covered. A complete scan is still not a fleet or PR population total.
 
 The cache-write TTL buckets remain separate and never
 use a generic cache-write price. The card's `standard_global_public_list_price` basis

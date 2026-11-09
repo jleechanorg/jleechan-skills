@@ -12,12 +12,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest import mock
 
+from scripts.native_usage_collector import collect_native_history
 from scripts.prw_metrics import (
     _retained_usage_summary,
     MetricsAggregator,
     Publisher,
     aggregate_usage,
-    collect_claude_native_usage,
     load_rate_table,
     load_usage_events,
     main,
@@ -164,10 +164,12 @@ class UsageFeedCliTests(unittest.TestCase):
         summary = aggregate_usage(events, load_rate_table(self.rates_path))
         summary["coverage"]["native_source"] = {
             "status": "COMPLETE",
-            "runtime_coverage": "Claude Code session JSONL only; Codex and other runtimes not collected",
-            "files_scanned": 1, "assistant_usage_rows": 2,
-            "unique_requests": 1, "duplicate_requests": 1, "malformed_lines": 0,
-            "read_errors": 0, "rejected_rows": 0,
+            "runtime_coverage": "Claude and Codex configured roots; other runtimes not collected",
+            "roots_requested": 1, "roots_available": 1, "missing_roots": 0,
+            "files_scanned": 1, "duplicate_files": 0, "usage_records_in_window": 2,
+            "duplicate_usage_records": 1, "outside_window_records": 0, "undated_records": 0,
+            "human_candidates": 0, "human_verified": 0, "human_unannotated": 0,
+            "pr_bound_usage_records": 0, "malformed_lines": 0, "read_errors": 0,
         }
         files = Publisher(repo_path=self.tempdir.name).write_telemetry_bundle({
             "usage_summary": _retained_usage_summary(summary), "w2_bounds": ["2026-11-01", "2026-11-08"],
@@ -181,9 +183,9 @@ class UsageFeedCliTests(unittest.TestCase):
         self.assertEqual(projected["coverage"]["service_tiers"], ["standard"])
         self.assertEqual(projected["coverage"]["regions"], ["global"])
         self.assertEqual(projected["coverage"]["native_source"]["status"], "COMPLETE")
-        self.assertIn("Codex and other runtimes not collected",
+        self.assertIn("other runtimes not collected",
                       projected["coverage"]["native_source"]["runtime_coverage"])
-        self.assertEqual(projected["coverage"]["native_source"]["unique_requests"], 1)
+        self.assertEqual(projected["coverage"]["native_source"]["usage_records_in_window"], 2)
         self.assertEqual(len(projected["rate_records"]), 5)
         self.assertIsNone(projected["events"][1]["known_cost_usd"])
         self.assertEqual(projected["known_cost_usd"], "17.6")
@@ -435,19 +437,20 @@ class NativeClaudeUsageSourceTests(unittest.TestCase):
             self.assertIn("`output` 50", output)
             self.assertIn("Reasoning tokens: 0", output)
             self.assertIn("Known usage subtotal: $0.0008370 USD.", output)
-            self.assertIn("unique_requests=1", output)
-            self.assertIn("duplicate_requests=1", output)
+            self.assertIn("usage_records_in_window=2", output)
+            self.assertIn("duplicate_usage_records=1", output)
             self.assertNotIn("PRIVATE_RESPONSE_MUST_NOT_LEAK", output)
-            records, source_stats = collect_claude_native_usage(str(self.source))
+            history = collect_native_history(
+                [self.source], cutoff=datetime(2026, 11, 8, tzinfo=timezone.utc), days=14,
+            )
+            records, source_stats = history["usage_records"], history["stats"]
             self.assertEqual(len(records), 2)
             self.assertEqual({record["request_id"] for record in records}, {"req-native-1"})
             serialized = json.dumps(records)
             self.assertNotIn("PRIVATE_RESPONSE_MUST_NOT_LEAK", serialized)
             self.assertNotIn(str(self.source), serialized)
-            self.assertEqual(
-                set(records[0]),
-                {"provider", "request_id", "message_id", "timestamp", "model", "raw_usage"},
-            )
+            self.assertEqual(records[0]["request_id"], "req-native-1")
+            self.assertTrue(records[0]["source_fingerprint"].startswith("sha256:"))
             rates = load_rate_table(self.rates)
             normalized = load_usage_events(records, provider="anthropic")
             summary = aggregate_usage(normalized, rates)
@@ -472,9 +475,9 @@ class NativeClaudeUsageSourceTests(unittest.TestCase):
         self.assertIn("Source records: 2; priced: 0; partially priced: 0; unknown: 1.", output)
         self.assertIn("Known usage subtotal: UNKNOWN (no priced usage).", output)
         self.assertIn("Native source acquisition: COMPLETE", output)
-        self.assertIn("Codex and other runtimes not collected", output)
-        self.assertIn("unique_requests=1", output)
-        self.assertIn("duplicate_requests=1", output)
+        self.assertIn("other runtimes not collected", output)
+        self.assertIn("usage_records_in_window=2", output)
+        self.assertIn("duplicate_usage_records=1", output)
 
     def test_conflicting_retained_and_fresh_native_observations_reach_aggregator(self):
         telemetry = self.root / "telemetry"
@@ -556,7 +559,7 @@ class NativeClaudeUsageSourceTests(unittest.TestCase):
         proc = self._collect(check=False)
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("Native source acquisition: FAILED", proc.stdout)
-        self.assertIn("read_errors=1", proc.stdout)
+        self.assertIn("missing_roots=1", proc.stdout)
         self.assertNotIn(str(self.source), proc.stdout)
 
     def test_scan_counts_malformed_and_unusable_rows_without_exposing_source_paths(self):
@@ -571,9 +574,8 @@ class NativeClaudeUsageSourceTests(unittest.TestCase):
         output = self._collect().stdout
         self.assertIn("Source records: 0;", output)
         self.assertIn("files_scanned=1", output)
-        self.assertIn("assistant_usage_rows=1", output)
         self.assertIn("malformed_lines=1", output)
-        self.assertIn("rejected_rows=1", output)
+        self.assertIn("undated_records=1", output)
         self.assertNotIn(str(self.source), output)
 
 

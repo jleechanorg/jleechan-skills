@@ -1,6 +1,8 @@
 """Deterministic metadata-only acquisition from explicit native history roots."""
 
 import json
+import subprocess
+import sys
 import tempfile
 import unittest
 from datetime import datetime, timezone
@@ -209,6 +211,37 @@ class NativeUsageCollectorTests(unittest.TestCase):
         self.assertEqual(data["stats"]["pr_bound_usage_records"], 1)
         self.assertEqual(data["usage_records"][0]["attributions"][0]["pr"], "example/repo#42")
         self.assertEqual(data["usage_records"][0]["attributions"][0]["receipt_refs"], ["receipt-42"])
+
+    def test_prw_cli_collects_explicit_history_from_external_working_directory(self):
+        secret = "EXTERNAL_CWD_PROMPT_MUST_NOT_LEAK"
+        self._write(self.codex, "nested/rollout.jsonl", [
+            {"type": "session_meta", "payload": {"id": "thread-codex"}},
+            {"type": "turn_context", "payload": {"turn_id": "turn-a", "model": "fixture-codex-model"}},
+            {"type": "response_item", "timestamp": "2026-10-28T09:00:01Z",
+             "payload": {"role": "user", "content": secret}},
+            self._codex_usage("2026-10-28T09:00:02Z", "response-cli"),
+        ])
+        caller = self.base / "external-caller"
+        caller.mkdir()
+        report = self.base / "out" / "dashboard.md"
+        exported = self.base / "out" / "history.jsonl"
+        script = Path(__file__).resolve().parents[1] / "scripts" / "prw_metrics.py"
+        proc = subprocess.run(
+            [sys.executable, str(script), "--offline", "--history-root", str(self.codex),
+             "--cutoff", "2026-11-10T00:00:00Z", "--days", "14",
+             "--history-export", str(exported), "--output", str(report)],
+            cwd=caller, check=True, capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(proc.returncode, 0)
+        self.assertTrue(report.exists())
+        self.assertTrue(exported.exists())
+        dashboard = report.read_text(encoding="utf-8")
+        export = exported.read_text(encoding="utf-8")
+        self.assertIn("Native source acquisition: COMPLETE", dashboard)
+        self.assertIn('"request_id": "response-cli"', export)
+        self.assertEqual(len(load_usage_events(str(exported))), 1)
+        self.assertNotIn(secret, export)
+        self.assertNotIn(str(self.codex), export)
 
     def test_all_roots_and_source_errors_are_reported_without_paths(self):
         self._write(self.claude, "session.jsonl", [
