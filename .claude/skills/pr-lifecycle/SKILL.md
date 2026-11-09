@@ -152,11 +152,11 @@ See [review-recovery.md](review-recovery.md#coderabbitbugbot--optional-advisory-
 
 ## Visible six-stage workflow (repository opt-in)
 
-Only for a repository that explicitly adopts it, load [six-stage.md](six-stage.md): specification placement, stage titles/labels (`stage:0-spec` to `stage:5-final-approval`), and Stage 5 closing validation.
+Only for a repository that explicitly adopts it, load the stage-specific rules in [six-stage.md](six-stage.md): specification placement, stage titles/labels (`stage:0-spec` to `stage:5-final-approval`), and Stage 5 closing validation.
 
 ## Review records in the PR description
 
-See [review-records.md](review-records.md) for PR description review ledgers and observational Scratch telemetry.
+See [review-records.md](review-records.md) for PR description review ledgers and observational Scratch telemetry. For every PR, also load [evidence publication](six-stage.md#evidence-attached-to-every-stage-exit), including applicable inline media, receipt indexing and route exemptions; that shared section does not require adopting the six-stage presentation workflow.
 
 ## Proportional exceptions and fast paths
 
