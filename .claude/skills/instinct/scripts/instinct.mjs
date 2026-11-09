@@ -502,9 +502,15 @@ async function compose(page, text) {
   }, text);
   await page.waitForTimeout(900);
   const typed = (await box.innerText().catch(() => '')).replace(/\s+/g, ' ').trim();
-  const probe = text.slice(0, 40).replace(/\s+/g, ' ').trim();
-  if (!typed.includes(probe)) {
-    die('composer did not accept the text (draft mismatch); nothing was sent', 6);
+  // Compare the WHOLE normalised body, not a 40-char prefix: a truncated paste would pass a
+  // prefix check and be reported as sent (raised by Dot review as a non-P0).
+  const wantAll = text.replace(/\s+/g, ' ').trim();
+  if (typed !== wantAll) {
+    die(
+      `composer content does not match the full message (want ${wantAll.length} chars, ` +
+        `got ${typed.length}); nothing was sent`,
+      6
+    );
   }
   return box;
 }
@@ -628,11 +634,25 @@ async function compose(page, text) {
       if ((await send.count()) === 0) die('send button not found; text left in the composer unsent', 6);
       await send.click();
       await page.waitForTimeout(1500);
-      const still = (await page.locator('footer div[contenteditable="true"]').last().innerText())
+      const still = (await page.locator(COMPOSER).last().innerText())
         .replace(/\s+/g, ' ')
         .trim();
-      if (still.includes(text.slice(0, 40).replace(/\s+/g, ' ').trim())) {
-        die('composer still holds the text after clicking send; delivery NOT confirmed', 6);
+      if (still.length > 0) {
+        die('composer still holds text after clicking send; delivery NOT confirmed', 6);
+      }
+      // Stronger than a prefix check: require the FULL body to appear as an outgoing bubble.
+      const wantAll = text.replace(/\s+/g, ' ').trim();
+      const delivered = await page.evaluate((want) => {
+        const nodes = [...document.querySelectorAll('[data-pre-plain-text]')];
+        return nodes
+          .slice(-5)
+          .some((n) => (n.innerText || '').replace(/\s+/g, ' ').trim() === want);
+      }, wantAll);
+      if (!delivered) {
+        die(
+          'the exact message was not found as an outgoing bubble; delivery NOT confirmed',
+          6
+        );
       }
       const msgs = await readMessages(page, 3);
       process.stdout.write(`sent to ${name}\n`);
