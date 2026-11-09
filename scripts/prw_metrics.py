@@ -249,7 +249,8 @@ _SLUG_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 # Minimal retained-publication schema: only these scalar fields leave the host.
 # Raw source text (messages, transcripts, excerpts, rationales) is never retained.
 RETAINED_EVENT_FIELDS = frozenset({
-    "event_id", "agent_id", "worker_id", "event_type", "occurred_at", "pr_number", "number", "repo", "span_kind",
+    "event_id", "agent_id", "worker_id", "event_type", "occurred_at", "pr_id", "observed_at",
+    "pr_number", "number", "repo", "span_kind",
     "start_at", "start", "started_at", "end_at", "end", "completed_at", "duration_sec",
 })
 RETAINED_EPISODE_FIELDS = frozenset({
@@ -279,6 +280,7 @@ RETAINED_TIMELINE_FIELDS = frozenset({
 })
 RETAINED_HANDOFF_FIELDS = frozenset({
     "attempt", "attempt_number", "candidate_sha", "head_sha", "receipt_id", "source_receipt", "repo",
+    "record_type", "event_id", "event_type", "occurred_at", "observed_at", "pr_id",
     "number", "pr_number", "pr_url", "status", "transition", "name", "final_ready", "merge_authority",
     "duration_sec", "start_at", "started_at", "end_at", "completed_at", "evidence_ready_at",
     "review_requested_at", "actual_review_started_at", "queued_at", "review_returned_at",
@@ -361,7 +363,9 @@ SUMMARY_SCHEMA = {
         "total_n", "conflicts")}],
     "handoffs": [{k: _SC for k in (
         "name", "observed_n", "sample_n", "total_n", "median_sec", "p75_sec",
-        "p50_sec", "p90_sec", "p99_sec", "status")}],
+        "p50_sec", "p90_sec", "p99_sec", "status", "receipt_status",
+        "receipt_events_seen", "receipt_events_valid", "receipt_pairs",
+        "receipt_events_unmatched", "receipt_parse_errors", "receipt_read_errors")}],
     "open_prs_known_idle": [_ATTENTION_ROW],
     "open_prs_unknown_idle": [_ATTENTION_ROW],
     "time_semantics_pilot": [{k: _SC for k in (
@@ -822,6 +826,10 @@ class Collector:
         self.repos = repos or []
         self.cutoff_dt = cutoff_dt or datetime.now(timezone.utc)
         self.source_manifest = {}
+        self.receipt_scan_stats = {
+            "status": "NOT_CONFIGURED", "files_scanned": 0, "receipt_events_seen": 0,
+            "receipt_parse_errors": 0, "receipt_read_errors": 0,
+        }
 
     def deduplicate_prs(self, prs):
         """
@@ -1224,30 +1232,75 @@ class Collector:
         return self.deduplicate_events(norm_events)
 
     def collect_receipts_from_dir(self, receipts_dir):
-        """
-        Ingest receipt files (run.stats.json, start_*.json, completion_*.json) from a directory.
-        """
+        """Read optional attempt receipts and path-free canonical transition events."""
         records = []
-        if not receipts_dir or not os.path.isdir(receipts_dir):
+        stats = {
+            "status": "NOT_CONFIGURED", "files_scanned": 0, "receipt_events_seen": 0,
+            "receipt_parse_errors": 0, "receipt_read_errors": 0,
+        }
+        if not receipts_dir:
+            self.receipt_scan_stats = stats
+            return records
+        if not os.path.isdir(receipts_dir):
+            stats.update({"status": "UNAVAILABLE", "receipt_read_errors": 1})
+            self.receipt_scan_stats = stats
             return records
 
-        for root, _, files in os.walk(receipts_dir):
-            for fname in files:
-                if fname in ("run.stats.json", "start.json", "completion.json") or (fname.startswith(("start_", "completion_")) and fname.endswith(".json")):
-                    fpath = os.path.join(root, fname)
+        json_receipts = {"run.stats.json", "start.json", "completion.json"}
+        for root, dirs, files in os.walk(receipts_dir):
+            dirs.sort()
+            for fname in sorted(files):
+                fpath = os.path.join(root, fname)
+                if fname in json_receipts or (
+                    fname.startswith(("start_", "completion_")) and fname.endswith(".json")
+                ):
                     try:
-                        with open(fpath, "r", encoding="utf-8") as f:
-                            data = json.load(f)
+                        with open(fpath, "r", encoding="utf-8") as stream:
+                            data = json.load(stream)
                         if isinstance(data, dict):
-                            data["source_receipt"] = fpath
-                            records.append(data)
+                            records.append(dict(data, source_receipt=fpath))
                         elif isinstance(data, list):
-                            for item in data:
-                                if isinstance(item, dict):
-                                    item["source_receipt"] = fpath
-                                    records.append(item)
-                    except Exception:
-                        pass
+                            records.extend(
+                                dict(item, source_receipt=fpath)
+                                for item in data if isinstance(item, dict)
+                            )
+                    except (OSError, json.JSONDecodeError):
+                        continue
+                elif fname == "transition-events.jsonl":
+                    stats["files_scanned"] += 1
+                    try:
+                        with open(fpath, "rb") as stream:
+                            for raw_line in stream:
+                                if not raw_line.strip():
+                                    continue
+                                try:
+                                    item = json.loads(raw_line)
+                                except (json.JSONDecodeError, UnicodeDecodeError):
+                                    stats["receipt_parse_errors"] += 1
+                                    continue
+                                if not isinstance(item, dict):
+                                    stats["receipt_parse_errors"] += 1
+                                    continue
+                                allowed = (
+                                    "event_id", "event_type", "occurred_at", "observed_at",
+                                    "pr_id", "candidate_sha", "attempt_number",
+                                )
+                                receipt = {
+                                    key: item[key] for key in allowed if key in item
+                                }
+                                receipt["record_type"] = "transition_event"
+                                records.append(receipt)
+                                stats["receipt_events_seen"] += 1
+                    except OSError:
+                        stats["receipt_read_errors"] += 1
+
+        if stats["receipt_read_errors"] or stats["receipt_parse_errors"]:
+            stats["status"] = "PARTIAL"
+        elif stats["files_scanned"]:
+            stats["status"] = "COMPLETE"
+        else:
+            stats["status"] = "NOT_COLLECTED"
+        self.receipt_scan_stats = stats
         return records
 
     def load_from_cached_scratch(self, input_dir):
@@ -1692,12 +1745,17 @@ class Collector:
             all_timeline = self.deduplicate_events(live_timeline + cached_timeline)
             handoff_records = list(cached_handoffs)
 
-            # Ingest receipts if receipts_dir or PRW_METRICS_RECEIPTS_DIR is provided
-            r_dir = receipts_dir or os.environ.get("PRW_METRICS_RECEIPTS_DIR")
-            if r_dir:
-                receipt_records = self.collect_receipts_from_dir(r_dir)
-                if receipt_records:
-                    handoff_records.extend(receipt_records)
+        # Optional receipt reads never affect PR collection status or authorization.
+        r_dir = receipts_dir or os.environ.get("PRW_METRICS_RECEIPTS_DIR")
+        if r_dir:
+            receipt_records = self.collect_receipts_from_dir(r_dir)
+            if receipt_records:
+                handoff_records.extend(receipt_records)
+        else:
+            self.receipt_scan_stats = {
+                "status": "NOT_CONFIGURED", "files_scanned": 0, "receipt_events_seen": 0,
+                "receipt_parse_errors": 0, "receipt_read_errors": 0,
+            }
 
         all_prs = self.deduplicate_prs(all_prs)
         all_timeline = self.deduplicate_events(all_timeline)
@@ -1745,6 +1803,7 @@ class Collector:
             "timeline": all_timeline,
             "sources": sources,
             "handoff_records": handoff_records,
+            "handoff_receipt_stats": dict(self.receipt_scan_stats),
             "status": overall_status,
             "pilot_events": pilot_events,
             "human_episodes": human_episodes,
@@ -2575,7 +2634,114 @@ class MetricsAggregator:
             ))
         return out
 
-    def compute_handoff_breakdown(self, prs, handoff_records=None, total_cohort_n=None):
+    def adapt_transition_event_receipts(self, records, prs):
+        """Pair observed event receipts only on exact PR, candidate SHA, and attempt."""
+        transitions = (
+            ("evidence_ready -> review_requested", "evidence_ready", "review_requested"),
+            ("review_requested -> actual_review_started", "review_requested", "actual_review_started"),
+            ("review_return -> next_substantive_action", "review_return", "next_action_started"),
+        )
+        pr_keys = {
+            (str(pr.get("repo")), str(pr.get("number")))
+            for pr in prs
+            if pr.get("repo") and pr.get("number") is not None
+        }
+        stats = {
+            "receipt_events_seen": sum(
+                1 for row in records
+                if isinstance(row, dict) and row.get("record_type") == "transition_event"
+            ),
+            "receipt_events_valid": 0, "receipt_duplicate_events": 0,
+            "receipt_event_conflicts": 0, "receipt_pairs": 0,
+            "receipt_events_unmatched": 0,
+        }
+        by_id = {}
+        conflict_ids = set()
+        for row in records:
+            if not isinstance(row, dict) or row.get("record_type") != "transition_event":
+                continue
+            event_id = _usage_label(row.get("event_id"))
+            event_type = row.get("event_type")
+            pr_id = row.get("pr_id")
+            occurred = _parse_utc_instant(row.get("occurred_at"))
+            candidate_sha = row.get("candidate_sha")
+            attempt = row.get("attempt_number")
+            valid = (
+                event_id and event_type in {
+                    "evidence_ready", "review_requested", "actual_review_started",
+                    "review_return", "next_action_started",
+                }
+                and _safe_pr_id(pr_id) and occurred
+                and isinstance(candidate_sha, str)
+                and re.fullmatch(r"[0-9a-fA-F]{7,40}", candidate_sha) is not None
+                and isinstance(attempt, int) and not isinstance(attempt, bool) and attempt > 0
+            )
+            repo, number = pr_id.rsplit("#", 1) if valid else (None, None)
+            if not valid or (repo, number) not in pr_keys:
+                continue
+            normalized = {
+                "event_id": event_id, "event_type": event_type,
+                "repo": repo, "number": number, "candidate_sha": candidate_sha.lower(),
+                "attempt_number": attempt, "occurred_at": format_iso_utc(occurred),
+                "observed_at": row.get("observed_at"),
+            }
+            existing = by_id.get(event_id)
+            if existing is not None:
+                if existing == normalized:
+                    stats["receipt_duplicate_events"] += 1
+                else:
+                    conflict_ids.add(event_id)
+                    stats["receipt_event_conflicts"] += 1
+                continue
+            by_id[event_id] = normalized
+
+        groups = defaultdict(lambda: defaultdict(list))
+        for event_id, row in by_id.items():
+            if event_id in conflict_ids:
+                continue
+            stats["receipt_events_valid"] += 1
+            key = (row["repo"], row["number"], row["candidate_sha"], row["attempt_number"])
+            groups[key][row["event_type"]].append(row)
+
+        pairs = []
+        paired_ids = set()
+        for key, by_type in groups.items():
+            for name, start_type, end_type in transitions:
+                start_rows = by_type.get(start_type, [])
+                end_rows = by_type.get(end_type, [])
+                if len(start_rows) != 1 or len(end_rows) != 1:
+                    continue
+                start_row, end_row = start_rows[0], end_rows[0]
+                pair_receipt = hashlib.sha256(
+                    "|".join((key[0], key[1], key[2], str(key[3]), name,
+                              start_row["event_id"], end_row["event_id"])).encode()
+                ).hexdigest()
+                pairs.append({
+                    "repo": key[0], "number": int(key[1]), "candidate_sha": key[2],
+                    "attempt_number": key[3], "name": name,
+                    "start_at": start_row["occurred_at"], "end_at": end_row["occurred_at"],
+                    "receipt_id": "sha256:" + pair_receipt,
+                })
+                paired_ids.add(start_row["event_id"])
+                paired_ids.add(end_row["event_id"])
+
+        stats["receipt_pairs"] = len(pairs)
+        stats["receipt_events_unmatched"] = max(
+            0, stats["receipt_events_seen"] - stats["receipt_duplicate_events"]
+            - len(paired_ids)
+        )
+        if (stats.get("receipt_parse_errors", 0) or stats.get("receipt_read_errors", 0)
+                or stats["receipt_events_unmatched"]):
+            stats["status"] = "PARTIAL"
+        elif stats["receipt_events_seen"]:
+            stats["status"] = "COMPLETE"
+        else:
+            stats["status"] = stats.get("status", "NOT_COLLECTED")
+        return pairs, stats
+
+    def compute_handoff_breakdown(
+        self, prs, handoff_records=None, total_cohort_n=None, receipt_stats=None
+    ):
         """
         Compute observed counts, medians, and telemetry coverage across the 6 transitions:
         1. evidence_ready -> review_requested
@@ -2595,6 +2761,7 @@ class MetricsAggregator:
         ]
         # Observations keyed by full identity so a PR field and its receipt count once.
         trans_obs = {t: {} for t in transitions}
+        receipt_summary = dict(receipt_stats or {})
 
         def add_pr_field(p, t_name, start, end):
             if not (start and end):
@@ -2635,12 +2802,29 @@ class MetricsAggregator:
                 if p.get("repo") and p.get("number") is not None:
                     prs_by_key[(p["repo"], p["number"])] = p
 
+            transition_receipts = [
+                rec for rec in records_to_process
+                if isinstance(rec, dict) and rec.get("record_type") == "transition_event"
+            ]
+            paired_receipts, pairing_stats = self.adapt_transition_event_receipts(
+                transition_receipts, prs
+            )
+            scan_stats = receipt_stats or {}
+            receipt_summary = {
+                **scan_stats,
+                **pairing_stats,
+            }
+            if scan_stats.get("receipt_parse_errors") or scan_stats.get("receipt_read_errors"):
+                receipt_summary["status"] = "PARTIAL"
             expanded = []
             for rec in records_to_process:
+                if isinstance(rec, dict) and rec.get("record_type") == "transition_event":
+                    continue
                 if isinstance(rec, dict) and isinstance(rec.get("timestamps"), dict):
                     expanded.extend(self.adapt_run_stats_receipt(rec, prs))
                 else:
                     expanded.append(rec)
+            expanded.extend(paired_receipts)
 
             for rec in expanded:
                 if not isinstance(rec, dict):
@@ -2736,6 +2920,13 @@ class MetricsAggregator:
                     if percentiles["p99"] is not None else "UNKNOWN"
                 ),
                 "status": status,
+                "receipt_status": receipt_summary.get("status", "NOT_CONFIGURED"),
+                "receipt_events_seen": receipt_summary.get("receipt_events_seen", 0),
+                "receipt_events_valid": receipt_summary.get("receipt_events_valid", 0),
+                "receipt_pairs": receipt_summary.get("receipt_pairs", 0),
+                "receipt_events_unmatched": receipt_summary.get("receipt_events_unmatched", 0),
+                "receipt_parse_errors": receipt_summary.get("receipt_parse_errors", 0),
+                "receipt_read_errors": receipt_summary.get("receipt_read_errors", 0),
             })
 
         return handoffs_data
@@ -2746,6 +2937,7 @@ class MetricsAggregator:
         timeline_events=None,
         sources=None,
         handoff_records=None,
+        handoff_receipt_stats=None,
         time_semantics_pilot=None,
         human_episodes=None,
         now_dt=None,
@@ -2930,6 +3122,7 @@ class MetricsAggregator:
             all_merged_w2,
             handoff_records=handoff_records,
             total_cohort_n=len(all_merged_w2),
+            receipt_stats=handoff_receipt_stats,
         )
 
         # Open PRs attention: partition into 5A (known idle) and 5B (unknown idle)
@@ -3223,7 +3416,29 @@ class DashboardRenderer:
         md.append("")
         handoff_rows = data.get("handoffs", [])
         has_handoff_observations = any(item.get("observed_n", 0) > 0 for item in handoff_rows)
+        receipt_events_seen = max((item.get("receipt_events_seen", 0) for item in handoff_rows), default=0)
+        receipt_pairs = max((item.get("receipt_pairs", 0) for item in handoff_rows), default=0)
+        receipt_unmatched = max(
+            (item.get("receipt_events_unmatched", 0) for item in handoff_rows), default=0
+        )
+        receipt_parse_errors = max(
+            (item.get("receipt_parse_errors", 0) for item in handoff_rows), default=0
+        )
+        receipt_read_errors = max(
+            (item.get("receipt_read_errors", 0) for item in handoff_rows), default=0
+        )
         if has_handoff_observations:
+            if receipt_events_seen or receipt_parse_errors or receipt_read_errors:
+                receipt_status = next(
+                    (item.get("receipt_status") for item in handoff_rows if item.get("receipt_status")),
+                    "UNKNOWN",
+                )
+                md.append(
+                    f"- **Transition receipts**: {receipt_status}; "
+                    f"{receipt_events_seen} events, {receipt_pairs} pairs, "
+                    f"{receipt_unmatched} unmatched, {receipt_parse_errors} parse errors, "
+                    f"{receipt_read_errors} read errors. Unmatched values remain UNKNOWN."
+                )
             headers = [
                 "Handoff Transition", "Samples (n); Covered PRs / cohort (N)",
                 "Median Duration", "Nearest-Rank p75", "p50", "p90", "p99",
@@ -3253,10 +3468,18 @@ class DashboardRenderer:
                     f"{percentiles[3]} | {coverage} | {status} |"
                 )
         else:
-            md.append(
-                "- **Handoff telemetry**: NOT COLLECTED. Recovered review-stage dwell "
-                "remains separate in Section 3."
-            )
+            if receipt_events_seen or receipt_parse_errors or receipt_read_errors:
+                md.append(
+                    f"- **Handoff telemetry**: PARTIAL; {receipt_events_seen} transition events, "
+                    f"{receipt_pairs} matched pairs, {receipt_unmatched} unmatched, "
+                    f"{receipt_parse_errors} parse errors, {receipt_read_errors} read errors. "
+                    "Unmatched values remain UNKNOWN; this does not gate PR progress."
+                )
+            else:
+                md.append(
+                    "- **Handoff telemetry**: NOT COLLECTED. Recovered review-stage dwell "
+                    "remains separate in Section 3."
+                )
         md.append("")
 
         # Section 4b: Time Semantics & Effort Breakdown (Pilot Cohort)
@@ -4481,6 +4704,7 @@ def main():
         timeline_events=timeline,
         sources=sources,
         handoff_records=handoff_records,
+        handoff_receipt_stats=collected.get("handoff_receipt_stats"),
         time_semantics_pilot=pilot_events,
         human_episodes=human_episodes,
         stale_threshold_hours=args.stale_hours,

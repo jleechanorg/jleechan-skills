@@ -729,6 +729,90 @@ class TestStageDwellAndHandoffAggregation(unittest.TestCase):
         self.assertEqual(sprint_to_merge["median_sec"], 3600.0)
 
 
+    def test_canonical_transition_events_pair_by_exact_pr_candidate_and_attempt(self):
+        cutoff = datetime(2026, 11, 9, 12, 0, tzinfo=timezone.utc)
+        collector = Collector(cutoff_dt=cutoff)
+        prs = [
+            {
+                "repo": "example-org/repo-alpha", "number": 20,
+                "headRefOid": "c" * 40, "state": "OPEN",
+                "createdAt": "2026-11-01T00:00:00Z",
+            }
+        ]
+        event_rows = [
+            ("evidence_ready", "2026-11-05T10:00:00Z", "a" * 40, 1),
+            ("review_requested", "2026-11-05T10:10:00Z", "a" * 40, 1),
+            ("actual_review_started", "2026-11-05T10:20:00Z", "a" * 40, 1),
+            ("review_return", "2026-11-05T11:00:00Z", "a" * 40, 1),
+            ("next_action_started", "2026-11-05T11:05:00Z", "a" * 40, 1),
+            # Similar transitions on different candidates may not cross-pair.
+            ("review_requested", "2026-11-05T12:00:00Z", "b" * 40, 2),
+            ("actual_review_started", "2026-11-05T12:10:00Z", "a" * 40, 2),
+        ]
+        with tempfile.TemporaryDirectory() as receipts_dir:
+            path = os.path.join(receipts_dir, "transition-events.jsonl")
+            with open(path, "w", encoding="utf-8") as stream:
+                for index, (event_type, occurred_at, candidate_sha, attempt) in enumerate(event_rows):
+                    stream.write(json.dumps({
+                        "event_id": f"event-{index}",
+                        "event_type": event_type,
+                        "occurred_at": occurred_at,
+                        # Deliberately far from occurred_at: audit clock is not the event clock.
+                        "observed_at": "2026-11-09T12:00:00Z",
+                        "pr_id": "example-org/repo-alpha#20",
+                        "candidate_sha": candidate_sha,
+                        "attempt_number": attempt,
+                    }) + "\n")
+                stream.write("{malformed receipt line}\n")
+
+            receipts = collector.collect_receipts_from_dir(receipts_dir)
+            self.assertEqual(len(receipts), len(event_rows))
+            self.assertTrue(all("source_receipt" not in receipt for receipt in receipts))
+            self.assertEqual(receipts[0]["occurred_at"], "2026-11-05T10:00:00Z")
+            self.assertEqual(receipts[0]["observed_at"], "2026-11-09T12:00:00Z")
+            self.assertEqual(collector.receipt_scan_stats["status"], "PARTIAL")
+
+            with tempfile.TemporaryDirectory() as publisher_dir:
+                telemetry = Publisher(repo_path=publisher_dir).write_telemetry_bundle(
+                    {"w2_bounds": ["2026-11-02", "2026-11-09"]},
+                    handoff_records=receipts,
+                )
+            retained_events = next(
+                value for key, value in telemetry.items() if key.endswith("retained_handoffs.jsonl")
+            )
+            self.assertNotIn(receipts_dir, retained_events)
+            self.assertIn("observed_at", retained_events)
+            self.assertIn("occurred_at", retained_events)
+
+            handoffs = MetricsAggregator(cutoff_dt=cutoff).compute_handoff_breakdown(
+                prs, handoff_records=receipts, receipt_stats=collector.receipt_scan_stats,
+            )
+
+        evidence = next(row for row in handoffs if row["name"] == "evidence_ready -> review_requested")
+        review = next(row for row in handoffs if row["name"] == "review_requested -> actual_review_started")
+        returned = next(row for row in handoffs if row["name"] == "review_return -> next_substantive_action")
+        self.assertEqual(evidence["median_sec"], 600.0)
+        self.assertEqual(review["median_sec"], 600.0)
+        self.assertEqual(returned["median_sec"], 300.0)
+        self.assertEqual(evidence["receipt_events_seen"], len(event_rows))
+        self.assertEqual(evidence["receipt_events_unmatched"], 2)
+        self.assertEqual(evidence["receipt_pairs"], 3)
+        self.assertEqual(evidence["receipt_parse_errors"], 1)
+        self.assertEqual(evidence["receipt_status"], "PARTIAL")
+
+
+    def test_missing_transition_feed_is_unknown_and_does_not_fail_collection(self):
+        collector = Collector(cutoff_dt=datetime(2026, 11, 9, 12, 0, tzinfo=timezone.utc))
+        with tempfile.TemporaryDirectory() as parent:
+            missing = os.path.join(parent, "no-receipt-feed")
+            result = collector.collect_all(
+                offline=True, receipts_dir=missing,
+            )
+        self.assertEqual(result["status"], "EMPTY")
+        self.assertEqual(result["handoff_receipt_stats"]["status"], "UNAVAILABLE")
+        self.assertEqual(result["handoff_receipt_stats"]["receipt_read_errors"], 1)
+
+
 class TestOpenPRAttentionPartitioningAndSorting(unittest.TestCase):
     """Test 5A vs 5B partitioning and sorting of open PRs."""
 
