@@ -79,7 +79,18 @@ Pick a connectivity tier — try in order, stop at first success. Carry the reso
 
 ```bash
 if [ "$CLAUDE_LAUNCHER" = claudewa ]; then
-  ssh "${SSH_ARGS[@]}" "$SSH_TARGET" 'command -v claudewa >/dev/null || exit 127; CPU_SAMPLE=$(top -bn2 -d1 | grep "%Cpu" | tail -1); [ -n "$CPU_SAMPLE" ] || { echo "ERROR: top returned no CPU sample" >&2; exit 75; }; printf "%s\n" "$CPU_SAMPLE"'
+  ssh "${SSH_ARGS[@]}" "$SSH_TARGET" bash -l -s <<'EOF'
+command -v claudewa >/dev/null 2>&1 || {
+  echo "ERROR: selected claudewa wrapper is unavailable in the target login shell" >&2
+  exit 127
+}
+CPU_SAMPLE=$(top -bn2 -d1 | grep "%Cpu" | tail -1)
+[ -n "$CPU_SAMPLE" ] || {
+  echo "ERROR: top returned no CPU sample" >&2
+  exit 75
+}
+printf "%s\n" "$CPU_SAMPLE"
+EOF
 else
   ssh "${SSH_ARGS[@]}" "$SSH_TARGET" 'CPU_SAMPLE=$(top -bn2 -d1 | grep "%Cpu" | tail -1); [ -n "$CPU_SAMPLE" ] || { echo "ERROR: top returned no CPU sample" >&2; exit 75; }; printf "%s\n" "$CPU_SAMPLE"'
 fi
@@ -274,17 +285,23 @@ HOST_BASH_ENV=${BASH_ENV:-}
 # Keep the host's TMPDIR unchanged. Codex shell calls must use login:false:
 # login Bash reads ~/.bash_profile after/instead of BASH_ENV and resets output.
 LAUNCH_ENV=(env "DISKM_SCRATCH=$SCRATCH_ROOT" "CLAUDE_CODE_TMPDIR=$OUTPUT_ROOT" "PYTEST_DEBUG_TEMPROOT=$OUTPUT_ROOT" "BASH_ENV=$SCOPED_BASH_ENV")
+# Claude launchers can be shell functions supplied by the target login profile.
+# Keep the selected launcher and its arguments as argv; do not pass them through
+# `env` (which cannot invoke functions) or reparse them as shell source.
+CLAUDE_LOGIN=(bash -l -c
+  'export DISKM_SCRATCH="$1" CLAUDE_CODE_TMPDIR="$2" PYTEST_DEBUG_TEMPROOT="$2" BASH_ENV="$3"; shift 3; "$@"'
+  mirror-launch "$SCRATCH_ROOT" "$OUTPUT_ROOT" "$SCOPED_BASH_ENV")
 case "$AGENT_CLI" in
   pi)     LAUNCH=("${LAUNCH_ENV[@]}" pi -- "Caller handoff context: $CONTEXT") ;;
   claude)
     case "$CLAUDE_LAUNCHER" in
-      claude) LAUNCH=("${LAUNCH_ENV[@]}" claude --dangerously-skip-permissions -- "$CONTEXT") ;;
+      claude) LAUNCH=("${CLAUDE_LOGIN[@]}" claude --dangerously-skip-permissions -- "$CONTEXT") ;;
       claudewa)
-        if ! command -v claudewa >/dev/null 2>&1; then
-          echo "FAILED:$TARGET — source selected .claude-wa, but matching target wrapper claudewa is unavailable; refusing profile fallback" >&2
+        if ! bash -lc 'command -v claudewa >/dev/null 2>&1'; then
+          echo "FAILED:$TARGET — source selected .claude-wa, but matching target wrapper claudewa is unavailable in the login shell; refusing profile fallback" >&2
           exit 75
         fi
-        LAUNCH=("${LAUNCH_ENV[@]}" claudewa --dangerously-skip-permissions -- "$CONTEXT") ;;
+        LAUNCH=("${CLAUDE_LOGIN[@]}" claudewa --dangerously-skip-permissions -- "$CONTEXT") ;;
       *) echo "FAILED:$TARGET — unsupported Claude profile launcher '$CLAUDE_LAUNCHER'; refusing profile fallback" >&2; exit 75 ;;
     esac ;;
   codex)  LAUNCH=("${LAUNCH_ENV[@]}" codex
