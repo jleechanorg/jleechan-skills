@@ -23,7 +23,7 @@ An unqualified `/prw` (`/pr-workflow`) defaults to driving the PR to **`FINAL_RE
 
 ## Continuation through the requested endpoint
 
-Execute the PR's next unmet obligation continuously through `FINAL_READY`. Status replies do not end the request: refresh live state, answer briefly, then resume. Own started jobs and delegated lanes through results under `parallelize-to-ceiling`; integrate artifacts. Stop only at the requested endpoint, user stop, or genuine external blocker.
+Execute the PR's next unmet obligation continuously through `FINAL_READY`. Status replies do not end the request: answer briefly, then resume. Own delegated lanes through results under `parallelize-to-ceiling`. Stop only at the requested endpoint, user stop, or genuine external blocker.
 
 ## Precedence and scope
 
@@ -37,24 +37,26 @@ An existing user or standing authorization keeps covering the same action, targe
 
 Drive the PR through this continuous cycle without stopping at intermediate checkpoints:
 
-1. **Refresh Live State:** Fetch latest head SHA, check runs, and comments after each push or event.
-2. **Select Unmet Obligation:** Read the PR description's [Review Ledger](review-records.md#unified-obligation-and-review-ledger) for the earliest unmet required gate.
-3. **Batch Code Fixes for Supported Findings:** Supported blocking findings return affected work to coding, batch fixes into a scoped commit, and rerun only affected proof and review, preserving understood independent work and still-valid proof. Nonblocking findings do not hold merge; disposition them under governing policy while separate required gates remain.
-4. **Clarify Questionable or Ambiguous Findings:** For wrong, stale, or inconsistent reviewer data, verify the premise against authoritative current source and artifact/head, pin counterevidence, and request reviewer correction or confirmed withdrawal before dependent edits; never fabricate a fix, treat unresolved data as approval, or silently discard findings. Clarify materially ambiguous feedback with the reviewer before dependent edits. Avoid broad do-not-edit rules that would halt unrelated authorized fixes or independent work.
-5. **Delta Assessment & Reuse:** A changed commit SHA does not automatically invalidate evidence. Evaluate delta per [review-routing.md](review-routing.md#sha-binding-rule-critical--applies-to-every-gate-in-this-chain) and reuse valid verdicts. Never blanket auto-carry assertion, driver, prompt, schema, or config changes.
-6. **Own Asynchronous Work & Dependencies:** Record actual job handle and verified callback/poll/resume mechanism in the current execution record (written wake conditions alone do not cause resumption). Retain ownership of blocking dependency PRs through their required endpoint or verified accepted handoff; delivery alone does not unblock the parent.
-7. **Synchronize Presentation:** Synchronize title, labels, and description ledger from current obligation state.
-8. **Final Readiness and Merge:** When all draft and closing obligations pass, current checks are green, and receipts are published, synchronize `FINAL_READY` (scoping readiness strictly to the PR's own applicable obligations, while keeping any additional unreviewed runtime or measurement closure claims marked `UNVERIFIED` per [review-records.md](review-records.md#unified-obligation-and-review-ledger) without holding the PR for an optional report).
+1. **Refresh and Choose the Next Action:** On every event or resume, first re-read live PR state (head, base, checks, comments, merged/closed, other writers); stop work already satisfied, closed or owned elsewhere. Then read the earliest unmet [Review Ledger](review-records.md#unified-obligation-and-review-ledger) gate and actual returned artifact:
+   - **Missing review input:** produce or retrieve exactly that input; independent work continues. Incomplete packets never approve.
+   - **Truncated read:** the same reviewer recovers unread ranges within its attempt deadline ([review-recovery.md](review-recovery.md#reviewer-timeout-and-completion), [static-review](../static-review/SKILL.md), [advice](../advice/SKILL.md)); partial votes never combine.
+   - **Failed claim or supported blocking defect:** inspect its source or artifact. Fix and reverify every supported behavior blocker; batch affected proof and review. For unsupported claims, produce proof when the task needs them; otherwise narrow them honestly. Rewriting alone is not a fix. Nonblocking findings do not hold merge.
+   - **Stale or ambiguous premise:** verify against current source; seek reviewer correction before dependent edits, never fabricating fixes or silently discarding findings.
+   - **Candidate or base changed:** inspect the complete delta; request only affected judgment per [review-routing.md](review-routing.md#sha-binding-rule-critical--applies-to-every-gate-in-this-chain).
+   - **Verdicts applicable, next action authorized:** start it now; optional polish stays off the critical path.
+   - **Proven hold:** record handle, blocked action and resumption trigger; continue independent authorized work.
+   While subagents, reviewers or CI run, first do every authorized step not needing their result (publish finished evidence, record received receipts, dispatch the next obligation). Only when none remains, make one longest-timeout wait or yield; never repeat short waits, sleeps or status pings (each costs a 15–30 s round-trip at 400k+ context).
+2. **Own Asynchronous Work & Dependencies:** Record the job handle and verified callback or resume mechanism in the execution record, never short polling; written wake conditions alone do not cause resumption. Retain ownership of blocking dependency PRs through their required endpoint or verified accepted handoff; delivery alone does not unblock the parent.
+3. **Synchronize Presentation:** Synchronize title, labels, and description ledger from current obligation state.
+4. **Final Readiness and Merge:** When all draft and closing obligations pass, current checks are green, and receipts are published, synchronize `FINAL_READY` (scoping readiness strictly to the PR's own applicable obligations, while keeping any additional unreviewed runtime or measurement closure claims marked `UNVERIFIED` per [review-records.md](review-records.md#unified-obligation-and-review-ledger) without holding the PR for an optional report).
    - **Headline claim-to-proof check before `FINAL_READY`:** Before synchronizing `FINAL_READY` (or closing a broader task claim alongside a PR), check each headline claim directly against its actual proof:
      - **Real caller for activation/runtime claims:** A test harness exercising a substitute helper function or synthetic state proves only that helper's logic, not the real CLI/caller entry point; runtime activation and continuation must be observed through the actual supported caller.
      - **Source events and arithmetic for metrics/reports:** Trace headline numbers to raw source timestamps/events, verify timestamp subtraction per attempt, leave unobserved intervals `UNKNOWN`/`null` rather than `0`, avoid keyword/repo heuristics for route claims, and label pre-change window cutoffs as baselines rather than post-change effect.
      - **Exact reviewed artifacts for coverage:** Approving a PR diff covers only the exact files and SHA reviewed, never separately generated audit scripts, measurements, or external closure claims outside that diff.
      Missing proof stays `UNVERIFIED`; a stage label or narrower file approval cannot fill it.
-   Once `FINAL_READY` is verified and merge authority holds at the exact head, execute the merge immediately before optional post-merge reporting, telemetry snapshots, or secondary bookkeeping so bookkeeping never delays an authorized merge (while mandatory pre-merge gates, exact-head verification, and required receipt publication/readback still precede merge).
+   Once `FINAL_READY` is verified and merge authority holds at the exact head, execute the merge immediately before optional post-merge reporting, telemetry snapshots, or secondary bookkeeping (while mandatory pre-merge gates, exact-head verification, and required receipt publication/readback still precede merge).
 
-**Handoff transition ownership:** The active driver must maintain continuous ownership through the two primary handoff transitions without leaving an unattended gap:
-- **Evidence-ready -> review-start ownership:** As soon as required proof is complete and readable at the candidate SHA (`evidence_ready_at`), the active owner immediately dispatches the required review (`review_requested_at`) and verifies actual reviewer pickup (`actual_review_started_at`; an acknowledged message is not review start).
-- **Reviewer-return -> next-action pickup:** Immediately upon reviewer return (`review_return_at`), the active owner starts the next substantive action (`next_substantive_action_started_at`: applying fixes, advancing stage, or executing an authorized merge) without leaving an unattended gap.
+**Handoff transitions:** Without an unattended gap, the active owner dispatches required review once proof is readable at the candidate SHA (`evidence_ready_at` → `review_requested_at`), verifies actual pickup (`actual_review_started_at`, not acknowledgment), and on return starts the next substantive action (`review_return_at` → `next_substantive_action_started_at`).
 
 ## Canonical lifecycle
 
