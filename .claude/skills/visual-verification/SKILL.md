@@ -1,6 +1,6 @@
 ---
 name: visual-verification
-description: Verify images, sprites, screenshots, and videos with tools that can inspect visual content reliably.
+description: Verify images, sprites, screenshots, and videos with tools that can inspect visual content reliably; video and animation claims require all-frame analysis (decode and account for every frame).
 ---
 
 # Visual Verification Skill
@@ -31,10 +31,54 @@ specific provider/tool is installed; verify availability before invoking it.
 Use the repository's supported browser automation route and save captures to a
 directory allocated through the canonical [Scratch Space skill](../scratch-space/SKILL.md).
 
-### For Video Frames
-1. Extract frames with ffmpeg into a directory allocated through the canonical
-   [Scratch Space skill](../scratch-space/SKILL.md).
-2. Inspect the frames with an available image-capable tool.
+### For Video Frames — all-frame analysis
+
+No current model perceives video continuously; every model, including Gemini and
+the realtime APIs, samples frames. Motion review is therefore **all-frame
+analysis**: decode every frame and account for each one yourself.
+
+1. **Provenance.** Record the media SHA-256 (and the transcoded file's hash, if
+   different), duration, frame rate, decoded frame count and presentation
+   timestamps (`ffprobe -show_entries stream=r_frame_rate,nb_frames:format=duration`).
+   Work in a directory from the [Scratch Space skill](../scratch-space/SKILL.md).
+2. **Decode everything.** `ffmpeg -i clip.mp4 -vsync 0 frames/f%04d.png`. Confirm
+   the file count equals the probed frame count.
+3. **Partition mechanically.** Diff each frame against the previous one with a
+   low threshold (for example, luma change >12 on >50 px). Consecutive frames
+   above the threshold form *change runs*; the rest form *still runs*. Never
+   raise the threshold to shrink the review. Uniform timestamps and the diff
+   series also expose dropped or duplicated frames and cadence problems.
+4. **View every change frame, in order, at readable detail.**
+   - Overview: labelled sheets of at most 6 consecutive frames, each at least
+     640 px wide, stamped with frame index and timestamp.
+   - Moving subjects: full-resolution crops that follow the subject (track it by
+     frame difference), about 12 frames per sheet.
+   - Gait: 2× zooms on the feet and shadow for every travel direction. Check
+     foot contact versus floating, sliding of a planted foot, passing poses held
+     while the body translates, facing versus direction of travel, depth order,
+     and overlap with props and characters.
+   - Inspect suspicious frames at full resolution before deciding.
+5. **Cover still runs.** A still run is mechanically proven unchanged. View its
+   first frame and the full-resolution frames on both sides of every change
+   point (for example, dialogue advances and UI changes). Read text and UI state
+   at those boundaries.
+6. **Separate layers.** Tell game UI apart from evidence overlays such as
+   caption bars, provenance boxes and the OS cursor. Label any claim that comes
+   from reading code rather than from pixels.
+7. **Coverage manifest.** Keep running notes per frame range. Every frame index
+   must be either a viewed change frame or inside a still run covered by viewed
+   boundaries. Reconcile the manifest against the decoded count, with no gaps.
+8. **Long clips.** Split the clip into disjoint contiguous ranges for cheap
+   parallel lanes, with boundary frames shared by adjacent lanes. The parent
+   integrates the findings and reconciles the manifest.
+9. **Report.** Give each finding with its frame indices and timestamps and a
+   severity. Consider whether capture cadence explains an apparent defect before
+   blaming the product. Label the method "all-frame analysis"; do not claim
+   subjective "feel". A sampled video-model pass (for example Gemini at its fps
+   cap) is supplementary only; record the sampling it actually used. If anything
+   could not be decoded or viewed, state the exact covered ranges.
+10. In `/es` or `/er`, bind visual claims to the media SHA, frame rate, frame
+    count, coverage manifest and the inspected images.
 
 ## Reuse and scoped follow-up
 
