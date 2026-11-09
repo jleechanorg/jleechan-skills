@@ -37,8 +37,8 @@ def _apply_replay_annotation(record, annotation):
         "effective_association_confidence", "original_association_basis",
         "original_association_confidence",
     ):
-        value = annotation.get(key)
-        if isinstance(value, str) and value:
+        value = _usage_label(annotation.get(key))
+        if value is not None:
             record[key] = value
     for key in (
         "context_associated_pr", "effective_associated_pr", "original_associated_pr",

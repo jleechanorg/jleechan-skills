@@ -1139,6 +1139,9 @@ class TestNativeSnapshotIntegration(unittest.TestCase):
             result = run_query(events_path=usage["query_events"], pr_snapshots_path=prs, snapshot_at_utc="2026-11-09T03:34:00Z")
             low = next(r for r in result["metric_cohorts"] if r["metric_family"] == "low_per_pr" and r["cohort_definition"] == "all_14d_merges")
             self.assertEqual(low["cohort_pr_n"], 1)
+            self.assertEqual(low["observation_n"], 1)
+            self.assertEqual(low["distinct_pr_n"], 1)
+            self.assertEqual(low["average"], 15)
             rendered = render_prw_query_summary(result)
             self.assertNotIn("private-session", rendered)
             self.assertIn("request-time ownership is UNKNOWN", rendered)
@@ -1160,8 +1163,15 @@ class TestNativeSnapshotIntegration(unittest.TestCase):
             completed = subprocess.run(command, capture_output=True, text=True, timeout=60)
             self.assertEqual(completed.returncode, 0, completed.stderr)
             output = dashboard.read_text()
-            self.assertIn("low_per_pr:total_tokens", output)
+            low_row = "acme/game / all_14d_merges / low_per_pr:total_tokens / per_pr_total | 15.0 / 15.0 | 15.0 / 15.0 | 1 / 1"
+            self.assertIn(low_row, output)
             self.assertIn("acme/game#1", output)
+            negative = root / "negative.md"
+            command_without_state = [arg for i, arg in enumerate(command) if i not in (command.index("--state-db"), command.index("--state-db") + 1)]
+            command_without_state[command_without_state.index(str(dashboard))] = str(negative)
+            negative_result = subprocess.run(command_without_state, capture_output=True, text=True, timeout=60)
+            self.assertEqual(negative_result.returncode, 0, negative_result.stderr)
+            self.assertNotIn(low_row, negative.read_text())
             self.assertNotIn("private-session", output)
             self.assertNotIn("/private/path", output)
             ambiguous = dict(event)

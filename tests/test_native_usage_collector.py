@@ -577,3 +577,32 @@ class ReplaySourceQualityTests(unittest.TestCase):
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("Upstream export quality: UNKNOWN", output.read_text(encoding="utf-8"))
+
+class ReplayAnnotationPrivacyTests(unittest.TestCase):
+    def test_freeform_annotation_is_absent_from_dashboard_and_retained_summary(self):
+        from scripts.prw_metrics import aggregate_native_human_steering, _project_summary
+        marker = "my confidential strategy meeting on Tuesday"
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source, annotations = root / "events.jsonl", root / "annotations.jsonl"
+            event = {"record_type": "human", "provider": "openai", "event_id": "event1", "session_id": "session", "timestamp": "2026-11-02T00:00:00Z", "origin_status": "verified_human"}
+            annotation = {"event_id": "event1", "actor_kind": "human", "context_pr_decision": "override", "effective_associated_pr": "acme/game#1", "association_method": marker, "effective_association_confidence": marker}
+            source.write_text(json.dumps(event) + "\n", encoding="utf-8")
+            annotations.write_text(json.dumps(annotation) + "\n", encoding="utf-8")
+            cutoff = datetime(2026, 11, 9, tzinfo=timezone.utc)
+            replay = load_normalized_history(source, cutoff=cutoff, annotation_path=annotations)
+            human = aggregate_native_human_steering(replay["human_records"], [], window_start="2026-10-26T00:00:00Z", window_end="2026-11-09T00:00:00Z")
+            retained = _project_summary({"human_summary": human})
+            self.assertNotIn(marker, json.dumps(retained))
+            untrusted_record = dict(event, **annotation)
+            direct_human = aggregate_native_human_steering([untrusted_record], [], window_start="2026-10-26T00:00:00Z", window_end="2026-11-09T00:00:00Z")
+            self.assertNotIn(marker, json.dumps(_project_summary({"human_summary": direct_human})))
+            token = "PRIVATE_SECRET_ABC123"
+            token_record = dict(untrusted_record, association_method=token, effective_association_confidence=token)
+            token_human = aggregate_native_human_steering([token_record], [], window_start="2026-10-26T00:00:00Z", window_end="2026-11-09T00:00:00Z")
+            self.assertNotIn(token, json.dumps(_project_summary({"human_summary": token_human})))
+            report = root / "report.md"
+            cmd = [sys.executable, "scripts/prw_metrics.py", "--offline", "--history-replay", str(source), "--history-annotations", str(annotations), "--cutoff", "2026-11-09T00:00:00Z", "--output", str(report)]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn(marker, report.read_text(encoding="utf-8"))

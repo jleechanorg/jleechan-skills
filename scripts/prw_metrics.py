@@ -4055,8 +4055,14 @@ def aggregate_native_human_steering(
             if _safe_pr_id(context_pr):
                 association = context_pr
                 ensure_direct_row(association)
-                confidence = event.get("effective_association_confidence") or "REVIEWED_CONTEXT"
-                basis = event.get("association_method") or "reviewed_context_association"
+                confidence = event.get("effective_association_confidence")
+                if not isinstance(confidence, str) or confidence not in {"EXPLICIT", "REVIEWED_CONTEXT", "LOW_BEST_EFFORT_CONTEXT",
+                                      "LOW_BEST_EFFORT", "LOW_BEST_EFFORT_HEAD", "BEST_EFFORT"}:
+                    confidence = "REVIEWED_CONTEXT"
+                basis = event.get("association_method")
+                if not isinstance(basis, str) or basis not in {"context_override", "context_confirmed_original",
+                                 "reviewed_context_association"}:
+                    basis = "reviewed_context_association"
                 association_kind = "context"
                 coverage["reviewed_context_override_messages" if context_decision == "override"
                           else "reviewed_context_confirmed_messages"] += 1
@@ -4151,8 +4157,16 @@ def aggregate_native_human_steering(
         row = pr_rows[association]
         row["_assigned_observations"] += 1
         row["association_basis"].add(basis)
-        branch_source = _usage_label(event.get("branch_source"))
-        branch_basis = _usage_label(event.get("branch_basis"))
+        branch_source = event.get("branch_source")
+        if not isinstance(branch_source, str) or branch_source not in {"recorded_repository_url", "cached_repository_map",
+                                 "recorded_git_branch", "state_db_snapshot", "session_meta",
+                                 "claude_session_metadata_low_confidence"}:
+            branch_source = None
+        branch_basis = event.get("branch_basis")
+        if not isinstance(branch_basis, str) or branch_basis not in {"recorded_repository_url", "exact_recorded_cwd_lookup",
+                                "exact_recorded_record", "state_db_thread_snapshot",
+                                "session_git_metadata", "first_64_session_records_not_event_time"}:
+            branch_basis = None
         if branch_source and association_kind in ("branch", "branch_only"):
             row["association_basis"].add("source:" + branch_source)
         if branch_basis and association_kind in ("branch", "branch_only"):
@@ -4223,9 +4237,6 @@ def aggregate_native_human_steering(
         row.pop("_assigned_observations", None)
     return {"coverage": coverage, "per_pr": [pr_rows[key] for key in sorted(pr_rows)]}
 
-
-class Publisher:
-    """Publishes dashboard Markdown to a designated Git repository using an isolated index file."""
 
 class Publisher:
     """Publishes dashboard Markdown to a designated Git repository using an isolated index file."""
