@@ -93,7 +93,7 @@ Bound output and scan time; filename-only grep still scans file contents, and
 
 /wiki-search $QUERY
 
-/e Search admitted Claude history JSONL files for "$QUERY" in two phases: (1) use a literal, filename-only search over the admitted file set, with a finite scan-time budget, and select at most 5 matching filenames; (2) read at most 2 matching entries per selected file, returning 200-character snippets with filenames and dates. Pass the query as a quoted data argument with fixed-string matching and an option separator; handle paths without splitting on whitespace. Filename-only search still reads file content, and a match-count limit can scan to EOF when there are fewer matches. Report timeout/partial coverage separately. Never dump raw JSONL or broad tool/thinking payloads.
+/e Search admitted Claude history JSONL files for "$QUERY" in two phases: (1) use a literal, filename-only search over the admitted file set, with a finite scan-time budget, and select at most 5 matching filenames; (2) read at most 2 matching entries per selected file, returning 500-character snippets with filenames and dates. Pass the query as a quoted data argument with fixed-string matching and an option separator; handle paths without splitting on whitespace. Filename-only search still reads file content, and a match-count limit can scan to EOF when there are fewer matches. Report timeout/partial coverage separately. Never dump raw JSONL or broad tool/thinking payloads.
 
 /e Search Slack with the currently available authorized search tool and its live schema. Retrieve at most 10 candidates and return the top 5 relevant matches with source/channel, sender, timestamp, 200-character snippet, and a tool-returned or verified permalink. Never construct a Slack permalink from a template. Follow pagination only within the declared task budget. On search errors report partial/unavailable coverage; do not evade scope denials by enumerating channels. Use bounded history/thread reads only for already identified relevant channels or threads within permission and tool support. A zero-result search is no-match within its searched scope; a bounded fallback read is partial coverage. Skip if no connected read tool exists.
 ```
@@ -102,7 +102,7 @@ Bound output and scan time; filename-only grep still scans file contents, and
 
 Use only after `HERMES_DB` resolves to an explicitly permitted existing database.
 This read-only example binds query values, returns at most 20 candidates of
-200 characters, and bounds each database statement to two seconds. A timeout
+500 characters, and bounds each database statement to two seconds. A timeout
 or schema mismatch is partial/unavailable coverage, never a successful no-match.
 Select the most relevant bounded results for the final summary.
 
@@ -125,7 +125,7 @@ try:
     try:
         rows = con.execute("""
             SELECT m.timestamp, m.role,
-                   substr(coalesce(m.content,m.tool_name,m.tool_calls),1,200)
+                   substr(coalesce(m.content,m.tool_name,m.tool_calls),1,500)
             FROM messages_fts f JOIN messages m ON m.id=f.rowid
             WHERE messages_fts MATCH ? LIMIT 20
         """, (query,)).fetchall()
@@ -138,14 +138,14 @@ try:
         like = "%" + literal + "%"
         rows = con.execute("""
             SELECT timestamp, role,
-                   substr(coalesce(content,tool_name,tool_calls),1,200)
+                   substr(coalesce(content,tool_name,tool_calls),1,500)
             FROM messages
             WHERE content LIKE ? ESCAPE '!' OR tool_name LIKE ? ESCAPE '!'
                OR tool_calls LIKE ? ESCAPE '!' LIMIT 20
         """, (like, like, like)).fetchall()
     for ts, role, snippet in rows:
         date = datetime.datetime.fromtimestamp(float(ts), datetime.timezone.utc).isoformat() if ts else ""
-        clean = (snippet or "").strip().replace("\n", " ")[:200]
+        clean = (snippet or "").strip().replace("\n", " ")[:500]
         print(f"[{date}|{role}] {clean}")
 finally:
     con.close()

@@ -29,14 +29,22 @@ class HistoryEntry:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        metadata = dict(self.metadata)
+        title = metadata.get("title")
+        if isinstance(title, str) and len(title) > MAX_TITLE_CHARS:
+            metadata["title"] = title[: MAX_TITLE_CHARS - 1] + "…"
+            metadata["title_truncated"] = True
         return {
             "source": self.source,
             "timestamp": self.timestamp,
             "label": self.label,
             "snippet": self.snippet,
-            "metadata": self.metadata,
+            "metadata": metadata,
         }
 
+
+DEFAULT_MAX_CHARS = 500
+MAX_TITLE_CHARS = 160
 
 # Terminal color palette
 ANSI = {
@@ -82,7 +90,7 @@ def head(text: str, use_color: bool = True) -> str:
     return color("head", text, use_color=use_color)
 
 
-def _clean_snippet(text: str, max_chars: int = 200) -> str:
+def _clean_snippet(text: str, max_chars: int = DEFAULT_MAX_CHARS) -> str:
     if not text:
         return ""
     cleaned = re.sub(r"\s+", " ", text).strip()
@@ -143,7 +151,7 @@ def search_claude(
     cwd: str = "",
     limit: int = 3,
     max_per_file: int = 3,
-    max_chars: int = 200,
+    max_chars: int = DEFAULT_MAX_CHARS,
     projects_dir: Optional[Path | str] = None,
 ) -> list[HistoryEntry]:
     """Search Claude Code transcripts (~/.claude/projects/*/*.jsonl)."""
@@ -271,7 +279,7 @@ def search_pi(
     cwd: str = "",
     limit: int = 3,
     max_per_file: int = 3,
-    max_chars: int = 200,
+    max_chars: int = DEFAULT_MAX_CHARS,
     sessions_dir: Optional[Path | str] = None,
 ) -> list[HistoryEntry]:
     """Search Pi coding agent sessions (~/.pi/agent/sessions/--<cwd>--/*.jsonl).
@@ -492,7 +500,7 @@ def search_codex(
     query: str = "",
     cwd: str = "",
     limit: int = 5,
-    max_chars: int = 200,
+    max_chars: int = DEFAULT_MAX_CHARS,
     db_path: Optional[Path | str] = None,
     sessions_dir: Optional[Path | str] = None,
     codex_homes: Optional[Sequence[Path | str]] = None,
@@ -607,7 +615,7 @@ def _search_codex_store(
 
             if query:
                 sql = f"""
-                    SELECT title, substr(first_user_message, 1, 200), cwd, git_branch,
+                    SELECT title, substr(first_user_message, 1, ?), cwd, git_branch,
                            {date_expr} as created, id{model_select}
                     FROM threads
                     WHERE (title LIKE ? OR first_user_message LIKE ?)
@@ -615,10 +623,10 @@ def _search_codex_store(
                     ORDER BY created_at DESC
                     LIMIT ?
                 """
-                params: tuple[Any, ...] = (like_param, like_param, limit)
+                params: tuple[Any, ...] = (max_chars, like_param, like_param, limit)
             else:
                 sql = f"""
-                    SELECT title, substr(first_user_message, 1, 200), cwd, git_branch,
+                    SELECT title, substr(first_user_message, 1, ?), cwd, git_branch,
                            {date_expr} as created, id{model_select}
                     FROM threads
                     WHERE (cwd LIKE ? OR cwd IS NULL)
@@ -626,19 +634,19 @@ def _search_codex_store(
                     ORDER BY created_at DESC
                     LIMIT ?
                 """
-                params = (like_param, limit)
+                params = (max_chars, like_param, limit)
 
             rows = cur.execute(sql, params).fetchall()
             if not rows and not query:
                 sql_recent = f"""
-                    SELECT title, substr(first_user_message, 1, 200), cwd, git_branch,
+                    SELECT title, substr(first_user_message, 1, ?), cwd, git_branch,
                            {date_expr} as created, id{model_select}
                     FROM threads
                     WHERE (archived = 0 OR archived IS NULL)
                     ORDER BY created_at DESC
                     LIMIT ?
                 """
-                rows = cur.execute(sql_recent, (limit,)).fetchall()
+                rows = cur.execute(sql_recent, (max_chars, limit)).fetchall()
 
             for row in rows:
                 title, first_msg, row_cwd, branch, created, thread_id = row[:6]
@@ -804,7 +812,7 @@ def search_hermes(
     query: str = "",
     cwd: str = "",
     limit: int = 5,
-    max_chars: int = 200,
+    max_chars: int = DEFAULT_MAX_CHARS,
     db_path: Optional[Path | str] = None,
 ) -> list[HistoryEntry]:
     """Search Hermes SQLite DB (~/.hermes/state.db) using FTS5 or LIKE fallback."""
@@ -823,14 +831,14 @@ def search_hermes(
                 sql_fts = """
                     SELECT s.title, s.source,
                            datetime(m.timestamp, 'unixepoch', 'localtime') as ts,
-                           m.role, substr(m.content, 1, 200), m.tool_name
+                           m.role, substr(m.content, 1, ?), m.tool_name
                     FROM messages m
                     JOIN sessions s ON m.session_id = s.id
                     WHERE m.id IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?)
                     ORDER BY m.timestamp DESC
                     LIMIT ?
                 """
-                rows = cur.execute(sql_fts, (query, limit)).fetchall()
+                rows = cur.execute(sql_fts, (max_chars, query, limit)).fetchall()
             except sqlite3.OperationalError:
                 rows = []
 
@@ -839,7 +847,7 @@ def search_hermes(
                 sql_like = """
                     SELECT s.title, s.source,
                            datetime(m.timestamp, 'unixepoch', 'localtime') as ts,
-                           m.role, substr(m.content, 1, 200), m.tool_name
+                           m.role, substr(m.content, 1, ?), m.tool_name
                     FROM messages m
                     JOIN sessions s ON m.session_id = s.id
                     WHERE (m.content LIKE ? OR m.tool_name LIKE ? OR m.tool_calls LIKE ?)
@@ -847,7 +855,9 @@ def search_hermes(
                     LIMIT ?
                 """
                 try:
-                    rows = cur.execute(sql_like, (like_q, like_q, like_q, limit)).fetchall()
+                    rows = cur.execute(
+                        sql_like, (max_chars, like_q, like_q, like_q, limit)
+                    ).fetchall()
                 except Exception:
                     rows = []
         else:
@@ -855,14 +865,14 @@ def search_hermes(
             sql_recent = """
                 SELECT s.title, s.source,
                        datetime(m.timestamp, 'unixepoch', 'localtime') as ts,
-                       m.role, substr(m.content, 1, 200), m.tool_name
+                       m.role, substr(m.content, 1, ?), m.tool_name
                 FROM messages m
                 JOIN sessions s ON m.session_id = s.id
                 ORDER BY m.timestamp DESC
                 LIMIT ?
             """
             try:
-                rows = cur.execute(sql_recent, (limit,)).fetchall()
+                rows = cur.execute(sql_recent, (max_chars, limit)).fetchall()
             except Exception:
                 rows = []
 
@@ -897,7 +907,7 @@ def search_agy(
     query: str = "",
     cwd: str = "",
     limit: int = 5,
-    max_chars: int = 200,
+    max_chars: int = DEFAULT_MAX_CHARS,
     db_path: Optional[Path | str] = None,
     brain_dir: Optional[Path | str] = None,
     history_file: Optional[Path | str] = None,
@@ -923,7 +933,7 @@ def search_agy(
                 like_q = f"%{query}%"
                 try:
                     sql = """
-                        SELECT conversation_id, title, substr(preview, 1, 200),
+                        SELECT conversation_id, title, substr(preview, 1, ?),
                                step_count, last_modified_time, workspace_uris, agent_name
                         FROM conversation_summaries
                         WHERE (title LIKE ? OR preview LIKE ? OR workspace_uris LIKE ?)
@@ -931,21 +941,25 @@ def search_agy(
                         ORDER BY last_modified_time DESC
                         LIMIT ?
                     """
-                    rows = cur.execute(sql, (like_q, like_q, like_q, limit)).fetchall()
+                    rows = cur.execute(
+                        sql, (max_chars, like_q, like_q, like_q, limit)
+                    ).fetchall()
                 except sqlite3.OperationalError:
                     sql_fallback = """
-                        SELECT conversation_id, title, substr(preview, 1, 200),
+                        SELECT conversation_id, title, substr(preview, 1, ?),
                                step_count, last_modified_time, workspace_uris, agent_name
                         FROM conversation_summaries
                         WHERE (title LIKE ? OR preview LIKE ?)
                         ORDER BY last_modified_time DESC
                         LIMIT ?
                     """
-                    rows = cur.execute(sql_fallback, (like_q, like_q, limit)).fetchall()
+                    rows = cur.execute(
+                        sql_fallback, (max_chars, like_q, like_q, limit)
+                    ).fetchall()
             else:
                 try:
                     sql_cwd = """
-                        SELECT conversation_id, title, substr(preview, 1, 200),
+                        SELECT conversation_id, title, substr(preview, 1, ?),
                                step_count, last_modified_time, workspace_uris, agent_name
                         FROM conversation_summaries
                         WHERE workspace_uris LIKE ?
@@ -953,20 +967,22 @@ def search_agy(
                         ORDER BY last_modified_time DESC
                         LIMIT ?
                     """
-                    rows = cur.execute(sql_cwd, (f"%{cwd_basename}%", limit)).fetchall()
+                    rows = cur.execute(
+                        sql_cwd, (max_chars, f"%{cwd_basename}%", limit)
+                    ).fetchall()
                 except sqlite3.OperationalError:
                     rows = []
 
                 if not rows:
                     sql_recent = """
-                        SELECT conversation_id, title, substr(preview, 1, 200),
+                        SELECT conversation_id, title, substr(preview, 1, ?),
                                step_count, last_modified_time, workspace_uris, agent_name
                         FROM conversation_summaries
                         WHERE (killed = 0 OR killed IS NULL)
                         ORDER BY last_modified_time DESC
                         LIMIT ?
                     """
-                    rows = cur.execute(sql_recent, (limit,)).fetchall()
+                    rows = cur.execute(sql_recent, (max_chars, limit)).fetchall()
 
             for cid, title, preview, steps, mtime, ws, agent in rows:
                 snippet = _clean_snippet(preview or "", max_chars=max_chars)
@@ -1097,7 +1113,7 @@ def search_cursor(
     query: str = "",
     cwd: str = "",
     limit: int = 3,
-    max_chars: int = 200,
+    max_chars: int = DEFAULT_MAX_CHARS,
     prompt_history_path: Optional[Path | str] = None,
     chats_dir: Optional[Path | str] = None,
     projects_dir: Optional[Path | str] = None,
@@ -1281,7 +1297,7 @@ def search_history(
     sources: Optional[Sequence[str]] = None,
     cwd: str = "",
     limit: int = 5,
-    max_chars: int = 200,
+    max_chars: int = DEFAULT_MAX_CHARS,
     **kwargs: Any,
 ) -> dict[str, list[HistoryEntry]]:
     """Execute multi-source sparse history search across specified or all 5 sources."""
@@ -1403,7 +1419,12 @@ def main(argv: Optional[list[str]] = None) -> int:
         help="Filter by specific source (default: all)",
     )
     parser.add_argument("-n", "--limit", type=int, default=5, help="Result limit per source (default: 5)")
-    parser.add_argument("--max-chars", type=int, default=200, help="Max snippet length in chars (default: 200)")
+    parser.add_argument(
+        "--max-chars",
+        type=int,
+        default=DEFAULT_MAX_CHARS,
+        help="Max snippet length in chars (default: 500)",
+    )
     parser.add_argument("--cwd", default=os.getcwd(), help="Override working directory for project scoping")
     parser.add_argument(
         "--codex-home", action="append", dest="codex_homes", metavar="PATH",

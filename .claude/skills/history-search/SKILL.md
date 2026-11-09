@@ -1,6 +1,6 @@
 ---
 name: history-search
-description: Multi-source conversation history search across Claude Code, Codex, and Hermes — runs all three in parallel.
+description: Deep multi-source history search for /history --deep or when sparse search is insufficient; runs admitted sources in parallel.
 type: search
 scope: user
 ---
@@ -8,7 +8,7 @@ scope: user
 # /history Search Skill
 
 > ⚠️ **QUOTA GUARD — this is the DEEP/heavy search skill.**
-> The default `/history` command now uses `conversation-history-sparse/SKILL.md` (3 sources, tight budget).
+> The default `/history` command now uses `conversation-history-sparse/SKILL.md` for bounded source selection and previews.
 > This skill is invoked only via `/history --deep` or when the sparse search explicitly returns insufficient results.
 > **Model**: Default to `gpt-6-luna` when parent session is Codex (for research/history lookup work). Override to `gpt-6.1-sol` only if Luna demonstrably fails (5.6 models forbidden, use GPT 6/6.1).
 > **Dedup**: Check for in-flight identical threads before spawning any parallel blocks:
@@ -29,7 +29,7 @@ Searches Claude Code JSONL, Codex SQLite threads, Hermes messages (FTS5), and An
 
 ## Execution
 
-When `/history <query>` is invoked, run these searches **in parallel** as subagents (or parallel Bash blocks), then merge and display results.
+When `/history --deep` is invoked, or the sparse search explicitly returns insufficient results, run these searches **in parallel** as subagents (or parallel Bash blocks), then merge and display results.
 
 ### Parallel block A — Claude Code JSONL search
 
