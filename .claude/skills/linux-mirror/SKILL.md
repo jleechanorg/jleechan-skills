@@ -127,7 +127,9 @@ BRANCH_B64=$(printf '%s' "$BRANCH" | base64 | tr -d '\n')
 REMOTE_URL_B64=$(printf '%s' "$REMOTE_URL" | base64 | tr -d '\n')
 CONTEXT_B64=$(printf 'x%s' "$CONTEXT" | base64 | tr -d '\n')
 AGENT_CLI_B64=$(printf '%s' "$AGENT_CLI" | base64 | tr -d '\n')
-CLAUDE_LAUNCHER_B64=$(printf '%s' "$CLAUDE_LAUNCHER" | base64 | tr -d '\n')
+# Keep the launcher argv nonempty; SSH reconstructs its remote command as shell text.
+CLAUDE_LAUNCHER_ARG=${CLAUDE_LAUNCHER:-not-applicable}
+CLAUDE_LAUNCHER_B64=$(printf '%s' "$CLAUDE_LAUNCHER_ARG" | base64 | tr -d '\n')
 INTENDED_SHA_B64=$(printf '%s' "$INTENDED_SHA" | base64 | tr -d '\n')
 
 ssh "${SSH_ARGS[@]}" "$SSH_TARGET" bash -s -- "$REL_PATH_B64" "$BRANCH_B64" "$REMOTE_URL_B64" "$CONTEXT_B64" "$AGENT_CLI_B64" "$CLAUDE_LAUNCHER_B64" "$INTENDED_SHA_B64" << 'EOF'
@@ -145,7 +147,7 @@ AGENT_CLI=$(printf '%s' "$5" | base64 -d)
 CLAUDE_LAUNCHER=$(printf '%s' "$6" | base64 -d)
 INTENDED_SHA=$(printf '%s' "$7" | base64 -d)
 case "$AGENT_CLI:$CLAUDE_LAUNCHER" in
-  claude:claude|claude:claudewa|pi:|codex:|agy:) ;;
+  claude:claude|claude:claudewa|pi:not-applicable|codex:not-applicable|agy:not-applicable) ;;
   *) echo "FAILED:$REL_PATH — invalid CLI/profile selection; refusing mirror reuse" >&2; exit 75 ;;
 esac
 if [[ ! "$INTENDED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
