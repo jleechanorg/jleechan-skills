@@ -11,7 +11,7 @@ This is the self-contained generic lifecycle contract. [PR Workflow Manager](../
 
 ## Codex review dispatch
 
-Before selecting a review route, apply [the Codex review dispatch policy](review-routing.md#codex-review-dispatch) when the active PR driver is Codex. It limits automatic AI review dispatch, not evidence collection, self-review, explicit requests, or independent gates imposed by higher-priority instructions or the target repository. Claude and agy keep the existing routes.
+Before selecting a review route, apply [the Codex review dispatch policy](review-routing.md#codex-review-dispatch) when the active PR driver is Codex. It takes precedence over shared-default AI review and approval seats throughout this lifecycle and its linked references; it limits automatic AI review dispatch, not evidence collection, self-review, explicit requests, or independent gates imposed by higher-priority instructions or the target repository. Claude and agy keep the existing routes.
 
 ## Terminal goal and first-screen contract
 
