@@ -3652,6 +3652,7 @@ class DashboardRenderer:
                     "reviewed_direct_pr_binding": "reviewed direct PR binding",
                     "context_override": "reviewed context override",
                     "context_confirmed_original": "reviewed context confirmation",
+                    "context_associated": "reviewed context association",
                     "best_effort_repo_branch_event_time": "repository + branch + event-time match",
                     "repo_branch_exact_head": "repository + branch + head match",
                     "unique_repo_branch_snapshot": "unique repository + branch snapshot",
@@ -4066,7 +4067,7 @@ def aggregate_native_human_steering(
                     confidence = "UNKNOWN"
                 basis = event.get("association_method")
                 if not isinstance(basis, str) or basis not in {"context_override", "context_confirmed_original",
-                                 "reviewed_context_association"}:
+                                 "reviewed_context_association", "context_associated"}:
                     basis = "reviewed_context_association"
                 association_kind = "context"
                 coverage["reviewed_context_override_messages" if context_decision == "override"
