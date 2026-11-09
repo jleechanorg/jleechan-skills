@@ -2,6 +2,7 @@
 
 import json
 import tempfile
+from types import SimpleNamespace
 import unittest
 from pathlib import Path
 
@@ -306,6 +307,44 @@ class TestPRWMetricsQueries(unittest.TestCase):
             attempt_observations_path=self.attempts_path,
             rate_catalog_path=self.catalog_path,
         )
+
+    def test_duckdb_memory_and_temp_directory_options_reach_connection(self):
+        observed = {}
+
+        def connect(**kwargs):
+            observed.update(kwargs["config"] or {})
+            return duckdb.connect(**kwargs)
+
+        run_query(
+            events_path=[], pr_snapshots_path=[], snapshot_at_utc=self.CUTOFF,
+            duckdb_module=SimpleNamespace(connect=connect),
+            duckdb_memory_limit="4GB", duckdb_temp_directory=self.root,
+        )
+        self.assertEqual(observed["memory_limit"], "4GB")
+        self.assertEqual(observed["temp_directory"], str(self.root))
+
+    def test_empty_catalog_cohort_returns_empty_scenario_results(self):
+        self._base_files(events=[], prs=[])
+        result = self._query_with_catalog({
+            "schema_version": 1,
+            "basis": "test fixture",
+            "rates": [],
+        })
+        self.assertEqual(result["catalog_scenario_pr_metrics"], [])
+        self.assertEqual(result["catalog_scenario_cohorts"], [])
+
+        unbound = self._event(
+            "sha256:unbound", "example-org/repo-alpha#1", {}, 1.0,
+        )
+        unbound["validated_attributions"] = []
+        self._base_files(events=[unbound], prs=[])
+        result = self._query_with_catalog({
+            "schema_version": 1,
+            "basis": "test fixture",
+            "rates": [],
+        })
+        self.assertEqual(result["catalog_scenario_pr_metrics"], [])
+        self.assertEqual(result["catalog_scenario_cohorts"], [])
 
     def test_catalog_scenarios_use_exact_model_protocol_tiers_and_unknowns(self):
         prs = [
@@ -774,28 +813,66 @@ class TestPRWMetricsQueries(unittest.TestCase):
 
 
 
-    def test_pr_lookup_fills_missing_fields_without_replacing_primary_snapshot(self):
-        primary = [{
-            "repo": "example/repo", "number": 7, "state": "OPEN",
-            "headRefName": "live-branch", "createdAt": "2026-11-01T00:00:00Z",
-        }]
-        cached = [{
-            "repo": "example/repo", "number": 7, "state": "CLOSED",
-            "headRefName": "cached-branch", "headRefOid": "cached-sha",
-            "createdAt": "2026-10-01T00:00:00Z", "closedAt": "2026-10-02T00:00:00Z",
-        }, {
-            "repo": "example/repo", "number": 8, "state": "OPEN",
-            "createdAt": "2026-11-02T00:00:00Z",
-        }]
+    def test_pr_lookup_preserves_live_nulls_and_fills_absent_alias_fields(self):
+        primary = [
+            {
+                "repo": "example/repo", "number": 7, "state": "OPEN",
+                "headRefName": "live-branch", "createdAt": "2026-11-01T00:00:00Z",
+                "closedAt": None,
+            },
+            {
+                "repo": "example/repo", "number": 8, "pr_state": "OPEN",
+                "head_branch": "normalized-branch",
+                "created_at_utc": "2026-11-02T00:00:00Z",
+                "closed_at_utc": None,
+            },
+        ]
+        cached = [
+            {
+                "repo": "example/repo", "number": 7, "state": "CLOSED",
+                "headRefName": "cached-branch", "headRefOid": "cached-sha",
+                "createdAt": "2026-10-01T00:00:00Z",
+                "closedAt": "2026-10-02T00:00:00Z",
+            },
+            {
+                "repo": "example/repo", "number": 8, "state": "CLOSED",
+                "headRefName": "cached-normalized-branch",
+                "headRefOid": "normalized-sha",
+                "createdAt": "2026-10-01T00:00:00Z",
+                "closedAt": "2026-10-02T00:00:00Z",
+            },
+            {
+                "repo": "example/repo", "number": 9, "state": "OPEN",
+                "createdAt": "2026-11-02T00:00:00Z",
+            },
+        ]
         merged = _merge_pr_branch_metadata(primary, cached)
         pr7 = next(row for row in merged if row["number"] == 7)
         pr8 = next(row for row in merged if row["number"] == 8)
+        pr9 = next(row for row in merged if row["number"] == 9)
         self.assertEqual(pr7["state"], "OPEN")
         self.assertEqual(pr7["headRefName"], "live-branch")
         self.assertEqual(pr7["createdAt"], "2026-11-01T00:00:00Z")
+        self.assertIsNone(pr7["closedAt"])
         self.assertEqual(pr7["headRefOid"], "cached-sha")
-        self.assertEqual(pr8["state"], "OPEN")
+        self.assertEqual(pr8["pr_state"], "OPEN")
+        self.assertEqual(pr8["head_branch"], "normalized-branch")
+        self.assertEqual(pr8["created_at_utc"], "2026-11-02T00:00:00Z")
+        self.assertIsNone(pr8["closed_at_utc"])
+        self.assertNotIn("state", pr8)
+        self.assertNotIn("closedAt", pr8)
+        self.assertEqual(pr9["state"], "OPEN")
 
+        result = run_query(
+            events_path=[], pr_snapshots_path=merged,
+            snapshot_at_utc=self.CUTOFF,
+        )
+        elapsed = {
+            row["pr_number"]: row["pr_elapsed_basis"]
+            for row in result["pr_metrics"]
+        }
+        self.assertEqual(elapsed[7], "SNAPSHOT_AT_RIGHT_CENSORED")
+        self.assertEqual(elapsed[8], "SNAPSHOT_AT_RIGHT_CENSORED")
 
 
 if __name__ == "__main__":

@@ -354,7 +354,11 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                         common.update(git_metadata)
                         if claude_usage or codex_usage:
                             raw = payload["usage"] if codex_usage else message["usage"]
-                            request = payload.get("response_id") or row.get("response_id") if codex_usage else row.get("requestId")
+                            request = (
+                                (payload.get("response_id") or row.get("response_id"))
+                                if codex_usage
+                                else (row.get("requestId") or message.get("id"))
+                            )
                             request = _usage_label(request)
                             model = models.get(turn) if codex_usage else _usage_label(message.get("model"))
                             normalized = {
@@ -466,7 +470,10 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                                         record["pr_binding"] = {key: binding[key] for key in
                                             ("pr", "method", "weight") if key in binding and
                                             isinstance(binding[key], (str, int, float))}
-                            automated = actor_kind == "automated_watch"
+                            automated = (
+                                record.get("actor_kind") == "automated_watch"
+                                or record.get("origin_status") == "excluded_automated"
+                            )
                             if automated:
                                 stats["automated_excluded_messages"] += 1
                             else:

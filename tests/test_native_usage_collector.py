@@ -216,6 +216,64 @@ class NativeUsageCollectorTests(unittest.TestCase):
         self.assertNotIn("PRIVATE_CLAUDE_PROMPT_MUST_NOT_LEAK", text)
         self.assertNotIn(str(self.claude), text)
 
+    def test_claude_message_id_fallback_deduplicates_missing_request_ids(self):
+        usage = {
+            "input_tokens": 10,
+            "output_tokens": 2,
+        }
+        rows = [
+            {
+                "type": "assistant", "timestamp": "2026-11-08T10:00:01Z",
+                "message": {
+                    "id": "message-fallback", "model": "claude-test",
+                    "usage": usage,
+                },
+            },
+            {
+                "type": "assistant", "timestamp": "2026-11-08T10:00:01Z",
+                "message": {
+                    "id": "message-fallback", "model": "claude-test",
+                    "usage": usage,
+                },
+            },
+            {
+                "type": "assistant", "timestamp": "2026-11-08T10:00:02Z",
+                "requestId": "explicit-request",
+                "message": {
+                    "id": "other-message", "model": "claude-test",
+                    "usage": usage,
+                },
+            },
+        ]
+        self._write(self.claude, "session.jsonl", rows)
+        data = collect_native_history([self.claude], cutoff=self.cutoff, days=14)
+        self.assertEqual(
+            [row["request_id"] for row in data["usage_records"]],
+            ["message-fallback", "message-fallback", "explicit-request"],
+        )
+        self.assertEqual(data["stats"]["duplicate_usage_records"], 1)
+
+    def test_automated_origin_annotation_updates_source_coverage_counters(self):
+        self._write(self.claude, "session.jsonl", [{
+            "type": "user", "timestamp": "2026-11-08T10:00:00Z",
+            "promptId": "automated-origin", "userType": "human",
+            "message": {"role": "user", "content": "ignored"},
+        }])
+        sidecar = self.base / "automated-origin.jsonl"
+        sidecar.write_text(json.dumps({
+            "event_id": "automated-origin", "human_origin": "automated_watch",
+        }) + "\n", encoding="utf-8")
+        data = collect_native_history(
+            [self.claude], cutoff=self.cutoff, days=14, annotation_path=sidecar,
+        )
+        self.assertEqual(data["stats"]["human_candidates"], 0)
+        self.assertEqual(data["stats"]["human_verified"], 0)
+        self.assertEqual(data["stats"]["automated_excluded_messages"], 1)
+        self.assertEqual(data["human_records"][0]["actor_kind"], "automated_watch")
+        self.assertEqual(
+            data["human_records"][0]["origin_status"], "excluded_automated",
+        )
+
     def test_reviewed_pr_binding_sidecar_is_exact_and_not_prompt_derived(self):
         self._write(self.codex, "rollout.jsonl", [
             {"type": "turn_context", "payload": {"turn_id": "turn-a", "model": "fixture-codex-model"}},

@@ -3798,9 +3798,16 @@ def _merge_pr_branch_metadata(prs, cached_prs):
         if key:
             merged[key] = dict(pr)
 
-    branch_fields = (
-        "headRefName", "headRefOid", "createdAt", "updatedAt", "closedAt", "mergedAt", "url", "state",
-    )
+    branch_fields = {
+        "headRefName": ("headRefName", "head_branch", "head_ref_name"),
+        "headRefOid": ("headRefOid", "head_sha", "head_ref_oid"),
+        "createdAt": ("createdAt", "created_at_utc", "created_at"),
+        "updatedAt": ("updatedAt", "updated_at_utc", "updated_at"),
+        "closedAt": ("closedAt", "closed_at_utc", "closed_at"),
+        "mergedAt": ("mergedAt", "merged_at_utc", "merged_at"),
+        "url": ("url", "html_url"),
+        "state": ("state", "pr_state"),
+    }
     for pr in cached_prs or []:
         if not isinstance(pr, dict):
             continue
@@ -3808,9 +3815,14 @@ def _merge_pr_branch_metadata(prs, cached_prs):
         if not key:
             continue
         current = merged.setdefault(key, dict(pr))
-        for field in branch_fields:
-            if current.get(field) in (None, "") and pr.get(field) not in (None, ""):
-                current[field] = pr[field]
+        for field, aliases in branch_fields.items():
+            if not any(alias in current for alias in aliases):
+                value = next(
+                    (pr[alias] for alias in aliases if pr.get(alias) not in (None, "")),
+                    None,
+                )
+                if value is not None:
+                    current[field] = value
     return [merged[key] for key in sorted(merged)]
 
 
@@ -4640,6 +4652,14 @@ def main():
             "dated --usage-rates"
         ),
     )
+    parser.add_argument(
+        "--query-memory-limit",
+        help="Optional DuckDB memory_limit, for example 4GB",
+    )
+    parser.add_argument(
+        "--query-temp-directory",
+        help="Optional existing Scratch directory for DuckDB temp spill files",
+    )
 
     args = parser.parse_args()
 
@@ -4834,7 +4854,10 @@ def main():
         )
 
     query_summary = None
-    if args.query_metrics or args.scenario_catalog or args.history_replay:
+    if (
+        args.query_metrics or args.scenario_catalog or args.history_replay
+        or args.query_memory_limit or args.query_temp_directory
+    ):
         try:
             from scripts.prw_metrics_queries import run_query
         except ModuleNotFoundError:
@@ -4845,6 +4868,8 @@ def main():
             snapshot_at_utc=format_iso_utc(cutoff_dt),
             human_summary_path=summary_data.get("human_summary"),
             rate_catalog_path=args.scenario_catalog,
+            duckdb_memory_limit=args.query_memory_limit,
+            duckdb_temp_directory=args.query_temp_directory,
         )
 
     renderer = DashboardRenderer()

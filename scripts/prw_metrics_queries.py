@@ -288,20 +288,21 @@ def _catalog_scenario_summary(catalog_path, connection):
         "catalog_version VARCHAR, scenario_basis VARCHAR, scenario_cost_usd "
         "DECIMAL(38, 12))"
     )
-    connection.executemany(
-        "INSERT INTO prw_catalog_scenario_pr_metrics "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        [
-            (
-                row["pr"], row["model_id"], row["model_vendor"],
-                row["source_protocol"], row["attribution_method"],
-                row["association_confidence"], row["price_tier"],
-                row["catalog_version"], row["scenario_basis"],
-                row["scenario_cost_usd"],
-            )
-            for row in rows
-        ],
-    )
+    if rows:
+        connection.executemany(
+            "INSERT INTO prw_catalog_scenario_pr_metrics "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    row["pr"], row["model_id"], row["model_vendor"],
+                    row["source_protocol"], row["attribution_method"],
+                    row["association_confidence"], row["price_tier"],
+                    row["catalog_version"], row["scenario_basis"],
+                    row["scenario_cost_usd"],
+                )
+                for row in rows
+            ],
+        )
     cohort_rows = _query_rows(
         connection,
         "SELECT model_id, model_vendor, source_protocol, attribution_method, "
@@ -330,6 +331,8 @@ def run_query(
     sql_path=None,
     rate_catalog_path=None,
     duckdb_module=None,
+    duckdb_memory_limit=None,
+    duckdb_temp_directory=None,
 ):
     """Run the read-only query; event identities are deduplicated upstream."""
     if duckdb_module is None:
@@ -345,7 +348,17 @@ def run_query(
     if cutoff is None or not snapshot_at_utc.endswith("Z"):
         raise ValueError("snapshot_at_utc must be an explicit UTC instant ending in Z")
 
-    connection = duckdb_module.connect(database=":memory:")
+    duckdb_config = {}
+    if duckdb_memory_limit is not None:
+        duckdb_config["memory_limit"] = duckdb_memory_limit
+    if duckdb_temp_directory is not None:
+        duckdb_config["temp_directory"] = str(duckdb_temp_directory)
+    if duckdb_config:
+        connection = duckdb_module.connect(
+            database=":memory:", config=duckdb_config,
+        )
+    else:
+        connection = duckdb_module.connect(database=":memory:")
     try:
         _load_jsonl_table(connection, "prw_input_events", events_path)
         _load_jsonl_table(connection, "prw_input_pr_snapshots", pr_snapshots_path)
