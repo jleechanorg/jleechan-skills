@@ -7,6 +7,10 @@ description: Use when the user invokes /timeline or asks for a visual timeline, 
 
 Turn a plan into an HTML Gantt (bars, parallelism, time estimates) plus a flow strip of the remaining steps, render it and look at it, and print the same diagram in chat.
 
+## Explain the work first
+
+Before the Gantt, use the rendered `subtitle` for a concise, zero-context overview of every PR and major milestone in the timeline. State what each change does and why it matters to its user; expand unfamiliar terms. A PR number, branch name, owner, status, or file name is an identifier, not an explanation. Keep the overview short, and make row names and details describe the action, outcome, and dependency in plain language. Keep unfinished work in phases and rows; never put an explanation of unfinished work in `done`. The subtitle appears at the top of the existing renderer, above the status and Gantt.
+
 ## Build
 
 1. **Re-pin live state first.** Immediately before drawing, re-read git SHAs, `gh pr checks`, and lane status from their sources; never copy them from earlier prose. Snapshot time is absolute with timezone (`2026-10-04 12:55 PDT`).
