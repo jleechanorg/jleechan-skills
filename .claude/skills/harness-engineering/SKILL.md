@@ -35,6 +35,18 @@ authorized scope. Every outcome reaches the single closure in Step 7, including
 audit, optimization, no-change, blocked and partial outcomes. An explicit STOP
 or write prohibition takes precedence; report what was skipped without doing it.
 
+### Mode routing
+
+- Default and `--fix` use the single-failure protocol below.
+- `--audit` adds the full-sweep procedure in
+  [references/audit-mode.md](references/audit-mode.md).
+- `--optimize` uses the optimization procedure in
+  [references/optimization-mode.md](references/optimization-mode.md).
+- `--next` remains an alias for default mode's Step 7 closure. All modes retain
+  the mandatory analysis requirements that apply to their scope and use the
+  same Step 7 closure exactly once. These references select conditional work;
+  they do not replace authorization, STOP, or write-scope rules.
+
 ### Step 1: Identify the failure class
 
 Classify what went wrong:
@@ -226,102 +238,6 @@ Two focused write-ups live in [references/failure-patterns.md](references/failur
 
 - **Redacted secrets:** a CLI that prints a redaction sentinel (for example `__OPENCLAW_REDACTED__`) instead of a secret is a silent-degradation trap. Never `export` a secret from output that can be redacted; verify the value is not a sentinel before relying on it.
 - **Silent CI success:** a workflow can report job-level success while an inner step fails. Do not trust aggregate status; verify current-head CI conclusions and mergeability per `~/.claude/skills/pr-green-definition/SKILL.md`.
-
-## Audit mode (`/harness --audit`)
-
-In addition to single-failure analysis, this skill supports a full sweep of all
-harness files for accumulated drift. Scan `~/.claude/CLAUDE.md`, repo-local
-`CLAUDE.md`, `~/.codex/AGENTS.md`, workspace `.claude/commands/`, and
-`~/.claude/skills/*/` for:
-
-- **Stale rules** — instructions that reference files/tools/patterns that no
-  longer exist
-- **Contradictions** — rules in different files that conflict
-- **Gaps** — known failure patterns (from memory) without corresponding
-  instructions
-- **Duplication** — the same rule stated in multiple places (consolidate to the
-  most durable layer per the Decision Rules above)
-
-Report findings as a table:
-
-```
-| Issue | File | Line | Recommendation |
-|-------|------|------|----------------|
-| Stale | ~/.claude/CLAUDE.md | 42 | Remove reference to deprecated tool X |
-| Gap | repo CLAUDE.md | - | Add rule about Y (corrected 3x in memory) |
-```
-
-## Optimization mode (`/harness --optimize`)
-
-Use this mode to review active coding-agent harness files and suggest useful,
-small improvements. In scope: `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, skills,
-agents, slash commands, and their discovery metadata.
-
-### Scope guard
-
-The product is the instruction harness itself. Start from the named harness
-files and keep proposed edits inside those surfaces. Do not turn this task into
-an AO, beads, evaluation-corpus, notification, or general process project.
-
-If most planned work does not directly inspect, test, or change instruction
-surfaces, stop: the task has drifted.
-
-### Review posture
-
-1. Batch cheap discovery with `rg`, metadata parsing, broken-link checks, and
-   word counts.
-2. Consult recent `/history` and `/ms` evidence for repeated corrections and
-   concrete friction.
-3. Read focused evidence for the highest-value findings; do not recursively
-   expand context without a concrete question.
-4. Rank ideas by expected agent-quality benefit, confidence, and change risk.
-5. Prefer an existing canonical file over creating another skill or command.
-6. Prefer small, reviewable change groups over broad prompt rewrites.
-7. If evidence is weak or no improvement is worthwhile, report `no change`.
-8. After editing, reread the active source and exercise the real path; a source,
-   installed copy, or automation label alone does not prove behavior.
-
-For a proposed or implemented change, record enough before/after evidence to
-explain the decision. A frozen corpus, new gate, or organization-wide cleanup
-campaign is not required.
-
-### Weekly job contract
-
-A weekly job may automate this mode. Keep it thin:
-
-- inspect the authorized harness roots read-only;
-- produce a short ranked list of optimization ideas with exact file evidence;
-- open small, focused harness-only PRs when changes are high-confidence and can
-  be validated with existing checks;
-- otherwise publish the ideas or an explicit `no change` result;
-- deliver the report and PR links through the already configured weekly
-  Slack/email notification path;
-- never make direct user-scope harness-source edits from the scheduled run;
-- never require a frozen evaluation corpus, AO workers, or unrelated process
-  changes as prerequisites. Step 7 is the same scoped closure after the work,
-  not a prerequisite to inspection or permission for additional source edits.
-
-The scheduler and delivery mechanism belong to the owning repository. They are
-implementation details of this one weekly job, not a new harness workflow.
-
-### Source principles
-
-- [Dropbox: optimizing Dash's relevance judge with DSPy](https://dropbox.tech/machine-learning/optimizing-dropbox-dash-relevance-judge-with-dspy) — use measured evidence, make model-specific improvements, and constrain high-blast-radius prompt changes.
-- [GitHub: better tools made Copilot code review worse](https://github.blog/ai-and-ml/github-copilot/better-tools-made-copilot-code-review-worse-heres-how-we-actually-improved-it/) — job-specific tool instructions matter; start from a narrow question; batch discovery; read focused evidence; use traces to diagnose context-expansion loops.
-- [OpenAI model guidance](https://developers.openai.com/api/docs/guides/latest-model) — favor lean prompts, state instructions once, expose only relevant tools, remove one instruction group at a time, and rerun representative evals before accepting the change.
-
-### Output contract
-
-Return:
-
-1. a short ranked idea list with exact file evidence;
-2. the recommended minimal change, if any;
-3. validation evidence for any implemented change;
-4. PR URLs when the weekly job opened any, or `no change`.
-
-Unless invoked with `--fix` or separately authorized by the user, do not edit
-the harness. Report the recommendation or `no change`, then complete Step 7 and
-return to any already-authorized caller workflow.
 
 ## Anti-patterns
 

@@ -3,14 +3,15 @@
 import json
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from scripts.prw_metrics import (
+    RETAINED_EPISODE_FIELDS,
     Collector,
     DashboardRenderer,
     MetricsAggregator,
     Publisher,
-    RETAINED_EPISODE_FIELDS,
     sanitize_telemetry_file,
 )
 
@@ -392,6 +393,9 @@ class TestEmptyDurationDistribution(unittest.TestCase):
         self.assertEqual(empty_stats["n"], 0)
         self.assertEqual(empty_stats["all_median_hours"], "UNKNOWN")
         self.assertEqual(empty_stats["all_p75_hours"], "UNKNOWN")
+        self.assertEqual(empty_stats["all_p50_hours"], "UNKNOWN")
+        self.assertEqual(empty_stats["all_p90_hours"], "UNKNOWN")
+        self.assertEqual(empty_stats["all_p99_hours"], "UNKNOWN")
         summary = MetricsAggregator().aggregate_full_dataset(
             prs=[{
                 "repo": "o/r",
@@ -407,6 +411,8 @@ class TestEmptyDurationDistribution(unittest.TestCase):
         self.assertEqual(summary["w2_merged_cohort_n"], 0)
         self.assertEqual(row["all_median_hours"], "UNKNOWN")
         self.assertEqual(row["all_p75_hours"], "UNKNOWN")
+        self.assertEqual(row["d14_all_n"], 0)
+        self.assertEqual(row["d14_all_p50_hours"], "UNKNOWN")
         rendered = DashboardRenderer().render(summary)
         self.assertIn("UNKNOWN", rendered)
         self.assertNotIn("0.0h", rendered)
@@ -418,6 +424,45 @@ class TestEmptyDurationDistribution(unittest.TestCase):
 
         self.assertEqual(result["all_median_hours"], 0.0)
         self.assertEqual(result["all_p75_hours"], 0.0)
+
+    def test_fourteen_day_creation_to_merge_percentiles_keep_backlog_separate(self):
+        cutoff = datetime(2026, 11, 8, tzinfo=timezone.utc)
+        aggregator = MetricsAggregator(cutoff_dt=cutoff)
+        prs = []
+        for number, merged_at, duration_hours in (
+            (1, "2026-10-28T00:00:00Z", 1),
+            (2, "2026-10-29T00:00:00Z", 2),
+            (3, "2026-11-02T00:00:00Z", 10),
+            (4, "2026-11-03T00:00:00Z", 200),
+        ):
+            merged = datetime.fromisoformat(merged_at.replace("Z", "+00:00"))
+            created = (merged - timedelta(hours=duration_hours)).strftime(
+                "%Y-%m-%dT%H:%M:%SZ"
+            )
+            prs.append({
+                "repo": "example-org/repo-alpha", "number": number, "state": "MERGED",
+                "mergedAt": merged_at, "createdAt": created,
+            })
+
+        summary = aggregator.aggregate_full_dataset(prs=prs, now_dt=cutoff)
+        row = next(
+            r for r in summary["repo_comparison"] if r["repo"] == "Combined (All Repos)"
+        )
+        self.assertEqual(row["d14_all_n"], 4)
+        self.assertEqual(
+            [row[f"d14_all_p{p}_hours"] for p in (50, 90, 99)],
+            [2.0, 200.0, 200.0],
+        )
+        self.assertEqual(row["d14_comp_n"], 3)
+        self.assertEqual(
+            [row[f"d14_comp_p{p}_hours"] for p in (50, 90, 99)],
+            [2.0, 10.0, 10.0],
+        )
+        self.assertEqual(row["d14_backlog_n"], 1)
+        self.assertEqual(
+            [row[f"d14_backlog_p{p}_hours"] for p in (50, 90, 99)],
+            [200.0, 200.0, 200.0],
+        )
 
 
 

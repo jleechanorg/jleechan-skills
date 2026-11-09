@@ -14,8 +14,9 @@ import shutil
 import subprocess
 import tempfile
 import unittest
-from unittest import mock
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from unittest import mock
 
 # We will import from scripts.prw_metrics
 # Before implementation, this will fail or functions will be missing (RED).
@@ -26,6 +27,7 @@ try:
         MetricsAggregator,
         Publisher,
         calculate_median,
+        calculate_nearest_rank_percentile,
         calculate_nearest_rank_p75,
         compute_disjoint_interval_union,
         filter_events_half_open,
@@ -113,6 +115,27 @@ class TestStatisticalFunctions(unittest.TestCase):
         self.assertEqual(calculate_median([42.0]), 42.0)
         self.assertEqual(calculate_median([1.0, 3.0, 2.0]), 2.0)
         self.assertEqual(calculate_median([1.0, 2.0, 3.0, 4.0]), 2.5)
+
+    def test_nearest_rank_percentiles_cover_boundaries_and_ties(self):
+        self.assertIsNone(calculate_nearest_rank_percentile([], 50))
+        self.assertEqual(
+            [calculate_nearest_rank_percentile([7.0], p) for p in (50, 90, 99)],
+            [7.0, 7.0, 7.0],
+        )
+        self.assertEqual(
+            [calculate_nearest_rank_percentile([1.0, 9.0], p) for p in (50, 90, 99)],
+            [1.0, 9.0, 9.0],
+        )
+        ten = list(range(1, 11))
+        self.assertEqual(
+            [calculate_nearest_rank_percentile(ten, p) for p in (50, 90, 99)],
+            [5.0, 9.0, 10.0],
+        )
+        tied = [4.0, 2.0, 2.0, 1.0, 2.0]
+        self.assertEqual(
+            [calculate_nearest_rank_percentile(tied, p) for p in (50, 90, 99)],
+            [2.0, 4.0, 4.0],
+        )
 
     def test_disjoint_interval_union(self):
         """Disjoint union of overlapping or parallel intervals without double counting."""
@@ -642,6 +665,9 @@ class TestStageDwellAndHandoffAggregation(unittest.TestCase):
         coding_dwell = next(d for d in dwell if d["stage"] == "stage:1-coding")
         self.assertEqual(coding_dwell["median_h"], 3.0)
         self.assertEqual(coding_dwell["p75_h"], 4.0)
+        self.assertEqual(coding_dwell["p50_h"], 2.0)
+        self.assertEqual(coding_dwell["p90_h"], 4.0)
+        self.assertEqual(coding_dwell["p99_h"], 4.0)
         self.assertEqual(coding_dwell["conflicts"], 1)
         self.assertEqual(coding_dwell["n"], 2)
 
@@ -684,6 +710,8 @@ class TestStageDwellAndHandoffAggregation(unittest.TestCase):
         ev_to_req = next(h for h in handoffs if h["name"] == "evidence_ready -> review_requested")
         self.assertEqual(ev_to_req["observed_n"], 1)
         self.assertEqual(ev_to_req["median_sec"], 1800.0)
+        self.assertEqual(ev_to_req["sample_n"], 1)
+        self.assertEqual([ev_to_req[f"p{p}_sec"] for p in (50, 90, 99)], [1800.0] * 3)
 
         req_to_act = next(h for h in handoffs if h["name"] == "review_requested -> actual_review_started")
         self.assertEqual(req_to_act["observed_n"], 1)
@@ -700,6 +728,140 @@ class TestStageDwellAndHandoffAggregation(unittest.TestCase):
         sprint_to_merge = next(h for h in handoffs if h["name"] == "closure_sprint_accepted -> merged")
         self.assertEqual(sprint_to_merge["observed_n"], 1)
         self.assertEqual(sprint_to_merge["median_sec"], 3600.0)
+
+
+    def test_canonical_transition_events_pair_by_exact_pr_candidate_and_attempt(self):
+        cutoff = datetime(2026, 11, 9, 12, 0, tzinfo=timezone.utc)
+        collector = Collector(cutoff_dt=cutoff)
+        prs = [
+            {
+                "repo": "example-org/repo-alpha", "number": 20,
+                "headRefOid": "c" * 40, "state": "OPEN",
+                "createdAt": "2026-11-01T00:00:00Z",
+            }
+        ]
+        event_rows = [
+            ("evidence_ready", "2026-11-05T10:00:00Z", "a" * 40, 1),
+            ("review_requested", "2026-11-05T10:10:00Z", "a" * 40, 1),
+            ("actual_review_started", "2026-11-05T10:20:00Z", "a" * 40, 1),
+            ("review_return", "2026-11-05T11:00:00Z", "a" * 40, 1),
+            ("next_action_started", "2026-11-05T11:05:00Z", "a" * 40, 1),
+            # Similar transitions on different candidates may not cross-pair.
+            ("review_requested", "2026-11-05T12:00:00Z", "b" * 40, 2),
+            ("actual_review_started", "2026-11-05T12:10:00Z", "a" * 40, 2),
+        ]
+        with tempfile.TemporaryDirectory() as receipts_dir:
+            path = os.path.join(receipts_dir, "transition-events.jsonl")
+            with open(path, "w", encoding="utf-8") as stream:
+                for index, (event_type, occurred_at, candidate_sha, attempt) in enumerate(event_rows):
+                    stream.write(json.dumps({
+                        "event_id": f"event-{index}",
+                        "event_type": event_type,
+                        "occurred_at": occurred_at,
+                        # Deliberately far from occurred_at: audit clock is not the event clock.
+                        "observed_at": "2026-11-09T12:00:00Z",
+                        "pr_id": "example-org/repo-alpha#20",
+                        "candidate_sha": candidate_sha,
+                        "attempt_number": attempt,
+                    }) + "\n")
+                stream.write("{malformed receipt line}\n")
+
+            receipts = collector.collect_receipts_from_dir(receipts_dir)
+            self.assertEqual(len(receipts), len(event_rows))
+            self.assertTrue(all("source_receipt" not in receipt for receipt in receipts))
+            self.assertEqual(receipts[0]["occurred_at"], "2026-11-05T10:00:00Z")
+            self.assertEqual(receipts[0]["observed_at"], "2026-11-09T12:00:00Z")
+            self.assertEqual(collector.receipt_scan_stats["status"], "PARTIAL")
+
+            with tempfile.TemporaryDirectory() as publisher_dir:
+                telemetry = Publisher(repo_path=publisher_dir).write_telemetry_bundle(
+                    {"w2_bounds": ["2026-11-02", "2026-11-09"]},
+                    handoff_records=receipts,
+                )
+            retained_events = next(
+                value for key, value in telemetry.items() if key.endswith("retained_handoffs.jsonl")
+            )
+            self.assertNotIn(receipts_dir, retained_events)
+            self.assertIn("observed_at", retained_events)
+            self.assertIn("occurred_at", retained_events)
+
+            handoffs = MetricsAggregator(cutoff_dt=cutoff).compute_handoff_breakdown(
+                prs, handoff_records=receipts, receipt_stats=collector.receipt_scan_stats,
+            )
+
+        evidence = next(
+            row for row in handoffs
+            if row["name"] == "evidence_ready -> review_requested"
+        )
+        review = next(row for row in handoffs if row["name"] == "review_requested -> actual_review_started")
+        returned = next(row for row in handoffs if row["name"] == "review_return -> next_substantive_action")
+        self.assertEqual(evidence["median_sec"], 600.0)
+        self.assertEqual(review["median_sec"], 600.0)
+        self.assertEqual(returned["median_sec"], 300.0)
+        self.assertEqual(evidence["receipt_events_seen"], len(event_rows))
+        self.assertEqual(evidence["receipt_events_unmatched"], 2)
+        self.assertEqual(evidence["receipt_pairs"], 3)
+        self.assertEqual(evidence["receipt_parse_errors"], 1)
+        self.assertEqual(evidence["receipt_status"], "PARTIAL")
+
+    def test_invalid_utf8_optional_json_receipt_is_counted_without_aborting(self):
+        collector = Collector(cutoff_dt=datetime(2026, 11, 9, 12, 0, tzinfo=timezone.utc))
+        with tempfile.TemporaryDirectory() as receipts_dir:
+            Path(receipts_dir, "run.stats.json").write_bytes(b"\xff")
+            receipts = collector.collect_receipts_from_dir(receipts_dir)
+
+        self.assertEqual(receipts, [])
+        self.assertEqual(collector.receipt_scan_stats["status"], "PARTIAL")
+        self.assertEqual(collector.receipt_scan_stats["receipt_parse_errors"], 1)
+
+    def test_transition_receipts_preserve_fractional_seconds_and_reject_reversed_order(self):
+        aggregator = MetricsAggregator()
+        prs = [{"repo": "example-org/repo-alpha", "number": 20}]
+        records = [
+            {
+                "record_type": "transition_event", "event_id": "fractional-start",
+                "event_type": "evidence_ready", "occurred_at": "2026-11-05T10:00:00.900Z",
+                "pr_id": "example-org/repo-alpha#20", "candidate_sha": "a" * 40,
+                "attempt_number": 1,
+            },
+            {
+                "record_type": "transition_event", "event_id": "fractional-end",
+                "event_type": "review_requested", "occurred_at": "2026-11-05T10:00:01.100Z",
+                "pr_id": "example-org/repo-alpha#20", "candidate_sha": "a" * 40,
+                "attempt_number": 1,
+            },
+            {
+                "record_type": "transition_event", "event_id": "reversed-start",
+                "event_type": "evidence_ready", "occurred_at": "2026-11-05T10:00:02.900Z",
+                "pr_id": "example-org/repo-alpha#20", "candidate_sha": "b" * 40,
+                "attempt_number": 2,
+            },
+            {
+                "record_type": "transition_event", "event_id": "reversed-end",
+                "event_type": "review_requested", "occurred_at": "2026-11-05T10:00:02.100Z",
+                "pr_id": "example-org/repo-alpha#20", "candidate_sha": "b" * 40,
+                "attempt_number": 2,
+            },
+        ]
+
+        _, pairing = aggregator.adapt_transition_event_receipts(records, prs)
+        handoffs = aggregator.compute_handoff_breakdown(prs, handoff_records=records)
+        evidence = next(row for row in handoffs if row["name"] == "evidence_ready -> review_requested")
+        self.assertEqual(pairing["receipt_pairs"], 1)
+        self.assertEqual(pairing["receipt_events_unmatched"], 2)
+        self.assertEqual(evidence["observed_n"], 1)
+        self.assertEqual(evidence["median_sec"], 0.2)
+
+    def test_missing_transition_feed_is_unknown_and_does_not_fail_collection(self):
+        collector = Collector(cutoff_dt=datetime(2026, 11, 9, 12, 0, tzinfo=timezone.utc))
+        with tempfile.TemporaryDirectory() as parent:
+            missing = os.path.join(parent, "no-receipt-feed")
+            result = collector.collect_all(
+                offline=True, receipts_dir=missing,
+            )
+        self.assertEqual(result["status"], "EMPTY")
+        self.assertEqual(result["handoff_receipt_stats"]["status"], "UNAVAILABLE")
+        self.assertEqual(result["handoff_receipt_stats"]["receipt_read_errors"], 1)
 
 
 class TestOpenPRAttentionPartitioningAndSorting(unittest.TestCase):
@@ -1514,6 +1676,20 @@ class TestRound2HermesAndCodexReviewFixes(unittest.TestCase):
         long_text = "A" * 500
         bounded = redact_sensitive_excerpt(long_text, max_chars=50)
         self.assertLessEqual(len(bounded), 55)
+
+    def test_redact_labeled_password_values_including_quoted_spaces(self):
+        excerpts = (
+            "password is EXAMPLE_VALUE",
+            "password: EXAMPLE_VALUE",
+            "password=EXAMPLE_VALUE",
+            'password is "EXAMPLE VALUE"',
+            "password: 'EXAMPLE VALUE'",
+        )
+        for excerpt in excerpts:
+            with self.subTest(excerpt=excerpt):
+                scrubbed = redact_sensitive_excerpt(excerpt)
+                self.assertNotIn("EXAMPLE", scrubbed)
+                self.assertIn("[REDACTED]", scrubbed)
 
     def test_human_interventions_initial_requests_vs_followup_and_dot_page_tail(self):
         """Parent addendum & Codex P1-4: separate initial requests, follow-ups, and dot_page_tail."""
@@ -2411,6 +2587,46 @@ class TestRetentionRoundTripInvariant(unittest.TestCase):
         for section in ("repo_comparison", "stage_dwell", "handoffs", "open_prs_known_idle", "open_prs_unknown_idle"):
             for original, kept in zip(summary[section], projected[section]):
                 self.assertEqual(set(kept), set(original), section)
+
+    def test_rendered_distributions_include_fourteen_day_and_percentile_values(self):
+        summary = {
+            "status": "FRESH",
+            "repo_comparison": [{
+                "repo": "example-org/repo-alpha",
+                "created": 1, "created_w1": 1, "created_w2": 1,
+                "merged_w1": 1, "merged_w2": 1, "closed_unmerged_w1": 0,
+                "closed_unmerged_w2": 0, "current_closed_unmerged": 0, "still_open": 0,
+                "w1_all_median_hours": 2, "all_median_hours": 3,
+                "w1_all_p75_hours": 2, "all_p75_hours": 3,
+                "w1_comp_median_hours": 2, "comp_median_hours": 3,
+                "w1_comp_p75_hours": 2, "comp_p75_hours": 3,
+                "w1_backlog_n": 0, "w1_backlog_median_hours": "UNKNOWN",
+                "backlog_n": 0, "backlog_median_hours": "UNKNOWN",
+                "d14_all_n": 2, "d14_all_p50_hours": 2, "d14_all_p90_hours": 3,
+                "d14_all_p99_hours": 3, "d14_comp_n": 2, "d14_comp_p50_hours": 2,
+                "d14_comp_p90_hours": 3, "d14_comp_p99_hours": 3,
+                "d14_backlog_n": 0, "d14_backlog_p50_hours": "UNKNOWN",
+                "d14_backlog_p90_hours": "UNKNOWN", "d14_backlog_p99_hours": "UNKNOWN",
+            }],
+            "stage_dwell": [{
+                "stage": "stage:1-coding", "median_h": 2, "p75_h": 3,
+                "p50_h": 2, "p90_h": 3, "p99_h": 3,
+                "sample_n": 2, "n": 2, "total_n": 2, "conflicts": 0,
+            }],
+            "handoffs": [{
+                "name": "task_accepted -> merged", "observed_n": 1, "sample_n": 1,
+                "total_n": 2, "median_sec": 60, "p75_sec": 60, "p50_sec": 60,
+                "p90_sec": 60, "p99_sec": 60, "status": "PARTIAL",
+            }],
+        }
+        rendered = DashboardRenderer().render(summary)
+        self.assertIn("14-day Creation-to-Merge Distribution", rendered)
+        self.assertIn("n=2; p50=2h, p90=3h, p99=3h", rendered)
+        self.assertIn(
+            "| `stage:1-coding` | 2; 2 / 2 | 2h | 3h | 2h | 3h | 3h | 0 |",
+            rendered,
+        )
+        self.assertIn("1m 00s", rendered)
 
     def test_manifest_and_calibration_files_are_fixed_field_in_every_path(self):
         sentinel = "private-message-sentinel"

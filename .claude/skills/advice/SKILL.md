@@ -60,7 +60,7 @@ of one account independent.
 
 | Tier | Available reviewers | Admission and counting |
 |---|---|---|
-| 1 — preferred | Available authorized CLI seats, including configured extra CLIs; authorized ChatGPT Dot accounts | Prefer different eligible CLI/model identities. CLI and Dot are alternatives in the same tier; no brand or mixture is mandatory. Count at most one Dot vote. |
+| 1 — preferred | Available authorized CLI seats, including configured extra CLIs; authorized ChatGPT Dot accounts; the Instinct WhatsApp peer (`/instinct`) | Prefer different eligible CLI/model identities. CLI, Dot and Instinct are alternatives in the same tier; no brand or mixture is mandatory. Count at most one Dot vote and at most one Instinct vote, and never combine Dot with Instinct into a two-vote quorum. |
 | 2 — fallback | Native static subagents; Hermes or Hermes-PC | Static subagents collectively count as at most one vote; Hermes instances collectively count as at most one distinct vote. Each counted vote must independently cover the entire scope. |
 | 3 — last fallback | Existing authorized authenticated web chats through /web-advice | Use only after earlier-tier candidates cannot fill the remaining quorum. Preserve packet, upload, account-attestation and receipt rules. |
 
@@ -309,3 +309,5 @@ For visual follow-up, use [visual-verification's reuse and scoped follow-up](../
 Repair mechanically verifiable receipt fields yourself rather than dispatching a
 reviewer for bookkeeping; preserve §3 eligibility and original clocks. Such a
 repair cannot supply missing coverage, alter a verdict or revive a void vote.
+For human-judgment prose in a PR body, follow [document-standards' review and
+publication owner](../document-standards/SKILL.md#pr-body-prose-review-and-publication).

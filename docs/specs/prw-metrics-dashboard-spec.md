@@ -34,6 +34,10 @@ A lightweight, automated metrics collector and renderer that publishes a single,
 - **Backlog Partitioning**: Partitions PRs merged within each window into:
   - *Comparable Recent Merges* ($\le 7$ days from `createdAt` to `mergedAt`).
   - *Historical Backlog Merges* ($> 7$ days old at merge), preventing long-parked draft branches from skewing recent turnaround statistics.
+- **Full-Horizon Distribution**: In addition to W1 and W2 comparisons, report
+  creation-to-merge p50/p90/p99 for the complete 14-day merged cohort, split into
+  all merges, merges within 7 days, and backlog merges over 7 days. Show each
+  cohort's sample size.
 - **Private Telemetry Retention**: Sanitized event/episode records, collected PR records, timeline events, handoff receipts and per-source cutoffs (fixed fields only; PR bodies, raw message text, transcripts, excerpts and error strings are never retained) are stored under `dashboards/prw/telemetry/<window_slug>/` in `<org>/roadmap`, ensuring deterministic audit studies and dashboard rebuilds even after local host Scratch is cleared.
 
 ### 3.2 Time Semantics & Active Work Model
@@ -46,7 +50,19 @@ A lightweight, automated metrics collector and renderer that publishes a single,
   - `Agent effort`: Sum ($\sum (t_{\text{end}} - t_{\text{start}})$) of per-agent evidenced active intervals across parallel agents. Can exceed active wall time and PR elapsed; never summed together with active wall time.
   - `Waiting time`: Observed CI/provider/dependency/human-hold intervals; report category breakdown and interval union.
   - `Avoidable unattended time`: Disjoint evidenced intervals with an executable authorized action, no executing owner/job, and no legitimate hold; requires positive eligibility and continuity evidence, otherwise `UNKNOWN`.
-- **Empty Duration Cohorts**: When a duration distribution has `n = 0`, report its median and p75 as `UNKNOWN`; preserve observed zero-duration events as numeric zero.
+- **Empty Duration Cohorts**: When a duration distribution has `n = 0`, report its
+  median and p50/p75/p90/p99 as `UNKNOWN`; preserve observed zero-duration events
+  as numeric zero. Apply the same nearest-rank percentiles to creation-to-merge,
+  stage-dwell, and observed handoff duration samples, and retain their sample counts.
+- **Percentile Compatibility**: Percentiles use nearest rank
+  `k = ceil((p / 100) * n)` and the value at sorted index `k - 1`. Thus p50 is the
+  lower middle item for an even sample; existing `median` fields retain their
+  conventional arithmetic-average meaning for even samples.
+- **Observed PR Cost Distribution**: Show per-PR cost percentiles only across
+  PRs with at least one explicitly attributed, fully priced usage event, and show
+  that cohort's `n`. Label this as an observed attributed sample; do not imply
+  complete PR cost or lifecycle population coverage. Exclude partial or unknown
+  per-PR cost records.
 - **Residual Rule**: Residual duration (`PR elapsed - observed_active_wall_time`) is NOT wasted time. It contains observed waiting times, human reflection, and unobserved periods.
 - **Honest Missing Data**: If owner, job, or hold observation is absent during an open interval, `eligible_unattended_interval` evaluates strictly to `UNKNOWN`, never `0s`.
 
@@ -246,8 +262,69 @@ remainder stays unallocated.
 
 The retention snapshot keeps sanitized token/cost totals and rate provenance and
 excludes prompts, responses, request paths, and rationale text. The rate card provides
-a public model-list equivalent, not actual invoice amounts. A single session feed is
-not a fleet or PR population. The cache-write TTL buckets remain separate and never
+a public model-list equivalent, not actual invoice amounts. For deterministic native
+history collection, repeat --history-root <path> for every configured Claude or Codex
+root. The collector scans every JSONL file under those roots and selects records by the
+half-open UTC interval [cutoff - days, cutoff). --cutoff is the same UTC-aware cutoff
+used by the dashboard; --days defaults to 14. File modification times do not limit the
+history scan.
+
+Claude usage comes from assistant request records and retains request/message IDs,
+timestamp, model, token buckets, and service metadata when present. Codex usage comes
+from each token_usage_record response and its payload.usage; response IDs are
+deduplicated by the existing aggregator, and model identity comes from the matching
+turn_id context. Codex cached input is subtracted from total input only when both
+counts are known and consistent. Reasoning output is a diagnostic subset of output.
+Generic cache-write counts without TTL remain unpriced. Missing model, rate, or billing
+scope metadata stays unknown; API/subscription spend is not inferred from token counts.
+
+Human metadata collection retains structured user-event IDs, timestamps, turn/session
+identifiers, and source fingerprints only. Claude human verification uses explicit
+native origin metadata. Codex user-role records remain candidates until a reviewed
+annotation verifies their origin. Initial/follow-up episode roles, quality labels, and
+scores are never inferred from message order or text. Exact-ID annotations are read
+from --history-annotations <jsonl>; an explicit provider/request-ID binding can supply
+a PR attribution with the existing evidence fields. Incidental PR mentions do not bind
+usage.
+
+For per-PR human steering, --pr-lookup-cache <json> supplies a cached PR snapshot
+with validated repository, branch, and lifecycle timestamps. --repository-map <json>
+uses exact recorded-CWD mappings under cwdToRepo; only entries with
+native_origin_validated status are passed to the collector, and no CWD paths are
+exported. The dashboard joins human events first by an exact reviewed PR binding,
+then by exact repository, branch, and event-time overlap. If no PR lifecycle interval
+overlaps but the exact repository + branch identifies one PR across the full snapshot,
+that snapshot association is retained at low confidence; it is not event-time proof.
+When repository context is unavailable, a branch-only join is allowed only when the
+branch is unique across the configured PR snapshot and is labeled low confidence.
+Ambiguous branches remain unassigned. Direct, repository/branch, and branch-only
+message counts stay separate. Reviewed actor_kind=automated_watch excludes a row even
+when the native role says user. Reviewed context decisions (confirm, override, or unassigned) take
+precedence over best-effort branch association; reviewed multi-PR/global unassignment
+stays unassigned, while the original branch association remains audit metadata.
+Nudge messages and episodes require the explicit message_kind, human_nudge_eligible,
+and episode ID fields. Initial task, new requirement, status request, and follow-through
+categories come only from reviewed annotations. Per-PR rows with no attributed event
+show UNKNOWN coverage, not zero steering.
+
+The retained and rendered human_summary.per_pr rows expose direct reviewed PR
+bindings separately from branch-context associations. Exact reviewed bindings are
+explicit evidence; exact repository + branch + event-time matches are best-effort.
+When repository context is unavailable, a globally unique branch may be shown as a
+separate low-confidence association. Ambiguous branches remain unassigned. Each row
+shows verified messages, candidate messages, explicit initial requests, and only
+follow-up episode labels from retained annotations. No first-message rule, keyword
+classification, or absence-as-zero steering verdict is used.
+
+--history-export <jsonl> writes a deterministic combined JSONL of normalized usage
+and human metadata, with no raw prompt/response text or source paths; this file can be
+fed back through --usage-events. The dashboard records root/file coverage, window
+exclusions, parse/read errors, duplicate usage rows, explicit PR bindings, and human
+candidate/verified/unannotated counts. Status is scoped to the supplied roots. Only the
+Claude and Codex JSONL sources are collected; other runtimes and unconfigured roots are
+not claimed as covered. A complete scan is still not a fleet or PR population total.
+
+The cache-write TTL buckets remain separate and never
 use a generic cache-write price. The card's `standard_global_public_list_price` basis
 prices only events with explicit `standard` service tier, `global` inference geography,
 and `standard` speed. Missing or different metadata stays unpriced. Events are limited

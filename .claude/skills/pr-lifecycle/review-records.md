@@ -126,6 +126,15 @@ At already-observed transitions (e.g. evidence ready, review requested, review s
 
 Existing PR description ledgers and attempt receipts remain the single authoritative record; optional transition receipts are strictly observational projections used for offline dashboard aggregation.
 
+### Optional PRW measurement feed
+
+During a configured PRW measurement, the active owner may append one observed transition per JSON line to PRW_METRICS_RECEIPTS_DIR/transition-events.jsonl. This uses the existing receipts directory; it adds no runner, service, hook, or PR gate. For the dashboard pairing, include event_id, event_type, occurred_at, observed_at, pr_id, candidate_sha, and attempt_number. Other optional receipt fields are not required by this metric.
+
+- occurred_at is the event clock used for duration; observed_at records when the receipt was captured and is audit metadata only.
+- Record actual_review_started only when substantive inspection is observed to begin. A request, assignment, acknowledgment, or status message is not an actual review start.
+- The dashboard pairs records only when PR, candidate SHA, and attempt number match exactly. Missing endpoints, malformed receipts, and unmatched records remain UNKNOWN.
+- Receipt recording and reading are optional and non-blocking. A missing/unreadable receipt feed never delays, rejects, or blocks authorized PR work.
+
 ### Evidence readiness, censoring, and waiting rules
 
 - **Evidence readiness**: Required proof is complete, readable, and available to the reviewer at its recorded candidate SHA.
@@ -136,6 +145,8 @@ Existing PR description ledgers and attempt receipts remain the single authorita
 - **No inferred idleness from quiet periods**: Never infer uninterrupted idleness from missing GitHub writes (e.g. periods without comment or push events).
 
 ## Publication and receipt integrity
+
+For every PR, apply the shared [evidence publication contract](six-stage.md#evidence-attached-to-every-stage-exit) for artifact URLs, the route-appropriate evidence index, applicable inline media, access verification and publication readback. Its route exemptions remain intact. Stage-specific exit records apply only when the repository opts into that workflow; generic PRs record their applicable obligation or phase without adopting stage titles or labels.
 
 Technical attempt receipts capture dispatch prompt/hash and completion timestamps promptly at attempt completion (preserving original clocks separate from later publication), and optional telemetry (`run.stats.json`) or non-blocking bookkeeping never delays an authorized merge once required pre-merge receipts and checks are verified. Outside the canonical Markdown instruction-only route, the compact route and the one-liner fast path (in [exceptions.md](exceptions.md#proportional-exceptions-and-fast-paths)), publish each completed review's sanitized receipt as a gist within the approved disclosure scope, and keep one current marker in the PR body for evidence-gate compatibility: `**Evidence**: <gist-url> (head <sha>)`, pointing to the authorized sanitized evidence-review receipt for current applicability. Compact PRs use the outcome/checks/SHA/limitations/reviewer summary, linking an artifact only when needed to substantiate the claim; the one-liner fast-path `/es` record uses its before/after section. Update only that index; keep the historical ledger, receipt URLs and original capture SHAs. Underlying raw artifacts may stay private. Missing publication authority or an inaccessible required receipt leaves the marker incomplete; never fabricate its URL.
 
