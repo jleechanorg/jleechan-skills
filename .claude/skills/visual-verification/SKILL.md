@@ -38,15 +38,16 @@ the realtime APIs, samples frames. Motion review is therefore **all-frame
 analysis**: decode every frame and account for each one yourself.
 
 1. **Provenance.** Record the media SHA-256 (and the transcoded file's hash, if
-   different), duration, nominal frame rates/time base, actual decoded frame
-   count and each frame's presentation timestamp (PTS). Obtain these with
-   `ffprobe -v error -select_streams v:0 -count_frames -show_frames -show_entries stream=r_frame_rate,avg_frame_rate,time_base,nb_frames,nb_read_frames:format=duration:frame=best_effort_timestamp,best_effort_timestamp_time -of json clip.mp4`.
+   different), selected video stream index, codec and dimensions, duration,
+   nominal frame rates/time base, actual decoded frame count and each frame's
+   presentation timestamp (PTS). Obtain these with
+   `ffprobe -v error -select_streams v:0 -count_frames -show_frames -show_entries stream=index,codec_name,width,height,r_frame_rate,avg_frame_rate,time_base,nb_frames,nb_read_frames:format=duration:frame=best_effort_timestamp,best_effort_timestamp_time -of json clip.mp4`.
    `nb_frames` is container metadata and may be absent or inaccurate; use
    `nb_read_frames` and the returned `frames[]` records for the decoded count.
    Preserve actual PTS, including variable spacing. If a reliable count or PTS
    is unavailable, state what is missing and leave complete coverage unproven.
    Work in a directory from the [Scratch Space skill](../scratch-space/SKILL.md).
-2. **Decode everything.** `ffmpeg -i clip.mp4 -fps_mode passthrough frames/f%04d.png`.
+2. **Decode everything.** `ffmpeg -i clip.mp4 -map 0:v:0 -fps_mode passthrough frames/f%04d.png` to extract the same stream measured above.
    Confirm the extracted image count equals `nb_read_frames` and the number of
    returned frame records; report any mismatch and leave uncovered frames unverified.
 3. **Partition mechanically.** Compare consecutive decoded frames for exact
