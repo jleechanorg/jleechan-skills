@@ -23,76 +23,63 @@ $NODE $S send  --contact "Instinct WhatsApp" --file /tmp/msg.txt
 
 ---
 
-## Profile: shared with `/dot` (dot's verdict, applied)
+## Profile: dedicated, never the Dot profile
 
-**This skill shares `~/.config/dot-headless-chrome-jeffrey` with `/dot`.** That was a deliberate decision,
-not a default: `/dot` was asked directly and its verdict was that sequential sharing *is* technically
-sound and the requirement is **"serialized ownership plus clean shutdown, not separate profiles per
-website."** An independent reviewer separately confirmed the Chromium mechanism is sound. Both are
-applied here.
+**This skill uses its own `~/.config/instinct-chrome-profile`.** Override with
+`INSTINCT_PROFILE_DIR`.
 
-### Why sharing is safe (measured, not assumed)
+An earlier revision of this skill defaulted to a Dot `user_data_dir` on the argument that
+sequential sharing is technically sound. The Chromium mechanism is indeed sound, but sharing is
+still wrong here for three independent reasons:
 
-A `user_data_dir` is a **browser** profile, not an **origin** profile; cookies, IndexedDB and service
-workers are all origin-scoped. Verified end to end on 2026-11-09:
+1. **Dot profile directories are exclusive by policy.** A Dot `user_data_dir` is owned by Dot
+   alone; no other tool, MCP server, or browser may be configured to use it.
+2. **The serialization is one-sided.** This script takes an advisory lockfile, but `dot.sh` does
+   not know that lock exists. Nothing stops a `dot.sh` launch from entering the same directory
+   while a WhatsApp run is live. Observed 2026-11-09: a concurrent `instinct probe` held the
+   profile's `SingletonLock` and made a `dot.sh read` fail with
+   `Failed to create a ProcessSingleton`, with the lock-holder parent resolving to
+   `instinct.mjs` rather than a Dot lineage. A mutual lock would require changing the Dot
+   transport; a dedicated directory removes the shared mutable target instead.
+3. **Shared failure domain.** A Dot `restore-session` wholesale-replaces the Cookies DB and would
+   silently drop the WhatsApp device link, and one corruption event would take out both.
 
-| check | result |
-|---|---|
-| two **simultaneous** launches on one dir | fails (`ProcessSingleton`) — rejection, not queueing |
-| three **concurrent** `instinct probe` runs | all 3 succeed, serialized, ~17 s total |
-| dot cookies after instinct ran 4× | **68 hosts/12**, up from 66/11 — intact and **grew** |
-| `.web.whatsapp.com` cookies | 2, coexisting with chatgpt/google/youtube/openai |
-| `dot.sh read` after instinct runs | works (`jlc-mini` answered) |
+### Why sharing looked safe (and why those measurements did not settle it)
 
-### The two mechanisms that make sharing safe
+Sharing was measured as working: two simultaneous launches fail with `ProcessSingleton` (so they
+serialize), consecutive launches both succeed, and Dot's cookies survived repeated instinct runs.
+Those results are real. They answer "does Chromium tolerate it", not "is the profile owned by one
+tool". The 2026-11-09 `ProcessSingleton` failure above is the same mechanism from the other side:
+sequencing holds only while every caller cooperates, and Dot does not participate in this lock.
+
+### Invariants that keep a dedicated profile safe
 
 1. **`--password-store=keychain`, always.** Playwright's *default* args include
-   `--use-mock-keychain` / `--password-store=basic`; opening the encrypted cookie store with those
-   damages it (`dot/SKILL.md:253,256` — the 2026-10-11 wipe came from an ad-hoc script that bypassed
-   `dot.sh`). This script mirrors `dot_chrome.mjs:187-205` exactly, on macOS **and** Linux.
+   `--use-mock-keychain` / `--password-store=basic`; opening an encrypted cookie store with those
+   damages it. This script mirrors `dot_chrome.mjs` on macOS **and** Linux. A dedicated directory
+   does not make a wrong store backend safe.
 2. **Serialization + clean shutdown.** An advisory lockfile at `~/.config/instinct-profile.lock`
-   (outside the profile dir, so it never collides with Chrome's `Singleton` namespace) is taken before
-   launch and released on exit *and* on `SIGINT`/`SIGTERM`/`SIGHUP`, so a crash cannot wedge the next
-   run. A busy profile is **waited out**, not treated as an error. Shutdown closes the context, then
-   polls until `SingletonLock` is genuinely released (≤10 s) plus a 300 ms settle.
-
-   **Be precise about what this does and does not guarantee.** The lock is *one-sided*: instinct takes
-   it, but `dot.sh` does not. That is not an oversight — `dot/SKILL.md` records that dot.sh's per-profile
-   kernel flock was **deliberately deleted on 2026-10-20** at the operator's request, so Dot no longer
-   serializes concurrent invocations and concurrent launches are "the caller's own risk". So the lock
-   alone does **not** implement mutual exclusion, and it is not a gap to be silently patched here.
-
-   What Chromium supplies is a *rejection*, not a queue: two simultaneous launches on one `user_data_dir`
-   cannot both succeed — measured, the second fails with *"Failed to create a ProcessSingleton for your
-   profile directory."* It does not schedule the loser, and there is a check-to-launch race here
-   (`acquireLock` inspects, then launches) that only the operator reliably closes. Dot's own stale-lock
-   cleanup (`dot_chrome.mjs:297-325`) has a similar conditional check-and-unlink window, so this is not a
-   categorical guarantee on either side. The lock's real jobs are: make instinct **yield politely**
-   (wait, then retry) instead of colliding, and serialize instinct's own concurrent runs.
-   **Operator serialization remains necessary.**
+   (outside the profile dir, so it never collides with Chrome's `Singleton` namespace) is taken
+   before launch and released on exit *and* on `SIGINT`/`SIGTERM`/`SIGHUP`, so a crash cannot
+   wedge the next run. A busy profile is **waited out**, not treated as an error. Shutdown closes
+   the context, then polls until `SingletonLock` is genuinely released (≤10 s) plus a 300 ms settle.
 
 Tuning: `INSTINCT_LOCK_WAIT_MS` / `INSTINCT_PROFILE_WAIT_MS` (default 300 s each). Exit 7 only if a
 live Chrome still holds the profile past the window.
 
 ### What is still NOT safe
 
-- **Never run instinct while a `dot.sh` call is mid-flight in the same profile and bypass the lock.**
-  Use the script; do not hand-roll a Playwright launch against this dir.
-- **Never run `dot.sh restore-session`.** It wholesale-replaces the Cookies DB with `Cookies.snapshot`,
-  which can predate the WhatsApp link and would silently unlink the device. Its `profile_is_idle` guard
-  is also broken (dangling-symlink test — the Dot idle-check bead).
-- **Do not delete `SingletonLock`.** It is a dangling symlink by design; removing it while Chrome is
-  live is how profiles corrupt. The script waits instead.
-- **Profile directory exclusivity still bans a *third* tool.** `~/.codex/AGENTS.md:332` forbids
-  configuring another MCP/tool with a dot `user_data_dir`. This skill is an explicit, documented
-  exception made by operator decision; it is not a licence for anything else to attach.
-- Backups live at `~/.config/dot-cookie-backups/`; a pre-change copy exists at
-  `manual-pre-instinct-20261109-090703` (66 cookies / 11 hosts).
+- **Never hand-roll a Playwright launch against the profile.** Use the script; it owns the lock.
+- **Never point `INSTINCT_PROFILE_DIR` at a Dot profile directory.** The exclusivity rule applies
+  regardless of which tool reads it.
+- **Do not delete `SingletonLock`.** It is a dangling symlink by design; removing it while Chrome
+  is live is how profiles corrupt. The script waits instead.
 
-### The account is still shared, the session is not
+### The account may still be shared, the session is not
 
-The same Google identity backs both the configured Dot account and this WhatsApp link.
-The profile is the browser state; the WhatsApp device link lives in that profile's IndexedDB for
+The same operator identity can back both a Dot account and this WhatsApp link. The profile is the
+browser session state, which is why the two must remain separate directories even when the
+underlying account is the same. A WhatsApp device link lives in this profile's IndexedDB for
 `web.whatsapp.com` and is the same linked device on every run.
 
 ---

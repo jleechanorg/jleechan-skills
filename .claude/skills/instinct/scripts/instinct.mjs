@@ -31,7 +31,7 @@ function arg(name, dflt) {
 
 const PROFILE_DIR = (
   process.env.INSTINCT_PROFILE_DIR ||
-  path.join(os.homedir(), '.config', 'dot-headless-chrome-jeffrey')
+  path.join(os.homedir(), '.config', 'instinct-chrome-profile')
 ).replace(/^~/, os.homedir());
 
 const CONTACT = process.env.INSTINCT_CONTACT || 'Instinct WhatsApp';
