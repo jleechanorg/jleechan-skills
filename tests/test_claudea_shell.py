@@ -16,10 +16,10 @@ class ClaudeaShellTests(unittest.TestCase):
             cli.chmod(0o755)
             env = dict(os.environ, PATH=tmp + os.pathsep + os.environ["PATH"])
             env.pop("BASH_ENV", None)
-            script = 'source "$1"; claude() { return 99; }; claudea --model override "two words"'
+            script = 'shopt -s expand_aliases\nalias claudeac=false\nsource "$1"\nclaude() { return 99; }\nclaudeac --model override "two words"'
             run = subprocess.run(["bash", "--noprofile", "--norc", "-c", script, "bash", str(ROOT / ".claude/scripts/claudea.sh")], env=env, capture_output=True, text=True)
             self.assertEqual(run.returncode, 7)
-            self.assertEqual(json.loads(run.stdout), ["--safe-mode", "--dangerously-skip-permissions", "--model", "claude-fable-5-2", "--model", "override", "two words"])
+            self.assertEqual(json.loads(run.stdout), ["--safe-mode", "--dangerously-skip-permissions", "--model", "claude-fable-5-2", "--continue", "--model", "override", "two words"])
 
 
 if __name__ == "__main__":
