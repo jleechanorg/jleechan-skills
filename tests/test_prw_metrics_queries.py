@@ -27,6 +27,7 @@ class TestPRWMetricsQueries(unittest.TestCase):
         self.prs_path = self.root / "pr_snapshots.jsonl"
         self.human_path = self.root / "human_summary.json"
         self.attempts_path = self.root / "review_attempts.jsonl"
+        self.catalog_path = self.root / "rate_catalog.json"
 
     def tearDown(self):
         self.tempdir.cleanup()
@@ -291,6 +292,210 @@ class TestPRWMetricsQueries(unittest.TestCase):
         self.assertEqual(result["query_coverage"]["canonical_event_n"], 3)
         self.assertEqual(result["query_coverage"]["missing_request_id_n"], 0)
         self.assertEqual(result["query_coverage"]["dedup_conflict_event_n"], 0)
+
+    def _query_with_catalog(self, catalog):
+        self.catalog_path.write_text(json.dumps(catalog), encoding="utf-8")
+        return run_query(
+            events_path=self.events_path,
+            pr_snapshots_path=self.prs_path,
+            snapshot_at_utc=self.CUTOFF,
+            human_summary_path=self.human_path,
+            attempt_observations_path=self.attempts_path,
+            rate_catalog_path=self.catalog_path,
+        )
+
+    def test_catalog_scenarios_use_exact_model_protocol_tiers_and_unknowns(self):
+        prs = [
+            {"repo": "example-org/repo-alpha", "number": n, "state": "OPEN",
+             "createdAt": "2026-11-01T00:00:00Z", "mergedAt": None, "closedAt": None}
+            for n in (21, 22, 23, 24)
+        ]
+        event1 = {
+            **self._event("sha256:catalog-1", "example-org/repo-alpha#21",
+                {"input_uncached": 512000, "cache_read": 0, "cache_write_5m": 0,
+                 "cache_write_1h": 0, "output": 1000}, 1, cost=None),
+            "provider": "anthropic", "model": "MiniMax-M3",
+        }
+        event2 = {
+            **self._event("sha256:catalog-2", "example-org/repo-alpha#22",
+                {"input_uncached": 512001, "cache_read": 0, "cache_write_5m": 0,
+                 "cache_write_1h": 0, "output": 1000}, 1, cost=None),
+            "provider": "anthropic", "model": "MiniMax-M3",
+        }
+        event3 = {
+            **self._event("sha256:catalog-3", "example-org/repo-alpha#23",
+                {"input_uncached": 10, "cache_read": 2, "cache_write_5m": 4,
+                 "cache_write_1h": 0, "output": 3}, 1, cost=None),
+            "provider": "anthropic", "model": "MiniMax-M3.1-Flash",
+            "validated_attributions": [{
+                "pr": "example-org/repo-alpha#23", "weight": "1",
+                "method": "convention",
+            }],
+            "branch_attributions": [{
+                "pr": "example-org/repo-alpha#23", "weight": "1",
+                "basis": "repo_branch_unique", "confidence": "low",
+            }],
+        }
+        event4 = {
+            **self._event("sha256:catalog-4", "example-org/repo-alpha#24",
+                {"input_uncached": 256000, "cache_read": 0, "cache_write_5m": 0,
+                 "cache_write_1h": 0, "output": 1000}, 1, cost=None),
+            "provider": "anthropic", "model": "MiniMax-M3",
+        }
+        mismatch = {
+            **self._event("sha256:mismatch", "example-org/repo-alpha#21",
+                {"input_uncached": 1, "cache_read": 0, "cache_write_5m": 0,
+                 "cache_write_1h": 0, "output": 1}, 1, cost=None),
+            "provider": "openai", "model": "MiniMax-M3",
+        }
+        unpriced = {
+            **self._event("sha256:unpriced", "example-org/repo-alpha#22",
+                {"input_uncached": 1, "cache_read": 0, "cache_write_5m": 0,
+                 "cache_write_1h": 0, "output": 1}, 1, cost=None),
+            "provider": "anthropic", "model": "unknown-model",
+        }
+        self._base_files([event1, event2, event3, event4, mismatch, unpriced], prs)
+        catalog = {
+            "schema_version": 1, "retrieved_at_utc": "2026-11-09T06:45:27Z",
+            "basis": "current_provider_published_standard_public_api_rate",
+            "rates": [
+                {"model_id": "MiniMax-M3", "model_vendor": "MiniMax",
+                 "source_protocol": "anthropic", "status": "priced_with_context_tiers",
+                 "tiers": [
+                    {"condition": "prompt_input_tokens <= 512000",
+                     "input_uncached": 0.45, "cache_read": 0.09,
+                     "cache_write_5m": None, "cache_write_1h": None, "output": 1.8},
+                    {"condition": "prompt_input_tokens > 512000",
+                     "input_uncached": 0.9, "cache_read": 0.18,
+                     "cache_write_5m": None, "cache_write_1h": None, "output": 3.6},
+                 ]},
+                {"model_id": "MiniMax-M3.1-Flash", "model_vendor": "MiniMax",
+                 "source_protocol": "anthropic", "status": "priced_flat",
+                 "input_uncached": 0.15, "cache_read": 0.015,
+                 "cache_write_5m": None, "cache_write_1h": None, "output": 0.6},
+                {"model_id": "unknown-model", "model_vendor": None,
+                 "source_protocol": "anthropic", "status": "unpriced"},
+            ],
+        }
+
+        result = self._query_with_catalog(catalog)
+        rows = result["catalog_scenario_pr_metrics"]
+        minimax = [
+            row for row in rows
+            if row["model_id"] == "MiniMax-M3" and row["price_tier"] != "UNKNOWN"
+        ]
+        self.assertEqual(len(minimax), 3)
+        self.assertEqual(
+            {row["price_tier"] for row in minimax},
+            {"prompt_input_tokens <= 512000", "prompt_input_tokens > 512000"},
+        )
+        self.assertTrue(all(row["scenario_status"] == "COMPLETE" for row in minimax))
+        self.assertTrue(all(row["observed_cost_usd"] is None for row in minimax))
+        first_pr = next(row for row in minimax if row["pr"].endswith("#21"))
+        self.assertEqual(first_pr["token_totals_by_bucket"]["input_uncached"], "512000")
+        self.assertTrue(all(row["catalog_version"] == "2026-11-09T06:45:27Z"
+                            for row in minimax))
+        other = [row for row in rows if row["model_id"] == "MiniMax-M3.1-Flash"]
+        self.assertEqual({row["attribution_method"] for row in other},
+                         {"convention", "branch_associated"})
+        self.assertEqual(
+            {row["association_confidence"] for row in other}, {None, "low"}
+        )
+        self.assertTrue(all(row["scenario_status"] == "PARTIAL_UNKNOWN_COMPONENTS"
+                            for row in other))
+        self.assertTrue(all(row["scenario_cost_usd"] is None for row in other))
+        self.assertTrue(
+            all(row["unknown_buckets"] == ["cache_write_5m"] for row in other),
+            repr([row["unknown_buckets"] for row in other]),
+        )
+        unknown = [row for row in rows if row["price_tier"] == "UNKNOWN"]
+        self.assertEqual(len(unknown), 2)
+        self.assertEqual(
+            {row["scenario_status"] for row in unknown},
+            {"UNKNOWN_NO_EXACT_MODEL_PROTOCOL_RATE", "UNKNOWN_UNPRICED_MODEL"},
+        )
+        self.assertTrue(all(row["scenario_cost_usd"] is None for row in unknown))
+        self.assertTrue(all(row["known_component_subtotal_usd"] is None
+                            for row in unknown))
+        cohorts = result["catalog_scenario_cohorts"]
+        self.assertEqual(len(cohorts), 2)
+        lower_tier = next(row for row in cohorts
+                          if row["price_tier"] == "prompt_input_tokens <= 512000")
+        self.assertEqual(lower_tier["observation_n"], 2)
+        self.assertAlmostEqual(float(lower_tier["average"]), 0.1746)
+        self.assertAlmostEqual(float(lower_tier["p50"]), 0.117)
+        self.assertAlmostEqual(float(lower_tier["p90"]), 0.2322)
+        self.assertAlmostEqual(float(lower_tier["p99"]), 0.2322)
+    def test_catalog_context_boundaries_use_native_prompt_totals(self):
+        records = []
+        prs = []
+        specifications = [
+            ("anthropic", "claude-haiku-5-5", 99999, 1, 0, 0, 0,
+             "prompt_input_tokens <= 100000"),
+            ("anthropic", "claude-haiku-5-5", 100000, 1, 0, 0, 0,
+             "prompt_input_tokens > 100000"),
+            ("openai", "gpt-6-sol", 272000, 0, 0, 0, 0,
+             "prompt_input_tokens <= 272000"),
+            ("openai", "gpt-6-sol", 272001, 0, 0, 0, 0,
+             "prompt_input_tokens > 272000"),
+        ]
+        for i, (protocol, model, uncached, cache_read, write_5m, write_1h,
+                output, expected_tier) in enumerate(specifications, 31):
+            pr = f"example-org/repo-alpha#{i}"
+            records.append({
+                **self._event(
+                    f"sha256:tier-{i}", pr,
+                    {"input_uncached": uncached, "cache_read": cache_read,
+                     "cache_write_5m": write_5m, "cache_write_1h": write_1h,
+                     "output": output}, 1, cost=None,
+                ),
+                "provider": protocol, "model": model,
+            })
+            prs.append({
+                "repo": "example-org/repo-alpha", "number": i, "state": "OPEN",
+                "createdAt": "2026-11-01T00:00:00Z", "mergedAt": None, "closedAt": None,
+            })
+        self._base_files(records, prs)
+        catalog = {
+            "schema_version": 1, "retrieved_at_utc": "tier-boundary-fixture",
+            "basis": "current_provider_published_standard_public_api_rate",
+            "rates": [
+                {"model_id": "claude-haiku-5-5", "model_vendor": "Anthropic",
+                 "source_protocol": "anthropic", "status": "priced_with_context_tiers",
+                 "tiers": [
+                    {"condition": "prompt_input_tokens <= 100000",
+                     "input_uncached": 0.1, "cache_read": 0.01,
+                     "cache_write_5m": 0.125, "cache_write_1h": 0.2, "output": 0.5},
+                    {"condition": "prompt_input_tokens > 100000",
+                     "input_uncached": 0.5, "cache_read": 0.05,
+                     "cache_write_5m": 0.625, "cache_write_1h": 1.0, "output": 2.5},
+                 ]},
+                {"model_id": "gpt-6-sol", "model_vendor": "OpenAI",
+                 "source_protocol": "openai", "status": "priced_with_long_context_tier",
+                 "standard_short": {
+                     "input_uncached": 2.0, "cache_read": 0.2,
+                     "cache_write_30m": 2.5, "cache_write_12h": 5.0, "output": 10.0,
+                 },
+                 "long_context_over_272k": {
+                     "input_uncached": 4.0, "cache_read": 0.4,
+                     "cache_write_30m": 5.0, "cache_write_12h": 10.0, "output": 15.0,
+                 }},
+            ],
+        }
+
+        result = self._query_with_catalog(catalog)
+        rows = result["catalog_scenario_pr_metrics"]
+        self.assertEqual(
+            {row["price_tier"] for row in rows},
+            {tier for *_, tier in specifications},
+        )
+        haiku = [row for row in rows if row["model_id"] == "claude-haiku-5-5"]
+        self.assertTrue(all(row["scenario_status"] == "COMPLETE" for row in haiku))
+        openai = [row for row in rows if row["model_id"] == "gpt-6-sol"]
+        self.assertTrue(all(row["scenario_status"] == "PARTIAL_UNKNOWN_COMPONENTS"
+                            for row in openai))
+        self.assertTrue(all({"cache_write_30m", "cache_write_12h"}
+                            == set(row["unknown_buckets"]) for row in openai))
 
     def test_complete_zero_unknown_and_empty_cohorts_remain_distinct(self):
         pr = "example-org/repo-empty#4"
