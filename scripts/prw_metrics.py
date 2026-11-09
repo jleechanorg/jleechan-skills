@@ -4872,6 +4872,7 @@ def _sanitize_usage_event_record(row):
     clean_usage = {
         "input_tokens": _usage_count(raw.get("input_tokens")),
         "cache_read_input_tokens": _usage_count(raw.get("cache_read_input_tokens")),
+        "cache_write_input_tokens": _usage_count(raw.get("cache_write_input_tokens")),
         "cache_creation_input_tokens": _usage_count(raw.get("cache_creation_input_tokens")),
         "cache_creation": {
             "ephemeral_5m_input_tokens": _usage_count(_get_nested(raw, "cache_creation.ephemeral_5m_input_tokens")),
@@ -4924,6 +4925,7 @@ def _usage_event_record(event):
     raw_usage = {
         "input_tokens": event.get("input_tokens"),
         "cache_read_input_tokens": event.get("cache_read_tokens"),
+        "cache_write_input_tokens": event.get("cache_write_input_tokens"),
         "cache_creation": cache_creation,
         "output_tokens": event.get("output_tokens"),
         "output_tokens_details": {"thinking_tokens": event.get("reasoning_tokens")},
@@ -5006,6 +5008,7 @@ def load_usage_events(path, provider=None):
                 "input_tokens": _usage_count(raw_usage.get("input_tokens")),
                 "input_includes_cache": False,
                 "cache_read_tokens": _usage_count(raw_usage.get("cache_read_input_tokens")),
+                "cache_write_input_tokens": _usage_count(raw_usage.get("cache_write_input_tokens")),
                 "cache_write_5m_tokens": _usage_count(_get_nested(raw_usage, "cache_creation.ephemeral_5m_input_tokens")),
                 "cache_write_1h_tokens": _usage_count(_get_nested(raw_usage, "cache_creation.ephemeral_1h_input_tokens")),
                 "output_tokens": _usage_count(raw_usage.get("output_tokens")),
@@ -5374,6 +5377,8 @@ def aggregate_usage(raw_events, rates, window_start=None, window_end=None):
         ttl_cache_writes = (cache_write_5m, cache_write_1h)
         if generic_cache_write is not None:
             cache_write_input = generic_cache_write
+        elif raw.get("provider") == "openai":
+            cache_write_input = None
         elif all(
             isinstance(value, int) and not isinstance(value, bool) and value >= 0
             for value in ttl_cache_writes
@@ -5382,7 +5387,10 @@ def aggregate_usage(raw_events, rates, window_start=None, window_end=None):
         else:
             cache_write_input = None
         output_tokens = billable.get("output")
-        components = (input_uncached, cache_read, cache_write_input, output_tokens)
+        if raw.get("provider") == "openai":
+            components = (input_uncached, cache_read, output_tokens)
+        else:
+            components = (input_uncached, cache_read, cache_write_input, output_tokens)
         token_complete = all(
             isinstance(value, int) and not isinstance(value, bool) and value >= 0
             for value in components

@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.prw_metrics import aggregate_usage
+from scripts.prw_metrics import aggregate_usage, load_rate_table
 from scripts.prw_metrics_queries import run_query
 
 try:
@@ -606,6 +606,57 @@ class TestPRWMetricsQueries(unittest.TestCase):
         self.assertIsNone(rows[0]["head_branch"])
         self.assertIsNone(rows[0]["created_at_utc"])
         self.assertIsNone(rows[0]["pr_elapsed_seconds"])
+
+    def test_openai_known_quantity_reaches_query_with_incomplete_write_pricing(self):
+        pr = "example-org/repo-alpha#13"
+        aggregate = aggregate_usage([
+            {
+                "provider": "openai", "sku": "gpt-test", "usage_id": "req-openai",
+                "timestamp": "2026-11-08T20:00:00Z", "session_id": "session-openai",
+                "source": "native_usage_jsonl",
+                "input_tokens": 60, "cache_read_tokens": 40, "output_tokens": 30,
+                "cache_write_input_tokens": 10,
+                "cache_write_5m_tokens": None, "cache_write_1h_tokens": None,
+                "reasoning_tokens": 8,
+                "attributions": [{
+                    "pr": pr, "weight": 1, "method": "direct",
+                    "basis": "separable_breakdown", "receipt_refs": ["receipt-openai"],
+                    "has_rationale": True,
+                }],
+            },
+        ], load_rate_table({
+            "provider": "openai", "currency": "USD",
+            "effective_from": "2026-11-01T00:00:00Z",
+            "observed_current_at": "2026-11-08T00:00:00Z",
+            "source_url": "https://example.invalid/rates",
+            "rate_basis": "standard_global_public_list_price",
+            "rates": {"gpt-test": {
+                "input_tokens": "1", "cache_read_input_tokens": "0.1",
+                "output_tokens": "2", "write_5m": "3", "write_1h": "4",
+            }},
+        }))
+        event = aggregate["query_events"][0]
+        self.assertEqual(event["total_tokens"], 130)
+        self.assertTrue(event["token_complete"])
+        self.assertEqual(event["cache_write_input_tokens"], 10)
+        self.assertEqual(event["cost_status"], "partial")
+        self.assertEqual(
+            set(event["unknown_buckets"]), {"cache_write_5m", "cache_write_1h"}
+        )
+        self.assertEqual(event["list_equivalent_cost_usd"], "0.000124")
+        self._base_files(
+            aggregate["query_events"],
+            [{
+                "repo": "example-org/repo-alpha", "number": 13, "state": "MERGED",
+                "createdAt": "2026-11-08T19:00:00Z", "mergedAt": "2026-11-08T21:00:00Z",
+                "closedAt": "2026-11-08T21:00:00Z", "headRefName": "feature/openai",
+                "headRefOid": "d13", "commit_shas": ["d13"],
+            }],
+        )
+        row = self._query()["pr_metrics"][0]
+        self.assertEqual(row["direct_total_tokens"], 130)
+        self.assertEqual(row["direct_token_complete_observation_n"], 1)
+        self.assertEqual(row["cost_status"], "UNKNOWN_NO_RATE_CARD")
 
     def test_canonical_aggregate_event_export_feeds_query_without_rereading_raw_usage(
         self,

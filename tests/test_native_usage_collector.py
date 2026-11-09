@@ -9,7 +9,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from scripts.native_usage_collector import collect_native_history, write_normalized_history
-from scripts.prw_metrics import aggregate_usage, load_usage_events
+from scripts.prw_metrics import (
+    _sanitize_usage_event_record,
+    _usage_event_record,
+    aggregate_usage,
+    load_usage_events,
+)
 
 
 class NativeUsageCollectorTests(unittest.TestCase):
@@ -70,6 +75,21 @@ class NativeUsageCollectorTests(unittest.TestCase):
         self.assertEqual(usage["raw_usage"]["output_tokens"], 30)
         self.assertEqual(usage["raw_usage"]["output_tokens_details"]["thinking_tokens"], 8)
         self.assertEqual(usage["raw_usage"]["cache_write_input_tokens"], 10)
+        normalized = load_usage_events(data["usage_records"])
+        aggregate = aggregate_usage(normalized, [])
+        event = aggregate["query_events"][0]
+        self.assertEqual(event["total_tokens"], 130)
+        self.assertTrue(event["token_complete"])
+        self.assertEqual(event["cache_write_input_tokens"], 10)
+        exported = _sanitize_usage_event_record(_usage_event_record(normalized[0]))
+        self.assertEqual(exported["raw_usage"]["cache_write_input_tokens"], 10)
+        absent = dict(data["usage_records"][0])
+        absent["raw_usage"] = dict(absent["raw_usage"])
+        absent["raw_usage"].pop("cache_write_input_tokens")
+        absent_export = _sanitize_usage_event_record(
+            _usage_event_record(load_usage_events([absent])[0])
+        )
+        self.assertIsNone(absent_export["raw_usage"]["cache_write_input_tokens"])
         self.assertEqual(data["stats"]["duplicate_usage_records"], 1)
         self.assertEqual(data["stats"]["pr_bound_usage_records"], 0)
         self.assertEqual(data["usage_records"][0].get("attributions", []), [])
@@ -96,6 +116,8 @@ class NativeUsageCollectorTests(unittest.TestCase):
         self.assertEqual(summary["event_count"], 1)
         self.assertEqual(summary["unknown_event_count"], 1)
         self.assertEqual(summary["known_cost_usd"], 0)
+        self.assertIsNone(summary["query_events"][0]["total_tokens"])
+        self.assertFalse(summary["query_events"][0]["token_complete"])
 
     def test_append_new_records_preserves_prior_candidate_id_and_exports_new_request_once(self):
         path = self._write(self.codex, "rollout.jsonl", [
