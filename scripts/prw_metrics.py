@@ -246,6 +246,7 @@ RETAINED_EPISODE_FIELDS = frozenset({
     "origin", "is_bot", "raw_message_count", "is_initial_assignment", "initial_task_request",
     "is_post_merge", "pr_attribution", "pr_number", "repo", "label", "annotator_a",
     "annotator_b", "retention_verified", "actor_status", "channel", "source_channel",
+    "source_namespace",
 })
 
 
@@ -346,6 +347,7 @@ SUMMARY_SCHEMA = {
     "human_interventions": {
         "raw_human_messages": _SC, "initial_task_requests": _SC, "qualifying_episodes": _SC,
         "raw_message_count_coverage": _SC,
+        "episode_identity_coverage": _SC,
         "unverified_origin_excluded": _SC, "dot_page_tail_partial_count": _SC, "label_breakdown": _LABELS,
         "pr_attributed_count": _SC, "unassigned_count": _SC, "post_merge_count": _SC,
         "channel_coverage": {"dot_history": _SC}, "retention_status": _SC,
@@ -1977,6 +1979,7 @@ class MetricsAggregator:
         raw_human_messages = 0
         raw_message_ids = set()
         raw_message_count_partial = False
+        episode_identity_partial = False
         accepted_human_rows = 0
         initial_task_requests = 0
         qualifying_episodes = 0
@@ -1988,6 +1991,7 @@ class MetricsAggregator:
         post_merge_count = 0
 
         seen_episode_ids = set()
+        seen_initial_episode_ids = set()
         dot_has_structured = False
 
         for ep in episodes or []:
@@ -2008,29 +2012,52 @@ class MetricsAggregator:
                 continue
 
             # A Dot row is useful only when the source supplies message identity and a parseable time.
-            msg_ids = ep.get("message_ids") or []
-            if ep.get("message_id"):
-                msg_ids = list(msg_ids) + [ep["message_id"]]
-            msg_ids = list(dict.fromkeys(str(value).strip() for value in msg_ids if str(value).strip()))
+            raw_message_id_values = []
+            invalid_message_ids = False
+            if "message_ids" in ep:
+                provided_ids = ep["message_ids"]
+                if isinstance(provided_ids, (list, tuple)):
+                    raw_message_id_values.extend(provided_ids)
+                else:
+                    invalid_message_ids = True
+            if "message_id" in ep:
+                raw_message_id_values.append(ep["message_id"])
+
+            msg_ids = []
+            for value in raw_message_id_values:
+                if isinstance(value, str) and value.strip():
+                    msg_ids.append(value.strip())
+                elif isinstance(value, int) and not isinstance(value, bool):
+                    msg_ids.append(str(value))
+                else:
+                    invalid_message_ids = True
+            msg_ids = list(dict.fromkeys(msg_ids))
             has_timestamp = any(
                 parse_iso_utc(ep.get(key)) is not None
                 for key in ("timestamp", "created_at", "occurred_at")
             )
             is_dot = origin.startswith("dot") or bool(channels & {"dot", "dot_history"})
-
-            if origin == "dot_page_tail" or (is_dot and (not msg_ids or not has_timestamp)):
-                dot_page_tail_partial_count += 1
-                raw_message_count_partial = True
-                continue
-
-            # Structured actor evidence is authoritative; curated legacy origins remain explicit declarations.
             is_human = actor_status == "human" or (
                 not actor_status and origin in self.VERIFIED_HUMAN_ORIGINS
             )
+
+            if origin == "dot_page_tail" or (
+                is_dot and (not msg_ids or invalid_message_ids or not has_timestamp)
+            ):
+                dot_page_tail_partial_count += 1
+                if is_human:
+                    raw_message_count_partial = True
+                continue
+
+            # Structured actor evidence is authoritative; curated legacy origins remain explicit declarations.
             if not is_human:
                 unverified_origin_excluded += 1
                 continue
             accepted_human_rows += 1
+            if not msg_ids or invalid_message_ids:
+                raw_message_count_partial = True
+            if not ep.get("episode_id"):
+                episode_identity_partial = True
 
             # Connector coverage comes only from a verified, structured Dot row.
             if is_dot:
@@ -2038,24 +2065,45 @@ class MetricsAggregator:
 
             ep_id = ep.get("episode_id")
             duplicate_episode = bool(ep_id and ep_id in seen_episode_ids)
+            is_initial = bool(ep.get("is_initial_assignment") or ep.get("initial_task_request"))
             if msg_ids:
-                new_message_ids = [message_id for message_id in msg_ids if message_id not in raw_message_ids]
-                raw_message_ids.update(new_message_ids)
+                namespace = (
+                    ep.get("source_namespace")
+                    or ep.get("channel")
+                    or ep.get("source_channel")
+                    or origin
+                    or "unknown"
+                )
+                namespace = str(namespace).strip().lower() or "unknown"
+                message_keys = [(namespace, message_id) for message_id in msg_ids]
+                new_message_ids = [
+                    message_id
+                    for message_id, key in zip(msg_ids, message_keys)
+                    if key not in raw_message_ids
+                ]
+                raw_message_ids.update(key for key in message_keys if key not in raw_message_ids)
                 raw_msgs = len(new_message_ids)
                 raw_human_messages += raw_msgs
             else:
                 raw_message_count_partial = True
-                raw_msgs = 0 if duplicate_episode else ep.get("raw_message_count", 1)
+                duplicate_initial = bool(is_initial and ep_id and ep_id in seen_initial_episode_ids)
+                if is_initial and ep_id:
+                    seen_initial_episode_ids.add(ep_id)
+                legacy_count = ep.get("raw_message_count", 0)
+                if not isinstance(legacy_count, (int, float)) or isinstance(legacy_count, bool):
+                    legacy_count = 0
+                raw_msgs = 0 if duplicate_episode or duplicate_initial else legacy_count
                 raw_human_messages += raw_msgs
 
-            is_initial = bool(ep.get("is_initial_assignment") or ep.get("initial_task_request"))
             if is_initial:
                 initial_task_requests += raw_msgs
                 continue
 
+            if invalid_message_ids and not msg_ids:
+                continue
             if msg_ids and not new_message_ids:
                 continue
-            if duplicate_episode or (msg_ids and not ep_id):
+            if duplicate_episode:
                 continue
             if ep_id:
                 seen_episode_ids.add(ep_id)
@@ -2102,16 +2150,24 @@ class MetricsAggregator:
         has_retention = bool(retention_manifest) or any(bool(ep.get("retention_verified")) for ep in (episodes or []))
         retention_status = "OK" if has_retention else "UNVERIFIED"
 
-        if accepted_human_rows == 0:
-            raw_message_count_coverage = "UNKNOWN_NO_HUMAN_EPISODES"
-        elif raw_message_count_partial:
+        if raw_message_count_partial:
             raw_message_count_coverage = "PARTIAL_MISSING_MESSAGE_IDS"
+        elif accepted_human_rows == 0:
+            raw_message_count_coverage = "UNKNOWN_NO_HUMAN_EPISODES"
         else:
             raw_message_count_coverage = "COMPLETE_SOURCE_IDS"
+
+        if accepted_human_rows == 0:
+            episode_identity_coverage = "UNKNOWN_NO_HUMAN_EPISODES"
+        elif episode_identity_partial:
+            episode_identity_coverage = "PARTIAL_MISSING_EPISODE_IDS"
+        else:
+            episode_identity_coverage = "COMPLETE_SOURCE_EPISODE_IDS"
 
         return {
             "raw_human_messages": raw_human_messages,
             "raw_message_count_coverage": raw_message_count_coverage,
+            "episode_identity_coverage": episode_identity_coverage,
             "initial_task_requests": initial_task_requests,
             "qualifying_episodes": qualifying_episodes,
             "unverified_origin_excluded": unverified_origin_excluded,
@@ -2973,6 +3029,7 @@ class DashboardRenderer:
         if hi:
             raw_msgs = hi.get("raw_human_messages", 0)
             raw_message_coverage = hi.get("raw_message_count_coverage", "UNKNOWN")
+            episode_identity_coverage = hi.get("episode_identity_coverage", "UNKNOWN")
             initial_reqs = hi.get("initial_task_requests", 0)
             qual_eps = hi.get("qualifying_episodes", 0)
             unver_excl = hi.get("unverified_origin_excluded", 0)
@@ -2988,6 +3045,7 @@ class DashboardRenderer:
             if initial_reqs:
                 md.append(f"- **Initial Task Requests**: {initial_reqs}")
             md.append(f"- **Qualifying Episodes**: {qual_eps}")
+            md.append(f"- **Episode Identity Coverage**: `{episode_identity_coverage}`")
             if unver_excl:
                 md.append(f"- **Unverified Origin Excluded Messages**: {unver_excl}")
             if dot_tail:

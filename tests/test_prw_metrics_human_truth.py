@@ -79,6 +79,32 @@ class TestHumanActorClassification(unittest.TestCase):
             "PARTIAL_PAGE_TAIL_NO_MESSAGE_IDS_OR_TIMESTAMPS",
         )
 
+    def test_null_or_string_message_ids_do_not_prove_dot_coverage(self):
+        result = MetricsAggregator().compute_human_interventions([
+            {
+                "episode_id": "null-ids",
+                "actor_status": "human",
+                "channel": "dot",
+                "message_ids": None,
+                "timestamp": "2026-11-07T10:00:00Z",
+            },
+            {
+                "episode_id": "string-ids",
+                "actor_status": "human",
+                "channel": "dot",
+                "message_ids": "msg-17",
+                "timestamp": "2026-11-07T10:01:00Z",
+            },
+        ])
+
+        self.assertEqual(result["raw_human_messages"], 0)
+        self.assertEqual(result["dot_page_tail_partial_count"], 2)
+        self.assertEqual(result["raw_message_count_coverage"], "PARTIAL_MISSING_MESSAGE_IDS")
+        self.assertEqual(
+            result["channel_coverage"]["dot_history"],
+            "PARTIAL_PAGE_TAIL_NO_MESSAGE_IDS_OR_TIMESTAMPS",
+        )
+
     def test_undated_dot_source_channel_survives_window_scoping_as_partial(self):
         aggregator = MetricsAggregator()
         summary = aggregator.aggregate_full_dataset(
@@ -124,6 +150,7 @@ class TestHumanActorClassification(unittest.TestCase):
                     "episode_id": "e1",
                     "actor_status": "human",
                     "channel": "claude",
+                    "source_namespace": "claude-session-1",
                     "message_ids": ["m1"],
                     "timestamp": "2026-11-07T10:00:00Z",
                 }],
@@ -141,9 +168,96 @@ class TestHumanActorClassification(unittest.TestCase):
         episode = retained["human_episodes"][0]
         self.assertEqual(episode["actor_status"], "human")
         self.assertEqual(episode["channel"], "claude")
+        self.assertEqual(episode["source_namespace"], "claude-session-1")
 
 
 class TestHumanMessageIdentity(unittest.TestCase):
+    def test_legacy_initial_duplicate_counts_once_and_later_followup_survives(self):
+        result = MetricsAggregator().compute_human_interventions([
+            {
+                "episode_id": "same-task",
+                "actor_status": "human",
+                "raw_message_count": 3,
+                "is_initial_assignment": True,
+            },
+            {
+                "episode_id": "same-task",
+                "actor_status": "human",
+                "raw_message_count": 3,
+                "is_initial_assignment": True,
+            },
+            {
+                "episode_id": "same-task",
+                "actor_status": "human",
+                "message_ids": ["m1"],
+                "label": "good",
+            },
+        ])
+
+        self.assertEqual(result["raw_human_messages"], 4)
+        self.assertEqual(result["initial_task_requests"], 3)
+        self.assertEqual(result["qualifying_episodes"], 1)
+
+    def test_message_ids_are_scoped_to_source_namespace(self):
+        result = MetricsAggregator().compute_human_interventions([
+            {
+                "episode_id": "slack-e1",
+                "actor_status": "human",
+                "channel": "slack",
+                "message_ids": [42],
+            },
+            {
+                "episode_id": "dot-e1",
+                "actor_status": "human",
+                "channel": "dot",
+                "message_ids": [42],
+                "timestamp": "2026-11-07T10:00:00Z",
+            },
+        ])
+
+        self.assertEqual(result["raw_human_messages"], 2)
+        self.assertEqual(result["qualifying_episodes"], 2)
+
+        shared_namespace = MetricsAggregator().compute_human_interventions([
+            {
+                "episode_id": "slack-shared",
+                "actor_status": "human",
+                "channel": "slack",
+                "source_namespace": "shared-thread",
+                "message_ids": ["m1"],
+            },
+            {
+                "episode_id": "dot-shared",
+                "actor_status": "human",
+                "channel": "dot",
+                "source_namespace": "shared-thread",
+                "message_ids": ["m1"],
+                "timestamp": "2026-11-07T10:00:00Z",
+            },
+        ])
+
+        self.assertEqual(shared_namespace["raw_human_messages"], 1)
+        self.assertEqual(shared_namespace["qualifying_episodes"], 1)
+
+    def test_string_message_ids_are_invalid_and_missing_episode_identity_is_partial(self):
+        result = MetricsAggregator().compute_human_interventions([
+            {
+                "actor_status": "human",
+                "channel": "claude",
+                "message_ids": "msg-17",
+            },
+            {
+                "actor_status": "human",
+                "channel": "claude",
+                "message_ids": ["m1"],
+            },
+        ])
+
+        self.assertEqual(result["raw_human_messages"], 1)
+        self.assertEqual(result["qualifying_episodes"], 1)
+        self.assertEqual(result["raw_message_count_coverage"], "PARTIAL_MISSING_MESSAGE_IDS")
+        self.assertEqual(result["episode_identity_coverage"], "PARTIAL_MISSING_EPISODE_IDS")
+
     def test_split_initial_messages_count_before_episode_dedupe_and_followup_survives(self):
         result = MetricsAggregator().compute_human_interventions([
             {
