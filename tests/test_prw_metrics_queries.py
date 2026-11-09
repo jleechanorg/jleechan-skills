@@ -1100,3 +1100,71 @@ class TestPRWMetricsQueries(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+@unittest.skipUnless(duckdb is not None, "DuckDB required")
+class TestNativeSnapshotIntegration(unittest.TestCase):
+    def test_sqlite_export_replay_query_and_ambiguity(self):
+        import sqlite3
+        from datetime import datetime, timezone
+        from scripts.native_usage_collector import collect_native_history, write_normalized_history, load_normalized_history
+        from scripts.prw_metrics import load_usage_events, _attach_usage_snapshot_attributions
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db = root / "state.sqlite"
+            con = sqlite3.connect(db)
+            con.execute("CREATE TABLE threads (id TEXT PRIMARY KEY, git_branch TEXT, git_origin_url TEXT)")
+            con.execute("INSERT INTO threads VALUES (?, ?, ?)", ("private-session", "feature", "https://github.com/acme/game.git"))
+            con.commit()
+            con.close()
+            history = root / "history.jsonl"
+            history.write_text("\n".join(json.dumps(x) for x in [
+                {"type": "session_meta", "payload": {"id": "private-session", "cwd": "/private/path"}},
+                {"type": "turn_context", "payload": {"turn_id": "t", "model": "model-a"}},
+                {"type": "token_usage_record", "timestamp": "2026-11-02T10:00:00Z", "response_id": "r1", "payload": {"turn_id": "t", "usage": {"input_tokens": 12, "cached_input_tokens": 2, "output_tokens": 3}}},
+            ]) + "\n", encoding="utf-8")
+            cutoff = datetime(2026, 11, 9, 3, 34, tzinfo=timezone.utc)
+            native = collect_native_history([history], cutoff=cutoff, state_db=db)
+            exported = root / "export.jsonl"
+            write_normalized_history(exported, native["export_records"])
+            self.assertNotIn("/private/path", exported.read_text())
+            replay = load_normalized_history(exported, cutoff=cutoff)
+            usage = aggregate_usage(load_usage_events(replay["usage_records"]), [], window_start=datetime(2026, 10, 26, 3, 34, tzinfo=timezone.utc), window_end=cutoff)
+            prs = [{"repo": "acme/game", "number": 1, "headRefName": "feature", "createdAt": "2026-10-27T00:00:00Z", "mergedAt": "2026-11-03T00:00:00Z", "state": "MERGED", "url": "https://github.com/acme/game/pull/1"}]
+            _attach_usage_snapshot_attributions(usage["query_events"], replay["usage_records"], prs)
+            event = usage["query_events"][0]
+            self.assertEqual(event["branch_attributions"][0]["confidence"], "low")
+            self.assertEqual(event["validated_attributions"], [])
+            self.assertNotIn("private-session", json.dumps(event))
+            result = run_query(events_path=usage["query_events"], pr_snapshots_path=prs, snapshot_at_utc="2026-11-09T03:34:00Z")
+            low = next(r for r in result["metric_cohorts"] if r["metric_family"] == "low_per_pr" and r["cohort_definition"] == "all_14d_merges")
+            self.assertEqual(low["cohort_pr_n"], 1)
+            rendered = render_prw_query_summary(result)
+            self.assertNotIn("private-session", rendered)
+            self.assertIn("request-time ownership is UNKNOWN", rendered)
+            direct = dict(event, validated_attributions=[{"pr": "other/repo#7", "method": "direct"}])
+            _attach_usage_snapshot_attributions([direct], replay["usage_records"], prs)
+            self.assertEqual(direct["validated_attributions"][0]["pr"], "other/repo#7")
+            import subprocess
+            import sys
+            cache = root / "lookup.json"
+            cache.write_text(json.dumps({"prs": prs}), encoding="utf-8")
+            dashboard = root / "dashboard.md"
+            raw_export = root / "raw.jsonl"
+            raw_native = collect_native_history([history], cutoff=cutoff)
+            write_normalized_history(raw_export, raw_native["export_records"])
+            self.assertNotIn("repository", raw_native["usage_records"][0])
+            command = [sys.executable, "scripts/prw_metrics.py", "--offline",
+                       "--history-replay", str(raw_export), "--state-db", str(db), "--pr-lookup-cache", str(cache),
+                       "--cutoff", "2026-11-09T03:34:00Z", "--output", str(dashboard)]
+            completed = subprocess.run(command, capture_output=True, text=True, timeout=60)
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            output = dashboard.read_text()
+            self.assertIn("low_per_pr:total_tokens", output)
+            self.assertIn("acme/game#1", output)
+            self.assertNotIn("private-session", output)
+            self.assertNotIn("/private/path", output)
+            ambiguous = dict(event)
+            ambiguous.pop("branch_attributions")
+            _attach_usage_snapshot_attributions([ambiguous], replay["usage_records"], prs + [dict(prs[0], number=2)])
+            self.assertNotIn("branch_attributions", ambiguous)

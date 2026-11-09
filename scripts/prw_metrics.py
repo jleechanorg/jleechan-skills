@@ -3838,6 +3838,34 @@ def _merge_pr_branch_metadata(prs, cached_prs):
     return [merged[key] for key in sorted(merged)]
 
 
+def _attach_usage_snapshot_attributions(query_events, native_records, prs):
+    """Associate unique session snapshots, without asserting request-time ownership."""
+    by_branch = defaultdict(set)
+    for pr in prs:
+        repo, number = pr.get("repo"), pr.get("number")
+        branch = pr.get("headRefName") or pr.get("head_ref_name")
+        key = f"{repo}#{number}"
+        if _safe_pr_id(key) and isinstance(branch, str) and branch:
+            by_branch[(repo.lower(), branch)].add(key)
+    by_session = defaultdict(set)
+    for record in native_records:
+        session, repo, branch = record.get("session_id"), record.get("repository"), record.get("git_branch")
+        if session and isinstance(repo, str) and isinstance(branch, str) and branch:
+            by_session[(record.get("provider"), _retained_hash(session))].add((repo.lower(), branch))
+    for event in query_events:
+        if event.get("branch_attributions"):
+            continue
+        snapshots = by_session.get((event.get("provider"), event.get("session_id_hash")), set())
+        if len(snapshots) != 1:
+            continue
+        matches = by_branch.get(next(iter(snapshots)), set())
+        if len(matches) == 1:
+            event["branch_attributions"] = [{
+                "pr": next(iter(matches)), "weight": "1", "confidence": "low",
+                "basis": "repository_branch_snapshot_unique",
+            }]
+
+
 def aggregate_native_human_steering(
     human_records, prs, *, window_start, window_end, source_stats=None
 ):
@@ -4647,6 +4675,7 @@ def main():
     )
     parser.add_argument("--history-annotations", help="Reviewed human metadata and PR bindings JSONL sidecar")
     parser.add_argument("--history-export", help="Write deterministic normalized usage and human metadata JSONL")
+    parser.add_argument("--state-db", help="Optional read-only Codex thread snapshot database for native roots")
     parser.add_argument("--repository-map", help="Exact cwd-to-repository map for native history roots")
     parser.add_argument("--pr-lookup-cache", help="Cached PR branch and lifecycle metadata JSON")
     parser.add_argument("--days", type=int, default=14, help="History source window length in days (default: 14)")
@@ -4706,13 +4735,13 @@ def main():
             from scripts.native_usage_collector import (
                 collect_native_history,
                 load_normalized_history,
-                write_normalized_history,
+                write_normalized_history, enrich_replay_state,
             )
         except ModuleNotFoundError:
             from native_usage_collector import (
                 collect_native_history,
                 load_normalized_history,
-                write_normalized_history,
+                write_normalized_history, enrich_replay_state,
             )
         if args.repository_map:
             with open(args.repository_map, encoding="utf-8") as stream:
@@ -4764,6 +4793,9 @@ def main():
                 elif identity[1]:
                     seen_replay_usage.add(identity)
             history_data["stats"]["duplicate_usage_records"] = duplicate_replay_usage
+            if args.state_db:
+                enrich_replay_state(history_data["usage_records"], args.state_db)
+                enrich_replay_state(history_data["human_records"], args.state_db)
         else:
             history_data = collect_native_history(
                 history_roots,
@@ -4771,13 +4803,14 @@ def main():
                 days=args.days,
                 annotation_path=args.history_annotations,
                 repository_map=repository_map,
+                state_db=args.state_db,
             )
         if repository_map is not None:
             history_data["stats"]["repository_map_entries"] = len(repository_map)
         if args.history_export:
             write_normalized_history(args.history_export, history_data["export_records"])
     elif (
-        args.history_annotations or args.history_export or args.repository_map
+        args.history_annotations or args.history_export or args.repository_map or args.state_db
         or args.pr_lookup_cache or args.history_replay
     ):
         parser.error("history annotations, exports, and PR lookup inputs require --history-root")
@@ -4851,6 +4884,10 @@ def main():
             prs, pr_lookup_cache.get("prs", []) if pr_lookup_cache else []
         )
         query_prs = branch_prs
+        if usage_summary is not None:
+            _attach_usage_snapshot_attributions(
+                usage_summary["query_events"], history_data["usage_records"], branch_prs
+            )
         steering_stats = dict(history_data["stats"])
         if pr_lookup_cache:
             cache_meta = pr_lookup_cache.get("cache")
@@ -5627,7 +5664,8 @@ def render_prw_query_summary(result):
         "## PRW Query Metrics (DuckDB)", "",
         f"Window: {result['window_start_utc']} through "
         f"{result['snapshot_at_utc']} (14 days).",
-        "Query cohorts use observed records only; missing fields remain UNKNOWN.", "",
+        "Query cohorts use observed records only; missing fields remain UNKNOWN.",
+        "LOW associations use repository and branch snapshots; request-time ownership is UNKNOWN.", "",
     ]
 
     def show(value):

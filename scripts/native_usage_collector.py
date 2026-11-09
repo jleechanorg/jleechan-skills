@@ -5,6 +5,7 @@ import io
 import json
 import math
 import re
+import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlparse
@@ -241,11 +242,42 @@ def _git_metadata(row, payload, repository_map):
     return result
 
 
+def _fill_snapshot_context(record, snapshot):
+    repo, branch = snapshot.get("repository"), snapshot.get("git_branch")
+    if (repo and branch and
+        (not record.get("repository") or record["repository"] == repo) and
+        (not record.get("git_branch") or record["git_branch"] == branch)):
+        for key in ("repository", "git_branch"):
+            if not record.get(key):
+                record[key] = snapshot[key]
+                record["branch_source"] = "state_db_snapshot"
+                record["branch_basis"] = "state_db_thread_snapshot"
+
+
+def enrich_replay_state(records, state_db):
+    """Fill missing native Git context from read-only thread snapshots."""
+    snapshots = {}
+    with sqlite3.connect(Path(state_db).resolve().as_uri() + "?mode=ro", uri=True) as conn:
+        for record in records:
+            session = record.get("session_id")
+            if record.get("provider") != "openai" or not session:
+                continue
+            if session not in snapshots:
+                row = conn.execute(
+                    "SELECT git_branch, git_origin_url FROM threads WHERE id = ?", (session,)
+                ).fetchone()
+                snapshots[session] = _git_metadata(
+                    {"git_branch": row[0], "repository_url": row[1]}, {}, {}
+                ) if row else {}
+            _fill_snapshot_context(record, snapshots[session])
+
+
 def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=None,
-                           repository_map=None):
+                           repository_map=None, state_db=None):
     if cutoff.tzinfo is None or days <= 0:
         raise ValueError("An aware cutoff and positive window are required")
     repository_map = repository_map if isinstance(repository_map, dict) else {}
+    state_conn = sqlite3.connect(Path(state_db).resolve().as_uri() + "?mode=ro", uri=True) if state_db else None
     start = cutoff - timedelta(days=days)
     annotations, bindings = {}, {}
     if annotation_path:
@@ -298,6 +330,15 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                             session_git = _git_metadata(row, payload, repository_map)
                         if row.get("type") == "turn_context" and payload.get("turn_id"):
                             models[payload["turn_id"]] = _usage_label(payload.get("model"))
+                if state_conn and session:
+                    snapshot = state_conn.execute(
+                        "SELECT git_branch, git_origin_url FROM threads WHERE id = ?", (session,)
+                    ).fetchone()
+                    if snapshot:
+                        snapshot_git = _git_metadata(
+                            {"git_branch": snapshot[0], "repository_url": snapshot[1]}, {}, {}
+                        )
+                        _fill_snapshot_context(session_git, snapshot_git)
                 fingerprint = "sha256:" + digest.hexdigest()
                 stats["files_scanned"] += 1
                 with io.StringIO(content.decode("utf-8")) as stream:
@@ -496,6 +537,8 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
     errors = stats["missing_roots"] + stats["read_errors"] + stats["malformed_lines"]
     stats["status"] = "FAILED" if not stats["roots_available"] else "PARTIAL" if errors else "COMPLETE"
     stats["window_start"], stats["window_end"] = format_iso_utc(start), format_iso_utc(cutoff)
+    if state_conn:
+        state_conn.close()
     return dict(usage_records=usage, human_records=humans, export_records=exported, stats=stats)
 
 
@@ -505,12 +548,13 @@ def main():
     parser.add_argument("--cutoff", required=True)
     parser.add_argument("--days", type=int, default=14)
     parser.add_argument("--annotations")
+    parser.add_argument("--state-db", help="Optional read-only Codex thread snapshot database")
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
     cutoff = _parse_utc_instant(args.cutoff)
     if cutoff is None:
         parser.error("--cutoff must include a UTC offset")
-    data = collect_native_history(args.history_root, cutoff=cutoff, days=args.days, annotation_path=args.annotations)
+    data = collect_native_history(args.history_root, cutoff=cutoff, days=args.days, annotation_path=args.annotations, state_db=args.state_db)
     write_normalized_history(args.output, data["export_records"])
     Path(args.output + ".stats.json").write_text(json.dumps(data["stats"], sort_keys=True, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(data["stats"], sort_keys=True))
