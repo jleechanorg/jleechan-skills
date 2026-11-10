@@ -664,22 +664,18 @@ def _search_codex_store(
             """
 
             has_model_col = False
-            updated_nullable = False
             col_names: list[str] = []
             try:
                 col_info = cur.execute("PRAGMA table_info(threads)").fetchall()
                 col_names = [col[1] for col in col_info]
                 has_model_col = "model" in col_names
-                updated_nullable = any(col[1] == "updated_at" and not col[3] for col in col_info)
             except Exception:
                 pass
 
             model_select = ", model" if has_model_col else ""
             rollout_select = ", rollout_path" if "rollout_path" in col_names else ", NULL"
             recent_col = "updated_at" if "updated_at" in col_names else "created_at"
-            # NULL updated_at sorts last under DESC; treat it as created_at.
-            recent_expr = "COALESCE(updated_at, created_at)" if updated_nullable else recent_col
-            activity_date_expr = date_expr.replace("created_at", recent_expr)
+            activity_date_expr = date_expr.replace("created_at", recent_col)
 
             if query:
                 sql = f"""
@@ -690,7 +686,7 @@ def _search_codex_store(
                     FROM threads
                     WHERE (cwd = ? OR title LIKE ? OR first_user_message LIKE ?)
                       AND (archived = 0 OR archived IS NULL)
-                    ORDER BY (cwd = ?) DESC, {recent_expr} DESC
+                    ORDER BY (cwd = ?) DESC, {recent_col} DESC
                     LIMIT ?
                 """
                 params: tuple[Any, ...] = (max_chars, like_param, like_param, cwd_path, like_param, like_param, cwd_path, candidate_limit)
@@ -702,7 +698,7 @@ def _search_codex_store(
                     FROM threads
                     WHERE (cwd LIKE ? OR cwd IS NULL)
                       AND (archived = 0 OR archived IS NULL)
-                    ORDER BY (cwd = ?) DESC, {recent_expr} DESC
+                    ORDER BY (cwd = ?) DESC, {recent_col} DESC
                     LIMIT ?
                 """
                 params = (max_chars, like_param, cwd_path, limit)
@@ -710,7 +706,10 @@ def _search_codex_store(
             rows = cur.execute(sql, params).fetchall()
             hint_only_ids: set[Any] = set()
             if query:
-                # Newer in-project rows must not crowd out genuine index matches.
+                # Newer in-project rows must not crowd out genuine index matches. This runs
+                # after the primary query, so an interruption here cannot cost its rows.
+                # NULL updated_at sorts last under DESC; rank it by created_at here.
+                recent_expr = "COALESCE(updated_at, created_at)" if recent_col == "updated_at" else recent_col
                 match_sql = f"""
                     SELECT title, substr(first_user_message, 1, ?), cwd, git_branch,
                            {date_expr} as created, id{model_select},
@@ -736,8 +735,8 @@ def _search_codex_store(
                 hint_only_ids = {row[5] for row in match_rows}
                 rows += match_rows
             if not rows and not query:
-                # Run the creation-time order first: it can use that index, and a later
-                # interruption must not lose its rows. Sorting on COALESCE reads every row.
+                # Run the creation-time order first: a later interruption must not lose
+                # its rows.
                 sql_recent = f"""
                     SELECT title, substr(first_user_message, 1, ?), cwd, git_branch,
                            {date_expr} as created, id{model_select}, 1 as query_match{rollout_select},
@@ -755,9 +754,10 @@ def _search_codex_store(
                         ).fetchall()
                     except sqlite3.OperationalError:
                         errors += 1
-                    # Together the two orders hold the newest threads by last activity.
+                    # Together the two orders hold the newest threads by last activity
+                    # (NULL updated_at counts as created_at), given updated_at >= created_at.
                     newest = sorted({row[5]: row for row in rows}.values(),
-                                    key=lambda row: str(row[-1] or ""), reverse=True)
+                                    key=lambda row: str(row[-1] or row[4] or ""), reverse=True)
                     rows = newest[:limit]
 
             for row in rows:
