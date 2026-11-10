@@ -185,11 +185,16 @@
     return ticks;
   }
 
+  /** The URL when it is an http(s) link, else null; snapshot values never become script links. */
+  function webUrl(value) {
+    return typeof value === "string" && /^https?:\/\//i.test(value) ? value : null;
+  }
+
   function csv(rows, columns) {
     function cell(v) {
       if (v === null || v === undefined) return "";
       var s = String(v);
-      if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; // spreadsheet formula guard
+      if (typeof v !== "number" && /^[=+\-@\t\r]/.test(s)) s = "'" + s; // spreadsheet formula guard
       return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
     }
     return [columns.map(function (c) { return cell(c.header); }).join(",")]
@@ -202,6 +207,6 @@
     mergedIn: mergedIn, inRange: inRange, sizeBand: sizeBand, dailyMerges: dailyMerges, histogram: histogram,
     ELAPSED_EDGES: ELAPSED_EDGES, ELAPSED_LABELS: ELAPSED_LABELS,
     TOKEN_EDGES: TOKEN_EDGES, TOKEN_LABELS: TOKEN_LABELS,
-    formatDuration: formatDuration, compact: compact, csv: csv, countTicks: countTicks,
+    formatDuration: formatDuration, compact: compact, csv: csv, countTicks: countTicks, webUrl: webUrl,
   };
 });

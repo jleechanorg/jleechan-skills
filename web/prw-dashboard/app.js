@@ -546,7 +546,7 @@
       h("button", { type: "button", class: "ghost close", "aria-label": "Close detail", onclick: closePanel, text: "Close" }),
       h("div", { class: "pr-id" }, [swatch(repoColor(pr.repo)), pr.repo + " #" + pr.number]),
       h("h2", { text: pr.title || "(no title)" }),
-      h("p", { class: "sub" }, [stateChip(pr), " ", h("a", { href: pr.url, target: "_blank", rel: "noopener noreferrer", text: "Open on GitHub" })]),
+      h("p", { class: "sub" }, [stateChip(pr), " ", S.webUrl(pr.url) && h("a", { href: S.webUrl(pr.url), target: "_blank", rel: "noopener noreferrer", text: "Open on GitHub" })]),
       h("section", null, [h("h3", { text: "Timeline" }), dl([
         ["Opened", fmtTime(pr.created)], ["Merged", pr.merged ? fmtTime(pr.merged) : (pr.state === "MERGED" ? null : "Not merged")],
         ["Closed", pr.closed ? fmtTime(pr.closed) : (pr.state === "OPEN" ? "Still open" : null)],
@@ -620,7 +620,7 @@
       ["pull_requests_in_selection", agg.total, agg.total, ""], ["merged", agg.merged, agg.total, ""],
       ["open_to_merge_seconds_mean", agg.elapsed.mean, agg.elapsed.n, "nearest-rank"], ["open_to_merge_seconds_p50", agg.elapsed.p50, agg.elapsed.n, "nearest-rank"],
       ["open_to_merge_seconds_p90", agg.elapsed.p90, agg.elapsed.n, "nearest-rank"], ["open_to_merge_seconds_p99", agg.elapsed.p99, agg.elapsed.n, "nearest-rank"],
-      ["tokens_attributed_sum", agg.usage.sum, agg.usageN, "branch match, low confidence"], ["tokens_per_pr_p50", agg.usage.p50, agg.usageN, ""],
+      ["tokens_attributed_sum", agg.usage.sum, agg.usageN, "per-PR basis in row export"], ["tokens_per_pr_p50", agg.usage.p50, agg.usageN, ""],
       ["tokens_per_pr_p90", agg.usage.p90, agg.usageN, ""], ["tokens_per_pr_p99", agg.usage.p99, agg.usageN, ""],
       ["list_price_known_usd_sum", agg.costKnown.sum, agg.costKnownN, "lower bound; not invoiced spend"], ["prs_fully_priced", agg.costFullN, agg.total, ""],
       ["verified_steering_messages_sum", agg.human.sum, agg.humanN, ""], ["active_seconds_p50", agg.active.p50, agg.activeN, ""],

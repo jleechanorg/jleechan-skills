@@ -120,3 +120,15 @@ test("count axes label every gridline with a distinct whole number", () => {
   assert.deepEqual(S.countTicks(1), [0, 1]);
   assert.deepEqual(S.countTicks(3), [0, 1, 2, 3, 4, 5]);
 });
+
+test("only web links are linkable", () => {
+  assert.equal(S.webUrl("https://github.com/acme/app/pull/7"), "https://github.com/acme/app/pull/7");
+  for (const bad of ["javascript:alert(1)", " JavaScript:alert(1)", "data:text/html,x", "", null, 7]) {
+    assert.equal(S.webUrl(bad), null, String(bad));
+  }
+});
+
+test("csv keeps negative numbers numeric and still guards formula text", () => {
+  const cols = [{ header: "v", value: (r) => r.v }];
+  assert.equal(S.csv([{ v: -5 }, { v: "-cmd" }, { v: "=SUM(A1)" }], cols), "v\n-5\n'-cmd\n'=SUM(A1)\n");
+});

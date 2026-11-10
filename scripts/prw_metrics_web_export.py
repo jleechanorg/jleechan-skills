@@ -122,48 +122,63 @@ def _handoffs(record):
     return intervals or None
 
 
+# Strongest first, matching the usage basis precedence in _pr_row (direct > session binding > branch).
+_SCENARIO_METHODS = ("direct", "convention", "branch_associated")
+
+
 def _scenarios_by_pr(rows):
-    """Public-list scenario rows grouped per PR. These are not billing."""
-    grouped = {}
+    """Public-list scenario rows grouped per PR. These are not billing.
+
+    The query emits one row per attribution method, and one request can be matched to the same PR
+    both directly and by branch. Only the strongest method present is used, so a request counts once.
+    """
+    by_pr = {}
     for row in rows or []:
-        if not isinstance(row, dict) or not isinstance(row.get("pr"), str):
-            continue
-        entry = grouped.setdefault(
-            row["pr"],
-            {
-                "known_subtotal_usd": None,
-                "full_scenario_usd": None,
-                "event_n": 0,
-                "fully_priced_event_n": 0,
-                "unknown_event_n": 0,
-                "statuses": [],
-                "models": [],
-                "attribution_methods": [],
-                "catalog_version": row.get("catalog_version"),
-            },
-        )
-        known = _number(row.get("known_component_subtotal_usd"))
-        if known is not None:
-            entry["known_subtotal_usd"] = round((entry["known_subtotal_usd"] or 0) + known, 6)
-        full = _number(row.get("scenario_cost_usd"))
-        if full is not None:
-            entry["full_scenario_usd"] = round((entry["full_scenario_usd"] or 0) + full, 6)
-        for key in ("event_n", "fully_priced_event_n", "unknown_event_n"):
-            entry[key] += _count(row.get(key)) or 0
-        for key, source in (
-            ("statuses", "scenario_status"),
-            ("models", "model_id"),
-            ("attribution_methods", "attribution_method"),
-        ):
-            value = row.get(source)
-            if isinstance(value, str) and value not in entry[key]:
-                entry[key].append(value)
-    for entry in grouped.values():
-        # A full scenario total is only meaningful when every row was fully priced.
-        if entry["statuses"] != ["FULLY_PRICED"] and entry["unknown_event_n"]:
+        if isinstance(row, dict) and isinstance(row.get("pr"), str):
+            by_pr.setdefault(row["pr"], []).append(row)
+    grouped = {}
+    for pr, pr_rows in by_pr.items():
+        methods = {row.get("attribution_method") for row in pr_rows}
+        chosen = next((m for m in _SCENARIO_METHODS if m in methods), None)
+        entry = {
+            "known_subtotal_usd": None,
+            "full_scenario_usd": None,
+            "event_n": 0,
+            "fully_priced_event_n": 0,
+            "unknown_event_n": 0,
+            "statuses": [],
+            "models": [],
+            "attribution_methods": [],
+            "catalog_version": pr_rows[0].get("catalog_version"),
+        }
+        complete = True
+        for row in pr_rows:
+            if row.get("attribution_method") != chosen:
+                continue
+            known = _number(row.get("known_component_subtotal_usd"))
+            if known is not None:
+                entry["known_subtotal_usd"] = round((entry["known_subtotal_usd"] or 0) + known, 6)
+            full = _number(row.get("scenario_cost_usd"))
+            if full is None or row.get("scenario_status") != "COMPLETE":
+                complete = False
+            else:
+                entry["full_scenario_usd"] = round((entry["full_scenario_usd"] or 0) + full, 6)
+            for key in ("event_n", "fully_priced_event_n", "unknown_event_n"):
+                entry[key] += _count(row.get(key)) or 0
+            for key, source in (
+                ("statuses", "scenario_status"),
+                ("models", "model_id"),
+                ("attribution_methods", "attribution_method"),
+            ):
+                value = row.get(source)
+                if isinstance(value, str) and value not in entry[key]:
+                    entry[key].append(value)
+        # A full scenario total is only meaningful when every counted row was fully priced.
+        if not complete:
             entry["full_scenario_usd"] = None
         for key in ("statuses", "models", "attribution_methods"):
             entry[key].sort()
+        grouped[pr] = entry
     return grouped
 
 
@@ -315,6 +330,28 @@ def _gaps(rows, coverage):
     return gaps
 
 
+def _finite(value):
+    """Copy of a JSON-like value with NaN and infinities replaced by None (unobserved, not a number)."""
+    if isinstance(value, float):
+        return value if value == value and value not in (float("inf"), float("-inf")) else None
+    if isinstance(value, dict):
+        return {key: _finite(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_finite(item) for item in value]
+    return value
+
+
+def _sources(sources):
+    """Source status only. Paths and error text stay out, as in the retained summary schema."""
+    if not isinstance(sources, dict):
+        return None
+    return {
+        str(name): {key: info[key] for key in ("status", "count", "cutoff") if key in info}
+        for name, info in sources.items()
+        if isinstance(info, dict)
+    }
+
+
 def build_snapshot(summary_data, query_summary, prs, *, generated_at=None, code_version=None):
     """Build the dashboard payload. All three inputs are optional; absent means unknown."""
     summary_data = summary_data if isinstance(summary_data, dict) else {}
@@ -332,7 +369,7 @@ def build_snapshot(summary_data, query_summary, prs, *, generated_at=None, code_
     usage = summary_data.get("usage_summary") if isinstance(summary_data.get("usage_summary"), dict) else {}
     human = summary_data.get("human_summary") if isinstance(summary_data.get("human_summary"), dict) else {}
     methods = sorted({row["method"] for row in cohorts if row["method"]})
-    return {
+    return _finite({
         "schema_version": SCHEMA_VERSION,
         "generated_at": to_utc_iso(generated_at or summary_data.get("generated_at")),
         "data_through": to_utc_iso(query_summary.get("snapshot_at_utc") or summary_data.get("data_through")),
@@ -341,7 +378,7 @@ def build_snapshot(summary_data, query_summary, prs, *, generated_at=None, code_
         "code_version": code_version,
         "windows": {"w1": summary_data.get("w1_bounds"), "w2": summary_data.get("w2_bounds")},
         "quantile_method": methods[0] if len(methods) == 1 else methods or None,
-        "sources": summary_data.get("sources"),
+        "sources": _sources(summary_data.get("sources")),
         "repositories": sorted({row["repo"] for row in rows if row["repo"]}),
         "query_coverage": query_summary.get("query_coverage"),
         "repo_comparison": summary_data.get("repo_comparison"),
@@ -362,7 +399,7 @@ def build_snapshot(summary_data, query_summary, prs, *, generated_at=None, code_
         "handoff_transitions": [{"key": key, "label": label} for key, label, _s, _e in HANDOFF_TRANSITIONS],
         "gaps": _gaps(rows, query_summary.get("query_coverage")),
         "prs": rows,
-    }
+    })
 
 
 def write_snapshot(path, snapshot):

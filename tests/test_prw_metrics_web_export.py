@@ -118,7 +118,7 @@ class UsageAndCostTests(unittest.TestCase):
              "scenario_status": "PARTIAL_UNKNOWN_COMPONENTS", "event_n": 3, "fully_priced_event_n": 0,
              "unknown_event_n": 3, "model_id": "model-a", "attribution_method": "branch_associated"},
             {"pr": "acme/app#7", "known_component_subtotal_usd": "0.75", "scenario_cost_usd": "0.75",
-             "scenario_status": "FULLY_PRICED", "event_n": 1, "fully_priced_event_n": 1,
+             "scenario_status": "COMPLETE", "event_n": 1, "fully_priced_event_n": 1,
              "unknown_event_n": 0, "model_id": "model-b", "attribution_method": "branch_associated"},
         ]
         cost = export.build_snapshot({}, query([self.branch_metric()], scenarios), [])["prs"][0]["cost"]
@@ -129,9 +129,18 @@ class UsageAndCostTests(unittest.TestCase):
 
     def test_fully_priced_rows_give_a_full_estimate(self):
         scenarios = [{"pr": "acme/app#7", "known_component_subtotal_usd": "2.5", "scenario_cost_usd": "2.5",
-                      "scenario_status": "FULLY_PRICED", "event_n": 2, "fully_priced_event_n": 2, "unknown_event_n": 0}]
+                      "scenario_status": "COMPLETE", "event_n": 2, "fully_priced_event_n": 2, "unknown_event_n": 0}]
         cost = export.build_snapshot({}, query([self.branch_metric()], scenarios), [])["prs"][0]["cost"]
         self.assertEqual(cost["full_scenario_usd"], 2.5)
+
+    def test_one_request_matched_two_ways_is_costed_once(self):
+        both = {"pr": "acme/app#7", "known_component_subtotal_usd": "0.15", "scenario_cost_usd": "0.15",
+                "scenario_status": "COMPLETE", "event_n": 1, "fully_priced_event_n": 1, "unknown_event_n": 0,
+                "model_id": "model-a"}
+        scenarios = [dict(both, attribution_method="direct"), dict(both, attribution_method="branch_associated")]
+        cost = export.build_snapshot({}, query([self.branch_metric()], scenarios), [])["prs"][0]["cost"]
+        self.assertEqual((cost["known_subtotal_usd"], cost["full_scenario_usd"], cost["event_n"]), (0.15, 0.15, 1))
+        self.assertEqual(cost["attribution_methods"], ["direct"])
 
 
 class PayloadTests(unittest.TestCase):
@@ -144,6 +153,21 @@ class PayloadTests(unittest.TestCase):
         for secret in ("SECRET-BODY-TEXT", "SECRET-PROMPT", "SECRET-HUMAN"):
             self.assertNotIn(secret, text)
         self.assertIn("Add thing", text)
+
+    def test_source_paths_and_errors_are_not_copied(self):
+        summary = {"sources": {"prs": {"status": "FAILED", "count": 0, "path": "/private/input/prs.json",
+                                       "error": "boom at /private/input"}}}
+        snapshot = export.build_snapshot(summary, query([metric(1)]), [])
+        self.assertEqual(snapshot["sources"], {"prs": {"status": "FAILED", "count": 0}})
+
+    def test_non_finite_pass_through_values_become_null_and_write(self):
+        summary = {"repo_comparison": [{"repo": "acme/app", "all_p50_hours": float("nan")}],
+                   "stage_dwell": {"x": float("inf")}}
+        snapshot = export.build_snapshot(summary, query([metric(1)]), [])
+        self.assertIsNone(snapshot["repo_comparison"][0]["all_p50_hours"])
+        self.assertIsNone(snapshot["stage_dwell"]["x"])
+        with tempfile.TemporaryDirectory() as directory:
+            export.write_snapshot(Path(directory) / "dashboard.json", snapshot)
 
     def test_gaps_report_observed_counts_for_this_snapshot(self):
         rows = [metric(1), metric(2, observed_active_wall_seconds=30.0)]
