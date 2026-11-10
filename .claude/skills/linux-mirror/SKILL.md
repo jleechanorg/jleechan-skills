@@ -113,7 +113,9 @@ mirror_readiness || {
 }
 ```
 
-Ping, TCP reachability, and dated CPU samples do not establish readiness. Apply the task's recorded admission criterion; keep host selection and thresholds out of this portable skill. When `CLAUDE_LAUNCHER=claudewa`, also verify that wrapper and its intended profile/account on the target.
+Ping, TCP reachability, and dated CPU samples do not establish readiness. Apply the task's recorded admission criterion; keep host selection and thresholds out of this portable skill.
+
+For either Claude launcher, the probe above establishes command presence only. Before step 3, inspect the selected launcher definition in the target login shell (`type claude` or `type claudewa`) to confirm its profile selection and any authentication-environment overrides. Then use the installed CLI's read-only `auth status` command in that same authentication context: for the default profile, `(unset CLAUDE_CONFIG_DIR; command claude auth status --text)`; for the `.claude-wa` profile, `CLAUDE_CONFIG_DIR="$HOME/.claude-wa" command claude auth status --text`. Run these on the target, so `$HOME` resolves there. Compare the reported signed-in account with the intended source account, and record only match/mismatch plus the profile, not credentials or full authentication output. These examples apply only if the inspected launcher has no other authentication overrides; otherwise resolve and inspect its actual context before proceeding. If the installed CLI lacks this read-only command, reports no account, or the account/context cannot be matched, stop before publication and report the blocker. Do not invoke login/logout, copy credentials, or execute a wrapper with account-switching side effects merely to inspect it. Tier 3 receivers must perform the same check before execution.
 
 ### 3. Push the branch (make it visible to the Linux machine)
 
