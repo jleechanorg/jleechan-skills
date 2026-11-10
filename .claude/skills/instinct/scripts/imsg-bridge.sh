@@ -89,6 +89,20 @@ have /usr/bin/osascript || die "osascript not found" 3
 # -shm/-wal beside it; macOS sqlite refuses to open that read-only. `immutable=1`
 # tells sqlite the file cannot change, which both opens it and is the correct
 # semantic for a snapshot.
+# Resolve the canonical stored chat_identifier for the configured handle, tolerating
+# a non-canonical spelling ("+1 555 123 4567"). Prints it and returns 0, or returns 1
+# when no such chat exists. Used by send, read AND probe so they agree on the chat:
+# if only `send` canonicalised, a non-canonical handle would send over iMessage and
+# then FAIL to read the same conversation.
+stored_chat_id() {
+  q "$DB" "select chat_identifier from chat where chat_identifier = '$CONTACT_HANDLE'
+       union all
+       select chat_identifier from chat
+        where replace(replace(replace(replace(chat_identifier,' ',''),'-',''),'(',''),')','')
+            = replace(replace(replace(replace('$CONTACT_HANDLE',' ',''),'-',''),'(',''),')','')
+       limit 1;" 2>/dev/null
+}
+
 # Usage: q <db-path> [sqlite flags] <sql...>
 LIVE_DB="$HOME/Library/Messages/chat.db"
 
@@ -158,7 +172,8 @@ do_send() {
   # unrelated outgoing message can masquerade as this send's receipt.
   local can_read=0 before=0
   # Defaulted so `set -u` cannot abort the unreadable-store path; replaced with the
-  # canonical stored identifier as soon as the store is readable.
+  # canonical stored identifier as soon as the store is readable. The SEND uses this
+  # value too, so the address we send to and the chat we confirm against are the same.
   DB_HANDLE="$CONTACT_HANDLE"
   if db_readable; then
     can_read=1
@@ -183,7 +198,7 @@ do_send() {
   # error that shows the event was rejected before dispatch may count as "not sent".
   local OSPEC="" ERRLOG rc
   ERRLOG="$(mktemp "${TMPDIR:-/tmp}/imsg-osas.XXXXXX")" || die "cannot create temp file" 3
-  /usr/bin/osascript - "$CONTACT_HANDLE" "$text" 2>"$ERRLOG" <<'APPLESCRIPT'
+  /usr/bin/osascript - "$DB_HANDLE" "$text" 2>"$ERRLOG" <<'APPLESCRIPT'
 on run argv
   set theHandle to item 1 of argv
   set theText to item 2 of argv
@@ -194,7 +209,7 @@ end run
 APPLESCRIPT
   rc=$?
   # Extract the AppleScript error number, e.g. "(-1728)" from stderr.
-  OSPEC=$(sed -n 's/.*(\(-*[0-9]\{3,\}\)).*/\1/p' "$ERRLOG" 2>/dev/null | tail -1)
+  OSPEC=$(sed -n 's/.*(\(-*[0-9]\{1,\}\)).*/\1/p' "$ERRLOG" 2>/dev/null | tail -1)
   rm -f "$ERRLOG"
   # osascript returned non-zero. That is NOT proof the message was not submitted:
   # an AppleEvent timeout (-1712) can arrive after Messages already queued it.
@@ -217,8 +232,15 @@ APPLESCRIPT
     # An AppleEvent timeout does NOT cancel the event: Messages can process it later,
     # so a short absence window proves nothing. Only errors that show the event was
     # rejected before dispatch may be treated as "not sent".
+    # rc > 128 means osascript died from a signal (jetsam/watchdog/crash): the
+    # AppleEvent may already be in Messages' queue, so that is never "not sent".
+    if [ "$rc" -gt 128 ]; then
+      die "osascript was killed by a signal (rc=$rc) after the event may have been dispatched. NOT falling back" 9
+    fi
+    # Only a parseable, known pre-dispatch failure may yield 6. An EMPTY code, an
+    # unrecognised one, or a 2-digit code like -50 falls through to exit 9.
     case "$OSPEC" in
-      "-1728"|"-600"|"-609"|"-10810"|"-10814"|"") ;;   # can't get buddy / app not running / no service
+      "-1728"|"-600"|"-10810"|"-10814") ;;   # can't get buddy / app not running / no such service
       *)
         die "osascript failed with AppleScript error ${OSPEC}, which does not prove the message was not dispatched (a timeout can still deliver). NOT falling back" 9
         ;;
@@ -302,9 +324,9 @@ do_read() {
   # A missing conversation must be exit 5, not "0 rows, success": otherwise the
   # chain treats a wrong/unconfigured handle as a working transport with no
   # replies and never falls back.
-  local chatexists
-  chatexists=$(q "$DB" "select count(*) from chat where chat_identifier = '$CONTACT_HANDLE';" 2>/dev/null)
-  [ "${chatexists:-0}" -gt 0 ] || die "contact $CONTACT_HANDLE not found in the message store" 5
+  local stored_id
+  stored_id=$(stored_chat_id) || die "contact $CONTACT_HANDLE not found in the message store" 5
+  CONTACT_HANDLE="$stored_id"
 
   local filt=""
   [ "$THEIRS_ONLY" -eq 1 ] && filt="$filt and m.is_from_me = 0"
@@ -328,7 +350,9 @@ do_probe() {
   # browser, so no profile lock, no UA gate, no hydration race.
   pgrep -x imagent >/dev/null 2>&1 || die "imagent not running; Messages not signed in" 4
   if db_readable; then
-    local n
+    local stored_id n
+    stored_id=$(stored_chat_id) || die "contact $CONTACT_HANDLE not found in the message store" 5
+    CONTACT_HANDLE="$stored_id"
     n=$(q "$DB" "select count(*) from chat where chat_identifier='$CONTACT_HANDLE';" 2>/dev/null)
     [ "${n:-0}" -gt 0 ] || die "contact $CONTACT_HANDLE not found in the message store" 5
     echo "{\"signed_in\":true,\"verified\":\"contact_chat_exists\",\"transport\":\"imessage\",\"contact\":\"$CONTACT_HANDLE\",\"chat_rows\":$n}"
