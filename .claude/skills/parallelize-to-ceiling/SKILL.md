@@ -430,13 +430,14 @@ there to a pointer 2026-09-06; this section is the full policy).
   verify readiness and explicitly retain or transfer ownership instead. Empty
   or partial output is not permission to launch a second copy.
 - **Child task contract.** Every dispatch carries, by pointer where possible:
-  the exact workspace and source snapshot (path, SHA or hash); allowed and
-  prohibited actions (a snapshot-only task gets no Git, checkout or directory
-  setup); the repository rules that bear on the unit; acceptance criteria; and,
+  the exact workspace and source snapshot (path, SHA or hash); allowed
+  actions and prohibited reads and actions (a snapshot-only task gets no Git,
+  history, checkout or directory setup); the repository rules that bear on the unit; acceptance criteria; and,
   when code changed, a boundary brief of likely edges as examples, not required
   work (missing or null data, limits, provenance, roles and timestamps,
   symlinks, failures, concurrency). Pass user restrictions verbatim. The child
-  returns compact findings, exact paths and acceptance proof; its receipt
+  returns compact findings, exact paths and acceptance proof, never transcript
+  copies; its receipt
   records the model and scope that ran.
 - Before waiting on a lane, confirm it started and its output exists;
   assignment is not progress.
