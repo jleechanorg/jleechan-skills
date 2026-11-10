@@ -269,6 +269,11 @@ never a code/home tree or new `/tmp` clone; remove only exact owned copies after
 process exit, preserving source and private receipts. Technical receipt and cleanup complete within the attempt
 budget; later sanitized publication is separate and retains the original clocks.
 
+**Before dispatching review.** Check the declared packet: source/head bindings, complete pinned content or its
+pointer, and, only for a static-review §4 same-seat addendum, the input that section defines. Record in the
+orchestrator's receipt, never the prompt, where the request and its context came from, or `unknown`. Hash decoded
+content, not an encoded API body field.
+
 ## 5. Reconcile and report
 
 **Counting a vote.** A counted reviewer returns full-scope `COVERAGE:` and a nonempty `VERDICT:`. Its receipt shows
