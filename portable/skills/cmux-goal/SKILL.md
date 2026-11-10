@@ -25,8 +25,12 @@ workflow named them. This package is self-contained for goal formulation.
 Query active goal state using the runtime's supported read API first. Keep an
 existing matching goal. Do not clear or replace an existing different goal
 unless the user explicitly requested that change. If no read API exists, use
-only a documented compatible session command; `/goal active` is a retained
-Claude Code source convention, not a universal goal API.
+only a command verified as read-only on the active runtime. A revision pin
+does not establish command semantics: for example, Claude Code versions where
+`/goal <condition>` sets a goal will mutate state when given `/goal active`,
+even if an older source revision presents that form as a query. Do not probe
+an uncertain command against the user's session. If no compatible read-only
+query is verified, leave goal state unverified and do not attempt activation.
 
 ## Formulate verifiable exit criteria
 
