@@ -81,6 +81,39 @@ class CandidateStarvation(CodexValidationBase):
         self.assertIn("absence not proven", err)
 
 
+class MatchQueryBudget(CodexValidationBase):
+    def test_a_interrupted_match_query_keeps_primary_rows(self):
+        self.thread("target", title="zebra-marker design", created=5, updated=5, rollout=False)
+        real_connect = sqlite3.connect
+
+        class Cursor:
+            def __init__(self, cur):
+                self.cur, self.selects = cur, 0
+
+            def execute(self, sql, *args):
+                if "FROM threads" in sql:
+                    self.selects += 1
+                    if self.selects == 2:  # the shared step budget runs out here
+                        raise sqlite3.OperationalError("interrupted")
+                return self.cur.execute(sql, *args)
+
+        class Connection:
+            def __init__(self, con):
+                self.con = con
+
+            def cursor(self):
+                return Cursor(self.con.cursor())
+
+            def __getattr__(self, name):
+                return getattr(self.con, name)
+
+        with patch("scripts.history_search.sqlite3.connect",
+                   side_effect=lambda *a, **k: Connection(real_connect(*a, **k))):
+            entries, err = self.run_cli("--limit", "1", "zebra-marker")
+        self.assertEqual([e["metadata"]["thread_id"] for e in entries], ["target"])
+        self.assertIn("errors=1", err)
+
+
 class NullableUpdateOrdering(CodexValidationBase):
     def test_b_null_updated_at_falls_back_to_created_at(self):
         for n in range(25):  # same cwd, stale non-null updated_at, title matches

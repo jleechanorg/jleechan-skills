@@ -720,9 +720,15 @@ def _search_codex_store(
                     LIMIT ?
                 """
                 seen_ids = {row[5] for row in rows}
-                rows += [row for row in cur.execute(
-                    match_sql, (max_chars, like_param, like_param, candidate_limit)
-                ).fetchall() if row[5] not in seen_ids]
+                try:
+                    match_rows = cur.execute(
+                        match_sql, (max_chars, like_param, like_param, candidate_limit)
+                    ).fetchall()
+                except sqlite3.OperationalError:
+                    # Step budget exhausted; keep the primary rows.
+                    errors += 1
+                    match_rows = []
+                rows += [row for row in match_rows if row[5] not in seen_ids]
             if not rows and not query:
                 sql_recent = f"""
                     SELECT title, substr(first_user_message, 1, ?), cwd, git_branch,
