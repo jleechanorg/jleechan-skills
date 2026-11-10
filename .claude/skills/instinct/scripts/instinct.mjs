@@ -698,7 +698,6 @@ async function compose(page, text) {
     // Genuine signed-out: a visible QR screen persisted to the end of the poll.
     process.exitCode = 4;
     return;
-    return;
   }
 
   if (VERB === 'open') {
