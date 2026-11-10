@@ -2,7 +2,7 @@
 
 Skills moved out of the installed set because a usage review found no evidence of use: no explicit skill call, file open or typed `/name` in Claude Code history; no skill-file open by a Codex tool call on either host in 14 days; no mention in an always-loaded instruction file; not created in November 2026.
 
-Full classification of the 308 reviewed names, and the one in-repo skill that was held back because an active skill still depends on it, is in `docs/skill-archive-2026-11-09.md`.
+Full classification of the 308 reviewed names, and the two in-repo skills that were kept active (one still required by an active skill, one with a recent Codex open), is in `docs/skill-archive-2026-11-09.md`.
 
 ## Archival Inventory
 
@@ -17,7 +17,6 @@ Full classification of the 308 reviewed names, and the one in-repo skill that wa
 | `faiss` | `.claude/skills/faiss/` |
 | `goalexec-define` | `.claude/skills/goalexec-define/` |
 | `hermes-models` | `.claude/skills/hermes-models/` |
-| `karpathy-wiki` | `.claude/skills/karpathy-wiki/` |
 | `llava` | `.claude/skills/llava/` |
 | `mcp-builder` | `.claude/skills/mcp-builder/` |
 | `mem0` | `.claude/skills/mem0/` |
