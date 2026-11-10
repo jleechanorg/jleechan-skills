@@ -178,3 +178,10 @@ test("daily merges include the last calendar day when the window ends just after
 test("CSV quotes a carriage return", () => {
   assert.equal(S.csv([{ v: "first\rsecond" }], [{ header: "v", value: (r) => r.v }]), 'v\n"first\rsecond"\n');
 });
+
+test("a PR with zero verified steering messages is not counted as having verified steering", () => {
+  const rows = [pr(1, { human: 0 }), pr(2, { human: 3 })];
+  const agg = S.aggregate(rows, range);
+  assert.equal(agg.humanN, S.filterPrs(rows, { ...range, attribution: "human" }).length);
+  assert.deepEqual([agg.humanN, agg.human.sum], [1, 3]);
+});

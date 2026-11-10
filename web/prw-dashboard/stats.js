@@ -96,7 +96,7 @@
     var withUsage = rows.filter(function (pr) { return pr.usage && typeof pr.usage.total === "number"; });
     var withCost = rows.filter(function (pr) { return pr.cost && typeof pr.cost.known_subtotal_usd === "number"; });
     var fullyPriced = rows.filter(function (pr) { return pr.cost && typeof pr.cost.full_scenario_usd === "number"; });
-    var withHuman = rows.filter(function (pr) { return pr.human && typeof pr.human.verified_messages === "number"; });
+    var withHuman = rows.filter(function (pr) { return pr.human && pr.human.verified_messages > 0; });
     var withActive = rows.filter(function (pr) { return typeof pr.active_s === "number"; });
     var withIdle = rows.filter(function (pr) { return typeof pr.eligible_idle_s === "number"; });
     var episodes = { good: 0, bad: 0, mixed: 0, unknown: 0 }, episodePrN = 0;

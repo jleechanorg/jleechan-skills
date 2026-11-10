@@ -202,18 +202,19 @@ def _pr_row(metric, record, scenario):
     repository = metric.get("repository")
     number = _count(metric.get("pr_number"))
     record = record or {}
+    # Token sums are weighted by attribution share in the query, so they keep their fraction; request counts are whole.
     usage = None
     if metric.get("branch_usage_status") == "OBSERVED_SOURCE_BRANCH_ATTRIBUTION":
         usage = {
             "basis": "source_branch",
             "confidence": metric.get("branch_association_confidence"),
-            "uncached_input": _count(metric.get("branch_uncached_input_tokens")),
-            "cache_read": _count(metric.get("branch_cache_read_input_tokens")),
-            "output": _count(metric.get("branch_output_tokens")),
-            "total": _count(metric.get("branch_total_tokens")),
+            "uncached_input": _number(metric.get("branch_uncached_input_tokens")),
+            "cache_read": _number(metric.get("branch_cache_read_input_tokens")),
+            "output": _number(metric.get("branch_output_tokens")),
+            "total": _number(metric.get("branch_total_tokens")),
             "requests": _count(metric.get("branch_usage_observation_count")),
         }
-    convention_total = _count(metric.get("convention_total_tokens"))
+    convention_total = _number(metric.get("convention_total_tokens"))
     if convention_total is not None:
         # Usage bound by a recorded session-to-PR binding (hook ledger): stronger than a branch match.
         usage = {
@@ -225,14 +226,14 @@ def _pr_row(metric, record, scenario):
             "total": convention_total,
             "requests": _count(metric.get("convention_usage_observation_count")),
         }
-    direct_total = _count(metric.get("direct_total_tokens"))
+    direct_total = _number(metric.get("direct_total_tokens"))
     if direct_total is not None:
         usage = {
             "basis": "direct",
             "confidence": metric.get("direct_association_confidence"),
-            "uncached_input": _count(metric.get("direct_uncached_input_tokens")),
-            "cache_read": _count(metric.get("direct_cache_read_input_tokens")),
-            "output": _count(metric.get("direct_output_tokens")),
+            "uncached_input": _number(metric.get("direct_uncached_input_tokens")),
+            "cache_read": _number(metric.get("direct_cache_read_input_tokens")),
+            "output": _number(metric.get("direct_output_tokens")),
             "total": direct_total,
             "requests": _count(metric.get("direct_usage_observation_count")),
         }

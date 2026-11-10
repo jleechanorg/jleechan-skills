@@ -112,6 +112,14 @@ class UsageAndCostTests(unittest.TestCase):
         usage = export.build_snapshot({}, query([row]), [])["prs"][0]["usage"]
         self.assertEqual((usage["basis"], usage["total"]), ("direct", 40))
 
+    def test_weighted_token_totals_keep_their_fraction(self):
+        # The query sums tokens times an attribution weight, so totals can be fractional.
+        row = export.build_snapshot(None, query([metric(
+            1, usage_status="OBSERVED_DIRECT_ATTRIBUTION", direct_total_tokens=1.5,
+            direct_uncached_input_tokens=0.5, direct_output_tokens=1.0, direct_usage_observation_count=1,
+        )]), [])["prs"][0]
+        self.assertEqual((row["usage"]["total"], row["usage"]["uncached_input"], row["usage"]["requests"]), (1.5, 0.5, 1))
+
     def test_partial_price_rows_give_a_subtotal_but_no_full_estimate(self):
         scenarios = [
             {"pr": "acme/app#7", "known_component_subtotal_usd": "1.25", "scenario_cost_usd": None,
