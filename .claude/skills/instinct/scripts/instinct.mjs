@@ -287,39 +287,44 @@ async function withPage(fn, { headed = false } = {}) {
 
 const WA = 'https://web.whatsapp.com/';
 
-/** WhatsApp Web renders a QR canvas when signed out and the chat list when signed in. */
-async function signedIn(page) {
-  // Signed in => the chat list exists. Signed out => the QR canvas is shown.
-  const list = await page.locator('#pane-side').count();
-  const qr = await page
-    .locator('canvas')
-    .count()
-    .catch(() => 0);
-  return list > 0 && qr === 0;
+/**
+ * One authoritative auth classifier. EVERY caller uses this, so `probe` and `signedIn()` can never
+ * disagree about what the session is. Derived from a single DOM sample.
+ *
+ * linked     - the chat list is actually visible
+ * signed_out - a VISIBLE <canvas> plus the QR screen's own copy. A bare canvas is not proof: the
+ *              startup promo page ("Download WhatsApp for Mac") also has one, which is exactly why
+ *              this is not a canvas count.
+ * loading    - anything else (splash, mid-transition, ambiguous)
+ */
+const QR_COPY = /scan (the )?qr|link with phone number|log in with phone number|keep me signed in/i;
+
+async function classifyState(page) {
+  return page
+    .evaluate((qrCopySrc) => {
+      const qrCopy = new RegExp(qrCopySrc, 'i');
+      const visible = (el) => {
+        if (!el) return false;
+        const r = el.getBoundingClientRect();
+        const st = getComputedStyle(el);
+        return r.width > 0 && r.height > 0 && st.visibility !== 'hidden' && st.display !== 'none';
+      };
+      const list = document.querySelector('#pane-side');
+      if (visible(list)) return 'linked';
+      // Check EVERY canvas: a hidden first one must not mask a visible QR canvas.
+      const anyVisibleCanvas = [...document.querySelectorAll('canvas')].some(visible);
+      const bodyText = document.body ? document.body.innerText || '' : '';
+      if (anyVisibleCanvas && qrCopy.test(bodyText)) return 'signed_out';
+      return 'loading';
+    }, QR_COPY.source)
+    .catch(() => 'loading');
 }
 
-/**
- * Is the signed-out QR landing actually on screen right now?
- * A bare <canvas> is not enough: unrelated and hidden canvases exist, and WhatsApp shows a splash
- * before it decides what to render. Require a VISIBLE canvas AND the QR screen's own copy, so a
- * startup flash can never be mistaken for a dead device link.
- */
-async function qrScreenVisible(page) {
-  return page
-    .evaluate(() => {
-      const c = document.querySelector('canvas');
-      if (!c) return false;
-      const r = c.getBoundingClientRect();
-      const st = getComputedStyle(c);
-      const visible =
-        r.width > 0 && r.height > 0 && st.visibility !== 'hidden' && st.display !== 'none';
-      if (!visible) return false;
-      return /scan|link with phone number|log in with phone number/i.test(
-        document.body.innerText || ''
-      );
-    })
-    .catch(() => false);
+/** Signed in iff the single classifier says linked. No second, divergent definition. */
+async function signedIn(page) {
+  return (await classifyState(page)) === 'linked';
 }
+
 
 /** This WhatsApp build uses a real <input> for search, not a contenteditable div. */
 const SEARCH = 'input[aria-label="Search or start a new chat"], input[placeholder="Search or start a new chat"]';
@@ -631,51 +636,30 @@ async function compose(page, text) {
       // the chat list hydrates. A fixed 4s wait therefore reported signed_in:false for a
       // perfectly good session (observed 2026-11-10: pane-side=0 at 4s; pane-side=1 with title
       // "(2) WhatsApp" at 45s). Poll instead of guessing a duration.
+      //
+      // Polling continues to the deadline even after a signed_out observation. Breaking on the
+      // FIRST QR sighting would let a transient startup QR win, so persistence is established by
+      // the final sample rather than by one early glimpse.
+      let sawSignedOut = false;
       let state = 'loading';
-      let waited = 0;
-      while (Date.now() < deadline) {
-        // One consistent observation. 'linked' and 'signed_out' are decided from the SAME
-        // sample, so the two can never contradict each other.
-        const seen = await page
-          .evaluate(() => {
-            const vis = (el) => {
-              if (!el) return false;
-              const r = el.getBoundingClientRect();
-              const st = getComputedStyle(el);
-              return r.width > 0 && r.height > 0 && st.visibility !== 'hidden' && st.display !== 'none';
-            };
-            // A canvas alone is not proof of the QR screen: unrelated/hidden canvases exist.
-            // Require the signed-out surface to be VISIBLE and carry the QR landing copy.
-            const bodyText = document.body.innerText || '';
-            const qrScreen =
-              vis(document.querySelector('canvas')) &&
-              /scan|link with phone number|log in with phone number|keep me signed in/i.test(bodyText);
-            const listVisible = vis(document.querySelector('#pane-side'));
-            return { listVisible, qrScreen };
-          })
-          .catch(() => ({ listVisible: false, qrScreen: false }));
+      for (;;) {
+        state = await classifyState(page);
+        if (state === 'linked') break;
+        if (state === 'signed_out') sawSignedOut = true;
 
-        waited = Date.now() - started;
-        if (seen.listVisible) {
-          state = 'linked';
-          break;
-        }
-        if (seen.qrScreen) {
-          state = 'signed_out';
-          break;
-        }
-        // Sleep only as long as the remaining budget allows, so a decisive element appearing
-        // near the deadline is not missed by an overshooting sleep.
         const remaining = deadline - Date.now();
-        if (remaining <= 0) break;
+        // No budget left: take one last sample so a chat list that appeared during the final
+        // sleep is still seen, then decide.
+        if (remaining <= 0) {
+          state = await classifyState(page);
+          break;
+        }
         await page.waitForTimeout(Math.min(1000, remaining));
       }
-      // A 'signed_out' verdict is only trustworthy if the QR screen is STILL there after the
-      // poll ends; a startup flash must not be reported as a dead link.
-      if (state === 'signed_out' && !(await qrScreenVisible(page))) {
-        state = 'loading';
-      }
-      return { state, waited_ms: waited };
+      // `state` is the FINAL sample, so a QR that appeared and then cleared leaves us at
+      // 'loading' (UNVERIFIED) rather than a false signed_out. `sawSignedOut` is reported so an
+      // operator can tell "never rendered anything" from "showed a QR that went away".
+      return { state, sawSignedOut, waited_ms: Date.now() - started };
     }, { headed });
 
     const ok = result.state === 'linked';
@@ -683,6 +667,7 @@ async function compose(page, text) {
       JSON.stringify({
         signed_in: ok,
         state: result.state,
+        saw_signed_out_transient: result.sawSignedOut,
         waited_ms: result.waited_ms,
         profile_dir: PROFILE_DIR,
       }) + '\n'
