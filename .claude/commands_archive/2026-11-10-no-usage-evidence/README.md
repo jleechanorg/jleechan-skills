@@ -35,3 +35,5 @@ git mv .claude/commands_archive/2026-11-10-no-usage-evidence/<command-name>.md .
 ```
 
 The top-level dispatcher goes back with `git mv .claude/commands_archive/2026-11-10-no-usage-evidence/top-level/coderabbit.md .claude/commands/coderabbit.md`. A dispatcher needs its skill restored as well (see `.claude/skills_archive/2026-11-09-no-usage-evidence/README.md`).
+
+An alias needs its target command restored with it: `con` needs `contexte`, `sim` needs `simulate`, and `cr` needs `coderabbit` (both `coderabbit.md` files and the `coderabbit` skill).
