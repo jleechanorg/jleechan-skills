@@ -82,9 +82,22 @@ now() { date -u '+%Y-%m-%dT%H:%M:%SZ'; }
 have /usr/bin/sqlite3 || die "sqlite3 not found" 3
 have /usr/bin/osascript || die "osascript not found" 3
 
-# Always read the message store read-only: this process never needs to write it,
-# and -readonly makes an injected or malformed statement incapable of mutation.
-q() { /usr/bin/sqlite3 -readonly "$@"; }
+# Always read the message store read-only: this process never needs to write it, and
+# a read-only handle makes an injected or malformed statement incapable of mutation.
+#
+# A caller-supplied --db is usually a plain copy of a WAL-mode database with no
+# -shm/-wal beside it; macOS sqlite refuses to open that read-only. `immutable=1`
+# tells sqlite the file cannot change, which both opens it and is the correct
+# semantic for a snapshot.
+# Usage: q <db-path> [sqlite flags] <sql...>
+q() {
+  local dbpath="$1"; shift
+  if [ -n "$DB_OVERRIDE" ]; then
+    /usr/bin/sqlite3 -readonly "file:${dbpath}?immutable=1" "$@"
+  else
+    /usr/bin/sqlite3 -readonly "$dbpath" "$@"
+  fi
+}
 
 db_readable() { q "$DB" 'select 1 from message limit 1;' >/dev/null 2>&1; }
 
@@ -95,7 +108,9 @@ db_readable() { q "$DB" 'select 1 from message limit 1;' >/dev/null 2>&1; }
 valid_handle() {
   case "$1" in
     '' ) return 1 ;;
-    *\'*|*\"*|*\;*|*--*|*/*) return 1 ;;
+    # Reject only what can break the SQL string literal or comment it out. A blanket
+    # ban on "--" wrongly rejected legitimate Apple IDs such as peer--bot@example.org.
+    *\'*|*\"*|*\;*|*/*) return 1 ;;
   esac
   printf '%s' "$1" | grep -Eq '^\+?[0-9][0-9 ().-]{5,24}$|^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'
 }
@@ -140,10 +155,27 @@ on run argv
 end run
 APPLESCRIPT
   local rc=$?
-  # osascript itself failed. Distinguish "definitely not sent" (exit 6 with
-  # sent=0) so the caller can safely fall back, from anything that might have
-  # gone out (see below).
-  [ "$rc" -eq 0 ] || die "osascript send failed rc=$rc (not sent)" 6
+  # osascript returned non-zero. That is NOT proof the message was not submitted:
+  # an AppleEvent timeout (-1712) can arrive after Messages already queued it. Only
+  # claim "not sent" (the code a caller may safely fall back on) when the store
+  # shows no new outgoing row for this chat. Otherwise it is exit 9.
+  if [ "$rc" -ne 0 ]; then
+    if [ "$can_read" -eq 1 ]; then
+      local raced
+      raced=$(q "$DB" "select m.ROWID from message m
+          join chat_message_join cmj on cmj.message_id = m.ROWID
+          join chat c on c.ROWID = cmj.chat_id
+         where m.ROWID > $before and m.is_from_me = 1
+           and c.chat_identifier = '$CONTACT_HANDLE'
+         order by m.ROWID desc limit 1;" 2>/dev/null)
+      if [ -n "$raced" ]; then
+        die "osascript rc=$rc but row $raced exists for this chat: sent=unverified. NOT falling back" 9
+      fi
+    else
+      die "osascript rc=$rc and the store is unreadable here, so 'not sent' cannot be proven. NOT falling back" 9
+    fi
+    die "osascript send failed rc=$rc (no row appeared; safe to fall back)" 6
+  fi
 
   [ "$can_read" -eq 1 ] || {
     # The message MAY have been submitted; a fallback transport would send it a
@@ -206,7 +238,7 @@ do_read() {
   local filt=""
   [ "$THEIRS_ONLY" -eq 1 ] && filt="$filt and m.is_from_me = 0"
   [ "${SINCE_ROWID:-0}" -gt 0 ] && filt="$filt and m.ROWID > $SINCE_ROWID"
-  q -separator ' | ' "$DB" "
+  q "$DB" -separator ' | ' "
     select m.ROWID,
            case m.is_from_me when 1 then 'me' else 'them' end,
            datetime(m.date/1000000000+978307200,'unixepoch','localtime'),

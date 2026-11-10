@@ -80,9 +80,12 @@ one, so the iMessage path always resolves by handle. Verify the handle you confi
 chat row before relying on it:
 
 ```bash
-sqlite3 "${IMSG_CHAT_DB:-$HOME/Library/Messages/chat.db}" \
+sqlite3 -readonly "${IMSG_CHAT_DB:-$HOME/Library/Messages/chat.db}" \
   "select chat_identifier from chat where chat_identifier = '$INSTINCT_IMSG_CONTACT';"
 ```
+
+Use `-readonly`: the message store is not yours to modify, and it makes a malformed
+statement incapable of writing. `imsg-bridge.sh` never opens it read-write.
 
 ### `read --theirs` is required for verdict-matching callers
 
@@ -111,8 +114,9 @@ process is not covered by the user's Full Disk Access. What breaks differs by ve
   checked, because it cannot read the store.
 - `send` still submits the message, but **cannot confirm** it: it exits **9** (`sent=unverified`)
   and the transport chain deliberately does **not** fall back, since a fallback would send the
-  message a second time. To get a real confirmation from a scheduler, pass `--db SNAPSHOT` with a
-  copy of the store taken by an interactive session.
+  message a second time. A `--db SNAPSHOT` cannot fix this: a copy taken *before* the send can never
+  contain the row it creates, so `send --db` is expected to report exit 9. Confirmation is a
+  property of a process that can read the live store.
 - `read` exits 4. Use an interactive session, or `--db SNAPSHOT`.
 
 Exit `9` is therefore distinct from `6`: `6` means nothing was sent and a fallback is safe; `9`

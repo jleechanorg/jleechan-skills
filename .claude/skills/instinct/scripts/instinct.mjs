@@ -114,10 +114,13 @@ function imessageBridge(verb, { file = null, limit = null, theirs = false, conta
   }
 }
 
-// The bridge can report "osascript ran, delivery unverified" (exit 9). That is NOT
-// a safe fallback signal: falling through to WhatsApp would send the message a
-// second time. Only a definite "not sent" failure may fall back.
-const UNSAFE_TO_FALL_BACK = new Set([9]);
+// Fallback is an ALLOW-list, not a deny-list. Only these codes prove the message was
+// never submitted, so only these may fall through to the next transport:
+//   2 bad usage, 3 missing dependency, 4 not signed in, 5 contact not found,
+//   6 osascript itself reported failure *and* the store showed no new row.
+// Anything else — 9, an unexpected number, or a signal (mapped to 1) — means the
+// message may already be out, and falling back would send it twice.
+const SAFE_TO_FALL_BACK = new Set([2, 3, 4, 5, 6]);
 
 function die(msg, code = 2) {
   process.stderr.write(`instinct: ${msg}\n`);
@@ -708,7 +711,8 @@ async function compose(page, text) {
     let probeLast = 4;
     if (probeChain.includes('imessage')) {
       if (transportAvailable('imessage')) {
-        const rc = imessageBridge('probe');
+        const probeContact = process.argv.includes('--contact') ? arg('contact', null) : null;
+        const rc = imessageBridge('probe', { contact: probeContact, db: arg('db', null) });
         if (rc === 0) {
           process.stderr.write('instinct: transport=imessage (primary)\n');
           return;
@@ -875,9 +879,23 @@ async function compose(page, text) {
           2
         );
       }
-      const shown = wantTheirs
-        ? msgs.filter((m) => !(m.sender || '').toLowerCase().includes(SELF_NAME.toLowerCase()))
-        : msgs;
+      let shown = msgs;
+      if (wantTheirs) {
+        const selfLower = SELF_NAME.toLowerCase();
+        const matchedSome = msgs.some((m) => (m.sender || '').toLowerCase() === selfLower);
+        if (!matchedSome) {
+          // No bubble is labelled with exactly SELF_NAME, so direction cannot be
+          // established for this transcript. Filtering on a substring would either
+          // leak our own messages or hide the peer's; refuse instead.
+          die(
+            `read --theirs could not identify your own bubbles on the WhatsApp transport ` +
+              `(no sender matched INSTINCT_SELF=${JSON.stringify(SELF_NAME)}). Set ` +
+              'INSTINCT_SELF to the exact display name this account uses in that chat.',
+            2
+          );
+        }
+        shown = msgs.filter((m) => (m.sender || '').toLowerCase() !== selfLower);
+      }
       process.stdout.write(`chat: ${name} (last ${shown.length})\n`);
       shown.forEach((m) => process.stdout.write(`  ${formatMsg(m, SELF_NAME)}\n`));
     }, { headed });
@@ -906,7 +924,7 @@ async function compose(page, text) {
         process.stderr.write('instinct: sent via imessage (primary)\n');
         return;
       }
-      if (UNSAFE_TO_FALL_BACK.has(rc)) {
+      if (!SAFE_TO_FALL_BACK.has(rc)) {
         // The message may already be out. Retrying over WhatsApp would duplicate it.
         die(
           `imessage send rc=${rc}: delivery unverified. NOT falling back, because that ` +
