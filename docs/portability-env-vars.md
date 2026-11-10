@@ -127,6 +127,12 @@ registry.
 | `PRW_METRICS_OFFLINE` | Offline mode: skip live GitHub API and use cached data (`1` or `true`) | — | `0` |
 | `PRW_METRICS_PUBLISH` | Publish dashboard to roadmap repo (`1` or `true`) | — | `0` |
 | `PRW_METRICS_STALE_HOURS` | Threshold hours after which source cutoffs are marked STALE | — | `4.5` |
+| `INSTINCT_IMSG_CONTACT` | The peer assistant's iMessage handle (E.164 phone or Apple ID email) for the `/instinct` iMessage transport | — | unset (required for iMessage; the skill stops with a clear message) |
+| `INSTINCT_CONTACT` | The peer's WhatsApp chat title, used by the `/instinct` fallback transport | — | unset (required for WhatsApp) |
+| `INSTINCT_IMSG_BRIDGE` | Path to the `/instinct` iMessage bridge (`imsg-bridge.sh`) | sibling `scripts/imsg-bridge.sh` of the skill package | `$HOME/.local/bin/imsg-bridge.sh` |
+| `INSTINCT_TRANSPORT` | Force one `/instinct` transport (`imessage` or `whatsapp`), disabling fallback | — | unset (chain: iMessage then WhatsApp) |
+| `INSTINCT_READ_THEIRS` | `1` = `/instinct read` returns only the peer's messages, excluding outgoing rows | — | unset |
+| `IMSG_CHAT_DB` | Path to the macOS Messages store read by `imsg-bridge.sh` | — | `$HOME/Library/Messages/chat.db` |
 
 ## Values that are deleted, not parameterized
 
