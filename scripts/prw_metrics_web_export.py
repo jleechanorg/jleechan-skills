@@ -12,7 +12,9 @@ No prompt text, PR bodies, reasoning or credentials are copied.
 
 import argparse
 import json
+import os
 import re
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -412,12 +414,15 @@ def write_snapshot(path, snapshot):
     """Write atomically so a reader never sees a half-written file."""
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    temporary = target.with_name(target.name + ".tmp")
-    temporary.write_text(
-        json.dumps(snapshot, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n",
-        encoding="utf-8",
-    )
-    temporary.replace(target)
+    text = json.dumps(snapshot, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n"
+    # A temporary name of its own, so two writers never share one; default permissions as before.
+    temporary = target.with_name(f"{target.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+    try:
+        temporary.write_text(text, encoding="utf-8")
+        temporary.replace(target)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
 
 
 def main():

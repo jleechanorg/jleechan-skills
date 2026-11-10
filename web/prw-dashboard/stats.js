@@ -148,10 +148,13 @@
   /** Merges per day per repository. Days with no merges are present with zeros. */
   function dailyMerges(rows, f, repos, timeZone) {
     var days = [], index = {};
-    for (var t = f.startMs; t < f.endMs; t += 3600e3) {
+    function addDay(t) {
       var key = dayKey(t, timeZone);
       if (!(key in index)) { index[key] = days.length; days.push({ day: key, counts: repos.map(function () { return 0; }), total: 0 }); }
     }
+    for (var t = f.startMs; t < f.endMs; t += 3600e3) addDay(t);
+    // Hourly steps can stop short of the window's last calendar day when it holds under an hour of the window.
+    if (f.endMs > f.startMs) addDay(f.endMs - 1);
     rows.forEach(function (pr) {
       if (!mergedIn(pr, f.startMs, f.endMs)) return;
       var slot = index[dayKey(ms(pr.merged), timeZone)], r = repos.indexOf(pr.repo);
@@ -218,7 +221,7 @@
       if (v === null || v === undefined) return "";
       var s = String(v);
       if (typeof v !== "number" && /^[=+\-@\t\r]/.test(s)) s = "'" + s; // spreadsheet formula guard
-      return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+      return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
     }
     return [columns.map(function (c) { return cell(c.header); }).join(",")]
       .concat(rows.map(function (r) { return columns.map(function (c) { return cell(c.value(r)); }).join(","); }))

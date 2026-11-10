@@ -219,6 +219,17 @@ class PayloadTests(unittest.TestCase):
                 export.write_snapshot(target, {"schema_version": 1, "bad": float("nan")})
             # A failed write leaves the last good snapshot in place.
             self.assertEqual(json.loads(target.read_text())["prs"], [])
+            # No temporary file is left behind, and none has a name another writer would share.
+            self.assertEqual([path.name for path in target.parent.iterdir()], ["dashboard.json"])
+
+    def test_writers_do_not_share_a_temporary_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "dashboard.json"
+            # A stale file at the old fixed temporary name must not be reused or replaced.
+            (Path(directory) / "dashboard.json.tmp").write_text("other writer")
+            export.write_snapshot(target, {"schema_version": 1, "prs": []})
+            self.assertEqual((Path(directory) / "dashboard.json.tmp").read_text(), "other writer")
+            self.assertEqual(json.loads(target.read_text())["schema_version"], 1)
 
 
 @unittest.skipUnless(shutil.which("node"), "node is not installed")

@@ -164,3 +164,17 @@ test("episode counts are unknown, not zero, when no episode was observed", () =>
   const some = S.aggregate([{ ...pr(1), human: { verified_messages: 1, episodes: { good: 2, bad: 0, mixed: 0, unknown: 1 } } }], range);
   assert.deepEqual(S.episodeCounts(some), { good: 2, bad: 0, mixed: 0, unknown: 1 });
 });
+
+test("daily merges include the last calendar day when the window ends just after midnight", () => {
+  const f = { startMs: Date.parse("2026-11-01T00:30:00Z"), endMs: Date.parse("2026-11-02T00:30:00Z") };
+  const late = { ...pr(1), merged: "2026-11-02T00:10:00Z" };
+  for (const tz of ["UTC", "America/Los_Angeles"]) {
+    const days = S.dailyMerges([late], f, ["acme/app"], tz);
+    assert.equal(days.reduce((a, d) => a + d.total, 0), S.aggregate([late], f).merged, tz);
+  }
+  assert.deepEqual(S.dailyMerges([late], f, ["acme/app"], "UTC").map((d) => d.day), ["2026-11-01", "2026-11-02"]);
+});
+
+test("CSV quotes a carriage return", () => {
+  assert.equal(S.csv([{ v: "first\rsecond" }], [{ header: "v", value: (r) => r.v }]), 'v\n"first\rsecond"\n');
+});
