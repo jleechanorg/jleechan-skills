@@ -126,12 +126,13 @@ CURRENT_SHA=$(git -C "$REPO_ROOT" rev-parse HEAD) || exit 75
   echo "ERROR: source changed since preflight; resolve the new candidate first" >&2
   exit 75
 }
-git -C "$REPO_ROOT" push -u origin "$BRANCH" || exit 75
+git -C "$REPO_ROOT" push origin "$INTENDED_SHA:refs/heads/$BRANCH" || exit 75
 PUBLISHED_REF=$(git -C "$REPO_ROOT" ls-remote --exit-code origin "refs/heads/$BRANCH") || exit 75
 [ "${PUBLISHED_REF%%[[:space:]]*}" = "$INTENDED_SHA" ] || {
   echo "ERROR: published branch does not match intended source; refusing dispatch" >&2
   exit 75
 }
+git -C "$REPO_ROOT" branch --set-upstream-to="origin/$BRANCH" "$BRANCH" || exit 75
 ```
 
 Follow existing push authority and branch ownership; a successful push alone is not the readback above. If the target is empty (Tier 3), only now send the authorized gateway handoff with the verified remote URL, branch, exact published SHA, caller/profile, context and step 4's remote payload. Require the receiver to verify its own readiness/profile and exact fetched SHA before starting work; report unavailable checks rather than implying SSH readiness. A failed push or mismatched ref stops both transports. Do not run the SSH block below for Tier 3.
@@ -330,8 +331,8 @@ LAUNCH_ENV=(env "DISKM_SCRATCH=$SCRATCH_ROOT" "CLAUDE_CODE_TMPDIR=$OUTPUT_ROOT" 
 # Clear an inherited alternate config only for the explicitly selected default
 # launcher; claudewa remains responsible for its own verified profile selection.
 CLAUDE_LOGIN=(bash -l -c
-  'export DISKM_SCRATCH="$1" CLAUDE_CODE_TMPDIR="$2" PYTEST_DEBUG_TEMPROOT="$2" BASH_ENV="$3"; shift 3; if [ "$1" = claude ]; then unset CLAUDE_CONFIG_DIR; fi; "$@"'
-  mirror-launch "$SCRATCH_ROOT" "$OUTPUT_ROOT" "$SCOPED_BASH_ENV")
+  'export DISKM_SCRATCH="$1" CLAUDE_CODE_TMPDIR="$2" PYTEST_DEBUG_TEMPROOT="$2" BASH_ENV="$3"; cd -- "$4" || exit 75; shift 4; if [ "$1" = claude ]; then unset CLAUDE_CONFIG_DIR; fi; "$@"'
+  mirror-launch "$SCRATCH_ROOT" "$OUTPUT_ROOT" "$SCOPED_BASH_ENV" "$TARGET")
 case "$AGENT_CLI" in
   pi)     LAUNCH=("${LAUNCH_ENV[@]}" pi -- "Caller handoff context: $CONTEXT") ;;
   claude)
