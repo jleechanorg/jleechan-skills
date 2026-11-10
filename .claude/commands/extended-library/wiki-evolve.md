@@ -17,7 +17,6 @@ Self-improving loop that validates an llm-wiki against Karpathy pattern, identif
 
 ## Reference
 - Karpathy gist: https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f
-- Skill: /karpathy-wiki
 
 ## Loop Body
 
