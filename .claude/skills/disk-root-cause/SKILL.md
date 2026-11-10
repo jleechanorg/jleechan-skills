@@ -103,7 +103,7 @@ Single-pass `du` answers questions fast (<2 min). When the attribution crosses t
 | **lane-frontier** | Run `disk_frontier_scan.py --granularity-gib 5 --output-default` (900s cap) | One-pass GNU du inventory when available; named frontier fallback otherwise |
 | **lane-critic** | Adversarial reality-check on top claims | "Try to refute each finding by recomputing from raw data. Cite file:line." |
 
-Fan-out rule: **single-writer per file**, `grep -n "agent(" <swarm-script>` cost-routed (haiku for mechanical, sonnet for analysis), staggered starts (rule 4 in `/swarm`), explicit `--model:` on every call. Adversarial verify ≥3 lenses before any actionable claim.
+Fan-out rule: **single-writer per file**, `grep -n "agent(" <swarm-script>` cost-routed (haiku for mechanical, sonnet for analysis), staggered starts (`/swarm`, "Long runs"), explicit `--model:` on every call. Adversarial verify ≥3 lenses before any actionable claim.
 
 ## Phase 3 — readout format (always)
 

@@ -32,11 +32,12 @@ Engines mix. A common split is a Workflow for the bounded review fan-out, Agent 
 
 - **One writer per branch.** Every writing lane has its own branch and its own checkout: `isolation: 'worktree'` in a Workflow, a worktree for an Agent lane, the mirrored checkout for a remote lane. After a branch is handed to a remote lane, the local side stops writing to it.
 - Read-only lanes share freely. Each lane writes its results to its own file or directory; no two lanes write the same mutable file.
-- One integration owner, normally the main session, merges lane branches and pushes. Lanes do not push to each other's branches.
+- One integration owner, normally the main session, merges lane branches and pushes. Lanes do not push to each other's branches. It stages only the exact authorized files and commits and pushes through the owning repository's workflow; merging, pushing or publishing still needs the authorization that action normally requires. Never commit raw captures or temporary datasets into a code repository.
+- Never `git commit -a` or `git add -A` in a checkout that carries another actor's staged or modified work; use a path-scoped `git add -- <paths>` only.
 - Miners read a dataset built once in the main loop instead of each making live API calls.
 - Actions that trigger CI (pushes, branch updates) are batched against the runner fleet's capacity, which is a separate limit from agent concurrency. One push can start dozens of jobs.
 - A blocked gate blocks only the items that depend on it. Keep dispatching file-disjoint work.
-- When a PR driver owns the review budget for a PR, start only the reviewers it assigned.
+- When a PR driver owns the review budget for a PR, start only the reviewers it assigned. That budget also governs verifier and advice fan-out, including delegated runtimes. When the budget or the driver's authority is unclear, stop automatic reviewer dispatch and ask the driver.
 
 ## Verification
 
@@ -59,12 +60,12 @@ The main session keeps one table and updates a row when that lane changes state,
 
 The handle is the workflow run id, the agent name, or the remote host plus tmux session. For a run that ends within the session, the table lives in the conversation. Write it to `${ROADMAP_DIR:-$HOME/roadmap}/<project-slug>/swarm/<mission>/STATE.md` only when the run has to be resumable after the session ends, and record the next command to run beside it. When a sidekick is running, its STATE.md is the registry.
 
-Liveness comes from what the lane last did, not from file mtimes or a status string: the agent transcript for local lanes (procedure in the [sidekick](../sidekick/SKILL.md) skill, "Transcript-proof liveness"), a fresh attributable agent response for remote lanes (linux-remote's response-proof contract; a tmux session that exists proves transport only). A lane with a live process and a silent transcript across two checks may be sitting on a rate-limit modal; look before respawning.
+Liveness comes from what the lane last did, not from file mtimes or a status string: the agent transcript for local lanes (procedure in the [sidekick](../sidekick/SKILL.md) skill, "Transcript-proof liveness"), a fresh attributable agent response for remote lanes (linux-remote's response-proof contract; a tmux session that exists proves transport only). Redact secrets before quoting transcript snippets. A lane is stalled only when its transcript shows no events across two checks and no live OS process backs it; only then take over or respawn. A resource probe never authorizes killing or restarting another lane. A lane with a live process and a silent transcript across two checks may be sitting on a rate-limit modal; look before respawning.
 
 ## Long runs
 
 - `--sidekick [model]`: for a run expected to outlast one context window or session, such as an overnight drive, wrap it with `/sidekick`. That skill owns STATE.md, checkpoints and respawn. Shorter runs do not need it.
-- Rate limits are aggregate across every swarm running on the account. Do not start two large fan-outs in the same minute. On mass 429s: stop, wait, probe with a single agent, then resume from the run id.
+- Rate limits are aggregate across every swarm running on the account. Do not start two large fan-outs in the same minute. Stagger heavy lane starts: launch a wide fan-out in batches of about eight a few seconds apart, not as one instant burst. On mass 429s: stop, wait, probe with a single agent, then resume from the run id.
 - A workflow resumes from its run id with cached results for unchanged `agent()` calls. Edit only calls that have not completed.
 
 ## Shapes
