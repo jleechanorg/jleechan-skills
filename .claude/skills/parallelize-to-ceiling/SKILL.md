@@ -438,8 +438,10 @@ there to a pointer 2026-09-06; this section is the full policy).
   limits, provenance, roles and timestamps, symlinks, failures, concurrency).
   Pass user restrictions verbatim. The child returns compact findings, exact
   paths and acceptance proof, never transcript copies; its receipt records the
-  model and scope that ran. Review seats are not work dispatches: they take
-  input only from [static-review](../static-review/SKILL.md), never this brief.
+  model and scope that ran. Review seats are not work dispatches: source and
+  advice seats take input only from [static-review](../static-review/SKILL.md)
+  and `/er` seats from [evidence-review](../evidence-review/SKILL.md), never
+  this brief.
 - Before waiting on a lane, confirm it started (a live handle, process or
   session); assignment is not progress.
 - A worker owns its assigned checks through completion and reports when done,
