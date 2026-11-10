@@ -132,6 +132,7 @@ registry.
 | `INSTINCT_IMSG_BRIDGE` | Path to the `/instinct` iMessage bridge (`imsg-bridge.sh`) | sibling `scripts/imsg-bridge.sh` of the skill package | `$HOME/.local/bin/imsg-bridge.sh` |
 | `INSTINCT_TRANSPORT` | Force one `/instinct` transport (`imessage` or `whatsapp`), disabling fallback | — | unset (chain: iMessage then WhatsApp) |
 | `INSTINCT_READ_THEIRS` | `1` = `/instinct read` returns only the peer's messages, excluding outgoing rows | — | unset |
+| `INSTINCT_SELF` | This account's own display name in the peer's WhatsApp chat. Required for `read --theirs` on the WhatsApp transport, which needs it to tell your bubbles from the peer's | — | unset (the WhatsApp `--theirs` read fails closed without it) |
 | `IMSG_CHAT_DB` | Path to the macOS Messages store read by `imsg-bridge.sh` | — | `$HOME/Library/Messages/chat.db` |
 
 ## Values that are deleted, not parameterized

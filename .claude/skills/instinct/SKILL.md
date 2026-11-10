@@ -34,6 +34,7 @@ required one is unset.
 | `INSTINCT_IMSG_BRIDGE` | Path to `imsg-bridge.sh` | `$HOME/.local/bin/imsg-bridge.sh` |
 | `INSTINCT_TRANSPORT` | Force `imessage` or `whatsapp`, disabling fallback | unset = chain |
 | `INSTINCT_READ_THEIRS` | `1` = `read` returns only the peer's messages | unset |
+| `INSTINCT_SELF` | Your own display name in the peer's WhatsApp chat; required for `read --theirs` there | unset |
 | `IMSG_CHAT_DB` | Path to the macOS message store | `$HOME/Library/Messages/chat.db` |
 
 The bridge is resolved as a **sibling script of this skill package**

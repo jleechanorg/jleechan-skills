@@ -90,9 +90,19 @@ have /usr/bin/osascript || die "osascript not found" 3
 # tells sqlite the file cannot change, which both opens it and is the correct
 # semantic for a snapshot.
 # Usage: q <db-path> [sqlite flags] <sql...>
+LIVE_DB="$HOME/Library/Messages/chat.db"
 q() {
   local dbpath="$1"; shift
-  if [ -n "$DB_OVERRIDE" ]; then
+  # immutable=1 is only valid for a SNAPSHOT. Applying it to the live store would
+  # tell sqlite the file cannot change and hide committed rows (including the one a
+  # send just wrote), so the live path — and anything resolving to it — is opened
+  # with a plain read-only handle instead.
+  local real real_live
+  real=$(cd "$(dirname "$dbpath")" 2>/dev/null && pwd -P)/$(basename "$dbpath")
+  real_live=$(cd "$(dirname "$LIVE_DB")" 2>/dev/null && pwd -P)/$(basename "$LIVE_DB")
+  if [ "$dbpath" = "$LIVE_DB" ] || [ "$real" = "$real_live" ]; then
+    /usr/bin/sqlite3 -readonly "$dbpath" "$@"
+  elif [ -n "$DB_OVERRIDE" ]; then
     /usr/bin/sqlite3 -readonly "file:${dbpath}?immutable=1" "$@"
   else
     /usr/bin/sqlite3 -readonly "$dbpath" "$@"
@@ -156,25 +166,37 @@ end run
 APPLESCRIPT
   local rc=$?
   # osascript returned non-zero. That is NOT proof the message was not submitted:
-  # an AppleEvent timeout (-1712) can arrive after Messages already queued it. Only
-  # claim "not sent" (the code a caller may safely fall back on) when the store
-  # shows no new outgoing row for this chat. Otherwise it is exit 9.
+  # an AppleEvent timeout (-1712) can arrive after Messages already queued it.
+  #
+  # "Proven not sent" (exit 6, the only code a caller may safely fall back on) needs
+  # ALL of:
+  #   1. the LIVE store was read through a plain read-only handle. A snapshot can
+  #      never contain the row this send created, and immutable=1 hides rows still
+  #      in the WAL, so neither can prove absence;
+  #   2. the race query itself succeeded (exit 0). A failed query is not "no rows";
+  #   3. the query genuinely returned empty;
+  #   4. and a short wait-and-recheck agrees, in case the row was still landing.
+  # Anything else is exit 9.
   if [ "$rc" -ne 0 ]; then
-    if [ "$can_read" -eq 1 ]; then
-      local raced
+    if [ "$can_read" -ne 1 ] || [ -n "$DB_OVERRIDE" ]; then
+      die "osascript rc=$rc and the store in use cannot prove absence (unreadable or a snapshot). NOT falling back" 9
+    fi
+    local attempt raced qrc
+    for attempt in 1 2 3; do
       raced=$(q "$DB" "select m.ROWID from message m
           join chat_message_join cmj on cmj.message_id = m.ROWID
           join chat c on c.ROWID = cmj.chat_id
          where m.ROWID > $before and m.is_from_me = 1
            and c.chat_identifier = '$CONTACT_HANDLE'
-         order by m.ROWID desc limit 1;" 2>/dev/null)
-      if [ -n "$raced" ]; then
-        die "osascript rc=$rc but row $raced exists for this chat: sent=unverified. NOT falling back" 9
+         order by m.ROWID desc limit 1;" 2>/tmp/imsg_raced.err)
+      qrc=$?
+      if [ "$qrc" -ne 0 ]; then
+        die "osascript rc=$rc and the absence check itself failed (sqlite rc=$qrc). NOT falling back" 9
       fi
-    else
-      die "osascript rc=$rc and the store is unreadable here, so 'not sent' cannot be proven. NOT falling back" 9
-    fi
-    die "osascript send failed rc=$rc (no row appeared; safe to fall back)" 6
+      [ -n "$raced" ] && die "osascript rc=$rc but row $raced exists for this chat: sent=unverified. NOT falling back" 9
+      [ "$attempt" -lt 3 ] && sleep 1
+    done
+    die "osascript send failed rc=$rc; no row appeared in the live store across 3 checks, so this is safe to fall back on" 6
   fi
 
   [ "$can_read" -eq 1 ] || {

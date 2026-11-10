@@ -866,7 +866,12 @@ async function compose(page, text) {
 
     await withPage(async (page) => {
       await openContact(page, name);
-      const msgs = await readMessages(page, limit);
+      // Ask for a wider window than the caller wants: the direction check below
+      // needs to see whether ANY bubble is ours, and a run of peer replies (the
+      // normal reply-polling case) would otherwise contain none and be refused.
+      const scan = wantTheirs ? Math.max(limit * 4, 40) : limit;
+      const allMsgs = await readMessages(page, scan);
+      const msgs = allMsgs.slice(-limit);
       // --theirs must filter the fallback transport too. Without this, a prompt that
       // asks for "VERDICT: PASS|FAIL|BLOCKED" matches its own outgoing text here and
       // reports a verdict that does not exist — the exact bug this flag prevents.
@@ -882,7 +887,7 @@ async function compose(page, text) {
       let shown = msgs;
       if (wantTheirs) {
         const selfLower = SELF_NAME.toLowerCase();
-        const matchedSome = msgs.some((m) => (m.sender || '').toLowerCase() === selfLower);
+        const matchedSome = allMsgs.some((m) => (m.sender || '').toLowerCase() === selfLower);
         if (!matchedSome) {
           // No bubble is labelled with exactly SELF_NAME, so direction cannot be
           // established for this transcript. Filtering on a substring would either
