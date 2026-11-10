@@ -142,7 +142,7 @@ def records_for(payload, runtime, git, now=None):
         return []
     event = payload.get("hook_event_name")
     cwd = payload.get("cwd") if isinstance(payload.get("cwd"), str) else None
-    ts = (now or datetime.now(timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    ts = (now or datetime.now(timezone.utc)).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
     def make(kind, info, **extra):
         rec = {"v": 1, "ts": ts, "runtime": runtime, "session_id": sid, "kind": kind}

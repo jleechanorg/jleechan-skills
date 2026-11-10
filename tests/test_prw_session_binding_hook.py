@@ -6,9 +6,11 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 from scripts.prw_session_binding_hook import records_for
+from scripts.prw_session_bindings import binding_at, load
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "prw_session_binding_hook.py"
@@ -55,7 +57,7 @@ class TestRecords(unittest.TestCase):
         self.assertEqual(r["runtime"], "claude")
         self.assertEqual(r["session_id"], SID)
         self.assertEqual((r["repo"], r["branch"], r["sha"]), ("me/origin", "feat/x", "a" * 40))
-        self.assertRegex(r["ts"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
+        self.assertRegex(r["ts"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$")
 
     def test_pr_create(self):
         recs, _ = run(post("gh pr create --fill", "https://github.com/acme/app/pull/42\n"))
@@ -125,6 +127,21 @@ class TestRecords(unittest.TestCase):
             with self.subTest(cmd=cmd):
                 recs, _ = run(post(cmd))
                 self.assertEqual([r["pr"] for r in recs], ["me/origin#5"])
+
+    def test_same_second_switch_keeps_earlier_request_bound(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        idx_path = Path(tmp.name) / "ledger.jsonl"
+        bound = records_for(post("gh pr checkout 5"), "claude", FakeGit(),
+                            now=datetime(2026, 11, 9, 10, 0, 1, 500000, tzinfo=timezone.utc))
+        switched = records_for(post("git switch other"), "claude", FakeGit(GIT_OK | {"branch": "other"}),
+                               now=datetime(2026, 11, 9, 10, 0, 3, 700000, tzinfo=timezone.utc))
+        idx_path.write_text("".join(json.dumps(r) + "\n" for r in bound + switched))
+        idx, _ = load([idx_path])
+        at = lambda ms: datetime(2026, 11, 9, 10, 0, ms // 1000, (ms % 1000) * 1000, tzinfo=timezone.utc)
+        self.assertIsNone(binding_at(idx, SID, at(1200)))
+        self.assertEqual(binding_at(idx, SID, at(3300)), "me/origin#5")
+        self.assertIsNone(binding_at(idx, SID, at(3800)))
 
     def test_stop_events(self):
         for ev in ("Stop", "SubagentStop"):

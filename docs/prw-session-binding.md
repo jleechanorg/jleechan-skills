@@ -2,7 +2,9 @@
 
 Records which pull request an agent session is working on, so the metrics job can tie the session's token usage to that PR instead of guessing from branch names.
 
-Status: built and unit-tested. **Not installed on any host.** Codex payloads are unverified.
+Status: built, unit-tested and exercised by a real headless Claude Code session. **Not installed on any host.** Codex payloads are unverified.
+
+Specification: [docs/specs/prw-session-binding-spec.md](specs/prw-session-binding-spec.md).
 
 ## What it records
 
@@ -28,7 +30,9 @@ The hook always exits 0 and prints nothing. If anything goes wrong it writes no 
 
 `scripts/native_usage_collector.py --session-bindings <ledger>` looks up, for each usage record without a request-level binding, the latest `pr_binding` in the same session at or before the record's time. A newer binding replaces it. A switch to a different branch or repository clears it. A bound record gets a `convention` attribution with `convention_ref: prw-session-binding.v1` and a receipt that names the ledger record.
 
-The existing query already totals `convention` attributions per PR (`convention_total_tokens`). The web dashboard export shows them as usage basis `session_binding`.
+Ledger timestamps have millisecond precision, so the request that issues a branch switch stays bound to the PR it was working on.
+
+The existing query already totals `convention` attributions per PR (`convention_total_tokens`). Showing them on the web dashboard as usage basis `session_binding` belongs to a separate change (branch `feat/prw-web-dashboard`).
 
 ## Installing (not done; needs the repository's review and sync workflow)
 
@@ -52,25 +56,26 @@ The script path above assumes the sync workflow installs it under `~/.claude/scr
 
 - The ledger gains a line when a session starts.
 - The collector's stats file reports `session_binding_records` and a non-zero `session_bound_usage_records`.
-- On the dashboard, "Token usage per PR" coverage rises and drilldowns show "Session recorded as working on this PR".
+- Once the dashboard change lands, "Token usage per PR" coverage rises and drilldowns show "Session recorded as working on this PR".
 
 ## What was and was not verified
 
 | Check | Result |
 |---|---|
-| Hook unit tests (Claude payload shape, 26 cases) | Pass |
+| Hook unit tests (Claude payload shape) | Pass |
 | Hook invoked directly with a Claude-shaped `SessionStart` payload in a scratch repository | Wrote a correct record |
-| Hook fired by a real Claude Code session | **Not verified.** The building session ran in safe mode, which child sessions inherit and which disables settings-file hooks. Two headless runs completed their command and wrote no records. |
-| Hook `session_id` equals the transcript's session id | **Not verified**, for the same reason |
+| Hook fired by a real Claude Code session | Pass: a headless `claude -p --settings` session (Claude Code 2.1.310) running `gh pr view`, `gh pr checkout` and `git switch` wrote `session_start`, `pr_binding`, `branch` and `stop`, and nothing for `gh pr view`. Earlier attempts launched from inside another agent session wrote no records; this run first unset that session's `CLAUDECODE` and `CLAUDE_CODE_*` session variables. Which variable mattered was not isolated. |
+| Hook `session_id` equals the transcript's session id | Pass, same run |
+| Collector on that session's transcript with `--session-bindings` | Pass: the request issued while bound was credited to the PR; requests before the checkout and after the switch were not |
 | Codex payload field names; Codex child threads | **Not verified.** No Codex session was run. |
 | Join and collector unit tests | See the test modules `tests/test_prw_session_bindings.py` and `tests/test_prw_session_binding_collector.py` |
 
-To run the real-session check outside safe mode:
+To repeat the real-session check:
 
 ```bash
 S=/path/to/scratch; mkdir -p "$S/repo" && cd "$S/repo" && git init -q && git remote add origin https://github.com/acme/app.git && git commit -q --allow-empty -m init
 # settings.json registers the three hooks with PRW_BINDING_LEDGER="$S/ledger.jsonl"
-claude -p "Run exactly this one shell command and then stop: git switch -c demo" --settings "$S/settings.json" --model haiku --allowedTools "Bash(git switch:*)" < /dev/null
+env -u CLAUDECODE -u CLAUDE_CODE_CHILD_SESSION -u CLAUDE_CODE_SESSION_ID -u CLAUDE_CODE_ENTRYPOINT claude -p "Run exactly this one shell command and then stop: git switch -c demo" --settings "$S/settings.json" --model haiku --allowedTools "Bash(git switch:*)" < /dev/null
 cat "$S/ledger.jsonl"   # expect session_start, branch, stop with one session_id equal to the transcript's sessionId
 ```
 
