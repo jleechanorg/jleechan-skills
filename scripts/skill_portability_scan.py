@@ -29,6 +29,20 @@ PERSONAL_PATTERNS = (
     ("private lan ip", re.compile(r"\b192\.168\.\d+\.\d+\b")),
     ("tailnet ip", re.compile(r"\b100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d+\.\d+\b")),
     ("named ssh key", re.compile(r"\.ssh/id_(?!(?:rsa|ed25519|ecdsa|dsa)\b)[A-Za-z0-9]+(?:_[A-Za-z0-9]+)*")),
+    # A hardcoded phone in a skill is somebody's real contact detail. On 2026-11-09/10 a
+    # contact's number shipped as a script default and 46 self-test messages reached it;
+    # this scanner did not look at phone numbers at all.
+    #
+    # NANP reserves 555-0100..555-0199 for fiction, so a document that shows a phone must
+    # use that block. Excluding it keeps the guard on real digits and stops a doc example
+    # from failing CI. The lookbehind rejects arithmetic/path context (the Chrome-epoch
+    # `+11644473600` in dot/tests is a constant, not a phone); the lookahead rejects
+    # longer digit runs.
+    ("phone number", re.compile(r"(?<![\w)\]/*+=.])\+1(?!555)[2-9]\d{9}(?!\d)")),
+    # The `\(?` inside the lookahead matters: it runs BEFORE the optional open paren is
+    # consumed, so a bare `(?!555)` lets a parenthesized "(555) ..." area code slip
+    # through and only spares the bare "555 ..." form.
+    ("phone number", re.compile(r"(?<![\d.])\(?(?!\(?555)\d{3}\)?[ .-]\d{3}[ .-]\d{4}(?!\d)")),
 )
 
 
