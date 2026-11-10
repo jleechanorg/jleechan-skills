@@ -128,7 +128,7 @@ never the worker flag. Full numbers and the heavy/light split:
   each worker a disjoint workspace/output; single-writer for any merged
   artifact; order-deterministic results (sort by id, not completion order).
 
-## Resource admission gate (mandatory — crash 2026-08-30)
+## Resource admission gate (mandatory — crash 2026-08-30; command source of truth)
 
 Memory is a first-class resource bound. A harness process died silently at
 the instant it forked a 20-minute foreground CLI delegate on a host at 92%
@@ -146,7 +146,8 @@ metric. Under the current shared action policy, pressure 2 is informational
 and not the defer tier; treating it as a hard stop over-triggers when
 available memory is ample.
 
-Before spawning any new lane, subprocess fleet, or CLI delegation (exact probe
+Before spawning any new lane, subprocess fleet, or CLI delegation, **and any time
+diagnosing whether this Mac is under memory pressure** (exact probe
 commands: [`references/specialist-commands.md`](references/specialist-commands.md#memory-admission-probes)):
 
 1. **Probe available memory — the primary signal.**
@@ -158,8 +159,7 @@ commands: [`references/specialist-commands.md`](references/specialist-commands.m
    - Linux: `free -g` available column; do not map macOS pressure numbers
      onto Linux.
    - Takes one second.
-2. **Attribute the pressure before reacting.** `ps -Ao rss,comm -m | head`
-   to find the top-RSS consumer. If it's a steady-state VM/daemon
+2. **Attribute the pressure before reacting.** Find the top-RSS consumer (command in the reference). If it's a steady-state VM/daemon
    (Virtualization.framework, colima, docker, qemu, lima), the pressure is
    structural — it won't improve by refusing to spawn, and it barely moves
    whether you spawn 0 or a few lanes.
@@ -173,12 +173,13 @@ commands: [`references/specialist-commands.md`](references/specialist-commands.m
    - Available >8GB **and** macOS pressure ≤2 → **spawn normally**.
 4. **Swap is evidence, not a separate defer tier.** Never defer from a static
    used/total ratio. If available memory is low, sample twice, seconds apart
-   (`sysctl vm.swapusage; sleep 5; sysctl vm.swapusage`), and compare
+   (command in the reference), and compare
    `used`. Flat-but-high used/total is not evidence of saturation; actively
    growing swap plus low available memory informs the measured tier above.
 5. **Never fork a multi-minute CLI delegation (agy, codex, claude -p) as a
    foreground Bash call.** Always `run_in_background` + explicit timeout —
-   a foreground fork pins the parent at the worst possible moment.
+   a foreground fork pins the parent at the worst possible moment. Read the
+   output file on the task notification.
 6. **Cap concurrent pytest lanes** in gRPC-loaded repos (macOS
    fork-unsafety: "multi-threaded process forked" SIGTRAP storms). 2-3
    lanes max per host unless measured safe; fill the current host's safe
@@ -265,7 +266,7 @@ its fallback is governed by the Fallback precedence section below.
 
 ## Fallback precedence
 
-The `FALLBACK` template above is governed by this order:
+The pair template's `FALLBACK` line (inline in the pasted block) is governed by this order:
 
 1. Start with the AGY pair as the primary implementation and verification lanes.
 2. After a concrete AGY lane failure, retry the same bounded lane with a Codex
@@ -387,7 +388,7 @@ there to a pointer 2026-09-06; this section is the full policy).
   the existing completion handle until a meaningful deadline instead of chaining
   short empty waits. Report progress at the runtime cadence. Never call a wait
   on a finished handle; inspect its delivered result or transcript first.
-- **Gemini Model Invariant**: Never use Gemini 3.1 Pro (or older Gemini Pro models), and never default subagents to `Model: "inherit"` when running in AGY CLI. Always use Gemini 3.8 Flash or later (exact `agy --model` and `invoke_subagent` `Model:` values: [`references/specialist-commands.md`](references/specialist-commands.md#gemini-flash-lane-flags)).
+- **Gemini Model Invariant**: Never use Gemini 3.1 Pro (or older Gemini Pro models), and never leave `Model: "inherit"` or `"pro"` on bounded subagent lanes (AGY CLI `agy` and Antigravity native `invoke_subagent` alike). Always use Gemini 3.8 Flash or later (exact `agy --model` and `invoke_subagent` `Model:` values: [`references/specialist-commands.md`](references/specialist-commands.md#gemini-flash-lane-flags)).
 - Top tier (the session's own model): reserve for adversarial judgment, or
   only after a cheaper tier has already failed on that unit.
 - Before you repeat a delegated claim **or act on it**, read the artifact it
