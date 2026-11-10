@@ -287,16 +287,44 @@ async function withPage(fn, { headed = false } = {}) {
 
 const WA = 'https://web.whatsapp.com/';
 
-/** WhatsApp Web renders a QR canvas when signed out and the chat list when signed in. */
-async function signedIn(page) {
-  // Signed in => the chat list exists. Signed out => the QR canvas is shown.
-  const list = await page.locator('#pane-side').count();
-  const qr = await page
-    .locator('canvas')
-    .count()
-    .catch(() => 0);
-  return list > 0 && qr === 0;
+/**
+ * One authoritative auth classifier. EVERY caller uses this, so `probe` and `signedIn()` can never
+ * disagree about what the session is. Derived from a single DOM sample.
+ *
+ * linked     - the chat list is actually visible
+ * signed_out - a VISIBLE <canvas> plus the QR screen's own copy. A bare canvas is not proof: the
+ *              startup promo page ("Download WhatsApp for Mac") also has one, which is exactly why
+ *              this is not a canvas count.
+ * loading    - anything else (splash, mid-transition, ambiguous)
+ */
+const QR_COPY = /scan (the )?qr|link with phone number|log in with phone number|keep me signed in/i;
+
+async function classifyState(page) {
+  return page
+    .evaluate((qrCopySrc) => {
+      const qrCopy = new RegExp(qrCopySrc, 'i');
+      const visible = (el) => {
+        if (!el) return false;
+        const r = el.getBoundingClientRect();
+        const st = getComputedStyle(el);
+        return r.width > 0 && r.height > 0 && st.visibility !== 'hidden' && st.display !== 'none';
+      };
+      const list = document.querySelector('#pane-side');
+      if (visible(list)) return 'linked';
+      // Check EVERY canvas: a hidden first one must not mask a visible QR canvas.
+      const anyVisibleCanvas = [...document.querySelectorAll('canvas')].some(visible);
+      const bodyText = document.body ? document.body.innerText || '' : '';
+      if (anyVisibleCanvas && qrCopy.test(bodyText)) return 'signed_out';
+      return 'loading';
+    }, QR_COPY.source)
+    .catch(() => 'loading');
 }
+
+/** Signed in iff the single classifier says linked. No second, divergent definition. */
+async function signedIn(page) {
+  return (await classifyState(page)) === 'linked';
+}
+
 
 /** This WhatsApp build uses a real <input> for search, not a contenteditable div. */
 const SEARCH = 'input[aria-label="Search or start a new chat"], input[placeholder="Search or start a new chat"]';
@@ -589,13 +617,86 @@ async function compose(page, text) {
   }
 
   if (VERB === 'probe') {
-    await withPage(async (page) => {
+    // Resolve a positive, finite timeout. A NaN/0/negative value would sample nothing and
+    // report 'loading'; Infinity would remove the deadline. Reject both loudly.
+    const timeout = Number(process.env.INSTINCT_PROBE_TIMEOUT_MS ?? 90_000);
+    if (!Number.isFinite(timeout) || timeout <= 0) {
+      die(`INSTINCT_PROBE_TIMEOUT_MS must be a positive finite number of ms; got ${JSON.stringify(process.env.INSTINCT_PROBE_TIMEOUT_MS)}`, 2);
+    }
+
+    const started = Date.now();
+    const deadline = started + timeout;
+
+    // Never call process.exit() inside withPage: that skips its finally block, which closes the
+    // context and waits for ProcessSingleton release. Exiting from here would leave Chrome
+    // holding the profile and wedge the next run. Return a verdict and act on it after cleanup.
+    const result = await withPage(async (page) => {
       await page.goto(WA, { waitUntil: 'domcontentloaded' });
-      await page.waitForTimeout(4000);
-      const ok = await signedIn(page);
-      process.stdout.write(JSON.stringify({ signed_in: ok, profile_dir: PROFILE_DIR }) + '\n');
-      if (!ok) process.exit(4);
+      // WhatsApp pads startup with a splash, and a cold but LINKED profile can need ~40s before
+      // the chat list hydrates. A fixed 4s wait therefore reported signed_in:false for a
+      // perfectly good session (observed 2026-11-10: pane-side=0 at 4s; pane-side=1 with title
+      // "(2) WhatsApp" at 45s). Poll instead of guessing a duration.
+      //
+      // Polling continues to the deadline even after a signed_out observation. Breaking on the
+      // FIRST QR sighting would let a transient startup QR win, so persistence is established by
+      // the final sample rather than by one early glimpse.
+      let sawSignedOut = false;
+      let signedOutStreak = 0;
+      let state = 'loading';
+      for (;;) {
+        state = await classifyState(page);
+        if (state === 'linked') break;
+        if (state === 'signed_out') {
+          sawSignedOut = true;
+          signedOutStreak += 1;
+        } else {
+          signedOutStreak = 0;
+        }
+
+        const remaining = deadline - Date.now();
+        // No budget left: take one last sample so a chat list that appeared during the final
+        // sleep is still seen, then decide.
+        if (remaining <= 0) {
+          state = await classifyState(page);
+          break;
+        }
+        await page.waitForTimeout(Math.min(1000, remaining));
+      }
+      // `state` is the FINAL sample, so a QR that appeared and then cleared leaves us at
+      // 'loading' (UNVERIFIED) rather than a false signed_out. `sawSignedOut` is reported so an
+      // operator can tell "never rendered anything" from "showed a QR that went away".
+      // A QR only counts as the outcome when the FINAL sample says so; signed_outStreak reports
+      // how long it had been on screen. A QR seen mid-poll that cleared is a transient.
+      return {
+        state,
+        signedOutStreak,
+        sawSignedOutTransient: sawSignedOut && state !== 'signed_out',
+        waited_ms: Date.now() - started,
+      };
     }, { headed });
+
+    const ok = result.state === 'linked';
+    process.stdout.write(
+      JSON.stringify({
+        signed_in: ok,
+        state: result.state,
+        saw_signed_out_transient: result.sawSignedOutTransient,
+        consecutive_signed_out_samples: result.signedOutStreak,
+        waited_ms: result.waited_ms,
+        profile_dir: PROFILE_DIR,
+      }) + '\n'
+    );
+    if (ok) return;
+    if (result.state === 'loading') {
+      die(
+        `WhatsApp Web rendered neither a linked chat list nor a QR screen within ${timeout}ms. ` +
+          'The link state is UNVERIFIED, which is not proof the device link is dead. Raise ' +
+          'INSTINCT_PROBE_TIMEOUT_MS or rerun before treating it as signed out.',
+        8
+      );
+    }
+    // Genuine signed-out: a visible QR screen persisted to the end of the poll.
+    process.exitCode = 4;
     return;
   }
 

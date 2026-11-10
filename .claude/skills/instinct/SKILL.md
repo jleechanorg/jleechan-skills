@@ -186,10 +186,23 @@ WhatsApp rather than guessing variants.
 |---|---|---|
 | 2 | bad args, missing/empty message file, profile rejected by an isolation guard | fix the invocation |
 | 3 | playwright or Chrome binary not found | report the missing dependency; do not substitute a personal browser |
-| 4 | not signed in | run the one-time headed link; do not copy cookies |
+| 4 | not signed in. **From `probe`**: the FINAL poll sample shows a visible QR screen (a QR that appeared and cleared is never exit 4) | run the one-time headed link; do not copy cookies |
 | 5 | contact name not found | confirm the exact saved contact name |
 | 6 | draft mismatch or send not confirmed | re-read the chat and report honestly; never claim delivery |
 | 7 | profile owned by a live Chrome | close that Chrome; never delete `SingletonLock` |
+| 8 | `probe` timed out in an ambiguous state — link UNVERIFIED, not dead | raise `INSTINCT_PROBE_TIMEOUT_MS` or rerun; do not re-link |
+
+Exit 4 is shared: `open`/`read`/`send` and the `login` timer also exit 4, but only `probe` reaches
+it via the QR screen, so "exit 4 means a QR was on screen" is a claim scoped to `probe`.
+
+`probe` polls instead of sleeping a fixed interval, and **decides from the final sample.** A cold but
+**linked** profile needs ~40 s to hydrate, so the former 4 s wait reported `signed_in: false` for a
+healthy session. One `classifyState()` owns the definition, so `probe` and `signedIn()` cannot
+disagree. Signed-out requires a **visible** canvas *and* QR-specific copy — a bare canvas is not proof
+(the startup promo page has one), and a QR glimpsed mid-startup that then clears yields `loading`
+(UNVERIFIED), never a false signed-out. `saw_signed_out_transient` reports that case. Exit 8 covers
+timeouts so a slow start is never read as a dead device link, the distinction that would otherwise
+trigger a pointless (and gated) re-link.
 
 ### Two bugs worth knowing about (both fixed here, one still open in `dot.sh`)
 
