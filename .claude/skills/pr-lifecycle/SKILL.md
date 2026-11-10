@@ -9,6 +9,10 @@ metadata:
 
 This is the self-contained generic lifecycle contract. [PR Workflow Manager](../pr-workflow-manager/SKILL.md) is the command and branch entry point; keep its draft, stage, evidence-applicability and safety guidance in sync with this file.
 
+## Codex review dispatch
+
+Before selecting a review route, apply [the Codex review dispatch policy](review-routing.md#codex-review-dispatch) when the originating PR driver is Codex, including its delegated runtimes. It takes precedence over shared-default AI review and approval seats throughout this lifecycle and its linked references; it limits automatic AI review dispatch, not evidence collection, self-review, explicit requests, or independent gates imposed by higher-priority instructions or the target repository. Claude and agy keep the existing routes.
+
 ## Terminal goal and first-screen contract
 
 An unqualified `/prw` (`/pr-workflow`) defaults to driving the PR to **`FINAL_READY`** across all applicable Stage 5 gates, unless explicitly requested earlier. One session goal covers all PR work.
