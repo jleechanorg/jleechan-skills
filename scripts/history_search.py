@@ -675,7 +675,9 @@ def _search_codex_store(
             model_select = ", model" if has_model_col else ""
             rollout_select = ", rollout_path" if "rollout_path" in col_names else ", NULL"
             recent_col = "updated_at" if "updated_at" in col_names else "created_at"
-            activity_date_expr = date_expr.replace("created_at", recent_col)
+            # NULL updated_at sorts last under DESC; treat it as created_at.
+            recent_expr = "COALESCE(updated_at, created_at)" if recent_col == "updated_at" else recent_col
+            activity_date_expr = date_expr.replace("created_at", recent_expr)
 
             if query:
                 sql = f"""
@@ -686,7 +688,7 @@ def _search_codex_store(
                     FROM threads
                     WHERE (cwd = ? OR title LIKE ? OR first_user_message LIKE ?)
                       AND (archived = 0 OR archived IS NULL)
-                    ORDER BY (cwd = ?) DESC, {recent_col} DESC
+                    ORDER BY (cwd = ?) DESC, {recent_expr} DESC
                     LIMIT ?
                 """
                 params: tuple[Any, ...] = (max_chars, like_param, like_param, cwd_path, like_param, like_param, cwd_path, candidate_limit)
@@ -698,12 +700,29 @@ def _search_codex_store(
                     FROM threads
                     WHERE (cwd LIKE ? OR cwd IS NULL)
                       AND (archived = 0 OR archived IS NULL)
-                    ORDER BY (cwd = ?) DESC, {recent_col} DESC
+                    ORDER BY (cwd = ?) DESC, {recent_expr} DESC
                     LIMIT ?
                 """
                 params = (max_chars, like_param, cwd_path, limit)
 
             rows = cur.execute(sql, params).fetchall()
+            if query:
+                # Newer in-project rows must not crowd out genuine index matches.
+                match_sql = f"""
+                    SELECT title, substr(first_user_message, 1, ?), cwd, git_branch,
+                           {date_expr} as created, id{model_select},
+                           1 as query_match{rollout_select},
+                           {activity_date_expr} as activity_time
+                    FROM threads
+                    WHERE (title LIKE ? OR first_user_message LIKE ?)
+                      AND (archived = 0 OR archived IS NULL)
+                    ORDER BY {recent_expr} DESC
+                    LIMIT ?
+                """
+                seen_ids = {row[5] for row in rows}
+                rows += [row for row in cur.execute(
+                    match_sql, (max_chars, like_param, like_param, candidate_limit)
+                ).fetchall() if row[5] not in seen_ids]
             if not rows and not query:
                 sql_recent = f"""
                     SELECT title, substr(first_user_message, 1, ?), cwd, git_branch,
@@ -711,7 +730,7 @@ def _search_codex_store(
                            {activity_date_expr} as activity_time
                     FROM threads
                     WHERE (archived = 0 OR archived IS NULL)
-                    ORDER BY created_at DESC
+                    ORDER BY {recent_expr} DESC
                     LIMIT ?
                 """
                 rows = cur.execute(sql_recent, (max_chars, limit)).fetchall()
