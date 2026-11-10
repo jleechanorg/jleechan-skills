@@ -591,10 +591,53 @@ async function compose(page, text) {
   if (VERB === 'probe') {
     await withPage(async (page) => {
       await page.goto(WA, { waitUntil: 'domcontentloaded' });
-      await page.waitForTimeout(4000);
-      const ok = await signedIn(page);
-      process.stdout.write(JSON.stringify({ signed_in: ok, profile_dir: PROFILE_DIR }) + '\n');
-      if (!ok) process.exit(4);
+      // WhatsApp pads startup with a splash; a cold but LINKED profile can need ~40s before the
+      // chat list hydrates. A fixed 4s wait therefore reported signed_in:false for a perfectly
+      // good session (observed 2026-11-10: pane-side=0 at 4s, pane-side=1 with title
+      // "(2) WhatsApp" at 45s). Poll for the decisive element instead of guessing a duration,
+      // and keep "still loading" DISTINCT from "signed out" so a slow start cannot be
+      // mistaken for a dead device link.
+      const timeout = Number(process.env.INSTINCT_PROBE_TIMEOUT_MS || 90_000);
+      const started = Date.now();
+      const deadline = started + timeout;
+      let state = 'loading';
+      while (Date.now() < deadline) {
+        const seen = await page
+          .evaluate(() => ({
+            list: document.querySelectorAll('#pane-side').length,
+            qr: document.querySelectorAll('canvas').length,
+          }))
+          .catch(() => ({ list: 0, qr: 0 }));
+        if (seen.list > 0) {
+          state = 'linked';
+          break;
+        }
+        if (seen.qr > 0) {
+          state = 'signed_out';
+          break;
+        }
+        await page.waitForTimeout(1000);
+      }
+      const ok = state === 'linked' && (await signedIn(page));
+      process.stdout.write(
+        JSON.stringify({
+          signed_in: ok,
+          state,
+          waited_ms: Date.now() - started,
+          profile_dir: PROFILE_DIR,
+        }) + '\n'
+      );
+      if (ok) return;
+      if (state === 'loading') {
+        die(
+          `WhatsApp Web rendered neither a chat list nor a QR within ${timeout}ms; the link ` +
+            'state is UNVERIFIED, which is not proof the device link is dead. Raise ' +
+            'INSTINCT_PROBE_TIMEOUT_MS or rerun before treating it as signed out.',
+          8
+        );
+      }
+      // Genuine signed-out: the QR canvas is on screen.
+      process.exit(4);
     }, { headed });
     return;
   }
