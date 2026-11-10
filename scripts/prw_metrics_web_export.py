@@ -16,6 +16,11 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
+try:
+    from scripts.prw_metrics import MetricsAggregator, _project_summary, _scrub_secrets
+except ModuleNotFoundError:
+    from prw_metrics import MetricsAggregator, _project_summary, _scrub_secrets
+
 SCHEMA_VERSION = 1
 
 _TS = re.compile(
@@ -97,12 +102,18 @@ def _size(record):
     return {"additions": additions, "deletions": deletions, "files": files}
 
 
+# (key, label, start fields, end fields): the first present field is used, as in the collector.
 HANDOFF_TRANSITIONS = (
-    ("evidence_to_review_request", "Evidence ready to review requested", "evidence_ready_at", "review_requested_at"),
-    ("review_request_to_start", "Review requested to review started", "review_requested_at", "actual_review_started_at"),
-    ("review_return_to_next_action", "Review returned to next action started", "review_returned_at", "next_action_started_at"),
-    ("authority_to_merge", "Merge authority ready to merged", "authority_ready_at", "mergedAt"),
+    ("evidence_to_review_request", "Evidence ready to review requested", ("evidence_ready_at",), ("review_requested_at",)),
+    ("review_request_to_start", "Review requested to review started", ("review_requested_at",), ("actual_review_started_at",)),
+    ("review_return_to_next_action", "Review returned to next action started",
+     ("review_returned_at", "review_completed_at"), ("next_action_started_at", "next_substantive_action_at")),
+    ("authority_to_merge", "Merge authority ready to merged", ("authority_ready_at",), ("mergedAt",)),
 )
+
+
+def _first(record, fields):
+    return next((record.get(field) for field in fields if record.get(field)), None)
 
 
 def _handoffs(record):
@@ -110,8 +121,11 @@ def _handoffs(record):
     if not isinstance(record, dict):
         return None
     intervals = {}
-    for key, _label, start_field, end_field in HANDOFF_TRANSITIONS:
-        start, end = to_utc_iso(record.get(start_field)), to_utc_iso(record.get(end_field))
+    for key, _label, start_fields, end_fields in HANDOFF_TRANSITIONS:
+        # Merge-authority time counts only when the collector accepts the authority facts.
+        if key == "authority_to_merge" and MetricsAggregator().derive_authority_ready(record) != "READY":
+            continue
+        start, end = to_utc_iso(_first(record, start_fields)), to_utc_iso(_first(record, end_fields))
         if not start or not end:
             continue
         seconds = (
@@ -341,20 +355,10 @@ def _finite(value):
     return value
 
 
-def _sources(sources):
-    """Source status only. Paths and error text stay out, as in the retained summary schema."""
-    if not isinstance(sources, dict):
-        return None
-    return {
-        str(name): {key: info[key] for key in ("status", "count", "cutoff") if key in info}
-        for name, info in sources.items()
-        if isinstance(info, dict)
-    }
-
-
 def build_snapshot(summary_data, query_summary, prs, *, generated_at=None, code_version=None):
     """Build the dashboard payload. All three inputs are optional; absent means unknown."""
-    summary_data = summary_data if isinstance(summary_data, dict) else {}
+    # The retained-summary schema projection: only listed fields, at every depth.
+    summary_data = _project_summary(summary_data)
     query_summary = query_summary if isinstance(query_summary, dict) else {}
     index = _index_prs(prs)
     scenarios = _scenarios_by_pr(query_summary.get("catalog_scenario_pr_metrics"))
@@ -369,7 +373,7 @@ def build_snapshot(summary_data, query_summary, prs, *, generated_at=None, code_
     usage = summary_data.get("usage_summary") if isinstance(summary_data.get("usage_summary"), dict) else {}
     human = summary_data.get("human_summary") if isinstance(summary_data.get("human_summary"), dict) else {}
     methods = sorted({row["method"] for row in cohorts if row["method"]})
-    return _finite({
+    return _scrub_secrets(_finite({
         "schema_version": SCHEMA_VERSION,
         "generated_at": to_utc_iso(generated_at or summary_data.get("generated_at")),
         "data_through": to_utc_iso(query_summary.get("snapshot_at_utc") or summary_data.get("data_through")),
@@ -378,7 +382,7 @@ def build_snapshot(summary_data, query_summary, prs, *, generated_at=None, code_
         "code_version": code_version,
         "windows": {"w1": summary_data.get("w1_bounds"), "w2": summary_data.get("w2_bounds")},
         "quantile_method": methods[0] if len(methods) == 1 else methods or None,
-        "sources": _sources(summary_data.get("sources")),
+        "sources": summary_data.get("sources"),
         "repositories": sorted({row["repo"] for row in rows if row["repo"]}),
         "query_coverage": query_summary.get("query_coverage"),
         "repo_comparison": summary_data.get("repo_comparison"),
@@ -399,7 +403,7 @@ def build_snapshot(summary_data, query_summary, prs, *, generated_at=None, code_
         "handoff_transitions": [{"key": key, "label": label} for key, label, _s, _e in HANDOFF_TRANSITIONS],
         "gaps": _gaps(rows, query_summary.get("query_coverage")),
         "prs": rows,
-    })
+    }))
 
 
 def write_snapshot(path, snapshot):

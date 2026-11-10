@@ -162,12 +162,31 @@ class PayloadTests(unittest.TestCase):
 
     def test_non_finite_pass_through_values_become_null_and_write(self):
         summary = {"repo_comparison": [{"repo": "acme/app", "all_p50_hours": float("nan")}],
-                   "stage_dwell": {"x": float("inf")}}
+                   "stage_dwell": [{"stage": "coding", "median_h": float("inf")}]}
         snapshot = export.build_snapshot(summary, query([metric(1)]), [])
         self.assertIsNone(snapshot["repo_comparison"][0]["all_p50_hours"])
-        self.assertIsNone(snapshot["stage_dwell"]["x"])
+        self.assertIsNone(snapshot["stage_dwell"][0]["median_h"])
         with tempfile.TemporaryDirectory() as directory:
             export.write_snapshot(Path(directory) / "dashboard.json", snapshot)
+
+    def test_handoffs_follow_the_collector_rules(self):
+        record = {"repo": "acme/app", "number": 1, "authority_ready_at": "2026-11-01T00:00:00Z",
+                  "mergedAt": "2026-11-01T02:00:00Z", "review_completed_at": "2026-10-31T00:00:00Z",
+                  "next_substantive_action_at": "2026-10-31T00:10:00Z"}
+        handoffs = export.build_snapshot({}, query([metric(1)]), [record])["prs"][0]["handoffs"]
+        self.assertNotIn("authority_to_merge", handoffs)  # no final_ready / merge_authority facts
+        self.assertEqual(handoffs["review_return_to_next_action"], 600.0)
+        ready = dict(record, final_ready=True, merge_authority=True)
+        handoffs = export.build_snapshot({}, query([metric(1)]), [ready])["prs"][0]["handoffs"]
+        self.assertEqual(handoffs["authority_to_merge"], 7200.0)
+
+    def test_credentials_in_titles_and_summary_fields_are_redacted(self):
+        token = "ghp_" + "A1b2C3d4E5" * 3 + "F6g7H8"
+        prs = [{"repo": "acme/app", "number": 1, "title": "fix " + token, "url": "https://github.com/acme/app/pull/1"}]
+        summary = {"repo_comparison": [{"repo": "acme/app", "private_note": "kept out"}]}
+        text = json.dumps(export.build_snapshot(summary, query([metric(1, head_branch="feat/" + token)]), prs))
+        self.assertNotIn(token, text)
+        self.assertNotIn("private_note", text)
 
     def test_gaps_report_observed_counts_for_this_snapshot(self):
         rows = [metric(1), metric(2, observed_active_wall_seconds=30.0)]
