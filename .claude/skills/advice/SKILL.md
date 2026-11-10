@@ -269,9 +269,9 @@ never a code/home tree or new `/tmp` clone; remove only exact owned copies after
 process exit, preserving source and private receipts. Technical receipt and cleanup complete within the attempt
 budget; later sanitized publication is separate and retains the original clocks.
 
-**Before dispatching review.** Check the declared packet: full original review outputs and affected-scope addenda,
-source/head bindings, child request and context provenance (or `unknown`), and event-ID/context joins. Decode an API body field before hashing it. Do not retry a route already confirmed unavailable
-in the same task; keep its receipt.
+**Before dispatching review.** Check the declared packet: source/head bindings, complete pinned content or its
+pointer, and, only for a static-review §4 same-seat addendum, that seat's full original output. Record where the
+request and its context came from, or `unknown`. Hash decoded content, not an encoded API body field.
 
 ## 5. Reconcile and report
 
