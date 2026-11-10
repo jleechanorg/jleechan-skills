@@ -32,6 +32,15 @@ even if an older source revision presents that form as a query. Do not probe
 an uncertain command against the user's session. If no compatible read-only
 query is verified, leave goal state unverified and do not attempt activation.
 
+For an explicitly authorized replacement, record the prior objective and actual
+unfinished status in the existing task record, formulate the new condition,
+then use a supported clear/cancel operation in this session and verify cleared
+state before setting it. Never fabricate completion, edit runtime state files,
+or invent a clear API. An unavailable clear route blocks replacement, not
+independent authorized work. A fresh explicit request to resume a matching
+paused goal permits a supported resume operation; verify active readback.
+Never substitute an unverified focused composer for the caller's own session.
+
 ## Formulate verifiable exit criteria
 
 Make the condition concise, binary where practical, tied to concrete evidence,
