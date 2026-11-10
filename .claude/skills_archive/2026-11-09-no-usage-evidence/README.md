@@ -35,3 +35,5 @@ Full classification of the 308 reviewed names, and the one in-repo skill that wa
 ## Recoverability
 
 Restore one skill with `git mv .claude/skills_archive/2026-11-09-no-usage-evidence/<name> .claude/skills/<name>`, then revert the matching reference edit listed in `docs/skill-archive-2026-11-09.md` if there is one. `coderabbit`, `goalexec-define` and `pr-report` were archived together with the commands that dispatched to them; see `.claude/commands_archive/2026-11-10-no-usage-evidence/README.md`.
+
+`xlsx` is archived only here. The older partial copy under `2026-08-27-historical-zero-use/xlsx/` was removed in the same change, because the installer's archive migration refuses a skill name that two archive groups hold.
