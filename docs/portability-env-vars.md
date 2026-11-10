@@ -127,7 +127,7 @@ registry.
 | `PRW_METRICS_OFFLINE` | Offline mode: skip live GitHub API and use cached data (`1` or `true`) | — | `0` |
 | `PRW_METRICS_PUBLISH` | Publish dashboard to roadmap repo (`1` or `true`) | — | `0` |
 | `PRW_METRICS_STALE_HOURS` | Threshold hours after which source cutoffs are marked STALE | — | `4.5` |
-| `INSTINCT_IMSG_CONTACT` | The peer assistant's iMessage handle (E.164 phone or Apple ID email) for the `/instinct` iMessage transport | — | unset (required for iMessage; the skill stops with a clear message) |
+| `INSTINCT_IMSG_CONTACT` | The peer assistant's iMessage handle (E.164 phone or Apple ID email) for the `/instinct` iMessage transport. `IMSG_CONTACT_HANDLE` is accepted as a compatibility alias for direct bridge use | — | unset (required for iMessage; the skill stops with a clear message) |
 | `INSTINCT_CONTACT` | The peer's WhatsApp chat title, used by the `/instinct` fallback transport | — | unset (required for WhatsApp) |
 | `INSTINCT_IMSG_BRIDGE` | Path to the `/instinct` iMessage bridge (`imsg-bridge.sh`) | sibling `scripts/imsg-bridge.sh` of the skill package | `$HOME/.local/bin/imsg-bridge.sh` |
 | `INSTINCT_TRANSPORT` | Force one `/instinct` transport (`imessage` or `whatsapp`), disabling fallback | — | unset (chain: iMessage then WhatsApp) |

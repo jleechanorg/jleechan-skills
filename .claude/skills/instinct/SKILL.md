@@ -13,13 +13,12 @@ secondary fallback**, selected by capability at run time — see
 `scripts/imsg-bridge.sh` is its iMessage implementation. Every judgment call lives in this file.
 
 ```bash
-NODE=~/.claude/skills/instinct/scripts/instinct.mjs   # resolved by the active skill root
-S=$NODE
+S=~/.claude/skills/instinct/scripts/instinct.mjs   # resolved by the active skill root
 
-node $S whoami                          # which transports, in what order
-node $S probe                           # signed in on ANY transport? exit 4 if none
-node $S read --theirs --limit 20        # last 20 messages FROM the peer
-node $S send --file /tmp/msg.txt        # iMessage first, WhatsApp fallback
+node "$S" whoami                          # which transports, in what order
+node "$S" probe                           # signed in on ANY transport? exit 4 if none
+node "$S" read --theirs --limit 20        # last 20 messages FROM the peer
+node "$S" send --file /tmp/msg.txt        # iMessage first, WhatsApp fallback
 ```
 
 Nothing personal is hardcoded. Set the peer and stores through
@@ -31,14 +30,15 @@ required one is unset.
 | Variable | Meaning | Default |
 |---|---|---|
 | `INSTINCT_IMSG_CONTACT` | The peer's iMessage handle (E.164 phone or Apple ID email) | none — required for iMessage |
-| `INSTINCT_CONTACT` | The peer's WhatsApp chat title | none — required for WhatsApp |
+| `INSTINCT_CONTACT` | The peer's WhatsApp chat title (falls back to a built-in default title) | `"Instinct WhatsApp"` |
 | `INSTINCT_IMSG_BRIDGE` | Path to `imsg-bridge.sh` | `$HOME/.local/bin/imsg-bridge.sh` |
 | `INSTINCT_TRANSPORT` | Force `imessage` or `whatsapp`, disabling fallback | unset = chain |
 | `INSTINCT_READ_THEIRS` | `1` = `read` returns only the peer's messages | unset |
 | `IMSG_CHAT_DB` | Path to the macOS message store | `$HOME/Library/Messages/chat.db` |
 
-For a fresh machine, install the bridge where the default expects it (`install.sh` does this) or
-point `INSTINCT_IMSG_BRIDGE` at wherever `imsg-bridge.sh` lives.
+The bridge is resolved as a **sibling script of this skill package**
+(`scripts/imsg-bridge.sh`), so an installed copy works with no extra step. Set
+`INSTINCT_IMSG_BRIDGE` only to point somewhere else.
 
 ---
 
@@ -67,9 +67,10 @@ real message store. WhatsApp needs a human QR scan before it works at all on a f
 - A transport that is not installed on this host (no bridge script, or not macOS) is **skipped**, not
   failed — a Linux host runs on WhatsApp without reporting iMessage as an error.
 
-**Exit codes** keep one documented contract: `4` not signed in, `5` contact not found, `6` delivery
-not confirmed, `7` resource/profile busy, `8` probe inconclusive. When every transport fails, the
-**last** real code is returned.
+**Exit codes** keep one documented contract: `2` bad usage, `3` missing dependency, `4` not signed
+in, `5` contact not found, `6` **not sent** (a fallback is safe), `7` resource/profile busy, `8`
+probe inconclusive, `9` **possibly sent but unverified** (never fall back — that would duplicate the
+message). When every transport fails, the **last** real code is returned.
 
 ### Resolve the contact by handle, never by display name
 
@@ -103,10 +104,19 @@ ssh <mac-alias> 'node ~/.claude/skills/instinct/scripts/instinct.mjs send --file
 
 ### Scheduler processes cannot read the message store
 
-`send` and `probe` need no database. `read` does, and macOS denies the message store to a
-scheduler-spawned process (`authorization denied`) — such a process is not covered by the user's Full
-Disk Access. `read` therefore exits 4 honestly instead of pretending. An interactive session can read
-it, and `--db SNAPSHOT` accepts a copy taken there.
+macOS denies the message store to a scheduler-spawned process (`authorization denied`) — such a
+process is not covered by the user's Full Disk Access. What breaks differs by verb:
+
+- `probe` still works, but reports `verified: "imagent_only"` rather than claiming the contact was
+  checked, because it cannot read the store.
+- `send` still submits the message, but **cannot confirm** it: it exits **9** (`sent=unverified`)
+  and the transport chain deliberately does **not** fall back, since a fallback would send the
+  message a second time. To get a real confirmation from a scheduler, pass `--db SNAPSHOT` with a
+  copy of the store taken by an interactive session.
+- `read` exits 4. Use an interactive session, or `--db SNAPSHOT`.
+
+Exit `9` is therefore distinct from `6`: `6` means nothing was sent and a fallback is safe; `9`
+means it may have gone out.
 
 ---
 
