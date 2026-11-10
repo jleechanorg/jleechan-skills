@@ -112,13 +112,75 @@ class CodexRelevanceTests(unittest.TestCase):
     def test_line_and_byte_bounds_report_partial_even_without_hits(self):
         path = self.sessions / "rollout-bounded.jsonl"
         record = json.dumps({"role": "user", "content": "ordinary"}) + "\n"
-        for prefix in (record * 2000, "x" * 65536):
-            with self.subTest(size=len(prefix)):
-                path.write_text(prefix + json.dumps({"role": "user", "content": "needle"}) + "\n")
+        needle = json.dumps({"role": "user", "content": "needle"}) + "\n"
+        # The sample now keeps both ends: absence still cannot be claimed for
+        # an omitted middle record, or a record larger than the record budget.
+        for content in (record * 2000 + needle + record * 2000,
+                        json.dumps({"role": "user", "content": "needle" + "x" * 65536}) + "\n"):
+            with self.subTest(size=len(content)):
+                path.write_text(content)
                 stderr = StringIO()
                 with patch("sys.stderr", stderr):
                     self.assertEqual(search_codex("needle", codex_homes=[self.home]), [])
                 self.assertIn("absence not proven", stderr.getvalue())
+
+    def test_recent_tail_survives_oversized_record_with_byte_provenance(self):
+        self.index()
+        path = self.rollout("recent", "/work/project", [])
+        with path.open("a") as stream:
+            stream.write(json.dumps({"type": "turn_context", "payload": {"model": "stale-model"}}) + "\n")
+            stream.write(json.dumps({"role": "tool", "content": "x" * (2 * 1024 * 1024)}) + "\n")
+            for number in range(2):
+                stream.write(json.dumps({"timestamp": f"2026-11-09T12:00:0{number}Z",
+                                         "role": "user", "content": f"needle tail {number}"}) + "\n")
+        original_open = open
+        reads = []
+        class ObservedReader:
+            def __init__(self, stream):
+                self.stream = stream
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                self.stream.close()
+            def __getattr__(self, name):
+                return getattr(self.stream, name)
+            def read(self, size=-1):
+                if size < 0:
+                    raise AssertionError("unbounded read")
+                data = self.stream.read(size)
+                reads.append(len(data))
+                return data
+            def readline(self, size=-1):
+                if size < 0:
+                    raise AssertionError("unbounded readline")
+                data = self.stream.readline(size)
+                reads.append(len(data))
+                return data
+        with patch("builtins.open", side_effect=lambda *a, **kw: ObservedReader(original_open(*a, **kw))):
+            hits = search_codex("needle", cwd="/work/project", codex_homes=[self.home], limit=2)
+        self.assertEqual([hit.snippet for hit in hits], ["needle tail 1", "needle tail 0"])
+        self.assertLessEqual(sum(reads), 1024 * 1024)
+        for hit in hits:
+            self.assertIsNone(hit.metadata.get("line"))
+            self.assertNotIn("model", hit.metadata)  # skipped turns cannot inherit stale model
+            self.assertFalse(hit.metadata["human_verified"])
+            self.assertEqual(hit.metadata["cwd"], "/work/project")
+            with path.open("rb") as stream:
+                stream.seek(hit.metadata["byte_offset"])
+                self.assertEqual(json.loads(stream.readline())["content"], hit.snippet)
+
+    def test_recent_followup_after_two_thousand_records_has_exact_locator(self):
+        path = self.rollout("long", "/work/project", [])
+        padding = json.dumps({"role": "assistant", "content": "ordinary"}) + "\n"
+        with path.open("a") as stream:
+            stream.write(padding * 5000)
+            stream.write(json.dumps({"type": "turn_context", "payload": {"model": "recent-model"}}) + "\n")
+            stream.write(json.dumps({"role": "user", "content": "needle late followup"}) + "\n")
+        hits = search_codex("needle", cwd="/work/project", codex_homes=[self.home], limit=1)
+        self.assertEqual([hit.snippet for hit in hits], ["needle late followup"])
+        self.assertEqual(hits[0].metadata["line"], 5003)
+        self.assertEqual(hits[0].metadata["model"], "recent-model")
+        self.assertEqual(hits[0].metadata["model_source"], "turn_context")
 
     def test_final_unterminated_record_and_result_limit(self):
         path = self.rollout("recent", "/work/project", [("user", f"needle {i}") for i in range(10)])

@@ -496,6 +496,47 @@ def search_pi(
     return results[:limit]
 
 
+def _codex_rollout_sample(stream):
+    """Yield bounded complete JSONL records with truthful source locations.
+
+    Read at most 1 MiB: whole small files, or 512 KiB from each end. Parse at
+    most 2000 records, keeping both ends when necessary. A skipped interval
+    invalidates turn context; tail byte offsets remain exact even when the
+    absolute line number cannot be known without reading the omitted middle.
+    """
+    budget = 1024 * 1024
+    size = stream.seek(0, os.SEEK_END)
+    stream.seek(0)
+    if size <= budget:
+        segments = [(0, stream.read(budget), True)]
+    else:
+        head = stream.read(budget // 2)
+        start = size - budget // 2
+        stream.seek(start)
+        segments = [(0, head, False), (start, stream.read(budget // 2), True)]
+    records = []
+    for start, data, includes_eof in segments:
+        offset = start
+        chunks = data.split(b"\n")
+        for index, chunk in enumerate(chunks):
+            terminated = index < len(chunks) - 1
+            raw = chunk + (b"\n" if terminated else b"")
+            # A tail starts at an arbitrary byte. Conservatively omit its
+            # first fragment; likewise omit a head's incomplete final record.
+            if raw and not (start and index == 0) and (terminated or includes_eof):
+                records.append((raw, index + 1 if start == 0 else None, offset))
+            offset += len(raw)
+    if len(records) > 2000:
+        records = records[:1000] + records[-1000:]
+    previous_end = 0
+    for raw, line_number, offset in records:
+        if len(raw) > 65536:
+            continue
+        gap = offset != previous_end
+        previous_end = offset + len(raw)
+        yield raw, line_number, offset, gap
+
+
 def _codex_sort_key(entry: HistoryEntry, cwd: str) -> tuple[bool, float]:
     try:
         timestamp = datetime.fromisoformat(entry.timestamp).timestamp()
@@ -544,7 +585,8 @@ def search_codex(
         )
         for entry in entries:
             thread_id = entry.metadata.get("thread_id")
-            identity = (thread_id, entry.metadata.get("line"))
+            identity = (thread_id, entry.metadata.get("line") if entry.metadata.get("line") is not None
+                        else ("byte", entry.metadata.get("byte_offset")))
             if thread_id and identity in seen_threads:
                 continue
             if thread_id:
@@ -764,12 +806,13 @@ def _search_codex_store(
                     session_cwd = indexed_files.get(rf, {}).get("cwd", "")
                     thread_id = indexed_files.get(rf, {}).get("thread_id")
                     with open(rf, "rb") as f:
-                        remaining = 1024 * 1024
-                        for line_number in range(1, 2001):
-                            line = f.readline(min(remaining, 65536))
-                            remaining -= len(line)
-                            if not line or (not line.endswith(b"\n") and len(line) >= 65536) or remaining <= 0:
-                                break
+                        for line, line_number, byte_offset, gap in _codex_rollout_sample(f):
+                            if gap:
+                                # Unread events may have ended or changed the
+                                # active turn. Never attribute across that gap.
+                                current_turn_model = None
+                                active_turn_id = None
+                                seen_turn_context = True
                             line = line.strip()
                             if not line:
                                 continue
@@ -834,7 +877,7 @@ def _search_codex_store(
                                 continue
                             snippet = _clean_snippet(text, max_chars=max_chars)
                             ts = str(obj.get("timestamp") or "")
-                            meta = {"path": str(rf), "line": line_number, "cwd": session_cwd,
+                            meta = {"path": str(rf), "line": line_number, "byte_offset": byte_offset, "cwd": session_cwd,
                                     "thread_id": thread_id, "role": "user",
                                     "role_source": line_type or "legacy record",
                                     "human_verified": False, "coverage": "bounded rollout sample"}
@@ -877,7 +920,7 @@ def _search_codex_store(
     for entry in results[:limit]:
         entry.metadata["coverage_errors"] = errors
     print(f"Codex coverage: bounded sample; candidates <= {candidate_limit}, discovery <= 200 entries; "
-          f"per rollout <= 1 MiB/2000 lines/64 KiB per line; errors={errors}; absence not proven", file=sys.stderr)
+          f"per rollout <= 1 MiB head/tail, 2000 records/64 KiB per record; errors={errors}; absence not proven", file=sys.stderr)
     return results[:limit]
 
 

@@ -42,7 +42,11 @@ Codex query searches prioritize exact cwd matches, then recent indexed candidate
 (updated time when available, otherwise creation time), and inspect their admitted
 rollouts even when unrelated index titles match. Each profile samples at most
 `max(20, 4 * limit)` candidates/files, discovers at most 200 directory entries,
-and reads at most 1 MiB, 2,000 lines and 64 KiB per line from each rollout's start.
+and reads at most 1 MiB per rollout (whole small files, otherwise 512 KiB from
+each end), selecting at most 2,000 records and skipping records over 64 KiB.
+Large samples retain both ends, not every middle message. Byte offsets are exact;
+absolute line numbers are null when the preceding bytes were not read. Model
+turn context resets across omitted intervals rather than leaking into tail hits.
 SQLite work is also capped; an interrupted query is reported as an error. Legacy
 indexes without rollout paths use bounded file discovery, which cannot guarantee
 the newest or project-relevant file is discovered. Messages beyond these bounds
