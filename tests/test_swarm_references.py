@@ -44,19 +44,11 @@ SWARM_SKILL = REPO_ROOT / ".claude" / "skills" / "swarm" / "SKILL.md"
 # Genuine slash-command references found in swarm/SKILL.md, mapped to their
 # expected command file under .claude/commands/.
 REFERENCED_COMMANDS = {
-    "/harness": "harness.md",
     "/swarm": "swarm.md",
     "/advice": "advice.md",
     "/sidekick": "sidekick.md",
-    "/team-claude": "team-claude.md",
     "/history": "history.md",
-    "/ms": "ms.md",
     "/learn": "learn.md",
-    "/secondo": "secondo.md",
-    "/research": "research.md",
-    "/innov": "innov.md",
-    "/er": "er.md",
-    "/claw": "claw.md",
 }
 
 # Genuine skill references found in swarm/SKILL.md, mapped to their expected
@@ -64,7 +56,9 @@ REFERENCED_COMMANDS = {
 REFERENCED_SKILLS = {
     "sidekick": ".claude/skills/sidekick/SKILL.md",
     "swarm": ".claude/skills/swarm/SKILL.md",
-    "advice": ".claude/skills/advice/SKILL.md",
+    "linux-mirror": ".claude/skills/linux-mirror/SKILL.md",
+    "linux-remote": ".claude/skills/linux-remote/SKILL.md",
+    "parallelize-to-ceiling": ".claude/skills/parallelize-to-ceiling/SKILL.md",
 }
 
 # Single-path-segment slash tokens that match the sweep regex but are NOT

@@ -1,5 +1,5 @@
 ---
-description: /swarm — orchestrate multi-agent swarms (ultracode workflows + agent-team lanes) with adversarial verification
+description: /swarm — run a goal as parallel agent lanes (Workflow, Agent tool, or remote tmux) with adversarial verification
 type: skill
 execution_mode: immediate
 ---
