@@ -108,6 +108,14 @@ class SessionBindingTests(unittest.TestCase):
         self.assertEqual(stats["session_binding_records"], 1)
         self.assertEqual(binding_at(idx, "s1", T(11)), "acme/app#42")
 
+    def test_fork_push_keeps_upstream_binding(self):
+        idx, _ = self.index([
+            rec("2026-11-09T10:00:00Z", "pr_binding", pr="up/repo#5", repo="me/fork", branch="feat"),
+            rec("2026-11-09T10:10:00Z", "branch", repo="me/fork", branch="feat"),
+            rec("2026-11-09T10:20:00Z", "branch", repo="Me/Fork", branch="feat"),
+        ])
+        self.assertEqual(binding_at(idx, "s1", T(10, 30)), "up/repo#5")
+
     def test_missing_file(self):
         idx, stats = load([Path(self.tmp.name) / "nope.jsonl"])
         self.assertEqual(stats["session_binding_missing_files"], 1)

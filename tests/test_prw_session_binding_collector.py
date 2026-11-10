@@ -9,7 +9,7 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 
-from scripts.native_usage_collector import collect_native_history
+from scripts.native_usage_collector import collect_native_history, load_normalized_history, write_normalized_history
 
 REPO = Path(__file__).resolve().parents[1]
 PIN = "5c93ac7769d2"
@@ -128,6 +128,15 @@ class SessionBindingCollectorTests(SessionBindingCollectorBase):
         rows = [json.loads(line) for line in out.read_text().splitlines()]
         bound = [r for r in rows if r.get("attributions")]
         self.assertEqual(len(bound), 4)
+
+
+    def test_replay_counts_session_bound_records_like_collection(self):
+        data = self.collect(session_bindings=[self.ledger])
+        export = Path(self.tmp.name) / "export.jsonl"
+        write_normalized_history(str(export), data["export_records"])
+        replay = load_normalized_history(str(export), CUTOFF)["stats"]
+        for key in ("session_bound_usage_records", "pr_bound_usage_records"):
+            self.assertEqual(replay.get(key, 0), data["stats"][key], key)
 
 
 class DownstreamValidationTests(SessionBindingCollectorBase):

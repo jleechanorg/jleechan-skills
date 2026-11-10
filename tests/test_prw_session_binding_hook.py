@@ -87,6 +87,20 @@ class TestRecords(unittest.TestCase):
         recs, _ = run(post("gh pr checkout -b local 17"))
         self.assertEqual([r["pr"] for r in recs], ["me/origin#17"])
 
+    def test_create_with_several_pr_urls_in_output_gives_nothing(self):
+        out = "https://github.com/acme/app/pull/7\nhttps://github.com/acme/app/pull/8\n"
+        recs, _ = run(post("gh pr view 7 --json url -q .url; gh pr create --fill", out))
+        self.assertEqual(recs, [])
+
+    def test_checkout_whose_exit_status_is_masked_gives_nothing(self):
+        for cmd in ("gh pr checkout 17 || true", "gh pr checkout 17; echo done",
+                    "gh pr checkout 17 | tee log", "gh pr checkout 17 &"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(run(post(cmd))[0], [])
+        for cmd in ("gh pr checkout 17 && git log -1", "cd x && gh pr checkout 17", "(gh pr checkout 17)"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual([r["pr"] for r in run(post(cmd))[0]], ["me/origin#17"])
+
     def test_checkout_url(self):
         recs, _ = run(post("gh pr checkout https://github.com/acme/web/pull/9"))
         self.assertEqual(recs[0]["pr"], "acme/web#9")

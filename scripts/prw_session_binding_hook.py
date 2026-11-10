@@ -76,21 +76,32 @@ def _failed(resp):
 
 
 def _segments(command):
-    """Yield token lists, one per command segment, ignoring quoted/heredoc text."""
+    """Yield (tokens, status_known) per command segment, ignoring quoted/heredoc text.
+
+    status_known is False when a later `;`, `||`, `|`, `&` or newline means the
+    command's exit status need not be this segment's.
+    """
     command = HEREDOC_RE.sub("\n", command)
     lex = shlex.shlex(command, posix=True, punctuation_chars=";&|()\n")
     lex.whitespace = " \t\r"
     lex.whitespace_split = True
-    seg = []
+    segs, seps, seg = [], [], []
     for tok in lex:
         if tok and set(tok) <= SEP_CHARS:
             if seg:
-                yield seg
+                segs.append(seg)
+                seps.append("")
             seg = []
+            if seps:
+                seps[-1] += tok
         else:
             seg.append(tok)
     if seg:
-        yield seg
+        segs.append(seg)
+        seps.append("")
+    for n, (seg, sep) in enumerate(zip(segs, seps)):
+        sep = sep.replace("(", "").replace(")", "").replace("\n", "")
+        yield seg, sep == "&&" or (n == len(segs) - 1 and sep in ("", ";"))
 
 
 def _classify(seg):
@@ -198,18 +209,18 @@ def records_for(payload, runtime, git, now=None):
         segs = list(_segments(command))
     except ValueError:
         return []
-    for seg in segs:
+    for seg, status_known in segs:
         c = _classify(seg)
         if not c:
             continue
         tool, verb, args = c
         if tool == "gh" and verb == "create" and pr is None:
-            m = PR_URL_RE.search(output)
-            if m:
-                pr, source = f"{m[1]}/{m[2]}#{int(m[3])}", "gh_pr_create"
+            urls = {f"{m[1]}/{m[2]}#{int(m[3])}" for m in PR_URL_RE.finditer(output)}
+            if len(urls) == 1:
+                pr, source = urls.pop(), "gh_pr_create"
         elif tool == "gh" and verb == "checkout" and pr is None:
             target, flag_repo = _checkout_args(args)
-            if target is None:
+            if target is None or not status_known:
                 continue
             m = PR_URL_RE.search(target)
             if m:

@@ -20,12 +20,12 @@ Token usage from an agent session that declared which PR it is working on is cre
 
 ## 3. Acceptance criteria
 
-1. The hook records `session_start`, `pr_binding` (from `gh pr create` output carrying the new PR URL, or a successful `gh pr checkout <number|URL>`), `branch` (after `git push`, `git switch`, `git checkout`, `git worktree add`) and `stop` events. Read-only `gh pr` commands, failed commands and quoted or heredoc text record nothing.
+1. The hook records `session_start`, `pr_binding` (from `gh pr create` output carrying exactly one PR URL, or a successful `gh pr checkout <number|URL>` honouring `-R`/`--repo`, counted only when its exit status is the command's), `branch` (after `git push`, `git switch`, `git checkout`, `git worktree add`) and `stop` events. Read-only `gh pr` commands, failed commands and quoted or heredoc text record nothing.
 2. A ledger record holds only schema version, timestamp, runtime, session id, kind, repository, branch, commit, PR and source; never command text, prompts, tool output or paths.
 3. Record timestamps keep millisecond precision, so a request issued before a branch switch in the same second stays bound and a request issued just before a binding is not credited to it.
 4. The hook always exits 0, prints nothing and writes no record when anything fails.
-5. The join returns the latest `pr_binding` at or before T for the session; a later binding replaces it; a `branch` record naming a different repository, or a different branch in the same repository, clears it. Malformed lines and missing files are counted, never raised.
-6. With `--session-bindings`, a usage record with no request-level binding and an active session binding gets exactly one attribution `{method: convention, convention_ref: prw-session-binding.v1, basis: hook_session_binding, weight: 1.0}` with a receipt naming the ledger record; request-level bindings take precedence. Without the option, collector output is unchanged.
+5. The join returns the latest `pr_binding` at or before T for the session; a later binding replaces it; a `branch` record naming a repository other than the origin recorded with the binding, or a different branch in that repository, clears it; repository names compare case-insensitively, so a fork push keeps an upstream binding. Malformed lines and missing files are counted, never raised.
+6. With `--session-bindings`, a usage record with no request-level binding and an active session binding gets exactly one attribution `{method: convention, convention_ref: prw-session-binding.v1, basis: hook_session_binding, weight: 1.0}` with a receipt naming the ledger record; request-level bindings take precedence. Collection and normalized-history replay count these records in `session_bound_usage_records`, not `pr_bound_usage_records`. Without the option, collector output is unchanged.
 7. `PRW_BINDING_LEDGER` is registered in `docs/portability-env-vars.md`.
 
 ## 4. User stories

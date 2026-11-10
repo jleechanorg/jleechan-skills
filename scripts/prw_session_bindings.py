@@ -86,9 +86,13 @@ def load(paths: Iterable) -> tuple[dict, dict]:
         active = None  # (pr, repo, branch)
         for ts, _s, kind, pr, repo, branch, source, ts_text in recs:
             if kind == "pr_binding":
-                active = (pr, pr.split("#", 1)[0], branch, ts_text, source)
+                # Later branch records carry the checkout's origin, so compare against
+                # the origin recorded with the binding (a fork), not the PR's repository.
+                bound = (repo or pr.split("#", 1)[0]).lower()
+                active = (pr, bound, branch, ts_text, source)
             elif kind == "branch" and active is not None:
                 _pr, bound_repo, bound_branch = active[:3]
+                repo = repo.lower() if repo is not None else None
                 if repo is not None and repo != bound_repo:
                     active = None
                 elif repo == bound_repo and branch is not None and bound_branch is not None \

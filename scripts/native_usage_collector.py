@@ -217,7 +217,12 @@ def load_normalized_history(path, cutoff, days=14, annotation_path=None):
                     seen_usage.add(identity)
                 usage.append(record)
                 stats["usage_records_in_window"] += 1
-                stats["pr_bound_usage_records"] += bool(record.get("attributions"))
+                attributions = record.get("attributions") or []
+                if any(isinstance(a, dict) and a.get("convention_ref") == "prw-session-binding.v1"
+                       for a in attributions):
+                    stats["session_bound_usage_records"] = stats.get("session_bound_usage_records", 0) + 1
+                else:
+                    stats["pr_bound_usage_records"] += bool(attributions)
             else:
                 humans.append(record)
                 automated = (
