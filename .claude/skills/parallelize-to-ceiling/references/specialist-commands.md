@@ -38,7 +38,7 @@ Resource admission gate.
 PAIR TASK: <bounded task and explicit file scope>
 CODER: follow `${CLAUDE_HOME:-$HOME/.claude}/agents/agy-pair-coder.md`; implement and signal IMPLEMENTATION_READY with `Revision: <exact git SHA>` and `Worktree: <absolute path>`.
 VERIFIER: follow `${CLAUDE_HOME:-$HOME/.claude}/agents/agy-pair-verifier.md`; independently verify the handed-off revision and signal VERIFICATION_COMPLETE or VERIFICATION_FAILED.
-FALLBACK: if an AGY lane concretely fails, retry that same bounded lane with a Codex subagent using gpt-6-luna; if Luna is unavailable, concretely fails, or lacks capability, use gpt-6.1-terra; only if Terra is unavailable, concretely fails, or lacks capability, use gpt-6.1-sol as final fallback. Advance only after a concrete failure at the preceding tier; preserve isolation, scope and independent verification. Never use 5.6 models. Use claudem or an own cheap agent only if the ordered Codex route is unavailable.
+FALLBACK: if an AGY lane concretely fails, retry that same bounded lane with a Codex subagent using gpt-6-luna; if Luna is unavailable, concretely fails, or lacks capability, use gpt-6.1-terra; only if Terra is unavailable, concretely fails, or lacks capability, use gpt-6.1-sol as final fallback. Advance only after a concrete failure, unavailability, or demonstrated capability gap at the preceding tier; preserve isolation, scope and independent verification. Never use 5.6 models. Use claudem or an own cheap agent only if the ordered Codex route is unavailable.
 ```
 
 ## Gemini Flash lane flags
