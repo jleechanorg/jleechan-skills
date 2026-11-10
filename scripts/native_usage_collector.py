@@ -491,11 +491,10 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                                 if found:
                                     session_pr, ledger_ts, _source = found
                                     stats["session_bound_usage_records"] += 1
-                                    stats["pr_bound_usage_records"] += 1
                                     record["attributions"] = [{"pr": session_pr, "weight": 1.0,
-                                        "method": "convention", "convention_ref": "prw-session-binding/v1",
+                                        "method": "convention", "convention_ref": "prw-session-binding.v1",
                                         "basis": "hook_session_binding",
-                                        "receipt_refs": [f"prw-session-binding/v1:{namespace}:{session_pr}:{ledger_ts}"],
+                                        "receipt_refs": [f"prw-session-binding.v1:{namespace}:{session_pr}:{ledger_ts}"],
                                         "rationale": "session bound to this PR by the hook ledger"}]
                             key = (provider, request)
                             if request and key in seen_usage:

@@ -15,8 +15,8 @@ REPO = Path(__file__).resolve().parents[1]
 PIN = "5c93ac7769d2"
 CUTOFF = datetime(2026, 11, 9, 12, 0, tzinfo=timezone.utc)
 EXPECTED = {"pr": "acme/app#42", "weight": 1.0, "method": "convention",
-            "convention_ref": "prw-session-binding/v1", "basis": "hook_session_binding",
-            "receipt_refs": ["prw-session-binding/v1:{session}:acme/app#42:2026-11-09T10:00:00Z"],
+            "convention_ref": "prw-session-binding.v1", "basis": "hook_session_binding",
+            "receipt_refs": ["prw-session-binding.v1:{session}:acme/app#42:2026-11-09T10:00:00Z"],
             "rationale": "session bound to this PR by the hook ledger"}
 
 
@@ -27,7 +27,7 @@ def expected(session):
 def claude_row(request_id, ts, session="sess-claude", tokens=100):
     return {"type": "assistant", "timestamp": ts, "requestId": request_id, "sessionId": session,
             "message": {"id": "msg-" + request_id, "model": "claude-test",
-                        "usage": {"input_tokens": tokens, "output_tokens": 10}}}
+                        "usage": {"input_tokens": tokens, "output_tokens": 10, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0, "cache_creation": {"ephemeral_5m_input_tokens": 0, "ephemeral_1h_input_tokens": 0}}}}
 
 
 def codex_rows(session, items):
@@ -35,7 +35,7 @@ def codex_rows(session, items):
     for response_id, ts, tokens in items:
         rows.append({"type": "token_usage_record", "timestamp": ts,
                      "payload": {"response_id": response_id,
-                                 "usage": {"input_tokens": tokens, "output_tokens": 10}}})
+                                 "usage": {"input_tokens": tokens, "output_tokens": 10, "cached_input_tokens": 0, "cache_write_input_tokens": 0}}})
     return rows
 
 
@@ -152,14 +152,49 @@ class DownstreamValidationTests(SessionBindingCollectorBase):
             self.assertEqual(attr["pr"], "acme/app#42")
             self.assertEqual(attr["method"], "convention")
             self.assertEqual(attr["weight"], "1")
-            # convention_ref is nulled by prw_metrics._usage_label ("/" is not allowed);
-            # the query keys on method == "convention" only, so this is not asserted.
+            self.assertEqual(attr["convention_ref"], "prw-session-binding.v1")
             self.assertTrue(attr["receipt_refs"])
 
     def test_without_ledger_everything_is_unallocated(self):
         summary, _ = self.aggregate()
         self.assertEqual(summary["unallocated"]["event_count"], 6)
         self.assertFalse(any(e.get("validated_attributions") for e in summary["events"]))
+
+
+try:
+    import duckdb as _duckdb  # noqa: F401
+    HAVE_DUCKDB = True
+except ImportError:
+    HAVE_DUCKDB = False
+
+
+@unittest.skipUnless(HAVE_DUCKDB, "duckdb is not installed; per-PR query output not exercised here")
+class QueryOutputTests(DownstreamValidationTests):
+    """Real path continued: aggregate_usage query events -> prw_metrics_queries.run_query."""
+
+    PR = {"repo": "acme/app", "number": 42, "state": "MERGED",
+          "createdAt": "2026-11-09T08:00:00Z", "mergedAt": "2026-11-09T11:00:00Z",
+          "closedAt": "2026-11-09T11:00:00Z", "headRefName": "feature/x",
+          "headRefOid": "a1", "commit_shas": ["a1"]}
+
+    def per_pr(self, **kw):
+        from scripts.prw_metrics_queries import run_query
+        summary, _ = self.aggregate(**kw)
+        result = run_query(events_path=summary["query_events"], pr_snapshots_path=[self.PR],
+                           snapshot_at_utc="2026-11-09T12:00:00Z")
+        (row,) = [r for r in result["pr_metrics"] if r["pr_number"] == 42]
+        return row, summary
+
+    def test_session_bound_usage_reaches_the_pr_row(self):
+        row, summary = self.per_pr(session_bindings=[self.ledger])
+        bound = [e for e in summary["query_events"] if e.get("validated_attributions")]
+        self.assertEqual(row["convention_usage_observation_count"], 4)
+        self.assertEqual(row["convention_total_tokens"], sum(e["total_tokens"] for e in bound))
+        self.assertGreater(row["convention_total_tokens"], 0)
+
+    def test_without_ledger_the_pr_row_has_no_session_usage(self):
+        row, _ = self.per_pr()
+        self.assertIsNone(row["convention_total_tokens"])
 
 
 class ByteIdentityTests(SessionBindingCollectorBase):
