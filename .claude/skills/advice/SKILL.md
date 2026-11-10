@@ -269,11 +269,9 @@ never a code/home tree or new `/tmp` clone; remove only exact owned copies after
 process exit, preserving source and private receipts. Technical receipt and cleanup complete within the attempt
 budget; later sanitized publication is separate and retains the original clocks.
 
-**Before waiting or dispatching review.** Confirm the job actually started and its requested output exists; assignment
-and packet presence are not progress. Confirm the declared packet is complete: full original review outputs and
-affected-scope addenda, source/head bindings, child request and context provenance (or an explicit `unknown`), and
-event-ID/context joins. Decode an API body field before hashing it. Do not retry a route already confirmed unavailable
-in the same task, and do not poll status without a decision to make.
+**Before dispatching review.** Check the declared packet: full original review outputs and affected-scope addenda,
+source/head bindings, child request and context provenance (or `unknown`), and event-ID/context joins. Decode an API body field before hashing it. Do not retry a route already confirmed unavailable
+in the same task; keep its receipt.
 
 ## 5. Reconcile and report
 

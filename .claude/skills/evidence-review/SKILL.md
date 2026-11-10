@@ -77,7 +77,7 @@ do not demand duplicate logs. Independently verify coverage and bytes, and
 reproduce each applicable documented check. Runtime claims require actual
 runtime/provider provenance. Missing claim-required proof is non-approving.
 Source-only Markdown changes do not trigger an artifact campaign; runtime or
-artifact claims retain named domain proof. Batch fixes before dispatch (with [advice §4's pre-dispatch checks](../advice/SKILL.md#4-review-access-modes-and-isolation)); use
+artifact claims retain named domain proof. Batch fixes before dispatch ([advice §4](../advice/SKILL.md#4-review-access-modes-and-isolation)); use
 Phase 0 for later deltas rather than relabeling old evidence.
 
 ## Verdict Rubric

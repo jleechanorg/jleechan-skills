@@ -430,15 +430,16 @@ there to a pointer 2026-09-06; this section is the full policy).
   verify readiness and explicitly retain or transfer ownership instead. Empty
   or partial output is not permission to launch a second copy.
 - **Child task contract.** Every dispatch carries, by pointer where possible:
-  the exact workspace and source snapshot (path, SHA or hash); allowed actions;
-  prohibited reads and actions (for a snapshot-only task, no Git, checkout or
-  directory setup); the repository rules that bear on the unit; acceptance
-  criteria; and, when code changed, a short boundary brief naming the change's
-  likely edges as examples, not required work (missing or null data, limits and
-  tails, provenance, roles and timestamps, symlinks, failures, concurrency).
-  Pass user restrictions verbatim. The child returns compact findings, exact
-  paths and acceptance proof, never transcript copies, and its receipt records
-  the model and scope that actually ran.
+  the exact workspace and source snapshot (path, SHA or hash); allowed and
+  prohibited actions (a snapshot-only task gets no Git, checkout or directory
+  setup); the repository rules that bear on the unit; acceptance criteria; and,
+  when code changed, a boundary brief of likely edges as examples, not required
+  work (missing or null data, limits, provenance, roles and timestamps,
+  symlinks, failures, concurrency). Pass user restrictions verbatim. The child
+  returns compact findings, exact paths and acceptance proof; its receipt
+  records the model and scope that ran.
+- Before waiting on a lane, confirm it started and its output exists;
+  assignment is not progress.
 - A worker owns its assigned checks through completion and reports when done,
   blocked, or awaiting a material decision. The parent should not duplicate
   the worker's execution or repeatedly poll while it is progressing; use
