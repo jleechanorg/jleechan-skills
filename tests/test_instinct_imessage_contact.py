@@ -35,6 +35,7 @@ SKILL = INSTINCT / "SKILL.md"
 # can exist at all. CI runs these suite on Linux, where exit 3 is the right
 # answer and exit 5 is unreachable -- skip rather than encode the wrong platform.
 _IS_MACOS = platform.system() == "Darwin"
+_PEER = "+15550100"  # used only on the --dry-run path, which never delivers
 _MACOS_ONLY = unittest.skipUnless(
     _IS_MACOS, "iMessage bridge is macOS-only; its platform guard exits 3 first"
 )
@@ -165,11 +166,66 @@ class ProbeDistinguishesFallbackTest(unittest.TestCase):
 class DryRunTest(unittest.TestCase):
     """Proving the wire must never require nominating a real recipient."""
 
-    def test_bridge_supports_dry_run(self) -> None:
-        result = _bridge(
-            "send", INSTINCT_IMSG_CONTACT="+15550100", **{"--dry-run": ""}
+    @_MACOS_ONLY
+    def test_dry_run_stops_before_delivery_and_says_so(self) -> None:
+        """--dry-run must be a real CLI flag that short-circuits before sending.
+
+        Passing "--dry-run" through _bridge's env overrides would set a bogus
+        environment variable and run a plain `send`, whose only observable is an
+        unrelated exit 2 ("send requires --file"). That passes even if the flag
+        were deleted, so it proves nothing. This passes the real flag and asserts
+        the bridge's own dry-run marker, which only exists on the no-delivery path.
+        """
+        peer = os.environ.get("INSTINCT_TEST_PEER_HANDLE", "")
+        if not peer:
+            self.skipTest(
+                "set INSTINCT_TEST_PEER_HANDLE to a handle with a real chat row; the "
+                "bridge resolves the stored chat BEFORE the dry-run arm, so a synthetic "
+                "handle exits 5 and never reaches the marker"
+            )
+        with tempfile_message("dry run probe") as path:
+            result = subprocess.run(
+                ["/bin/bash", str(BRIDGE), "send", "--file", str(path), "--dry-run"],
+                capture_output=True,
+                text=True,
+                env=_clean_env(INSTINCT_IMSG_CONTACT=peer),
+                timeout=60,
+                check=False,
+            )
+        # The marker is emitted by the --dry-run arm and nowhere else.
+        self.assertIn("dry-run: would send", result.stderr)
+        self.assertIn("no message delivered", result.stderr)
+        # And it must NOT be the unrelated missing-file error.
+        self.assertNotIn("requires --file", result.stderr)
+
+    def test_dry_run_flag_is_parsed_by_the_bridge(self) -> None:
+        """The flag must exist in the option parser, not merely in docs."""
+        text = BRIDGE.read_text(encoding="utf-8")
+        self.assertRegex(
+            text,
+            r"--dry-run\).*DRY_RUN=1",
+            "--dry-run must set DRY_RUN=1 in the bridge option parser",
         )
-        self.assertNotIn("unbound variable", result.stderr)
+        # And the value must be initialised before any send reads it, or `set -u`
+        # aborts a real send for callers who never exported it.
+        self.assertRegex(
+            text, r"(?m)^DRY_RUN=0$", "DRY_RUN must default to 0"
+        )
+
+    @_MACOS_ONLY
+    def test_dry_run_refuses_an_undeclared_peer(self) -> None:
+        """A dry run must not bypass the declared-peer requirement."""
+        with tempfile_message("dry run probe") as path:
+            result = subprocess.run(
+                ["/bin/bash", str(BRIDGE), "send", "--file", str(path), "--dry-run"],
+                capture_output=True,
+                text=True,
+                env=_clean_env(),
+                timeout=60,
+                check=False,
+            )
+        self.assertEqual(result.returncode, 5, result.stderr)
+        self.assertIn("INSTINCT_IMSG_CONTACT", result.stderr)
 
     def test_skill_documents_dry_run(self) -> None:
         text = SKILL.read_text(encoding="utf-8")
