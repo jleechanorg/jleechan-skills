@@ -12,14 +12,13 @@ publication; evidence-standards owns evidence classes. Do not restate those here
 
 ## 1. Pin the question and complete scope
 
-Before queueing reviewers, inspect existing verdicts under §5 Applicability.
-An eligible approval for unchanged claims needs no phase, format or frozen-head
-restamp. Preserve original eligibility; request only genuinely missing or
-affected independent judgment, or an explicitly requested further review.
+Before queueing reviewers, inspect existing verdicts under §5's resubmission and applicability rules. An eligible approval for unchanged
+claims needs no phase, format or frozen-head restamp. Preserve original eligibility; request only genuinely missing
+or affected independent judgment, or an explicitly requested further review.
 
-Every reviewer gets only the static-review channel preamble plus its template: no question, summary, excerpt or
-framing. The user's `[question]` stays with the orchestrator, which records it in the §5 report and answers it from
-the reviewers' findings; if the template cannot surface what the question needs, report that gap. Send a pointer to
+Every reviewer gets only the static-review channel preamble and its filled template: no user question, summary,
+excerpt or framing. Keep the user's `[question]` with the orchestrator, record it in the §5 report, and answer it
+from the reviewers' findings; if the template cannot surface what the question needs, report that gap. Send a pointer to
 the complete change, never a transcription. A verdict built on unrecovered truncated input is never APPROVED; if display/tool output truncates, complete required content recovered via narrower range requests within the attempt deadline satisfies full coverage.
 
 - **Revision review** covers exactly the pinned commit.
@@ -31,6 +30,12 @@ the complete change, never a transcription. A verdict built on unrecovered trunc
   only that bundle. Incomplete claimed revision binding means `WITHHELD`; never use an abbreviated SHA or mutable `HEAD`.
 - Each approver reads the whole declared scope. Partial coverage is never combined across reviewers into an
   approval.
+
+An advice vote scoped only to source or a PR diff is source review; it does not
+approve evidence or establish inspection of underlying raw evidence. Evidence
+approval remains a separate `/er` claim-coverage verdict under
+[evidence-review](../evidence-review/SKILL.md), including its direct raw-data
+inspection and explicit inspected/unavailable coverage requirements.
 
 ## 2. Select independent reviewers
 
@@ -55,7 +60,7 @@ of one account independent.
 
 | Tier | Available reviewers | Admission and counting |
 |---|---|---|
-| 1 — preferred | Available authorized CLI seats, including configured extra CLIs; authorized ChatGPT Dot accounts | Prefer different eligible CLI/model identities. CLI and Dot are alternatives in the same tier; no brand or mixture is mandatory. Count at most one Dot vote. |
+| 1 — preferred | Available authorized CLI seats, including configured extra CLIs; authorized ChatGPT Dot accounts; the Instinct WhatsApp peer (`/instinct`) | Prefer different eligible CLI/model identities. CLI, Dot and Instinct are alternatives in the same tier; no brand or mixture is mandatory. Count at most one Dot vote and at most one Instinct vote, and never combine Dot with Instinct into a two-vote quorum. |
 | 2 — fallback | Native static subagents; Hermes or Hermes-PC | Static subagents collectively count as at most one vote; Hermes instances collectively count as at most one distinct vote. Each counted vote must independently cover the entire scope. |
 | 3 — last fallback | Existing authorized authenticated web chats through /web-advice | Use only after earlier-tier candidates cannot fill the remaining quorum. Preserve packet, upload, account-attestation and receipt rules. |
 
@@ -168,9 +173,11 @@ acknowledgement, reaction or promise. Route availability does not override discl
 ### Native static fallback
 
 Static reviewers follow [static-review](../static-review/SKILL.md) for cold input, full coverage, identity, deadlines
-and receipts. Admit them in tier 2 with an eligible Hermes instance when needed; §2's aggregate caps still apply
-(static reviewers collectively at most one vote, Hermes instances collectively at most one), and each counted verdict
-covers the whole scope. Eligible CLI pairs, CLI plus static, or eligible outside combinations may supply the quorum.
+and receipts. Spawn each native seat (for example Codex `spawn_agent`) with packet-only context, its preamble and
+template, never a parent-history fork such as `fork_turns: "all"`. Admit them in tier 2 with an eligible Hermes
+instance when needed; §2's aggregate caps still apply (static reviewers collectively at most one vote, Hermes
+instances collectively at most one), and each counted verdict covers the whole scope. Eligible CLI pairs, CLI plus
+static, or eligible outside combinations may supply the quorum.
 There is no generic remote minimum or remote-only prohibition; preserve any separately explicit outside-review
 obligation. Review votes never replace missing substantive evidence.
 
@@ -217,9 +224,12 @@ Mac or Ubuntu machine); try or record each host separately. When the tiers canno
   deadline. For outside routes, `C` covers only readback and receipt writing. Record queue boundary, deadline and
   actual exit in the receipt, never the prompt; the orchestrator's bounded tool call is the mechanism.
 - **Outcome.** Setup, delivery, review, capture, receipt writing and cleanup all count against `B`; the deadline
-  decides eligibility, not a real-time guarantee. The pre-dispatch prompt/SHA256 and actual completion timestamp
-  govern the attempt receipt; later sanitized PR/gist publication and protected/encrypted session archive files do not
-  alter the completion clock or invalidate a verified plaintext dispatch receipt. Cleanup or receipt overrun makes the
+  decides eligibility, not a real-time guarantee. The captured pre-dispatch prompt/hash and actual completion
+  timestamp govern the attempt receipt; later sanitized PR/gist publication and protected or encrypted session
+  archives do not alter that clock or invalidate a verified plaintext dispatch receipt. Receipt archive handling
+  follows static-review §5. Shared immutable preparation may precede the attempt; per-seat setup, capture, technical
+  receipt and cleanup stay inside this section's bound.
+  Cleanup or receipt overrun makes the
   attempt nonzero and voids its vote. A late, incomplete, failed or timed-out result is not approval: keep partial
   findings and cleanup status, then use another eligible reviewer. Do not wait on unresolved cleanup, reuse an
   unresolved resource, or claim cleanup without receipt evidence. Non-mandatory bookkeeping must never delay an
@@ -229,9 +239,7 @@ Mac or Ubuntu machine); try or record each host separately. When the tiers canno
 
 Select the cheapest complete access before dispatch. Read-only API or existing
 checkout access needs no donor, clone or export. Use a copy only when object
-access or mutation isolation requires it. Shared immutable preparation may
-precede the attempt; per-seat setup, capture, technical receipt and cleanup
-remain inside §3's bound. This table owns mode names, template fields and checks;
+access or mutation isolation requires it. This table owns mode names, template fields and checks;
 static-review owns the actual templates and per-channel preambles.
 
 | Mode | Access and template | Required receipt and checks | Fields |
@@ -258,9 +266,8 @@ writes, credential changes or unrelated destructive actions. Original state must
 remain unchanged. Failed copy checks or unresolved cleanup make an attempt
 non-countable, while findings are retained. Copies live in configured Scratch,
 never a code/home tree or new `/tmp` clone; remove only exact owned copies after
-process exit, preserving source and private receipts. Technical receipt and
-cleanup complete within the attempt budget; later publication is separate and
-retains the original clocks.
+process exit, preserving source and private receipts. Technical receipt and cleanup complete within the attempt
+budget; later sanitized publication is separate and retains the original clocks.
 
 ## 5. Reconcile and report
 
@@ -274,7 +281,9 @@ directory removal does not prove its descendants exited: record that and do not 
 
 **Verdict.** Reconcile disagreements within the declared scope yourself; do not ask the user to pick between
 reviewers. A competent blocking objection, even from a partial-coverage reviewer, means `NOT APPROVED`; partial
-coverage never supplies an approval. Without the required independent full-coverage approvals under §2's tier caps, the result is
+coverage never supplies an approval. P1/P2 findings are nonblocking and alone neither withhold approval nor require
+another round; the author batches them and records each fix or disposition in the report. Without the required
+independent full-coverage approvals under §2's tier caps, the result is
 `WITHHELD`.
 
 **Report.** Give the full 40-hex reviewed SHA for revision-bound review or `DOCUMENTS sha256:<bundle hash>` for a
@@ -285,12 +294,20 @@ attempt: identity, actual CLI, account and model, start and completion times, ex
 one line: `VERDICT: APPROVED at `<SHA>``, `VERDICT: NOT APPROVED at `<SHA>``, or `VERDICT: WITHHELD at `<SHA>` — <reason>`;
 for bundle-only saved-content review, `DOCUMENTS sha256:<bundle hash>` takes the place of ``<SHA>``.
 
-**Applicability.** Keep the original reviewers and reviewed SHAs. Before relying on them at a later head, inspect
-the complete delta, claims, evidence and phase; applicability is not a new vote, and material uncovered changes
-need affected independent review. Classify instruction changes by behaviour and contract effect, never by path.
+**Resubmission and applicability.** Keep original reviewers, SHAs and findings; reliance at a later head follows
+[review-routing's SHA-binding rule](../pr-lifecycle/review-routing.md#sha-binding-rule-critical--applies-to-every-gate-in-this-chain)
+and is not a new vote. Before any re-dispatch, the author fixes every blocking finding in one batch, then (a) searches
+all reviewed artifacts for each restatement of a corrected requirement and fixes every one, not only the cited line;
+(b) verifies every cited path, line, link and artifact exists at the new pin. Inspect the complete delta, claims,
+evidence and phase; applicability is not a new vote, and material uncovered changes need affected independent
+review. When that rule's record is partially applicable with named gaps, send the affected review to the same seat
+as static-review §4's addendum; otherwise request the complete review. Classify instruction changes by behaviour
+and contract effect, never by path.
 Never claim approval, applicability or publication without its receipt.
 
 For visual follow-up, use [visual-verification's reuse and scoped follow-up](../visual-verification/SKILL.md#reuse-and-scoped-follow-up).
 Repair mechanically verifiable receipt fields yourself rather than dispatching a
 reviewer for bookkeeping; preserve §3 eligibility and original clocks. Such a
 repair cannot supply missing coverage, alter a verdict or revive a void vote.
+For human-judgment prose in a PR body, follow [document-standards' review and
+publication owner](../document-standards/SKILL.md#pr-body-prose-review-and-publication).

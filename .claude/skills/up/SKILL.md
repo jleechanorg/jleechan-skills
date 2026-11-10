@@ -77,8 +77,9 @@ tree state plus per-file repo/live diffs for every destination. Use
 outside the default highlighted-skill scope, or gather equivalent scoped
 evidence with the owner's report functions. Apply only the
 reviewed paths with the workflow's per-path `apply` command. Preserve unrelated
-dirty files and live-only changes; if a scoped file has substantive divergent
-edits, leave that path untouched and report the conflict. Verify the resulting
+dirty files and live-only changes. Reconcile substantive changes from both sides
+through `sync-live-config` before applying; leave only genuinely unresolved
+conflicts untouched and report the exact missing decision. Verify the resulting
 bytes on the target host. If the host or a scoped path is unavailable, report
 the exact failed route and leave the PR intact.
 
@@ -151,9 +152,9 @@ reply.** A two-line pointer in chat is enough.
 - Run applicable existing managed-file checks. The brief report records the
   completed instruction changes; it does not replace them or their validation.
 
-When a user-referenced Slack message has screenshots, follow the `/slack` skill's
-"Viewing screenshots/attachments from a Slack message" section instead of
-reporting the Slack connector as unavailable.
+For user-referenced Slack screenshots, use the installed `/slack`
+attachment-reading workflow when available; check its canonical owner before
+reporting the connector unavailable.
 
 ## Common failure
 

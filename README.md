@@ -51,6 +51,20 @@ than duplicating its rules. The [`prw`](.claude/skills/prw/SKILL.md) and
 [`pr-workflow`](.claude/skills/pr-workflow/SKILL.md) aliases read PR Lifecycle
 first and name this entry point for discovery.
 
+For a Codex-driven `/prw`, automatic AI reviews default to zero. Codex still
+collects applicable evidence and self-reviews. To allow up to two automatic AI
+reviewer assignments for a Codex CLI session, start it with:
+
+```bash
+PRW_CODEX_AI_REVIEW_COUNT=2 codex
+```
+
+Then run `/prw` inside that session. Choose another non-negative integer for a
+different per-PR limit. Explicitly requested reviews and required repository
+gates still apply; Claude and agy retain their existing automatic review routes.
+See [Codex review dispatch](.claude/skills/pr-lifecycle/review-routing.md#codex-review-dispatch)
+for details and authorization limits.
+
 The manager links useful highlighted skills to the problems they help solve;
 they are not an extra mandatory checklist. Install the PR workflow together
 with the six highlights using `--profile highlights-prw` (see [installation](INSTALL.md)).

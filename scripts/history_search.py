@@ -29,14 +29,22 @@ class HistoryEntry:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        metadata = dict(self.metadata)
+        title = metadata.get("title")
+        if isinstance(title, str) and len(title) > MAX_TITLE_CHARS:
+            metadata["title"] = title[: MAX_TITLE_CHARS - 1] + "…"
+            metadata["title_truncated"] = True
         return {
             "source": self.source,
             "timestamp": self.timestamp,
             "label": self.label,
             "snippet": self.snippet,
-            "metadata": self.metadata,
+            "metadata": metadata,
         }
 
+
+DEFAULT_MAX_CHARS = 500
+MAX_TITLE_CHARS = 160
 
 # Terminal color palette
 ANSI = {
@@ -82,7 +90,7 @@ def head(text: str, use_color: bool = True) -> str:
     return color("head", text, use_color=use_color)
 
 
-def _clean_snippet(text: str, max_chars: int = 200) -> str:
+def _clean_snippet(text: str, max_chars: int = DEFAULT_MAX_CHARS) -> str:
     if not text:
         return ""
     cleaned = re.sub(r"\s+", " ", text).strip()
@@ -143,7 +151,7 @@ def search_claude(
     cwd: str = "",
     limit: int = 3,
     max_per_file: int = 3,
-    max_chars: int = 200,
+    max_chars: int = DEFAULT_MAX_CHARS,
     projects_dir: Optional[Path | str] = None,
 ) -> list[HistoryEntry]:
     """Search Claude Code transcripts (~/.claude/projects/*/*.jsonl)."""
@@ -271,7 +279,7 @@ def search_pi(
     cwd: str = "",
     limit: int = 3,
     max_per_file: int = 3,
-    max_chars: int = 200,
+    max_chars: int = DEFAULT_MAX_CHARS,
     sessions_dir: Optional[Path | str] = None,
 ) -> list[HistoryEntry]:
     """Search Pi coding agent sessions (~/.pi/agent/sessions/--<cwd>--/*.jsonl).
@@ -488,11 +496,60 @@ def search_pi(
     return results[:limit]
 
 
+def _codex_rollout_sample(stream):
+    """Yield bounded complete JSONL records with truthful source locations.
+
+    Read at most 1 MiB: whole small files, or 512 KiB from each end. Parse at
+    most 2000 records, keeping both ends when necessary. A skipped interval
+    invalidates turn context; tail byte offsets remain exact even when the
+    absolute line number cannot be known without reading the omitted middle.
+    """
+    budget = 1024 * 1024
+    size = stream.seek(0, os.SEEK_END)
+    stream.seek(0)
+    if size <= budget:
+        segments = [(0, stream.read(budget), True)]
+    else:
+        head = stream.read(budget // 2)
+        start = size - budget // 2
+        stream.seek(start)
+        segments = [(0, head, False), (start, stream.read(budget // 2), True)]
+    records = []
+    for start, data, includes_eof in segments:
+        offset = start
+        chunks = data.split(b"\n")
+        for index, chunk in enumerate(chunks):
+            terminated = index < len(chunks) - 1
+            raw = chunk + (b"\n" if terminated else b"")
+            # A tail starts at an arbitrary byte. Conservatively omit its
+            # first fragment; likewise omit a head's incomplete final record.
+            if raw and not (start and index == 0) and (terminated or includes_eof):
+                records.append((raw, index + 1 if start == 0 else None, offset))
+            offset += len(raw)
+    if len(records) > 2000:
+        records = records[:1000] + records[-1000:]
+    previous_end = 0
+    for raw, line_number, offset in records:
+        if len(raw) > 65536:
+            continue
+        gap = offset != previous_end
+        previous_end = offset + len(raw)
+        yield raw, line_number, offset, gap
+
+
+def _codex_sort_key(entry: HistoryEntry, cwd: str) -> tuple[bool, float]:
+    try:
+        timestamp = datetime.fromisoformat(entry.timestamp).timestamp()
+    except ValueError:
+        timestamp = float("-inf")
+    return entry.metadata.get("cwd") == cwd, timestamp
+
+
 def search_codex(
     query: str = "",
     cwd: str = "",
     limit: int = 5,
-    max_chars: int = 200,
+    max_chars: int = DEFAULT_MAX_CHARS,
     db_path: Optional[Path | str] = None,
     sessions_dir: Optional[Path | str] = None,
     codex_homes: Optional[Sequence[Path | str]] = None,
@@ -520,7 +577,7 @@ def search_codex(
         ]
     homes = list(dict.fromkeys(valid_profiles))
     results: list[HistoryEntry] = []
-    seen_threads: set[str] = set()
+    seen_threads: set[tuple[Any, ...]] = set()
     for home in homes:
         entries = _search_codex_store(
             query, cwd, limit, max_chars,
@@ -528,19 +585,15 @@ def search_codex(
         )
         for entry in entries:
             thread_id = entry.metadata.get("thread_id")
-            if thread_id and thread_id in seen_threads:
+            identity = (thread_id, entry.metadata.get("line") if entry.metadata.get("line") is not None
+                        else ("byte", entry.metadata.get("byte_offset")))
+            if thread_id and identity in seen_threads:
                 continue
             if thread_id:
-                seen_threads.add(thread_id)
+                seen_threads.add(identity)
             entry.metadata["codex_home"] = str(home)
             results.append(entry)
-    def timestamp_key(entry: HistoryEntry) -> float:
-        try:
-            return datetime.fromisoformat(entry.timestamp).timestamp()
-        except ValueError:
-            return float("-inf")
-
-    return sorted(results, key=timestamp_key, reverse=True)[:limit]
+    return sorted(results, key=lambda entry: _codex_sort_key(entry, cwd or os.getcwd()), reverse=True)[:limit]
 
 
 def _search_codex_store(
@@ -580,11 +633,26 @@ def _search_codex_store(
 
     cwd_path = cwd or os.getcwd()
     cwd_basename = Path(cwd_path).name
+    candidate_limit = max(20, limit * 4)
+    indexed_files: dict[Path, dict[str, Any]] = {}
+    errors = 0
+    # The root itself must satisfy the same no-symlink rule as its children.
+    # Reject before discovery or admitting any indexed rollout pointers.
+    if sess_dir is not None and sess_dir.is_symlink():
+        errors += 1
+        sess_dir = None
 
     if database is not None and database.is_file():
         con = None
         try:
             con = sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True)
+            # Bound SQLite work even if a legacy schema lacks useful indexes.
+            steps = 0
+            def stop_query() -> bool:
+                nonlocal steps
+                steps += 1
+                return steps > 1000
+            con.set_progress_handler(stop_query, 1000)
             cur = con.cursor()
             like_param = f"%{query}%" if query else f"%{cwd_basename}%"
 
@@ -596,6 +664,7 @@ def _search_codex_store(
             """
 
             has_model_col = False
+            col_names: list[str] = []
             try:
                 col_info = cur.execute("PRAGMA table_info(threads)").fetchall()
                 col_names = [col[1] for col in col_info]
@@ -604,41 +673,48 @@ def _search_codex_store(
                 pass
 
             model_select = ", model" if has_model_col else ""
+            rollout_select = ", rollout_path" if "rollout_path" in col_names else ", NULL"
+            recent_col = "updated_at" if "updated_at" in col_names else "created_at"
+            activity_date_expr = date_expr.replace("created_at", recent_col)
 
             if query:
                 sql = f"""
-                    SELECT title, substr(first_user_message, 1, 200), cwd, git_branch,
-                           {date_expr} as created, id{model_select}
+                    SELECT title, substr(first_user_message, 1, ?), cwd, git_branch,
+                           {date_expr} as created, id{model_select},
+                           (title LIKE ? OR first_user_message LIKE ?) as query_match{rollout_select},
+                           {activity_date_expr} as activity_time
                     FROM threads
-                    WHERE (title LIKE ? OR first_user_message LIKE ?)
+                    WHERE (cwd = ? OR title LIKE ? OR first_user_message LIKE ?)
                       AND (archived = 0 OR archived IS NULL)
-                    ORDER BY created_at DESC
+                    ORDER BY (cwd = ?) DESC, {recent_col} DESC
                     LIMIT ?
                 """
-                params: tuple[Any, ...] = (like_param, like_param, limit)
+                params: tuple[Any, ...] = (max_chars, like_param, like_param, cwd_path, like_param, like_param, cwd_path, candidate_limit)
             else:
                 sql = f"""
-                    SELECT title, substr(first_user_message, 1, 200), cwd, git_branch,
-                           {date_expr} as created, id{model_select}
+                    SELECT title, substr(first_user_message, 1, ?), cwd, git_branch,
+                           {date_expr} as created, id{model_select}, 1 as query_match{rollout_select},
+                           {activity_date_expr} as activity_time
                     FROM threads
                     WHERE (cwd LIKE ? OR cwd IS NULL)
                       AND (archived = 0 OR archived IS NULL)
-                    ORDER BY created_at DESC
+                    ORDER BY (cwd = ?) DESC, {recent_col} DESC
                     LIMIT ?
                 """
-                params = (like_param, limit)
+                params = (max_chars, like_param, cwd_path, limit)
 
             rows = cur.execute(sql, params).fetchall()
             if not rows and not query:
                 sql_recent = f"""
-                    SELECT title, substr(first_user_message, 1, 200), cwd, git_branch,
-                           {date_expr} as created, id{model_select}
+                    SELECT title, substr(first_user_message, 1, ?), cwd, git_branch,
+                           {date_expr} as created, id{model_select}, 1 as query_match{rollout_select},
+                           {activity_date_expr} as activity_time
                     FROM threads
                     WHERE (archived = 0 OR archived IS NULL)
                     ORDER BY created_at DESC
                     LIMIT ?
                 """
-                rows = cur.execute(sql_recent, (limit,)).fetchall()
+                rows = cur.execute(sql_recent, (max_chars, limit)).fetchall()
 
             for row in rows:
                 title, first_msg, row_cwd, branch, created, thread_id = row[:6]
@@ -652,7 +728,30 @@ def _search_codex_store(
                 meta: dict[str, Any] = {
                     "cwd": row_cwd, "branch": branch, "title": title,
                     "thread_id": thread_id, "database": str(database),
+                    "role": "user", "role_source": "first_user_message",
+                    "human_verified": False, "coverage": "bounded index hint",
+                    "thread_activity_timestamp": str(row[-1] or ""),
+                    "thread_activity_source": recent_col,
                 }
+                rollout_path = row[-2]
+                if rollout_path and sess_dir is not None:
+                    # Reject out-of-scope pointers before stat/open; never follow
+                    # index pointers into another profile or credential store.
+                    root = sess_dir.absolute()
+                    candidate = Path(rollout_path)
+                    if not candidate.is_absolute():
+                        candidate = database.parent / candidate
+                    try:
+                        relative = candidate.relative_to(root)
+                        if ".." not in relative.parts and not any(
+                            (root / Path(*relative.parts[:i])).is_symlink()
+                            for i in range(1, len(relative.parts) + 1)
+                        ) and candidate.name.startswith("rollout-") and candidate.suffix == ".jsonl":
+                            indexed_files[candidate] = meta
+                    except ValueError:
+                        pass
+                if query and not row[-3]:
+                    continue
                 if row_model:
                     meta["model"] = str(row_model)
                     meta["thread_model"] = str(row_model)
@@ -668,7 +767,7 @@ def _search_codex_store(
                     )
                 )
         except Exception:
-            pass
+            errors += 1
         finally:
             if con:
                 try:
@@ -676,16 +775,29 @@ def _search_codex_store(
                 except Exception:
                     pass
 
-    # Fallback to session rollout files if DB is missing or has no results
-    if not results and sess_dir is not None and sess_dir.is_dir():
+    # Index hits are hints, never a reason to omit followup messages.
+    index_results = results
+    results = []
+    if sess_dir is not None and sess_dir.is_dir() and (query or not index_results):
         try:
-            rollout_files: list[Path] = []
-            for root, _, files in os.walk(sess_dir):
-                for f in files:
-                    if f.startswith("rollout-") and f.endswith(".jsonl"):
-                        rollout_files.append(Path(root) / f)
-                if len(rollout_files) >= 20:
-                    break
+            rollout_files: list[Path] = list(indexed_files)
+            pending = [sess_dir]
+            visited = 0
+            while pending and visited < 200:
+                try:
+                    with os.scandir(pending.pop()) as directory:
+                        for item in directory:
+                            visited += 1
+                            if item.is_dir(follow_symlinks=False):
+                                pending.append(Path(item.path))
+                            elif item.is_file(follow_symlinks=False) and item.name.startswith("rollout-") and item.name.endswith(".jsonl"):
+                                path = Path(item.path)
+                                if path not in indexed_files:
+                                    rollout_files.append(path)
+                            if visited >= 200:
+                                break
+                except OSError:
+                    errors += 1
 
             def safe_mtime_p(p: Path) -> float:
                 try:
@@ -693,24 +805,34 @@ def _search_codex_store(
                 except Exception:
                     return 0.0
 
-            rollout_files.sort(key=safe_mtime_p, reverse=True)
+            rollout_files.sort(key=lambda p: (
+                indexed_files.get(p, {}).get("cwd") == cwd_path,
+                p in indexed_files, safe_mtime_p(p)
+            ), reverse=True)
 
-            for rf in rollout_files[:5]:
-                if len(results) >= limit:
-                    break
+            for rf in rollout_files[:candidate_limit]:
                 try:
                     session_hint_model: Optional[str] = None
                     current_turn_model: Optional[str] = None
                     active_turn_id: Optional[str] = None
                     seen_turn_context: bool = False
-                    with open(rf, "r", encoding="utf-8", errors="ignore") as f:
-                        for line in f:
+                    session_cwd = indexed_files.get(rf, {}).get("cwd", "")
+                    thread_id = indexed_files.get(rf, {}).get("thread_id")
+                    with open(rf, "rb") as f:
+                        for line, line_number, byte_offset, gap in _codex_rollout_sample(f):
+                            if gap:
+                                # Unread events may have ended or changed the
+                                # active turn. Never attribute across that gap.
+                                current_turn_model = None
+                                active_turn_id = None
+                                seen_turn_context = True
                             line = line.strip()
                             if not line:
                                 continue
                             try:
                                 obj = json.loads(line)
                             except Exception:
+                                errors += 1
                                 continue
                             if not isinstance(obj, dict):
                                 continue
@@ -742,31 +864,44 @@ def _search_codex_store(
                                         current_turn_model = None
                                         active_turn_id = None
                             elif line_type == "session_meta":
+                                session_cwd = payload.get("cwd") or session_cwd
+                                thread_id = payload.get("id") or thread_id
                                 if payload.get("model"):
                                     session_hint_model = str(payload["model"])
                             elif obj.get("model"):
                                 record_model = str(obj["model"])
 
+                            # An explicit conflicting role overrides a legacy
+                            # user_message key; never relabel tool content.
+                            message = obj.get("message")
+                            roles = [obj.get("role"), payload.get("role")]
+                            if isinstance(message, dict):
+                                roles.append(message.get("role"))
+                            if any(role is not None and role != "user" for role in roles):
+                                continue
                             text = ""
                             if (
                                 line_type == "response_item"
                                 and isinstance(payload, dict)
                                 and payload.get("role") == "user"
                             ):
-                                text = _extract_claude_content(payload.get("content"))
+                                text = _extract_pi_content(payload.get("content"))
                             elif obj.get("role") == "user":
-                                text = str(obj.get("content") or "")
+                                text = _extract_pi_content(obj.get("content"))
                             elif "user_message" in obj:
                                 text = str(obj.get("user_message") or "")
-                            elif "message" in obj and isinstance(obj["message"], dict):
-                                text = _extract_claude_content(obj["message"].get("content"))
+                            elif isinstance(obj.get("message"), dict) and obj["message"].get("role") == "user":
+                                text = _extract_pi_content(obj["message"].get("content"))
                             if not text:
                                 continue
                             if query and query.lower() not in text.lower():
                                 continue
                             snippet = _clean_snippet(text, max_chars=max_chars)
                             ts = str(obj.get("timestamp") or "")
-                            meta = {"path": str(rf)}
+                            meta = {"path": str(rf), "line": line_number, "byte_offset": byte_offset, "cwd": session_cwd,
+                                    "thread_id": thread_id, "role": "user",
+                                    "role_source": line_type or "legacy record",
+                                    "human_verified": False, "coverage": "bounded rollout sample"}
                             if session_hint_model:
                                 meta["session_model"] = session_hint_model
                             if current_turn_model:
@@ -790,13 +925,23 @@ def _search_codex_store(
                                     metadata=meta,
                                 )
                             )
-                            if len(results) >= limit:
-                                break
+                            # Keep memory bounded while allowing later project
+                            # files to displace unrelated candidates.
+                            results.sort(key=lambda entry: _codex_sort_key(entry, cwd_path), reverse=True)
+                            del results[limit:]
                 except Exception:
+                    errors += 1
                     continue
         except Exception:
-            pass
+            errors += 1
 
+    matched_threads = {entry.metadata.get("thread_id") for entry in results}
+    results.extend(entry for entry in index_results if entry.metadata.get("thread_id") not in matched_threads)
+    results.sort(key=lambda entry: _codex_sort_key(entry, cwd_path), reverse=True)
+    for entry in results[:limit]:
+        entry.metadata["coverage_errors"] = errors
+    print(f"Codex coverage: bounded sample; candidates <= {candidate_limit}, discovery <= 200 entries; "
+          f"per rollout <= 1 MiB head/tail, 2000 records/64 KiB per record; errors={errors}; absence not proven", file=sys.stderr)
     return results[:limit]
 
 
@@ -804,7 +949,7 @@ def search_hermes(
     query: str = "",
     cwd: str = "",
     limit: int = 5,
-    max_chars: int = 200,
+    max_chars: int = DEFAULT_MAX_CHARS,
     db_path: Optional[Path | str] = None,
 ) -> list[HistoryEntry]:
     """Search Hermes SQLite DB (~/.hermes/state.db) using FTS5 or LIKE fallback."""
@@ -823,14 +968,14 @@ def search_hermes(
                 sql_fts = """
                     SELECT s.title, s.source,
                            datetime(m.timestamp, 'unixepoch', 'localtime') as ts,
-                           m.role, substr(m.content, 1, 200), m.tool_name
+                           m.role, substr(m.content, 1, ?), m.tool_name
                     FROM messages m
                     JOIN sessions s ON m.session_id = s.id
                     WHERE m.id IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?)
                     ORDER BY m.timestamp DESC
                     LIMIT ?
                 """
-                rows = cur.execute(sql_fts, (query, limit)).fetchall()
+                rows = cur.execute(sql_fts, (max_chars, query, limit)).fetchall()
             except sqlite3.OperationalError:
                 rows = []
 
@@ -839,7 +984,7 @@ def search_hermes(
                 sql_like = """
                     SELECT s.title, s.source,
                            datetime(m.timestamp, 'unixepoch', 'localtime') as ts,
-                           m.role, substr(m.content, 1, 200), m.tool_name
+                           m.role, substr(m.content, 1, ?), m.tool_name
                     FROM messages m
                     JOIN sessions s ON m.session_id = s.id
                     WHERE (m.content LIKE ? OR m.tool_name LIKE ? OR m.tool_calls LIKE ?)
@@ -847,7 +992,9 @@ def search_hermes(
                     LIMIT ?
                 """
                 try:
-                    rows = cur.execute(sql_like, (like_q, like_q, like_q, limit)).fetchall()
+                    rows = cur.execute(
+                        sql_like, (max_chars, like_q, like_q, like_q, limit)
+                    ).fetchall()
                 except Exception:
                     rows = []
         else:
@@ -855,14 +1002,14 @@ def search_hermes(
             sql_recent = """
                 SELECT s.title, s.source,
                        datetime(m.timestamp, 'unixepoch', 'localtime') as ts,
-                       m.role, substr(m.content, 1, 200), m.tool_name
+                       m.role, substr(m.content, 1, ?), m.tool_name
                 FROM messages m
                 JOIN sessions s ON m.session_id = s.id
                 ORDER BY m.timestamp DESC
                 LIMIT ?
             """
             try:
-                rows = cur.execute(sql_recent, (limit,)).fetchall()
+                rows = cur.execute(sql_recent, (max_chars, limit)).fetchall()
             except Exception:
                 rows = []
 
@@ -897,7 +1044,7 @@ def search_agy(
     query: str = "",
     cwd: str = "",
     limit: int = 5,
-    max_chars: int = 200,
+    max_chars: int = DEFAULT_MAX_CHARS,
     db_path: Optional[Path | str] = None,
     brain_dir: Optional[Path | str] = None,
     history_file: Optional[Path | str] = None,
@@ -923,7 +1070,7 @@ def search_agy(
                 like_q = f"%{query}%"
                 try:
                     sql = """
-                        SELECT conversation_id, title, substr(preview, 1, 200),
+                        SELECT conversation_id, title, substr(preview, 1, ?),
                                step_count, last_modified_time, workspace_uris, agent_name
                         FROM conversation_summaries
                         WHERE (title LIKE ? OR preview LIKE ? OR workspace_uris LIKE ?)
@@ -931,21 +1078,25 @@ def search_agy(
                         ORDER BY last_modified_time DESC
                         LIMIT ?
                     """
-                    rows = cur.execute(sql, (like_q, like_q, like_q, limit)).fetchall()
+                    rows = cur.execute(
+                        sql, (max_chars, like_q, like_q, like_q, limit)
+                    ).fetchall()
                 except sqlite3.OperationalError:
                     sql_fallback = """
-                        SELECT conversation_id, title, substr(preview, 1, 200),
+                        SELECT conversation_id, title, substr(preview, 1, ?),
                                step_count, last_modified_time, workspace_uris, agent_name
                         FROM conversation_summaries
                         WHERE (title LIKE ? OR preview LIKE ?)
                         ORDER BY last_modified_time DESC
                         LIMIT ?
                     """
-                    rows = cur.execute(sql_fallback, (like_q, like_q, limit)).fetchall()
+                    rows = cur.execute(
+                        sql_fallback, (max_chars, like_q, like_q, limit)
+                    ).fetchall()
             else:
                 try:
                     sql_cwd = """
-                        SELECT conversation_id, title, substr(preview, 1, 200),
+                        SELECT conversation_id, title, substr(preview, 1, ?),
                                step_count, last_modified_time, workspace_uris, agent_name
                         FROM conversation_summaries
                         WHERE workspace_uris LIKE ?
@@ -953,20 +1104,22 @@ def search_agy(
                         ORDER BY last_modified_time DESC
                         LIMIT ?
                     """
-                    rows = cur.execute(sql_cwd, (f"%{cwd_basename}%", limit)).fetchall()
+                    rows = cur.execute(
+                        sql_cwd, (max_chars, f"%{cwd_basename}%", limit)
+                    ).fetchall()
                 except sqlite3.OperationalError:
                     rows = []
 
                 if not rows:
                     sql_recent = """
-                        SELECT conversation_id, title, substr(preview, 1, 200),
+                        SELECT conversation_id, title, substr(preview, 1, ?),
                                step_count, last_modified_time, workspace_uris, agent_name
                         FROM conversation_summaries
                         WHERE (killed = 0 OR killed IS NULL)
                         ORDER BY last_modified_time DESC
                         LIMIT ?
                     """
-                    rows = cur.execute(sql_recent, (limit,)).fetchall()
+                    rows = cur.execute(sql_recent, (max_chars, limit)).fetchall()
 
             for cid, title, preview, steps, mtime, ws, agent in rows:
                 snippet = _clean_snippet(preview or "", max_chars=max_chars)
@@ -1097,7 +1250,7 @@ def search_cursor(
     query: str = "",
     cwd: str = "",
     limit: int = 3,
-    max_chars: int = 200,
+    max_chars: int = DEFAULT_MAX_CHARS,
     prompt_history_path: Optional[Path | str] = None,
     chats_dir: Optional[Path | str] = None,
     projects_dir: Optional[Path | str] = None,
@@ -1281,7 +1434,7 @@ def search_history(
     sources: Optional[Sequence[str]] = None,
     cwd: str = "",
     limit: int = 5,
-    max_chars: int = 200,
+    max_chars: int = DEFAULT_MAX_CHARS,
     **kwargs: Any,
 ) -> dict[str, list[HistoryEntry]]:
     """Execute multi-source sparse history search across specified or all 5 sources."""
@@ -1403,7 +1556,12 @@ def main(argv: Optional[list[str]] = None) -> int:
         help="Filter by specific source (default: all)",
     )
     parser.add_argument("-n", "--limit", type=int, default=5, help="Result limit per source (default: 5)")
-    parser.add_argument("--max-chars", type=int, default=200, help="Max snippet length in chars (default: 200)")
+    parser.add_argument(
+        "--max-chars",
+        type=int,
+        default=DEFAULT_MAX_CHARS,
+        help="Max snippet length in chars (default: 500)",
+    )
     parser.add_argument("--cwd", default=os.getcwd(), help="Override working directory for project scoping")
     parser.add_argument(
         "--codex-home", action="append", dest="codex_homes", metavar="PATH",

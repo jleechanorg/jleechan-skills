@@ -83,12 +83,26 @@ report it promptly, then continue. An explicit narrower request remains narrow.
 
 ## 3. Review independently, then verify findings
 
-For both-axis reviews, dispatch independent Standards and Spec reviewers in
-parallel when the runtime permits. Give each the same pinned scope, relevant
-source pointers, and the finding/output rules below. Each must read the changed
-code plus needed surrounding context and report actual coverage and limitations.
-Use the runtime's available agent mechanism; if delegation is unavailable, perform
-both passes separately and disclose that independence was unavailable.
+When this review is automatically invoked by a Codex-origin PR workflow, follow
+the PR driver's shared review-dispatch budget before starting either reviewer.
+If no assignment is reserved, perform both axes as self-review when directed,
+without claiming independence. If exactly one assignment is reserved, task that
+reviewer with both axes and record its actual independent coverage; if it covers
+only one axis, self-review the other and do not claim independent coverage for
+it. Leave any independently required coverage open. If the budget or authority
+is unclear, stop automatic reviewer dispatch and ask the driver. A direct user
+request for this review and standalone non-PR reviews keep their own applicable
+rules.
+
+For both-axis reviews outside the automatic Codex-origin PR path above, dispatch
+independent Standards and Spec reviewers in parallel when the runtime permits.
+In that Codex-origin path, dispatch two reviewers only when both assignments
+are reserved; otherwise follow the zero- or one-assignment path above. Give each
+dispatched reviewer the same pinned scope, relevant source pointers, and the
+finding/output rules below. Each must read the changed code plus needed context
+and report actual coverage and limitations. Use the runtime's available agent
+mechanism; if delegation is unavailable, perform both passes separately and
+disclose that independence was unavailable.
 
 **Standards brief:** Check documented rules, clarity, duplication, complexity,
 maintainability, and unnecessary scope. Cite the applicable rule for violations.

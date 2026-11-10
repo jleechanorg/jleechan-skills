@@ -15,9 +15,9 @@ Builtin `/goal <condition>` installs a session-scoped Stop hook (keeps the model
 
 This runs on EVERY invocation, even standalone. Do not skip it because the current conversation seems to give you context; other sessions and machines may hold state this one doesn't.
 
-1. **Query the existing goal, then choose the mechanism.** Check for an active goal (runtime goal state or `/goal active`) before installing one. Matching goal: continue, no replacement. Different goal: preserve it unless the user explicitly authorizes replacement or has cleared it — never clear or replace a goal without an explicit user request. If a new goal is needed, wait until Step 2 has hardened the condition, then:
+1. **Query the existing goal, then choose the mechanism.** Check for an active goal before installing one: runtime goal state, else `bin/self_goal.py status` (reads the session transcript; prints `none|active|achieved|failed|cleared` + condition). Never type `/goal active`: in Claude Code 2.1.310 it SETS a goal whose condition is the word "active" (measured 2026-11-07); bare `/goal` is the read-only status panel. Matching goal: continue, no replacement. Different goal: preserve it unless the user explicitly authorizes replacement or has cleared it — never clear or replace a goal without an explicit user request. If a new goal is needed, wait until Step 2 has hardened the condition, then:
    - use the runtime's native goal API/tool directly when available (e.g. Codex `create_goal`), not a printed `/goal` line or a request that the user paste it;
-   - only with no native mechanism, confirm cmux hosting with `cmux identify` (must return a `caller` block with `surface_ref`);
+   - only with no native mechanism, run `bin/self_goal.py host` (env detection: `cmux` if `CMUX_SURFACE_ID`/`CMUX_SOCKET_PATH`, `tmux` if `TMUX`+`TMUX_PANE`, `warp` if `TERM_PROGRAM=WarpTerminal`, else `none`). `tmux` -> Step 3 "tmux" form; `cmux` -> confirm hosting with `cmux identify` (must return a `caller` block with `surface_ref`);
    - cmux **app** absent (no socket, no caller block) = no composer: prepare the exact `/goal ...` command and hand it to the operator as the only fallback;
    - only the cmux **CLI binary** missing while the app and socket run: skip `cmux identify` and use Step 3's socket form.
 
@@ -26,6 +26,7 @@ This runs on EVERY invocation, even standalone. Do not skip it because the curre
    - **CI criteria must not silently mean "poll forever."** If a criterion depends on remote CI ("zero failing checks", "N-green", "gate passes"), state in the condition or bead that slow/backlogged/flaky CI does NOT block progress by itself: per `~/.claude/CLAUDE.md` § "Slow/backlogged CI runners — run locally + post proof, don't just wait", once a check is stuck 10min+ past its normal runtime, run the equivalent test locally instead of re-polling; a real local pass (command + output + timestamp + git SHA, labeled "local run — CI still pending") satisfies that sub-criterion until CI catches up. Exact local command shapes: the installed product plugin's `testing-infrastructure` skill or the repository's own testing docs (don't guess). CI capacity is the external-blocker class in `~/.claude/skills/ironclad/SKILL.md` § "Verify the structural precondition BEFORE the first grind".
 3. **Create the goal once (if needed).** If Step 1 found a matching goal, do not recreate it.
    - **Native tool:** invoke it once with the hardened condition; keep the returned goal identifier/objective for Step 4. Never substitute a printed `/goal` when the tool is callable.
+   - **tmux or cmux (preferred, one call):** the same helper handles `host==cmux`: it resolves your own surface from `cmux identify` (caller refs), checks the composer, types with `cmux send`, submits with `cmux send-key ... enter`, and does the same readback; conditions containing a backslash are refused there (`cmux send` expands escapes). Tmux details: `python3 ~/.claude/skills/cmux-goal/bin/self_goal.py set '<single-line condition>'` from your own Bash tool. It types `/goal <cond>` into `$TMUX_PANE` with `send-keys -l` (no shell, literal), then a separate `Enter`. No delay is needed: a slash command typed while a turn is running executes immediately (measured: footer `◎ /goal active` within 1s, `Goal set:` printed, persisted `goal_status` sentinel written); the goal is evaluated when the turn ends. The helper already enforces Step 1 (exit 0 reuse of a matching active goal, 4 preserve a different active goal, 5 user-cleared: never revive unless the user freshly instructs, then add `--force-after-clear`), refuses to append to a draft already in the composer (6), and prints `Goal: activated via tmux (readback ok)` only when a fresh persisted `goal_status` for exactly this condition AND the footer/`Goal set:` line are observed; otherwise `Goal: ... unverified/unsupported (...)`. Report that line verbatim; never claim activation without it. Warp: see § Warp (agent-side, needs cmux-cua; the helper cannot do it). `none` hosts: `Goal: unsupported (none)`.
    - **cmux CLI:** rule 2's form (one line, exactly one explicit Enter).
    - **Raw socket** — only when the CLI binary is unavailable but the app and socket run. Take the surface UUID and socket path from the app-exported `$CMUX_SURFACE_ID` / `$CMUX_SOCKET_PATH`; do not call `cmux identify` (it needs the missing CLI). The `\n` must be the literal two-character escape, never a real newline:
      ```bash
@@ -104,9 +105,20 @@ Treat the steer as not working until a response is seen: a reply missing the typ
 
 For briefs >200 chars, do NOT paste the text: write it to a file in the agent's cwd (e.g. `.cmux-<task>-brief.md`) and send a 1–2 line pointer, which avoids autocompleter contamination from shell-style tokens in long text. For `/goal`, the one-line rule still applies — the pointer carries the overflow, not the submitted line.
 
+### Warp (agent-side; cmux-cua MCP tools, not `self_goal.py`)
+
+Robust route (untested): run Claude inside tmux within Warp, then use the tmux form. Native Warp (no tmux) is proven on the Mac, single tab only (2026-11-07); multi-tab is UNVERIFIED, so report `Goal: unsupported (warp)` if you cannot target your tab.
+
+1. Self-target: get your tty (`ps -o tty= -p <pid>`, pid from `~/.claude*/sessions/*.json`), write a unique title `printf '\033]0;WARP-SELF-<uniq>\007' > /dev/<tty>`, then `list_windows(pid=<Warp pid>)` and take the window whose title equals the marker. Launch/identify the Warp pid first.
+2. Type: `type_text(pid, window_id, "/goal <cond>", x, y)` with a pixel click on the composer. The `element_index` form on the AXTextArea drops ~70 leading characters; do not use it. Then `press_key(pid, window_id, return)`.
+3. Verify (not the tool result; `press_key` says "unverifiable" even when it lands): a screenshot showing `Goal set: <cond>` AND a fresh `goal_status` record (`bin/self_goal.py status` also works if the transcript is reachable). Report `Goal: activated via warp (readback ok)` or `Goal: unverified (...)`.
+
+Caveats: a folder-trust dialog defaults to "No, exit" (send down, then return); Warp may auto-update and quit mid-run; its AX tree can go empty or stale, so prefer screenshots; background ctrl+c did not land.
+
 ### Scope and cautions
 
-- `/goal clear` and `/goal active` are typeable the same way; Step 1's never-clear/replace rule applies.
+- `/goal clear` is typeable the same way (stdout `Goal cleared: <cond>`); Step 1's never-clear/replace rule applies. Persisted goal state lives in the session transcript (`$CLAUDE_CONFIG_DIR/projects/*/<sessionId>.jsonl`) as `attachment.type=goal_status` records: `sentinel:true,met:false` = set, `met:true` (no sentinel) = achieved, `failed:true` = ended unmet, and a `Goal cleared:` stdout = user cleared.
+- A user skill named `goal` (e.g. a Codex-style `~/.claude/skills/goal` that calls `CreateGoal`) shadows the builtin `/goal`: typing it yields "CreateGoal not available" and no goal. Seen 2026-11-07; if readback fails, check `ls ~/.claude/skills/goal` first.
 - Works for any builtin in principle; this skill is scoped to `/goal` — self-typing other builtins needs its own justification.
 - Related: `ironclad` skill (criteria hardening), `~/.claude/hooks/goal-exit-criteria.sh` (hardening hook), memory `reference_builtin_goal_exit_criteria_hook`.
 

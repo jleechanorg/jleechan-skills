@@ -1,5 +1,5 @@
 ---
-description: Search across all memory systems — roadmap, beads, claude memories, mem0, hermes, openclaw, wiki, history, and slack
+description: Search requested memory stores or connected conversations with bounded source selection
 type: skill
 execution_mode: immediate
 aliases: [ms]

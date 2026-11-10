@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+from io import StringIO
 from pathlib import Path
 import shutil
 import sqlite3
@@ -62,6 +63,54 @@ class TestHistorySearch(unittest.TestCase):
                 self.assertEqual(main(["--limit", "50", "--max-chars", "500"]), 0)
         self.assertEqual(search.call_args.kwargs["limit"], 50)
         self.assertEqual(search.call_args.kwargs["max_chars"], 500)
+
+    def test_cli_bounds_codex_title_metadata_and_keeps_requested_preview_budget(self) -> None:
+        profile = self.temp_dir / "oversized-title"
+        profile.mkdir()
+        database = profile / "state_5.sqlite"
+        long_title = "Long title " + ("x" * 40_000)
+        long_message = "search term " + ("context " * 150)
+        with sqlite3.connect(database) as connection:
+            connection.execute(
+                "CREATE TABLE threads (id TEXT, title TEXT, first_user_message TEXT, "
+                "cwd TEXT, git_branch TEXT, created_at INTEGER, archived INTEGER)"
+            )
+            connection.execute(
+                "INSERT INTO threads VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    "stable-thread-id", long_title, long_message, "/work/project",
+                    "main", 1788283033, 0,
+                ),
+            )
+
+        def run_cli(*extra: str) -> dict[str, object]:
+            stdout = StringIO()
+            with patch("sys.stdout", stdout):
+                self.assertEqual(
+                    main([
+                        "--source", "codex", "--codex-home", str(profile),
+                        "--json", "--no-color", *extra, "search term",
+                    ]),
+                    0,
+                )
+            return json.loads(stdout.getvalue())["codex"][0]
+
+        default_entry = run_cli()
+        self.assertLessEqual(len(default_entry["metadata"]["title"]), 160)
+        self.assertLessEqual(len(default_entry["snippet"]), 500)
+        self.assertGreater(len(default_entry["snippet"]), 200)
+        self.assertEqual(default_entry["metadata"]["thread_id"], "stable-thread-id")
+        self.assertEqual(
+            default_entry["timestamp"],
+            datetime.fromtimestamp(1788283033).strftime("%Y-%m-%d %H:%M:%S"),
+        )
+        self.assertTrue(default_entry["metadata"]["title"].endswith("…"))
+        self.assertTrue(default_entry["metadata"]["title_truncated"])
+
+        expanded_entry = run_cli("--max-chars", "700")
+        self.assertLessEqual(len(expanded_entry["snippet"]), 700)
+        self.assertGreater(len(expanded_entry["snippet"]), 500)
+        self.assertEqual(expanded_entry["timestamp"], default_entry["timestamp"])
 
     def test_search_claude_indexing_and_malformed_json_tolerance(self) -> None:
         proj_dir = self.temp_dir / "claude_projects" / "-Users-test-myproject"
