@@ -93,11 +93,12 @@ function transportChain() {
  * (it re-reads the message store and binds the result to the exact text sent),
  * so we forward its exit code rather than re-implementing the check.
  */
-function imessageBridge(verb, { file = null, limit = null, theirs = false, contact = null, db = null } = {}) {
+function imessageBridge(verb, { file = null, limit = null, theirs = false, contact = null, db = null, dryRun = false } = {}) {
   if (!transportAvailable('imessage')) {
     die('iMessage transport unavailable (not macOS, or the bridge script is missing)', 4);
   }
   const args = [IMSG_BRIDGE, verb];
+  if (dryRun) args.push('--dry-run');
   if (file) args.push('--file', file);
   if (limit) args.push('--limit', String(limit));
   if (theirs) args.push('--theirs');
@@ -911,9 +912,26 @@ async function compose(page, text) {
   if (VERB === 'send') {
     const name = arg('contact', CONTACT);
     const file = arg('file', null);
+    const dryRun = process.argv.includes('--dry-run');
     if (!file) die('send requires --file <path> (write the message to a file first)', 2);
     if (!fs.existsSync(file)) die(`message file not found: ${file}`, 2);
     const text = fs.readFileSync(file, 'utf8').trim();
+
+    // A dry run proves the wire without delivering anything. It must NOT walk the
+    // transport chain's fallback logic: during a dry run a non-zero rc means the
+    // intent is broken, and "falling back" would attempt a second, real transport.
+    if (dryRun) {
+      if (!transportAvailable('imessage')) die('dry-run is only implemented for iMessage', 3);
+      const rc = imessageBridge('send', {
+        file,
+        contact: process.argv.includes('--contact') ? name : null,
+        db: arg('db', null),
+        dryRun: true,
+      });
+      if (rc !== 0) die(`imessage dry-run rc=${rc}: the intent is broken (nothing was sent)`, rc);
+      process.stderr.write('instinct: dry-run via imessage — nothing delivered\n');
+      return;
+    }
 
     // ---- transport chain: iMessage first, then WhatsApp -------------------
     const sendChain = transportChain();
