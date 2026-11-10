@@ -17,6 +17,7 @@
  */
 
 import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
@@ -40,6 +41,86 @@ const CHROME =
   (process.platform === 'darwin'
     ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
     : '/usr/bin/google-chrome');
+
+// ----------------------------------------------------------------------------
+// Transport chain: iMessage FIRST, WhatsApp Web as the secondary fallback.
+//
+// iMessage is primary because it needs no linked device, no browser, no profile
+// lock, no desktop-UA workaround and no UI hydration race, it does not steal
+// focus, it works from a scheduler and over SSH, and it can confirm delivery
+// against the real message store. WhatsApp needs a device link that a human must
+// establish once with a QR scan, so a fresh machine has no working WhatsApp path
+// until someone does that.
+//
+// Selection is by capability, not preference:
+//   1. INSTINCT_TRANSPORT=imessage|whatsapp forces one transport (no fallback).
+//   2. Otherwise the chain is [imessage, whatsapp].
+//   3. A transport not installed on this host (no bridge, or not macOS for
+//      iMessage) is SKIPPED, never reported as an error.
+//   4. The first transport that succeeds wins; a real failure is recorded and the
+//      next one is tried.
+//   5. If all fail, exit with the LAST transport's code so callers keep the
+//      documented contract (4 not signed in, 5 no contact, 6 no confirmation).
+// Resolve the bridge relative to THIS file first: the installer symlinks the skill
+// package into the runtime, so a sibling script is always present on a fresh
+// machine. `~/.local/bin` is only a fallback for hand-installed copies.
+const IMSG_BRIDGE = (() => {
+  if (process.env.INSTINCT_IMSG_BRIDGE) return process.env.INSTINCT_IMSG_BRIDGE;
+  // fileURLToPath, not .pathname: a pathname keeps %20 escapes, so a checkout under
+  // a directory with a space would silently miss the sibling bridge.
+  const sibling = path.join(path.dirname(fileURLToPath(import.meta.url)), 'imsg-bridge.sh');
+  if (fs.existsSync(sibling)) return sibling;
+  return path.join(os.homedir(), '.local', 'bin', 'imsg-bridge.sh');
+})();
+
+/** Is a transport even installed here? Absence is not an error. */
+function transportAvailable(name) {
+  if (name === 'imessage') {
+    return process.platform === 'darwin' && fs.existsSync(IMSG_BRIDGE);
+  }
+  return true; // whatsapp needs only Chrome, which withPage verifies itself
+}
+
+function transportChain() {
+  const forced = (process.env.INSTINCT_TRANSPORT || '').toLowerCase().trim();
+  if (forced === 'imessage' || forced === 'whatsapp') return [forced];
+  if (forced) die(`INSTINCT_TRANSPORT must be 'imessage' or 'whatsapp', got '${forced}'`, 2);
+  return ['imessage', 'whatsapp'];
+}
+
+/**
+ * Delegate to the iMessage bridge, which owns its own delivery confirmation
+ * (it re-reads the message store and binds the result to the exact text sent),
+ * so we forward its exit code rather than re-implementing the check.
+ */
+function imessageBridge(verb, { file = null, limit = null, theirs = false, contact = null, db = null } = {}) {
+  if (!transportAvailable('imessage')) {
+    die('iMessage transport unavailable (not macOS, or the bridge script is missing)', 4);
+  }
+  const args = [IMSG_BRIDGE, verb];
+  if (file) args.push('--file', file);
+  if (limit) args.push('--limit', String(limit));
+  if (theirs) args.push('--theirs');
+  // An explicit --contact must reach the bridge. Silently ignoring it would turn a
+  // targeting option into a wrong-recipient send.
+  if (contact) args.push('--contact-handle', contact);
+  // Forward a caller-chosen snapshot so a scheduler can read a copied store.
+  if (db) args.push('--db', db);
+  try {
+    execFileSync(args[0], args.slice(1), { stdio: 'inherit' });
+    return 0;
+  } catch (e) {
+    return typeof e.status === 'number' ? e.status : 1;
+  }
+}
+
+// Fallback is an ALLOW-list, not a deny-list. Only these codes prove the message was
+// never submitted, so only these may fall through to the next transport:
+//   2 bad usage, 3 missing dependency, 4 not signed in, 5 contact not found,
+//   6 osascript itself reported failure *and* the store showed no new row.
+// Anything else — 9, an unexpected number, or a signal (mapped to 1) — means the
+// message may already be out, and falling back would send it twice.
+const SAFE_TO_FALL_BACK = new Set([2, 3, 4, 5, 6]);
 
 function die(msg, code = 2) {
   process.stderr.write(`instinct: ${msg}\n`);
@@ -602,6 +683,11 @@ async function compose(page, text) {
     process.stdout.write(
       JSON.stringify(
         {
+          transport_order: transportChain(),
+          transport_available: Object.fromEntries(
+            transportChain().map((t) => [t, transportAvailable(t)])
+          ),
+          imessage_bridge: IMSG_BRIDGE,
           profile_dir: PROFILE_DIR,
           chrome: CHROME,
           contact: CONTACT,
@@ -617,6 +703,36 @@ async function compose(page, text) {
   }
 
   if (VERB === 'probe') {
+    // ---- transport chain: iMessage first, then WhatsApp -------------------
+    // A transport that is not installed here is skipped, not failed, so a Mac
+    // uses iMessage and a Linux host uses WhatsApp without either reporting the
+    // other's absence as an error.
+    const probeChain = transportChain();
+    let probeLast = 4;
+    if (probeChain.includes('imessage')) {
+      if (transportAvailable('imessage')) {
+        const probeContact = process.argv.includes('--contact') ? arg('contact', null) : null;
+        const rc = imessageBridge('probe', { contact: probeContact, db: arg('db', null) });
+        if (rc === 0) {
+          process.stderr.write('instinct: transport=imessage (primary)\n');
+          return;
+        }
+        probeLast = rc || 4;
+        process.stderr.write(
+          probeChain.length > 1
+            ? `instinct: imessage probe failed rc=${rc}; trying next transport\n`
+            : `instinct: imessage probe failed rc=${rc} (no fallback: transport forced)\n`
+        );
+      } else {
+        process.stderr.write('instinct: skipping imessage (not installed on this host)\n');
+      }
+    }
+    if (!probeChain.includes('whatsapp')) {
+      process.stdout.write(JSON.stringify({ signed_in: false, transport: null }) + '\n');
+      die(`all transports failed for probe (tried: ${probeChain.join(', ')})`, probeLast);
+    }
+    // ---- end chain; WhatsApp probe below is the fallback ------------------
+
     // Resolve a positive, finite timeout. A NaN/0/negative value would sample nothing and
     // report 'loading'; Infinity would remove the deadline. Reject both loudly.
     const timeout = Number(process.env.INSTINCT_PROBE_TIMEOUT_MS ?? 90_000);
@@ -714,12 +830,81 @@ async function compose(page, text) {
   if (VERB === 'read') {
     const name = arg('contact', CONTACT);
     const limit = Number(arg('limit', 20));
+    // Replies from the CONTACT are what callers act on, so outgoing rows are
+    // excluded on request. Reading our own text back is how a prompt that asks
+    // for "VERDICT: PASS" ends up matching itself.
+    const wantTheirs =
+      process.argv.includes('--theirs') || process.env.INSTINCT_READ_THEIRS === '1';
+
+    const readChain = transportChain();
+    let readLast = 4;
+    const explicitReadContact = process.argv.includes('--contact') ? name : null;
+    const readDbSnapshot = arg('db', null);
+    if (readChain.includes('imessage') && transportAvailable('imessage')) {
+      const rc = imessageBridge('read', {
+        limit,
+        theirs: wantTheirs,
+        contact: explicitReadContact,
+        db: readDbSnapshot,
+      });
+      if (rc === 0) {
+        process.stderr.write('instinct: read via imessage (primary)\n');
+        return;
+      }
+      readLast = rc || 4;
+      process.stderr.write(
+        readChain.length > 1
+          ? `instinct: imessage read failed rc=${rc}; falling back to whatsapp\n`
+          : `instinct: imessage read failed rc=${rc} (no fallback: transport forced)\n`
+      );
+    } else if (readChain.includes('imessage')) {
+      process.stderr.write('instinct: skipping imessage (not installed on this host)\n');
+    }
+    if (!readChain.includes('whatsapp')) {
+      die(`all transports failed for read (tried: ${readChain.join(', ')}); last code ${readLast}`, readLast);
+    }
+
     await withPage(async (page) => {
       await openContact(page, name);
-      const msgs = await readMessages(page, limit);
-      process.stdout.write(`chat: ${name} (last ${msgs.length})\n`);
-      msgs.forEach((m) => process.stdout.write(`  ${formatMsg(m, SELF_NAME)}\n`));
+      // Ask for a wider window than the caller wants: the direction check below
+      // needs to see whether ANY bubble is ours, and a run of peer replies (the
+      // normal reply-polling case) would otherwise contain none and be refused.
+      const scan = wantTheirs ? Math.max(limit * 4, 40) : limit;
+      const allMsgs = await readMessages(page, scan);
+      const msgs = allMsgs.slice(-limit);
+      // --theirs must filter the fallback transport too. Without this, a prompt that
+      // asks for "VERDICT: PASS|FAIL|BLOCKED" matches its own outgoing text here and
+      // reports a verdict that does not exist — the exact bug this flag prevents.
+      // Direction comes from each bubble's sender label vs SELF_NAME, so if the
+      // caller never set INSTINCT_SELF the filter cannot be applied: fail closed.
+      if (wantTheirs && !SELF_NAME) {
+        die(
+          'read --theirs on the WhatsApp transport needs INSTINCT_SELF set to your own ' +
+            'display name, otherwise your own messages cannot be told apart from replies.',
+          2
+        );
+      }
+      let shown = msgs;
+      if (wantTheirs) {
+        const selfLower = SELF_NAME.toLowerCase();
+        const matchedSome = allMsgs.some((m) => (m.sender || '').toLowerCase() === selfLower);
+        if (!matchedSome) {
+          // No bubble is labelled with exactly SELF_NAME, so direction cannot be
+          // established for this transcript. Filtering on a substring would either
+          // leak our own messages or hide the peer's; refuse instead.
+          die(
+            `read --theirs could not identify your own bubbles on the WhatsApp transport ` +
+              `(no sender matched INSTINCT_SELF=${JSON.stringify(SELF_NAME)}). Set ` +
+              'INSTINCT_SELF to the exact display name this account uses in that chat.',
+            2
+          );
+        }
+        shown = msgs.filter((m) => (m.sender || '').toLowerCase() !== selfLower);
+      }
+      process.stdout.write(`chat: ${name} (last ${shown.length})\n`);
+      shown.forEach((m) => process.stdout.write(`  ${formatMsg(m, SELF_NAME)}\n`));
     }, { headed });
+    process.stderr.write('instinct: read via whatsapp (secondary)\n');
     return;
   }
 
@@ -729,6 +914,42 @@ async function compose(page, text) {
     if (!file) die('send requires --file <path> (write the message to a file first)', 2);
     if (!fs.existsSync(file)) die(`message file not found: ${file}`, 2);
     const text = fs.readFileSync(file, 'utf8').trim();
+
+    // ---- transport chain: iMessage first, then WhatsApp -------------------
+    const sendChain = transportChain();
+    let sendLast = 6;
+    // An explicit --contact is a target, not a hint: forward it so the bridge does
+    // not silently send to the configured peer instead.
+    const explicitContact = process.argv.includes('--contact') ? name : null;
+    const dbSnapshot = arg('db', null);
+    if (sendChain.includes('imessage') && transportAvailable('imessage')) {
+      const rc = imessageBridge('send', { file, contact: explicitContact, db: dbSnapshot });
+      if (rc === 0) {
+        // The bridge already bound its confirmation to this exact text.
+        process.stderr.write('instinct: sent via imessage (primary)\n');
+        return;
+      }
+      if (!SAFE_TO_FALL_BACK.has(rc)) {
+        // The message may already be out. Retrying over WhatsApp would duplicate it.
+        die(
+          `imessage send rc=${rc}: delivery unverified. NOT falling back, because that ` +
+            'would risk sending the same message twice.',
+          rc
+        );
+      }
+      sendLast = rc || 6;
+      process.stderr.write(
+        sendChain.length > 1
+          ? `instinct: imessage send failed rc=${rc}; falling back to whatsapp\n`
+          : `instinct: imessage send failed rc=${rc} (no fallback: transport forced)\n`
+      );
+    } else if (sendChain.includes('imessage')) {
+      process.stderr.write('instinct: skipping imessage (not installed on this host)\n');
+    }
+    if (!sendChain.includes('whatsapp')) {
+      die(`all transports failed for send (tried: ${sendChain.join(', ')}); last code ${sendLast}`, sendLast);
+    }
+    // ---- end chain; WhatsApp send below is the fallback -------------------
     if (!text) die('message file is empty', 2);
     if (text.length > 4000) die(`message is ${text.length} chars; keep it under 4000`, 2);
 

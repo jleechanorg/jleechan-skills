@@ -1,25 +1,133 @@
 ---
 name: instinct
-description: Use when the user invokes /instinct or /in, or asks to "message Instinct", "ask Instinct", "tell Instinct", "check Instinct", or read WhatsApp replies from the contact "Instinct WhatsApp" on the account's configured Gmail identity.
+description: Use when the user invokes /instinct or /in, or asks to "message Instinct", "ask Instinct", "tell Instinct", "check Instinct", or read replies from the configured peer assistant. iMessage first, WhatsApp Web as fallback.
 ---
 
 # /instinct (`/in`)
 
-Talk to the **Instinct** assistant over **WhatsApp Web**, in an agent-owned Chrome profile, on the
-The Google account identity. Modelled on `/dot`, but the transport is WhatsApp instead of ChatGPT.
+Talk to the **Instinct** peer assistant. **iMessage is the primary transport; WhatsApp Web is the
+secondary fallback**, selected by capability at run time — see
+[Transport chain](#transport-chain-imessage-first-whatsapp-secondary).
 
 `scripts/instinct.mjs` is a thin mechanical I/O pointer: `probe`, `read`, `open`, `send`, `whoami`.
-Every judgment call lives in this file.
+`scripts/imsg-bridge.sh` is its iMessage implementation. Every judgment call lives in this file.
 
 ```bash
-NODE=~/.nvm/versions/node/v22.22.0/bin/node
-S=~/.claude/skills/instinct/scripts/instinct.mjs
+S=~/.claude/skills/instinct/scripts/instinct.mjs   # resolved by the active skill root
 
-$NODE $S whoami                                  # resolve profile/contact, no browser
-$NODE $S probe                                   # signed in? exit 4 if not
-$NODE $S read  --contact "Instinct WhatsApp" --limit 20
-$NODE $S send  --contact "Instinct WhatsApp" --file /tmp/msg.txt
+node "$S" whoami                          # which transports, in what order
+node "$S" probe                           # signed in on ANY transport? exit 4 if none
+node "$S" read --theirs --limit 20        # last 20 messages FROM the peer
+node "$S" send --file /tmp/msg.txt        # iMessage first, WhatsApp fallback
 ```
+
+Nothing personal is hardcoded. Set the peer and stores through
+[the environment variables](#configuration) below; the skill fails closed with a clear message when a
+required one is unset.
+
+## Configuration
+
+| Variable | Meaning | Default |
+|---|---|---|
+| `INSTINCT_IMSG_CONTACT` | The peer's iMessage handle (E.164 phone or Apple ID email) | none — required for iMessage |
+| `INSTINCT_CONTACT` | The peer's WhatsApp chat title (falls back to a built-in default title) | `"Instinct WhatsApp"` |
+| `INSTINCT_IMSG_BRIDGE` | Path to `imsg-bridge.sh` | `$HOME/.local/bin/imsg-bridge.sh` |
+| `INSTINCT_TRANSPORT` | Force `imessage` or `whatsapp`, disabling fallback | unset = chain |
+| `INSTINCT_READ_THEIRS` | `1` = `read` returns only the peer's messages | unset |
+| `INSTINCT_SELF` | Your own display name in the peer's WhatsApp chat; required for `read --theirs` there | unset |
+| `IMSG_CHAT_DB` | Path to the macOS message store | `$HOME/Library/Messages/chat.db` |
+
+The bridge is resolved as a **sibling script of this skill package**
+(`scripts/imsg-bridge.sh`), so an installed copy works with no extra step. Set
+`INSTINCT_IMSG_BRIDGE` only to point somewhere else.
+
+---
+
+## Transport chain: iMessage first, WhatsApp secondary
+
+Order is `[imessage, whatsapp]`. `probe`, `read` and `send` walk it and stop at the first success.
+
+| | iMessage (primary) | WhatsApp (secondary) |
+|---|---|---|
+| Credential | none — already signed in as the user | a **linked device** (one QR scan) |
+| Browser | none | agent-owned Chrome profile + lock |
+| Headless | **yes** — no window, no focus, no browser | needs Chrome (headed for `login`) |
+| From a scheduler | works | works, but needs the profile free |
+| From another host | works over SSH | works over SSH |
+| Delivery proof | re-reads the message store, binds to the exact text | composer-empty heuristic |
+| Contact | resolved by **handle** | resolved by **chat title** |
+
+**Why iMessage leads.** It needs no linked device, no browser, no profile lock, no desktop-UA
+workaround and no UI hydration race, it does not steal focus, and it confirms delivery against the
+real message store. WhatsApp needs a human QR scan before it works at all on a fresh machine.
+
+**Controls**
+
+- `INSTINCT_TRANSPORT=imessage|whatsapp` forces one transport **and disables fallback**, so a forced
+  failure is never silently answered by the other transport.
+- A transport that is not installed on this host (no bridge script, or not macOS) is **skipped**, not
+  failed — a Linux host runs on WhatsApp without reporting iMessage as an error.
+
+**Exit codes** keep one documented contract: `2` bad usage, `3` missing dependency, `4` not signed
+in, `5` contact not found, `6` **not sent** (a fallback is safe), `7` resource/profile busy, `8`
+probe inconclusive, `9` **possibly sent but unverified** (never fall back — that would duplicate the
+message). When every transport fails, the **last** real code is returned.
+
+### Resolve the contact by handle, never by display name
+
+A contact store can hold several entries with the same display name on different services (for
+example a stale SMS entry beside the live iMessage one). A name lookup can silently pick the stale
+one, so the iMessage path always resolves by handle. Verify the handle you configured actually has a
+chat row before relying on it:
+
+```bash
+sqlite3 -readonly "${IMSG_CHAT_DB:-$HOME/Library/Messages/chat.db}" \
+  "select chat_identifier from chat where chat_identifier = '$INSTINCT_IMSG_CONTACT';"
+```
+
+Use `-readonly`: the message store is not yours to modify, and it makes a malformed
+statement incapable of writing. `imsg-bridge.sh` never opens it read-write.
+
+### `read --theirs` is required for verdict-matching callers
+
+A prompt that asks the peer to answer `VERDICT: PASS|FAIL|BLOCKED` contains that literal text. A read
+that includes outgoing rows matches the template against the message just sent and reports a verdict
+that does not exist — observed in the field: a watcher marked itself DONE seconds after sending.
+Readers that look for a reply must pass `--theirs` (or set `INSTINCT_READ_THEIRS=1`).
+
+### From a non-macOS host: route to a Mac
+
+iMessage is macOS-only, so a Linux caller must route its `send`/`probe`/`read` to a Mac rather than
+attempt them locally. Resolve that host through the caller's own SSH configuration (see
+[mac-remote](../mac-remote/SKILL.md) for the LAN → Tailscale → gateway ladder); do not hardcode a
+host name here.
+
+```bash
+ssh <mac-alias> 'node ~/.claude/skills/instinct/scripts/instinct.mjs send --file /tmp/msg.txt'
+```
+
+### Scheduler processes cannot read the message store
+
+macOS denies the message store to a scheduler-spawned process (`authorization denied`) — such a
+process is not covered by the user's Full Disk Access. What breaks differs by verb:
+
+- `probe` still works, but reports `verified: "imagent_only"` rather than claiming the contact was
+  checked, because it cannot read the store.
+- `send` refuses to run at all when the configured handle has no chat in the store
+  (exit 5, before anything is submitted) — so a *brand-new* iMessage conversation
+  cannot be started from this bridge. Resolve the conversation once in Messages and
+  the chat row exists from then on.
+- `send` still submits the message, but **cannot confirm** it: it exits **9** (`sent=unverified`)
+  and the transport chain deliberately does **not** fall back, since a fallback would send the
+  message a second time. A `--db SNAPSHOT` cannot fix this: a copy taken *before* the send can never
+  contain the row it creates, so `send --db` is expected to report exit 9. Confirmation is a
+  property of a process that can read the live store.
+- `read` exits `5` for a handle with no chat (which also lets the chain fall back to
+  WhatsApp), and `4` when the store itself cannot be read. Use an interactive session,
+  or `--db SNAPSHOT`, for the store case.
+
+Exit `9` is therefore distinct from `6`: `6` means nothing was sent and a fallback is safe; `9`
+means it may have gone out.
 
 ---
 
