@@ -2,7 +2,8 @@
 
 Scoped reference for `parallelize-to-ceiling`. Normative rules live only in the entry
 `SKILL.md`; this file holds only exact commands, flag values and copy-paste
-templates. If the two disagree, the entry file wins.
+templates (template lines restate entry-file rules for pasting). If the two
+disagree, the entry file wins.
 
 ## Memory admission probes
 

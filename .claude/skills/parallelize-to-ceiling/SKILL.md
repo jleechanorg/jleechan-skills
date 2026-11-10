@@ -266,7 +266,7 @@ its fallback is governed by the Fallback precedence section below.
 
 ## Fallback precedence
 
-The pair template's `FALLBACK` line (inline in the pasted block) is governed by this order:
+The pair template's `FALLBACK` line ([`references/specialist-commands.md`](references/specialist-commands.md#two-agent-pair-handoff-template)) is governed by this order:
 
 1. Start with the AGY pair as the primary implementation and verification lanes.
 2. After a concrete AGY lane failure, retry the same bounded lane with a Codex
@@ -388,7 +388,7 @@ there to a pointer 2026-09-06; this section is the full policy).
   the existing completion handle until a meaningful deadline instead of chaining
   short empty waits. Report progress at the runtime cadence. Never call a wait
   on a finished handle; inspect its delivered result or transcript first.
-- **Gemini Model Invariant**: Never use Gemini 3.1 Pro (or older Gemini Pro models), and never leave `Model: "inherit"` or `"pro"` on bounded subagent lanes (AGY CLI `agy` and Antigravity native `invoke_subagent` alike). Always use Gemini 3.8 Flash or later (exact `agy --model` and `invoke_subagent` `Model:` values: [`references/specialist-commands.md`](references/specialist-commands.md#gemini-flash-lane-flags)).
+- **Gemini Model Invariant**: Never use Gemini 3.1 Pro (or older Gemini Pro models), and never leave `Model: "inherit"` or `"pro"` on any subagent lane, bounded or not (AGY CLI `agy` and Antigravity native `invoke_subagent` alike). Always use Gemini 3.8 Flash or later (exact `agy --model` and `invoke_subagent` `Model:` values: [`references/specialist-commands.md`](references/specialist-commands.md#gemini-flash-lane-flags)).
 - Top tier (the session's own model): reserve for adversarial judgment, or
   only after a cheaper tier has already failed on that unit.
 - Before you repeat a delegated claim **or act on it**, read the artifact it
