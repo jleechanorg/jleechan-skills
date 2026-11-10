@@ -6,39 +6,18 @@ Keep repository rules in their owning `AGENTS.md` (Codex) or `CLAUDE.md` (Claude
 
 ## Reading a cmux terminal before deciding (full-buffer rule)
 
-Before any classification, assessment, steer, or decision about a cmux surface,
-read the surface's FULL available history - never a short tail. Agent panes
-carry their plan, receipts, parked questions, dialogs, and stall evidence deep
-in the scrollback; a 10-12 line tail hides all of it (2026-10-12 lesson:
-operator questions and dialog menus were only visible 20+ lines deep).
+Before any classification, assessment, steer, or decision about a cmux surface, read the surface's FULL available history - never a short tail. Agent panes carry their plan, receipts, parked questions, dialogs, and stall evidence deep in the scrollback; a 10-12 line tail hides all of it.
 
 Concrete rule:
-- Read at least ~10k words of the surface's output when available, using the
-  deepest scrollback the terminal holds:
-  `cmux capture-pane --workspace <ws> --surface <sf> --scrollback --lines 1500`
-  (headless only: never a command that selects or focuses a workspace; measured
-  2026-10-18, capture-pane/read-screen/send/send-key do not; steering rules live in
-  `~/.claude/skills/cmux-steer/SKILL.md`). If the
-  buffer is shorter, read all of it.
-- Read in layers: (1) the deep scrollback for history/receipts/plan, then
-  (2) the last ~15 lines for current state. A decision made from either layer
-  alone is incomplete.
-- A `grep` over one capture is a **pre-filter, never a state verdict**. Those strings appear in quoted bot text,
-  in scrollback after the condition cleared, and in footers describing a past moment.
-- Before any idle/stalled/blocked verdict: capture the surface twice, 20-30 s apart, into unique paths
-  (`mktemp`, never a fixed name under `/parallel`). **Screen changed => `WORKING`, stop.**
-- **Identical screens are not proof of idleness.** An idle/stalled/blocked verdict also requires confirming the
-  *absence* of: post-footer tool calls or assistant text, live timer growth (`Working (…)`/`Pursuing goal (…)`),
-  CPU in `top_flat.tsv`, and for `pi` panes growth of the trailing `~/.pi/agent/sessions/*/*.jsonl` matched by cwd.
-- These strings are **never** state on their own: `Goal stalled (/goal resume)`,
-  `Goal hit usage limits (/goal resume)`, `CH100%`, `Working (…)`, `Pursuing goal (…)`.
-- Never classify a surface as idle/working/stalled, and never nudge it, from a
-  capture shorter than the full buffer. If you cannot read the full buffer
-  (surface closed, capture failed), say so and mark the surface UNVERIFIED
-  rather than guessing.
+- Read at least ~10k words of the surface's output when available, using the deepest scrollback the terminal holds: `cmux capture-pane --workspace <ws> --surface <sf> --scrollback --lines 1500` (headless only: never a command that selects or focuses a workspace; steering rules live in `~/.claude/skills/cmux-steer/SKILL.md`). If the buffer is shorter, read all of it.
+- Read in layers: (1) the deep scrollback for history/receipts/plan, then (2) the last ~15 lines for current state. A decision made from either layer alone is incomplete.
+- A `grep` over one capture is a **pre-filter, never a state verdict**. Those strings appear in quoted bot text, in scrollback after the condition cleared, and in footers describing a past moment.
+- Before any idle/stalled/blocked verdict: capture the surface twice, 20-30 s apart, into unique paths (`mktemp`, never a fixed name under `/parallel`). **Screen changed => `WORKING`, stop.**
+- **Identical screens are not proof of idleness.** An idle/stalled/blocked verdict also requires confirming the *absence* of: post-footer tool calls or assistant text, live timer growth (`Working (…)`/`Pursuing goal (…)`), CPU in `top_flat.tsv`, and for `pi` panes growth of the trailing `~/.pi/agent/sessions/*/*.jsonl` matched by cwd.
+- These strings are **never** state on their own: `Goal stalled (/goal resume)`, `Goal hit usage limits (/goal resume)`, `CH100%`, `Working (…)`, `Pursuing goal (…)`.
+- Never classify a surface as idle/working/stalled, and never nudge it, from a capture shorter than the full buffer. If you cannot read the full buffer (surface closed, capture failed), say so and mark the surface UNVERIFIED rather than guessing.
 
-Owner: this section. Skills that steer cmux surfaces carry a one-line pointer
-here and must not restate the rule.
+Owner: this section. Skills that steer cmux surfaces carry a one-line pointer here and must not restate the rule.
 
 ## Editing shared policy or runtime adapters — semantic signoff + behavioral gate (mandatory)
 
@@ -85,10 +64,14 @@ Still gated regardless of any pipeline demand: destructive actions, merges, forc
 The user-only set is: merge approval, force-push approval, social-post deletion, destructive actions, spending money, creating/rotating/revoking credentials, and steps that physically need the user (hardware 2FA, a device in hand, consent no existing session holds). Everything else the agent does, then reports. The user-only items keep their exact authorization phrases: merging needs `MERGE APPROVED`/`merge approved` (or an obvious typo of it) or a standing approval whose conditions are verified — "ship it", "LGTM", "go ahead", or "looks good" are not merge approval (§ Merge safety).
 
 - **Using an existing credential is not a credential-creation gate.** An existing browser session, service account, Keychain item, `gh` auth, or local key file may be used to complete an authorized task step. Patching app config through a service account or setting a CI secret from an existing local key (`gh secret set NAME < file`, never echo the value) still requires authority for that persistent configuration change; an existing task request covering it supplies that authority without another question.
+- **Never `security dump-keychain`.** Using an existing Keychain item (above) means reading the ONE named item you need, never dumping the store. `security dump-keychain -d <keychain>` decrypts every credential in the login keychain, and in an agent session that output lands in a logged transcript. It is a credential-exfiltration shape regardless of intent, and it hangs on a headless host because `-d` needs a GUI password, leaving an unanswered `SecurityAgent` prompt.
+  - **Use instead:** `security find-generic-password -s <exact-service> -a <account> -w` for one known item; `gog auth list --json` / `gh secret list` to enumerate *names* only; `gh auth status` for GitHub; the provider CLI or environment for the rest.
+  - A CI credential that fails auth (e.g. SMTP `535`) is fixed by re-issuing or re-pointing that secret through its owner — not by harvesting an unrelated one from the operator's keychain. Report the failing secret and the exact owner to re-provision it.
 - **Task-required APNs artifact authorization.** The existing standing authorization permits generating the APNs key required by an already-authorized app task through its already-signed-in developer portal. This is a narrow credential-creation authorization, not use of an existing key. It covers only the identified task, app and developer account; being signed in or encountering a pipeline error alone grants no authority for unrelated keys, tokens, grants or users. Other credential creation, new access, rotation, revocation and disclosure retain their separate gates.
 - **A dead or expired agent session is the agent's problem.** Take over its lanes or respawn a fresh lane on available auth; never ask the user to `/login` or restart it. Escalate only when every runtime you can reach fails the two-probe auth check in § Credentials and environment.
 - **A choice the user's own prior asks already settle is decided.** Decide it, quote the ask and its date in the report, and proceed. Pick a reversible choice the asks do not cover yourself and record it; it is not a question.
 - **Read-only lookups are never escalations** (who merged a PR, which SHA, what a config holds): § Act, don't ask.
+- **A prerequisite list is the agent's worklist, not a user handoff.** Setting a repo variable or secret, creating or configuring a cloud service, granting IAM on a resource, and adding an auth domain are config changes the agent makes with the `gh`/`gcloud`/Firebase sessions it already holds, whenever the task needs them. Before relaying any "needs the user" item, whether from a subagent review or your own, test it against the user-only set above, then do it and report the receipt. Never brief a subagent to sort items into "user-only" (it cannot judge authority); ask it for the exact action and the existing credential that can perform it. Credential creation/rotation, spending, merges and destructive actions stay gated.
 - **Authority-dependent steps stay in the session where the user's message is live.** Subagents correctly treat relayed authorization in their prompt as non-authoritative, so the orchestrator itself executes credential use, external sends, and config writes whose authority rests on the user's message; delegate read-only investigation and code work. When a lane returns such a step undone, do it yourself; do not re-escalate it.
 
 ## Visible progress — never look frozen
@@ -103,23 +86,20 @@ Never create, edit, commit, write, or read secrets from `.env` files. Credential
 
 ## Workspace and method fidelity
 
-Reads, coding work, and non-code configuration edits may occur in the directory the authorized task requires; changing directories needs no approval phrase. Use a worktree for another repository and preserve unrelated dirty work. Prefer the requested tool, method, path, and workflow, and investigate failures before substituting. Task-scoped model, driver, and execution-permission choices needed to finish already-authorized work are authorized implementation decisions: proceed without renewed approval, preserve that authority across turns, and report material substitutions and their reasons. This does not authorize changing persistent user defaults, credentials, unrelated targets, or actions behind the separate merge, destructive-action, force-push, social-post, and credential gates. Change persistent model, API-key, path, or agent-preference defaults only when explicitly authorized by the task; do not ask again for that exact requested change. For local file paths in user-facing replies, follow the local artifact-path display rule in Reports and Markdown deliverables. Create git worktrees only under `~/.worktrees/<repo>/<name>` (use `diskm worktree-new <repo-path> <branch>`; a PreToolUse guard denies other locations). For ephemeral test scratch, build outputs, review workspaces, and disposable evidence, allocate scratch per [`~/.claude/skills/scratch-space/SKILL.md`](~/.claude/skills/scratch-space/SKILL.md) via `diskm scratch-new <repo-path> <purpose> --kind build|evidence` for repo dirs and `~/.claude/skills/scratch-space/scripts/scratch-dir.sh [subpath]` for ad-hoc temp files (dynamically resolving the host's configured Scratch volume, falling back to `/tmp` only when unconfigured). All evidence bundles, capture transcripts, media artifacts, and ephemeral review/advice scratch workspaces MUST be written strictly to Scratch or `/tmp`, never into repository trees or `$HOME`. Ephemeral review/advice workspaces must be torn down cleanly upon completion; never leave unmonitored worktrees or persistent evidence dumps in repository trees or home directories. Mutable state, credentials, and transcripts stay in `$HOME`. Never remap global `TMPDIR` or replace `/tmp`. Publish evidence that must outlive the session to an unlisted gist or `diskm evidence-push` (GCS, 30-day retention), never into a repository tree or `$HOME`.
+Reads, coding work, and non-code configuration edits may occur in the directory the authorized task requires; changing directories needs no approval phrase. Use a worktree for another repository and preserve unrelated dirty work. Prefer the requested tool, method, path, and workflow, and investigate failures before substituting. Task-scoped model, driver, and execution-permission choices needed to finish already-authorized work are authorized implementation decisions: proceed without renewed approval, preserve that authority across turns, and report material substitutions and their reasons. This does not authorize changing persistent user defaults, credentials, unrelated targets, or actions behind the separate merge, destructive-action, force-push, social-post, and credential gates. Change persistent model, API-key, path, or agent-preference defaults only when explicitly authorized by the task; do not ask again for that exact requested change. Create git worktrees only under `~/.worktrees/<repo>/<name>` (use `diskm worktree-new <repo-path> <branch>`). This is a **convention with no mechanical enforcement**: no guard denies other locations (`~/.claude/hooks/protect-worktrees.sh` blocks only removal/prune, not creation), so `git worktree add` at any path succeeds. Honour the convention yourself and verify placement after creating one. For ephemeral test scratch, build outputs, review workspaces, and disposable evidence, allocate scratch per [`~/.claude/skills/scratch-space/SKILL.md`](~/.claude/skills/scratch-space/SKILL.md) via `diskm scratch-new <repo-path> <purpose> --kind build|evidence` for repo dirs and `~/.claude/skills/scratch-space/scripts/scratch-dir.sh [subpath]` for ad-hoc temp files (dynamically resolving the host's configured Scratch volume, falling back to `/tmp` only when unconfigured). All evidence bundles, capture transcripts, media artifacts, and ephemeral review/advice scratch workspaces MUST be written strictly to Scratch or `/tmp`, never into repository trees or `$HOME`. Ephemeral review/advice workspaces must be torn down cleanly upon completion; never leave unmonitored worktrees or persistent evidence dumps in repository trees or home directories. Mutable state, credentials, and transcripts stay in `$HOME`. Never remap global `TMPDIR` or replace `/tmp`. Publish evidence that must outlive the session to an unlisted gist or `diskm evidence-push` (GCS, 30-day retention), never into a repository tree or `$HOME`.
 
 ## Reports and Markdown deliverables go in the roadmap repo, not `/tmp`
 
 Write every durable agent-authored deliverable — investigation reports, analyses, handoffs, learnings,
 design notes, PR summaries, comparison tables, and any Markdown a human will read — under `~/roadmap/`
-(the `jleechanorg/roadmap` git repo), as `<topic>-YYYY-MM-DD.md`. For a user-facing reply that names
-the artifact, follow the local file-path presentation rule in this section.
+(the `jleechanorg/roadmap` git repo), as `<topic>-YYYY-MM-DD.md`.
 
 **Local file paths in user-facing replies:** Print each full expanded absolute path as plain text on
 its own line. Do not use a shortened or labeled Markdown file link unless the user explicitly asks
 for one. Keep required GitHub and web citations as links. This rule applies to chat replies; it does
 not prohibit useful Markdown cross-references inside documents.
 
-`/tmp` and scratch volumes are scratch, not storage. A host restart wipes `/tmp`: on 2026-10-25 a restart deleted
-`/tmp/worldai-cost-audit/` — a complete cost-investigation bundle — while the `~/roadmap` report, the
-wiki pages, and the beads survived, and the evidence had to be reconstructed from them. Anything a
+`/tmp` and scratch volumes are scratch, not storage: a host restart wipes `/tmp`. Anything a
 human will read, or a later session may need, must be written to `~/roadmap` **before** you report it.
 
 This does not relax the evidence rule above. The boundary is readership and lifetime:
@@ -149,18 +129,15 @@ Never aim a destructive command at a computed path. Before `rm -r`, `rsync --del
 - `set -u` and prove the path: `[ -n "$D" ] && [ "$D" != / ] || { echo "unsafe dest: '$D'" >&2; exit 1; }`
 - Interpolate as `${D:?unset}` rather than `"$D"`; never use `--delete` onto a computed destination.
 - Validate tool output before using it: `DST=$(xcrun simctl get_app_container ...)` can return empty or a bare '/'. Check non-empty AND not root AND expected prefix before any copy/delete.
-- Scratch space is allocated per [`~/.claude/skills/scratch-space/SKILL.md`](~/.claude/skills/scratch-space/SKILL.md) via `diskm scratch-new <repo-path> <purpose> --kind build|evidence` for repo dirs and `~/.claude/skills/scratch-space/scripts/scratch-dir.sh [subpath]` for ad-hoc temp files (or `mktemp -d` inside scratch for tiny non-git file scratch only; never `git worktree add $(mktemp -d)` — all git worktrees must live under `~/.worktrees/<repo>/<name>` via `diskm worktree-new`, except roots explicitly listed in `~/.config/guards/worktree-allowlist` (e.g. `<project>/worktree_<name>` for this frontend repo)), never hardcoding OS mountpoints or a fixed `/tmp/<name>` you then delete.
+- Allocate scratch as § Workspace and method fidelity requires (`mktemp -d` inside scratch for tiny non-git file scratch only), never hardcoding OS mountpoints or a fixed `/tmp/<name>` you then delete. Never `git worktree add $(mktemp -d)`: all git worktrees must live under `~/.worktrees/<repo>/<name>` via `diskm worktree-new`, except roots explicitly listed in `~/.config/guards/worktree-allowlist` (e.g. `<project>/worktree_<name>` for this frontend repo).
 - Durable guards already installed: `~/.claude/hooks/destructive-path-guard.sh` (Claude PreToolUse), `~/.codex/rules/destructive-guards.rules` + codex path-deletion hook, `~/.local/bin/guards/{rsync,rm,git}` shims, `diskm guard-worktree-add`, `~/.claude/hooks/lib/destructive_path_guard.py --check '<cmd>'` (usable from any runtime).
 - Incident record: `br show jleechan-lwn`.
 
-### What the guard (`cc-safety-net` 2.6.16, MIT, level `standard`) blocks — work with it, don't fight it
+### What the guard (`cc-safety-net`, level `standard`) blocks — work with it, don't fight it
 
-Installed for Claude Code, Codex, Cursor, agy, Hermes and pi; level is `standard` (strict was measured at a 2.0% block rate, ~92% of it fail-closed parse noise, and was reverted).
-
-- **`rm -r` on a variable target is denied** (`rm.recursive-force-dynamic-target`): `rm -rf "$D"` -> blocked even when `$D` is set. Use a literal path or narrow to a literal subdirectory.
-- **`rsync --delete` is only allowed into an explicit path inside the current directory, or under `/tmp`, `/var/tmp`, `$TMPDIR`** (`rsync.delete`, since 2.6.15). Denied: a variable destination of any form (including the "safe" `${D:?}/x`), a destination elsewhere in `$HOME` such as `~/projects/...` or `~/.worktrees/...`, and root/`~`/`$HOME`/`.git` destinations (those last ones cannot be disabled by policy). Remote `user@host:/path` and non-`--delete` rsync stay allowed. To mirror outside cwd, drop `--delete` and remove the stale files explicitly, or run from the destination's parent.
-  - Exact rule text: *"Mirror only into explicit paths inside the current directory or under /tmp, /var/tmp, or $TMPDIR."*
-- **`prog - <<'PY'` heredocs are denied** (`analysis.unsupported-heredoc`). Sanctioned idiom: `STEP_PY="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh tmp)/step.py"`, `cat > "$STEP_PY" <<'PY' ... PY`, then `python3 "$STEP_PY"`. Supported consumers: `cat`, `tee`, `git apply`, `git commit`, `gh pr create`, `gh issue create`.
+- **`rm -r` on a variable target is denied**: `rm -rf "$D"` -> blocked even when `$D` is set. Use a literal path or narrow to a literal subdirectory.
+- **`rsync --delete` is only allowed into an explicit path inside the current directory, or under `/tmp`, `/var/tmp`, `$TMPDIR`.** Denied: a variable destination of any form (including the "safe" `${D:?}/x`), a destination elsewhere in `$HOME` such as `~/projects/...` or `~/.worktrees/...`, and root/`~`/`$HOME`/`.git` destinations (those last ones cannot be disabled by policy). Remote `user@host:/path` and non-`--delete` rsync stay allowed. To mirror outside cwd, drop `--delete` and remove the stale files explicitly, or run from the destination's parent.
+- **`prog - <<'PY'` heredocs are denied.** Sanctioned idiom: `STEP_PY="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh tmp)/step.py"`, `cat > "$STEP_PY" <<'PY' ... PY`, then `python3 "$STEP_PY"`. Supported consumers: `cat`, `tee`, `git apply`, `git commit`, `gh pr create`, `gh issue create`.
 - Our own `rsync --delete` analyzer and `~/.local/bin/guards/rsync` (`--max-delete=2000`, override `GUARD_MAX_DELETE`) stay installed as independent layers — they run before the package hook and cover forms the package skips (e.g. `rtk rsync`, absolute-path binaries).
 
 ## Verify before reporting
@@ -179,6 +156,8 @@ baseline diff, the receipt), never re-interpret the underlying condition from pr
 Resolve discrepancies with a command before reporting them. Treat tool status strings as hypotheses: verify negative claims by invoking the capability or checking its owner, and verify positive claims from a different layer. Do not claim working, enabled, healthy, fixed, deployed, removed, pushed, or complete from a tool-layer success alone; cite observable command output and disclose any unverified layer. For a status question, refresh live state, answer it, and resume pending work. When locating where a skill/command/config actually lives, always check both `~` (global) and the active repo before asserting a location — a canonical source in one and a missing/stale mirror in the other is a common, easy-to-miss gap.
 
 **Re-pin mutable state at the moment you verify it, never from prose.** A SHA, branch head, PR head, check-run set, or file content read from any message — a teammate's report, a bead note, an earlier turn, or your own prior statement — is a claim about the past, not the present. Re-read it from the source (`git rev-parse HEAD`, `gh pr view --json headRefOid`, a fresh file read) immediately before each verification round, and bind every finding to the value you measured. `git commit --amend`, a rebase, or a concurrent writer mints a new SHA silently, so a verification round that began minutes ago may be testing code nobody has. A finding that is accurate for a stale SHA is still a false report about current state: before escalating "X regressed" or "Y still broken", confirm you measured the head you are reporting on. When another agent's report and your measurement disagree, suspect a head move first and diff the two SHAs before concluding the agent erred.
+
+**A local checkout is not the repository.** The same rule applies to *absence*: a symbol, route, flag or function that you cannot find in a working tree proves only that **your copy** lacks it. Before reporting "this does not exist", "there is no such code", or "the flag gates nothing", run `git fetch` and re-read the same search against `origin/main` (`git grep <pattern> origin/main`, `git show origin/main:<path>`), and state the commit you searched. A clone hundreds of commits behind silently answers a question about a repository that no longer exists. Absence claims are verdicts: bind them to a fetched commit, or label them "unverified against `origin`".
 
 ## Core behavior
 
@@ -203,13 +182,26 @@ When independent work exists, use concurrency up to the real resource bound and 
 
 Apply `/parallel` proactively to bounded independent investigation, checks, monitoring, and mechanical follow-through when handing them off is cheaper than doing them in the parent session. Keep handful-of-calls work in the parent; name the cheapest capable model and give each lane bounded end-to-end ownership. Workers own their checks through completion and report a result, blocker, or material decision; use asynchronous completion notifications instead of repeated parent polling. The parent keeps scope, judgment, integration, and final evidence.
 
-On this Mac, cap heavy local lanes (CLI delegations, `/advice` and review reviewers, local test suites, real-LLM runs) by measured CPU idle, never by load average (macOS load average counts waiting threads and can sit far above real CPU demand). Measure with `top -l 2 -n 0 -s 2 | grep 'CPU usage' | tail -1`: below 25% idle, run at most 2 at once and never two test suites concurrently; below 10% idle, start none, finish in-flight work, and move the work to jeff-ubuntu with `/linux-mirror`. Treat this Mac and jeff-ubuntu as one pool: place each new heavy lane on whichever host has more idle CPU (Linux: `top -bn2 -d1 | grep '%Cpu' | tail -1`), using `/linux-mirror` or `/mac-mirror` to move it. Below 25% idle, hand a well-scoped coding task (clear goal, branch or PR, acceptance criteria) to `/dot` instead of doing it locally, and tell the dot to run its coders on its cloud computer, because by default they run on this Mac; confirm no local clone or test processes appear for that branch. Thresholds: `~/.claude/skills/parallelize-to-ceiling/SKILL.md` § CPU tier.
+On this Mac, cap heavy local lanes (CLI delegations, `/advice` and review reviewers, local test suites, real-LLM runs) by measured CPU idle, never by load average (macOS load average counts waiting threads and can sit far above real CPU demand). Measure with `top -l 2 -n 0 -s 2 | grep 'CPU usage' | tail -1`: below 25% idle, run at most 2 at once and never two test suites concurrently; below 10% idle, start none, finish in-flight work, and move a heavy task to jeff-ubuntu only when the Linux host is eligible under its own measured capacity and workload. Prefer the current host when it has task-specific headroom; do not transfer solely because another host has more idle CPU. For Linux, measure with `top -bn2 -d1 | grep '%Cpu' | tail -1` and use its own measured capacity and workload rather than Mac numeric thresholds. Use `/linux-mirror` or `/mac-mirror` for an established handoff. Below 25% idle, hand a well-scoped coding task (clear goal, branch or PR, acceptance criteria) to `/dot` instead of doing it locally, and tell the dot to run its coders on its cloud computer, because by default they run on this Mac; confirm no local clone or test processes appear for that branch. Thresholds and cross-host selection: `~/.claude/skills/parallelize-to-ceiling/SKILL.md` § CPU tier and `references/host-load-balancing.md`.
+
+### Blocked on one host — use the other (user directive 2026-11-03)
+
+When work on this Mac or on jeff-ubuntu is blocked by a host-specific condition, do not stop, wait or escalate: measure the other host and move the work there. Host-specific conditions include: disk full or below its floor, a CPU/memory admission gate, a missing or broken tool, an unavailable simulator or device, or a host-local auth failure. Mac to Linux goes through `/lm` (`~/.claude/skills/linux-mirror/SKILL.md`); Linux to Mac goes through `/mac-mirror`. Then follow that host's session through to the result. Work tied to one host stays there (iOS Simulator, Keychain-only credentials); move the rest around it, and pass any needed credential over stdin or as process-memory-only environment, never in argv or on disk. Escalate only when both hosts are blocked, citing each host's blocking evidence. This does not override approval gates, the one-native-operator rule, or destructive-action rules on either host.
 
 ## Upstream and root-cause engineering
 
 Inspect upstream behavior before modifying a fork; prefer configuration or plugins, and edit fork code in a worktree before promoting by PR. No proposed owner fully replaces this universal contract.
 
 Fix the prompt, schema, or instruction first before adding backend protection, fallback, clamp, sanitizer, retry, or suppression; complete the root-cause-first and any required ZFC workflow before adding such protection. Full procedure: `~/.claude/skills/root-cause-first/SKILL.md`.
+
+### Unmandated enforcement gates
+
+Before adding any guard, validator, ledger, cap, or fail-closed check — including "to satisfy a review finding" — name its authority in one line: an explicit user instruction, the task's spec, or a named policy `file:line`. Your own earlier commit, a prior agent's design, and a reviewer's preference are not authority.
+
+- **Enforcement never outranks the deliverable.** More machinery is not more rigor. A fail-closed layer needs a named authority or it does not ship, and it must not be able to block authorized work. A guard stack larger than the change it guards is itself the defect.
+- **No irreversible state without a resume path.** Host-local one-shot locks (exclusive-create ledgers, consumed permits) ship with a documented resume/override or not at all. Permanent local state plus no resume turns one fixable defect into a dead lane.
+- **A guard's own tests never prove the deliverable.** Prove that one authorized real run still completes end to end. Passing assertions over the guard prove only the guard.
+- **Spend is user-only (§ Escalate only what only the user can do).** An agent-authored spend guard is convenience, never the authorization boundary: a live user grant authorizes the spend even when local machinery refuses. Never present such machinery as the user's decision, and never cite it as a reason you cannot act.
 
 ## Ponytail — lazy senior dev mode
 
@@ -341,17 +333,19 @@ leave the profile alone.
 
 MCP server registration is per runtime and the destinations are not interchangeable: Claude Code MCP servers belong in `~/.claude.json`, never `~/.claude/settings.json`; Codex MCP servers belong in the active `CODEX_HOME/config.toml`. Stable user-scope MCP installs use `npm -g` or `uvx`; never repo, worktree, or temp paths. Register HTTP MCPs in `~/.config/mcp-daemon/start-mcp-daemons.sh`. Launchd plist template ownership remains with `~/.claude/skills/launchd-plist-template/SKILL.md`. Before replacing a service, verify old processes are gone and prevent duplicate credential-sharing connections. Do not write `wiki/` except through `/wiki-ingest`.
 
-## Goals, slash commands, and directory safety
+## Goals, slash commands, /af, and directory safety
 
 Goal setting and hardening: `~/.claude/skills/cmux-goal/SKILL.md` and `~/.claude/skills/ironclad/SKILL.md`; never clear a user goal without explicit request. Slash-command resolution: `~/.claude/skills/slash-command-translation/SKILL.md`. Directory replacement safety: `~/.claude/skills/cwd-safety/SKILL.md`.
 
+`/f` and `/factory` are identical Dark Factory entry points: load and follow `~/.claude/skills/dark-factory/SKILL.md` and invoke its real binary workflow; never substitute ad hoc `codex review` or a prose-only review.
+
+When `/af` or `/auto-factory` is invoked, keep all coding LLM work inside the task-scoped workflow: `~/.claude/skills/auto-factory/SKILL.md`.
 
 
 
 ## Shared provider & review-gate policy (canonical)
 
-This is the canonical shared copy for Codex and Claude Code (Claude imports this file via
-`@~/.codex/AGENTS.md`; Gemini references it by path). Edit shared rules here once.
+Canonical shared copy, as stated at the top of this file; Gemini references it by path.
 
 ### Review gates - CodeRabbit/Bugbot are optional
 CodeRabbit and Bugbot are **optional advisory reviewers**, never gates and never a wait.
@@ -435,7 +429,7 @@ Never write skill content into a projection root, and never let a generator drop
 comparison selected by the existing sync owner). Never absorb a change you did
 not make. Stage skill files by explicit path, never a directory glob.
 
-For the cross-session skill source and scoped host-propagation contract, follow
+For every skill change in the shared catalog, follow the cross-session skill source and scoped host-propagation contract in
 [`/up`'s reusable skill source and scoped host sync section](../.claude/skills/up/SKILL.md#reusable-skill-source-and-scoped-host-sync).
 
 - When the user invokes a slash command, resolve its real definition from `~/.claude/commands/<name>.md` and load any referenced canonical skill under `~/.claude/skills/`, then execute the complete workflow; never substitute the apparent plain-language action (for example, `/ready` is not merely `gh pr ready`). Do not use `~/.codex/commands` as a command catalog; it is not a canonical Codex discovery surface. Treat command availability as cross-directory behavior, and do not infer model unavailability from a missing path in one directory.
@@ -455,7 +449,7 @@ Runtime configuration belongs to the active `CODEX_HOME/config.toml`; another pr
 - Use `terra_scout` for discovery, `terra_reviewer` for semantic review, and `luna_verifier` for focused test execution.
 - For bounded implementation, prefer `$HOME/.local/bin/codex-luna` for small mechanical edits when available; otherwise use `luna_worker`.
 - Treat model lists in tool descriptions as advisory discovery metadata, not an exhaustive allowlist. If a requested installed model is omitted, first probe one harmless `spawn_agent` call with the exact model slug; only after a concrete rejection may you fall back to its canonical CLI wrapper (Luna: `$HOME/.local/bin/codex-luna`) or another model, and report the actual rejection.
-- Resource admission gate (corrected 2026-09-02): before spawning lanes, subprocess fleets, or CLI delegations — or any time diagnosing memory pressure — compute available RAM from `vm_stat` as (free+inactive+purgeable+speculative)×page_size and attribute the top RSS consumer with `ps -Ao rss,comm -r | head`. Never gate on `vm.swapusage` used/total ratio (macOS sizes the swapfile dynamically; "89% full" can coexist with 12+GB available). `kern.memorystatus_vm_pressure_level`: 2 is amber/informational, only 4 is critical. Spawn normally when available >8GB and pressure ≤2; reduce lane count at 4-8GB or pressure=3; for memory, defer only at <4GB or pressure=4, and attribute it to the real top-RSS source first; CPU load has its own heavy-lane cap (§ CPU tier). Never fork a multi-minute CLI delegation as foreground Bash: always background + timeout. Full gate: `~/.claude/skills/parallelize-to-ceiling/SKILL.md` — treat that skill as source of truth if this summary drifts from it.
+- Resource admission gate: before spawning lanes, subprocess fleets, or CLI delegations — or any time diagnosing memory pressure — compute available RAM from `vm_stat` as (free+inactive+purgeable+speculative)×page_size and attribute the top RSS consumer with `ps -Ao rss,comm -r | head`. Never gate on `vm.swapusage` used/total ratio (macOS sizes the swapfile dynamically). `kern.memorystatus_vm_pressure_level`: 2 is amber/informational, only 4 is critical. Spawn normally when available >8GB and pressure ≤2; reduce lane count at 4-8GB or pressure=3; for memory, defer only at <4GB or pressure=4, and attribute it to the real top-RSS source first; CPU load has its own heavy-lane cap (§ CPU tier). Never fork a multi-minute CLI delegation as foreground Bash: always background + timeout. Full gate: `~/.claude/skills/parallelize-to-ceiling/SKILL.md` — treat that skill as source of truth if this summary drifts from it.
 - When a teammate or background subagent goes quiet, read its actual transcript/output file before concluding it is stalled — file mtimes alone cannot distinguish a hang from a long synchronous tool call. Only ping or take over once the transcript itself shows no forward progress.
 - Give parallel writers isolated files/worktrees and name the model lane explicitly. Do not delegate tightly coupled atomic work.
 
@@ -474,41 +468,14 @@ The status-line and `git-header.sh` procedure live in `~/.claude/CLAUDE-global-r
 
 ## Native build authority — canary rules (2026-10-19)
 
-A *local* native build (xcodebuild archive/build, simulator install, TestFlight
-validation) is **permitted whenever the user or the owning release operator asks
-for it**. A local build is the default reading of "use local build and CI".
-Resource pressure, runner availability, or a missing remote runner is a
-**scheduling** fact, never a prohibition.
+Before starting, refusing, deferring or scheduling any native build (xcodebuild archive/build, simulator install or launch, TestFlight validation, Expo/EAS), and before treating any shared resource as reserved, you MUST read `~/.claude/skills/native-build-authority/SKILL.md`; its canary rules are part of this section. These limits hold whether or not it has been read:
 
-- `localbuildallowedwhenrequested` — "local build" instructions authorize local
-  builds; do not convert them into a remote-only requirement. Do not refuse a
-  local build by citing a policy that does not name its owner, reason and expiry.
-- `no competingnativeoperator` — **iOS Simulator only.** One native operator per
-  simulator build/device. Before a second lane builds, installs or launches on the
-  same simulator UDID or the same app bundle, obtain the chosen UDID and the
-  operator lock; never erase, reinstall or relaunch a device another lane is
-  proving on.
-
-  **Scope guard (this lock never generalizes):** the operator lock covers the
-  simulator UDID and app bundle and nothing else. It does not extend to accounts,
-  credentials, environments, campaigns, quotas, or any other shared resource. A
-  shared test account is **never reserved**: a ledger, queue, admission, handback,
-  or "reserved/held/locked" note is scheduling state, not a permission boundary.
-  Exclusivity on any shared resource is only ever *observed* — a verified live
-  competing operator you can name — never *declared* by a coordinator.
-- `loadgate≠blanketban` — a load/memory/CPU/thermal gate defers a specific heavy
-  run and MUST name its recheck condition (threshold plus how/when it is
-  re-measured). It never becomes a standing ban. An explicit instruction to build
-  changes who decides and requires an explicit recheck decision; it does not waive
-  genuine thermal, power or resource-safety protection.
-- `Expoheldunlessauthorized` — Expo/EAS **hosted** builds stay unauthorized unless
-  the user explicitly authorizes them. Unused EAS credit, an existing profile, or
-  a configured token is not authorization. This is the only standing native-build
-  prohibition, and it is about *hosted* builds only, not local ones.
-
-If a persisted note, roadmap entry, summary or coordination message states a
-blanket "no local build" rule, treat it as stale: mark it superseded with a date
-and cite this section. Never delete the historical record.
+- A *local* native build is **permitted whenever the user or the owning release operator asks for it**. Resource pressure, runner availability, or a missing remote runner is a **scheduling** fact, never a prohibition.
+- **iOS Simulator only:** one native operator per simulator build/device. Before a second lane builds, installs or launches on the same simulator UDID or the same app bundle, obtain the chosen UDID and the operator lock; never erase, reinstall or relaunch a device another lane is proving on.
+- The operator lock covers the simulator UDID and app bundle and nothing else. A shared test account is **never reserved**; exclusivity on any shared resource is only ever *observed* — a verified live competing operator you can name — never *declared* by a coordinator.
+- A load/memory/CPU/thermal gate defers a specific heavy run and MUST name its recheck condition (threshold plus how/when it is re-measured); it never becomes a standing ban. An explicit instruction to build changes who decides and requires an explicit recheck decision; it does not waive genuine thermal, power or resource-safety protection.
+- Expo/EAS **hosted** builds stay unauthorized unless the user explicitly authorizes them.
+- A persisted note, roadmap entry, summary or coordination message stating a blanket "no local build" rule is stale: mark it superseded with a date and cite this section. Never delete the historical record.
 
 ## Context-full behavior — auto-compact and keep going (user directive 2026-10-24)
 
@@ -533,3 +500,13 @@ Operational rules:
 
 Gate that still applies: do not start a heavy local run below 10% CPU idle, and re-measure
 idle before each new heavy batch — deferring a specific run is not stopping the task.
+
+## Agent workspaces live on the scratch volume, never in /tmp (2026-10-29)
+
+`/tmp` is on the root filesystem whose free space gates self-hosted runner admission; lane clones and review workspaces created there have drained the CI fleet three times. Durable documents belong in `~/roadmap`, never in `/tmp`.
+
+Resolve the scratch root for anything workspace-shaped — a clone, a review checkout, a capture directory, generated evidence: `SCRATCH="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh <purpose>)"`.
+
+`/tmp` stays legitimate, and is exempt from the guard, for: logs (`.log`), sockets, pid/lock/marker files, single temp files, `.json`/`.jsonl` state, `.sh`/`.py` probes, pip unpack directories, and X11/ssh-agent/chromium profile directories. Global `TMPDIR` is never remapped and `/tmp` is never replaced. A blocking `PreToolUse` scratch-routing guard is live for Claude Code on macOS and Linux: it refuses workspace creation under `/tmp` and names this rule. Human override for one call: `SCRATCH_GUARD_ALLOW_TMP=1`. Guard detail: `~/.claude/skills/scratch-space/SKILL.md` § `/tmp` workspaces are prohibited.
+
+Do not "fix" disk pressure by moving workspaces into the scratch volume and calling it reclaimed: the Linux scratch volume is a loop-mounted image inside the same filesystem, so relocating data there returns no host free space. Reclamation means deleting, not relocating.
