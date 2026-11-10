@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>PR workflow metrics</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="viz-root" id="app">
+  <header class="top">
+    <div>
+      <h1>PR workflow metrics</h1>
+      <p class="sub" id="scope-line">Loading snapshot…</p>
+    </div>
+    <div class="ribbon" id="ribbon" aria-live="polite"></div>
+  </header>
+
+  <div id="banner" class="banner" hidden role="status"></div>
+
+  <section class="filters" aria-label="Filters">
+    <label>Period
+      <select id="f-range">
+        <option value="14d">Last 14 days</option>
+        <option value="w2">Recent 7 days</option>
+        <option value="w1">Preceding 7 days</option>
+      </select>
+    </label>
+    <fieldset id="f-repos"><legend>Repository</legend></fieldset>
+    <label>State
+      <select id="f-state">
+        <option value="all">All states</option>
+        <option value="MERGED">Merged</option>
+        <option value="OPEN">Open</option>
+        <option value="CLOSED">Closed unmerged</option>
+      </select>
+    </label>
+    <label>Attribution
+      <select id="f-attr">
+        <option value="all">All PRs</option>
+        <option value="usage">With token usage</option>
+        <option value="human">With verified steering</option>
+        <option value="none">No usage or steering observed</option>
+      </select>
+    </label>
+    <label>Size
+      <select id="f-size" disabled><option value="all">Not collected</option></select>
+    </label>
+    <label class="grow">Search
+      <input id="f-search" type="search" placeholder="Title, number or branch" autocomplete="off">
+    </label>
+    <label>Times
+      <select id="f-tz">
+        <option value="UTC">UTC</option>
+        <option value="America/Los_Angeles">Pacific</option>
+      </select>
+    </label>
+    <button id="f-reset" type="button" class="ghost">Reset</button>
+  </section>
+
+  <main id="content" hidden>
+    <section class="cards" id="cards" aria-label="Summary"></section>
+
+    <section class="grid">
+      <article class="card chart" id="c-daily"></article>
+      <article class="card chart" id="c-elapsed"></article>
+      <article class="card chart" id="c-wow"></article>
+      <article class="card chart" id="c-tokens"></article>
+      <article class="card chart" id="c-handoffs"></article>
+      <article class="card chart" id="c-episodes"></article>
+    </section>
+
+    <section class="card" id="gaps" aria-label="Measurement coverage"></section>
+
+    <section class="card" id="table-card" aria-label="Pull requests">
+      <div class="table-head">
+        <div>
+          <h2>Pull requests</h2>
+          <p class="sub" id="table-count"></p>
+        </div>
+        <div class="actions">
+          <button id="dl-rows" type="button" class="ghost">Download rows (CSV)</button>
+          <button id="dl-agg" type="button" class="ghost">Download summary (CSV)</button>
+        </div>
+      </div>
+      <div class="table-wrap"><table id="pr-table"><thead></thead><tbody></tbody></table></div>
+      <ul id="pr-list" class="pr-list"></ul>
+      <div class="pager" id="pager"></div>
+    </section>
+
+    <section class="card" id="snapshot-level" aria-label="Snapshot-level figures">
+      <h2>Whole-snapshot figures</h2>
+      <p class="sub">Computed by the collector for the full snapshot. These do not change with the filters above.</p>
+      <div class="grid">
+        <article class="chart" id="c-stage"></article>
+        <article class="chart" id="c-human"></article>
+      </div>
+      <div id="snapshot-facts"></div>
+    </section>
+
+    <footer class="foot" id="foot"></footer>
+  </main>
+
+  <aside id="panel" class="panel" hidden aria-label="Pull request detail" tabindex="-1"></aside>
+  <div id="scrim" class="scrim" hidden></div>
+  <div id="tip" class="tip" hidden role="tooltip"></div>
+</div>
+<script src="stats.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
