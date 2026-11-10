@@ -90,10 +90,10 @@ mirror_readiness() {
     # Tier 3 readiness is checked by the receiving operator before execution.
     return 0
   fi
-  if [ "$CLAUDE_LAUNCHER" = claudewa ]; then
-    ssh "${SSH_ARGS[@]}" "$SSH_TARGET" bash -l -s <<'EOF'
-  command -v claudewa >/dev/null 2>&1 || {
-    echo "ERROR: selected claudewa wrapper is unavailable in the target login shell" >&2
+  if [ "$AGENT_CLI" = claude ]; then
+    ssh "${SSH_ARGS[@]}" "$SSH_TARGET" bash -l -s -- "$CLAUDE_LAUNCHER" <<'EOF'
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "ERROR: selected Claude wrapper is unavailable in the target login shell" >&2
     exit 127
   }
   CPU_SAMPLE=$(top -bn2 -d1 | grep "%Cpu" | tail -1)
@@ -325,8 +325,10 @@ LAUNCH_ENV=(env "DISKM_SCRATCH=$SCRATCH_ROOT" "CLAUDE_CODE_TMPDIR=$OUTPUT_ROOT" 
 # Claude launchers can be shell functions supplied by the target login profile.
 # Keep the selected launcher and its arguments as argv; do not pass them through
 # `env` (which cannot invoke functions) or reparse them as shell source.
+# Clear an inherited alternate config only for the explicitly selected default
+# launcher; claudewa remains responsible for its own verified profile selection.
 CLAUDE_LOGIN=(bash -l -c
-  'export DISKM_SCRATCH="$1" CLAUDE_CODE_TMPDIR="$2" PYTEST_DEBUG_TEMPROOT="$2" BASH_ENV="$3"; shift 3; "$@"'
+  'export DISKM_SCRATCH="$1" CLAUDE_CODE_TMPDIR="$2" PYTEST_DEBUG_TEMPROOT="$2" BASH_ENV="$3"; shift 3; if [ "$1" = claude ]; then unset CLAUDE_CONFIG_DIR; fi; "$@"'
   mirror-launch "$SCRATCH_ROOT" "$OUTPUT_ROOT" "$SCOPED_BASH_ENV")
 case "$AGENT_CLI" in
   pi)     LAUNCH=("${LAUNCH_ENV[@]}" pi -- "Caller handoff context: $CONTEXT") ;;
