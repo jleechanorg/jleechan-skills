@@ -736,28 +736,26 @@ def _search_codex_store(
                 hint_only_ids = {row[5] for row in match_rows}
                 rows += match_rows
             if not rows and not query:
-                # Order by the plain column so its index stays usable; sorting on
-                # COALESCE reads every row and exhausts the step budget.
+                # Run the creation-time order first: it can use that index, and a later
+                # interruption must not lose its rows. Sorting on COALESCE reads every row.
                 sql_recent = f"""
                     SELECT title, substr(first_user_message, 1, ?), cwd, git_branch,
                            {date_expr} as created, id{model_select}, 1 as query_match{rollout_select},
                            {activity_date_expr} as activity_time
                     FROM threads
-                    WHERE (archived = 0 OR archived IS NULL){{null_only}}
+                    WHERE (archived = 0 OR archived IS NULL)
                     ORDER BY {{order_col}} DESC
                     LIMIT ?
                 """
-                rows = cur.execute(
-                    sql_recent.format(null_only="", order_col=recent_col), (max_chars, limit)
-                ).fetchall()
-                if updated_nullable:
+                rows = cur.execute(sql_recent.format(order_col="created_at"), (max_chars, limit)).fetchall()
+                if recent_col == "updated_at":
                     try:
                         rows += cur.execute(
-                            sql_recent.format(null_only=" AND updated_at IS NULL", order_col="created_at"),
-                            (max_chars, limit),
+                            sql_recent.format(order_col="updated_at"), (max_chars, limit)
                         ).fetchall()
                     except sqlite3.OperationalError:
                         errors += 1
+                    # Together the two orders hold the newest threads by last activity.
                     newest = sorted({row[5]: row for row in rows}.values(),
                                     key=lambda row: str(row[-1] or ""), reverse=True)
                     rows = newest[:limit]

@@ -7,6 +7,7 @@ codex_homes/--codex-home, and forbids probing the real home directory.
 import contextlib
 import io
 import json
+import os
 import sqlite3
 import tempfile
 import unittest
@@ -26,7 +27,7 @@ class CodexValidationBase(unittest.TestCase):
         self.sessions = self.home / "sessions"
         self.sessions.mkdir()
         self.db = self.home / "state_5.sqlite"
-        with sqlite3.connect(self.db) as con:
+        with contextlib.closing(sqlite3.connect(self.db)) as con, con:
             con.execute("CREATE TABLE threads (id TEXT, title TEXT, first_user_message TEXT, "
                         "cwd TEXT, git_branch TEXT, created_at INTEGER, archived INTEGER, "
                         "updated_at INTEGER, rollout_path TEXT)")
@@ -36,7 +37,7 @@ class CodexValidationBase(unittest.TestCase):
 
     def thread(self, tid, cwd=PROJECT, title="plain", first="begin", created=1, updated=1, rollout=True):
         path = self.sessions / f"rollout-{tid}.jsonl"
-        with sqlite3.connect(self.db) as con:
+        with contextlib.closing(sqlite3.connect(self.db)) as con, con:
             con.execute("INSERT INTO threads VALUES (?,?,?,?,'main',?,0,?,?)",
                         (tid, title, first, cwd, created, updated, str(path) if rollout else None))
         return path
@@ -87,6 +88,8 @@ class CandidateStarvation(CodexValidationBase):
             self.write_rollout(p, ["unrelated"], cwd="/elsewhere")
         wanted = self.sessions / "rollout-wanted.jsonl"  # in-project followup with no index row
         self.write_rollout(wanted, ["zebra-marker followup"])
+        newest = max(p.stat().st_mtime for p in self.sessions.iterdir()) + 10
+        os.utime(wanted, (newest, newest))  # newest file regardless of timestamp resolution
         hits = search_codex("zebra-marker", cwd=PROJECT, codex_homes=[self.home], limit=1)
         self.assertEqual([h.metadata.get("path") for h in hits], [str(wanted)])
 
@@ -159,15 +162,27 @@ class NoQueryFallbackRecency(CodexValidationBase):
         self.assertEqual(hits[0].metadata["thread_id"], "fresh")
 
 
-    def test_c_fallback_stays_within_step_budget_on_a_large_indexed_store(self):
-        # Real progress handler, no mocks: the fallback must keep using the recency index.
-        with sqlite3.connect(self.db) as con:
+    def big_store(self, count, updated, indexes):
+        with contextlib.closing(sqlite3.connect(self.db)) as con, con:
             con.executemany("INSERT INTO threads VALUES (?,'plain','begin','/other','main',?,0,?,NULL)",
-                            ((f"t{n}", n, n) for n in range(40000)))
-            con.execute("CREATE INDEX idx_created ON threads(created_at DESC, id DESC)")
-            con.execute("CREATE INDEX idx_updated ON threads(updated_at DESC, id DESC)")
-        hits = search_codex(cwd="/nowhere/else", codex_homes=[self.home], limit=1)
+                            ((f"t{n}", n, n if updated else None) for n in range(count)))
+            for column in indexes:
+                con.execute(f"CREATE INDEX idx_{column} ON threads({column} DESC, id DESC)")
+        return search_codex(cwd="/nowhere/else", codex_homes=[self.home], limit=1)
+
+    # The next three use the real progress handler, no mocks. The base helper passes each.
+    def test_c_fallback_stays_within_step_budget_on_a_large_indexed_store(self):
+        hits = self.big_store(40000, updated=True, indexes=("created_at", "updated_at"))
         self.assertEqual([h.metadata["thread_id"] for h in hits], ["t39999"])
+        self.assertEqual(hits[0].metadata["coverage_errors"], 0)
+
+    def test_c_fallback_keeps_results_when_only_created_at_is_indexed(self):
+        hits = self.big_store(40000, updated=True, indexes=("created_at",))
+        self.assertEqual([h.metadata["thread_id"] for h in hits], ["t39999"])
+
+    def test_c_fallback_returns_newest_thread_when_every_updated_at_is_null(self):
+        hits = self.big_store(80000, updated=False, indexes=("created_at", "updated_at"))
+        self.assertEqual([h.metadata["thread_id"] for h in hits], ["t79999"])
         self.assertEqual(hits[0].metadata["coverage_errors"], 0)
 
 
