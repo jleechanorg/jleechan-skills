@@ -69,6 +69,27 @@ class CandidateStarvation(CodexValidationBase):
         hits = search_codex("zebra-marker", cwd=PROJECT, codex_homes=[self.home], limit=1)
         self.assertEqual([h.metadata["thread_id"] for h in hits], ["target"])
 
+    def test_a_matching_project_thread_outranks_newer_external_matches(self):
+        for n in range(30):  # newer in-project threads that do not match the query
+            self.thread(f"noise{n}", created=1000 + n, updated=1000 + n, rollout=False)
+        self.thread("wanted", title="zebra-marker design", created=1, updated=1, rollout=False)
+        for n in range(20):  # newer matches elsewhere fill the supplementary limit
+            self.thread(f"other{n}", cwd="/elsewhere", title="zebra-marker", created=500 + n,
+                        updated=500 + n, rollout=False)
+        hits = search_codex("zebra-marker", cwd=PROJECT, codex_homes=[self.home], limit=1)
+        self.assertEqual([h.metadata["thread_id"] for h in hits], ["wanted"])
+
+    def test_a_supplementary_matches_do_not_take_rollout_scan_slots(self):
+        self.thread("noise", rollout=False)  # one in-project index row that does not match
+        for n in range(20):  # indexed matches elsewhere, each with a rollout file
+            p = self.thread(f"out{n}", cwd="/elsewhere", title="zebra-marker", created=500 + n,
+                            updated=500 + n)
+            self.write_rollout(p, ["unrelated"], cwd="/elsewhere")
+        wanted = self.sessions / "rollout-wanted.jsonl"  # in-project followup with no index row
+        self.write_rollout(wanted, ["zebra-marker followup"])
+        hits = search_codex("zebra-marker", cwd=PROJECT, codex_homes=[self.home], limit=1)
+        self.assertEqual([h.metadata.get("path") for h in hits], [str(wanted)])
+
     def test_a_rollout_candidate_cap_is_documented_when_noise_fills_it(self):
         for n in range(30):
             p = self.thread(f"noise{n}", created=100 + n, updated=100 + n)
@@ -136,6 +157,18 @@ class NoQueryFallbackRecency(CodexValidationBase):
         self.thread("fresh", cwd="/b/two", created=900, updated=None, rollout=False)
         hits = search_codex(cwd="/nowhere/else", codex_homes=[self.home], limit=1)
         self.assertEqual(hits[0].metadata["thread_id"], "fresh")
+
+
+    def test_c_fallback_stays_within_step_budget_on_a_large_indexed_store(self):
+        # Real progress handler, no mocks: the fallback must keep using the recency index.
+        with sqlite3.connect(self.db) as con:
+            con.executemany("INSERT INTO threads VALUES (?,'plain','begin','/other','main',?,0,?,NULL)",
+                            ((f"t{n}", n, n) for n in range(40000)))
+            con.execute("CREATE INDEX idx_created ON threads(created_at DESC, id DESC)")
+            con.execute("CREATE INDEX idx_updated ON threads(updated_at DESC, id DESC)")
+        hits = search_codex(cwd="/nowhere/else", codex_homes=[self.home], limit=1)
+        self.assertEqual([h.metadata["thread_id"] for h in hits], ["t39999"])
+        self.assertEqual(hits[0].metadata["coverage_errors"], 0)
 
 
 class UnreadMiddleCoverage(CodexValidationBase):

@@ -664,11 +664,13 @@ def _search_codex_store(
             """
 
             has_model_col = False
+            updated_nullable = False
             col_names: list[str] = []
             try:
                 col_info = cur.execute("PRAGMA table_info(threads)").fetchall()
                 col_names = [col[1] for col in col_info]
                 has_model_col = "model" in col_names
+                updated_nullable = any(col[1] == "updated_at" and not col[3] for col in col_info)
             except Exception:
                 pass
 
@@ -676,7 +678,7 @@ def _search_codex_store(
             rollout_select = ", rollout_path" if "rollout_path" in col_names else ", NULL"
             recent_col = "updated_at" if "updated_at" in col_names else "created_at"
             # NULL updated_at sorts last under DESC; treat it as created_at.
-            recent_expr = "COALESCE(updated_at, created_at)" if recent_col == "updated_at" else recent_col
+            recent_expr = "COALESCE(updated_at, created_at)" if updated_nullable else recent_col
             activity_date_expr = date_expr.replace("created_at", recent_expr)
 
             if query:
@@ -706,6 +708,7 @@ def _search_codex_store(
                 params = (max_chars, like_param, cwd_path, limit)
 
             rows = cur.execute(sql, params).fetchall()
+            hint_only_ids: set[Any] = set()
             if query:
                 # Newer in-project rows must not crowd out genuine index matches.
                 match_sql = f"""
@@ -716,30 +719,48 @@ def _search_codex_store(
                     FROM threads
                     WHERE (title LIKE ? OR first_user_message LIKE ?)
                       AND (archived = 0 OR archived IS NULL)
-                    ORDER BY {recent_expr} DESC
+                    ORDER BY (cwd = ?) DESC, {recent_expr} DESC
                     LIMIT ?
                 """
                 seen_ids = {row[5] for row in rows}
                 try:
                     match_rows = cur.execute(
-                        match_sql, (max_chars, like_param, like_param, candidate_limit)
+                        match_sql, (max_chars, like_param, like_param, cwd_path, candidate_limit)
                     ).fetchall()
                 except sqlite3.OperationalError:
                     # Step budget exhausted; keep the primary rows.
                     errors += 1
                     match_rows = []
-                rows += [row for row in match_rows if row[5] not in seen_ids]
+                match_rows = [row for row in match_rows if row[5] not in seen_ids]
+                # Hints only: their rollouts must not take scan slots from other candidates.
+                hint_only_ids = {row[5] for row in match_rows}
+                rows += match_rows
             if not rows and not query:
+                # Order by the plain column so its index stays usable; sorting on
+                # COALESCE reads every row and exhausts the step budget.
                 sql_recent = f"""
                     SELECT title, substr(first_user_message, 1, ?), cwd, git_branch,
                            {date_expr} as created, id{model_select}, 1 as query_match{rollout_select},
                            {activity_date_expr} as activity_time
                     FROM threads
-                    WHERE (archived = 0 OR archived IS NULL)
-                    ORDER BY {recent_expr} DESC
+                    WHERE (archived = 0 OR archived IS NULL){{null_only}}
+                    ORDER BY {{order_col}} DESC
                     LIMIT ?
                 """
-                rows = cur.execute(sql_recent, (max_chars, limit)).fetchall()
+                rows = cur.execute(
+                    sql_recent.format(null_only="", order_col=recent_col), (max_chars, limit)
+                ).fetchall()
+                if updated_nullable:
+                    try:
+                        rows += cur.execute(
+                            sql_recent.format(null_only=" AND updated_at IS NULL", order_col="created_at"),
+                            (max_chars, limit),
+                        ).fetchall()
+                    except sqlite3.OperationalError:
+                        errors += 1
+                    newest = sorted({row[5]: row for row in rows}.values(),
+                                    key=lambda row: str(row[-1] or ""), reverse=True)
+                    rows = newest[:limit]
 
             for row in rows:
                 title, first_msg, row_cwd, branch, created, thread_id = row[:6]
@@ -759,7 +780,7 @@ def _search_codex_store(
                     "thread_activity_source": recent_col,
                 }
                 rollout_path = row[-2]
-                if rollout_path and sess_dir is not None:
+                if rollout_path and sess_dir is not None and thread_id not in hint_only_ids:
                     # Reject out-of-scope pointers before stat/open; never follow
                     # index pointers into another profile or credential store.
                     root = sess_dir.absolute()
