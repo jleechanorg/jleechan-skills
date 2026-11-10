@@ -95,12 +95,17 @@ have /usr/bin/osascript || die "osascript not found" 3
 # if only `send` canonicalised, a non-canonical handle would send over iMessage and
 # then FAIL to read the same conversation.
 stored_chat_id() {
-  q "$DB" "select chat_identifier from chat where chat_identifier = '$CONTACT_HANDLE'
+  local out
+  out=$(q "$DB" "select chat_identifier from chat where chat_identifier = '$CONTACT_HANDLE'
        union all
        select chat_identifier from chat
         where replace(replace(replace(replace(chat_identifier,' ',''),'-',''),'(',''),')','')
             = replace(replace(replace(replace('$CONTACT_HANDLE',' ',''),'-',''),'(',''),')','')
-       limit 1;" 2>/dev/null
+       limit 1;" 2>/dev/null) || return 1
+  # An empty SELECT still exits 0 in sqlite, so the emptiness must be turned into a
+  # genuine failure here; otherwise every `|| die ... 5` at the call sites is dead.
+  [ -n "$out" ] || return 1
+  printf '%s\n' "$out"
 }
 
 # Usage: q <db-path> [sqlite flags] <sql...>
@@ -183,12 +188,9 @@ do_send() {
     # would silently blind every later absence check. Resolve the ACTUAL stored
     # identifier now and use that from here on; if the chat does not exist at all,
     # fail before sending (exit 5) rather than send and later claim "not sent".
-    local stored_id
-    stored_id=$(q "$DB" "select chat_identifier from chat where chat_identifier = '$CONTACT_HANDLE'
-         union all
-         select chat_identifier from chat where replace(replace(replace(replace(chat_identifier,' ',''),'-',''),'(',''),')','') = replace(replace(replace(replace('$CONTACT_HANDLE',' ',''),'-',''),'(',''),')','')
-         limit 1;" 2>/dev/null)
-    [ -n "$stored_id" ] || die "contact $CONTACT_HANDLE has no chat in the message store; refusing to send" 5
+    local stored_id asked_handle
+    asked_handle="$CONTACT_HANDLE"
+    stored_id=$(stored_chat_id) || die "contact $asked_handle has no chat in the message store; refusing to send" 5
     DB_HANDLE="$stored_id"
   fi
 
@@ -324,8 +326,9 @@ do_read() {
   # A missing conversation must be exit 5, not "0 rows, success": otherwise the
   # chain treats a wrong/unconfigured handle as a working transport with no
   # replies and never falls back.
-  local stored_id
-  stored_id=$(stored_chat_id) || die "contact $CONTACT_HANDLE not found in the message store" 5
+  local stored_id asked_handle
+  asked_handle="$CONTACT_HANDLE"
+  stored_id=$(stored_chat_id) || die "contact $asked_handle not found in the message store" 5
   CONTACT_HANDLE="$stored_id"
 
   local filt=""
@@ -350,8 +353,9 @@ do_probe() {
   # browser, so no profile lock, no UA gate, no hydration race.
   pgrep -x imagent >/dev/null 2>&1 || die "imagent not running; Messages not signed in" 4
   if db_readable; then
-    local stored_id n
-    stored_id=$(stored_chat_id) || die "contact $CONTACT_HANDLE not found in the message store" 5
+    local stored_id n asked_handle
+    asked_handle="$CONTACT_HANDLE"
+    stored_id=$(stored_chat_id) || die "contact $asked_handle not found in the message store" 5
     CONTACT_HANDLE="$stored_id"
     n=$(q "$DB" "select count(*) from chat where chat_identifier='$CONTACT_HANDLE';" 2>/dev/null)
     [ "${n:-0}" -gt 0 ] || die "contact $CONTACT_HANDLE not found in the message store" 5
