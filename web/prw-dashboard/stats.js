@@ -172,6 +172,19 @@
     return Math.round(n).toLocaleString("en-US");
   }
 
+  /** Whole-number gridline values from 0 up to a rounded top (1, 2 or 5 x 10^k) covering the peak count. */
+  function countTicks(peak) {
+    var top = 1;
+    if (peak > 0) {
+      var mag = Math.pow(10, Math.floor(Math.log10(peak))), n = peak / mag;
+      top = (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * mag;
+    }
+    var steps = top <= 5 ? top : top % 4 === 0 ? 4 : 5;
+    var ticks = [];
+    for (var i = 0; i <= steps; i++) ticks.push((top * i) / steps);
+    return ticks;
+  }
+
   function csv(rows, columns) {
     function cell(v) {
       if (v === null || v === undefined) return "";
@@ -189,6 +202,6 @@
     mergedIn: mergedIn, inRange: inRange, sizeBand: sizeBand, dailyMerges: dailyMerges, histogram: histogram,
     ELAPSED_EDGES: ELAPSED_EDGES, ELAPSED_LABELS: ELAPSED_LABELS,
     TOKEN_EDGES: TOKEN_EDGES, TOKEN_LABELS: TOKEN_LABELS,
-    formatDuration: formatDuration, compact: compact, csv: csv,
+    formatDuration: formatDuration, compact: compact, csv: csv, countTicks: countTicks,
   };
 });

@@ -108,3 +108,15 @@ test("CSV escapes quotes, newlines and spreadsheet formulas, and leaves unknowns
   ]);
   assert.equal(out, 'a,b\n"\'=HYPERLINK(""x"")",\n"line\nbreak, comma",0\n');
 });
+
+test("count axes label every gridline with a distinct whole number", () => {
+  for (const peak of [0, 1, 2, 3, 4, 5, 7, 12, 37, 180, 950]) {
+    const ticks = S.countTicks(peak);
+    assert.equal(ticks[0], 0);
+    assert.ok(ticks[ticks.length - 1] >= peak, `top tick covers ${peak}`);
+    assert.ok(ticks.every(Number.isInteger), `integer ticks for ${peak}: ${ticks}`);
+    assert.equal(new Set(ticks).size, ticks.length, `distinct ticks for ${peak}: ${ticks}`);
+  }
+  assert.deepEqual(S.countTicks(1), [0, 1]);
+  assert.deepEqual(S.countTicks(3), [0, 1, 2, 3, 4, 5]);
+});

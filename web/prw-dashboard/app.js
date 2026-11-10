@@ -204,12 +204,6 @@
   function chartHead(title, sub) {
     return h("div", { class: "head" }, h("div", null, [h("h2", { text: title }), h("p", { class: "sub", text: sub })]));
   }
-  function niceMax(v) {
-    if (v <= 0) return 1;
-    var mag = Math.pow(10, Math.floor(Math.log10(v))), n = v / mag;
-    var step = n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10;
-    return step * mag;
-  }
   function tableView(headers, rows) {
     var t = h("table", { class: "mini" }, [
       h("thead", null, h("tr", null, headers.map(function (x, i) { return h("th", { class: i ? "num" : "", text: x }); }))),
@@ -224,12 +218,13 @@
       "H" + (x + w - r) + "Q" + (x + w) + "," + yTop + " " + (x + w) + "," + (yTop + r) + "V" + yB + "Z";
     return s("path", { d: d, fill: fill });
   }
-  function yAxis(svg, max, x0, x1, y0, y1, fmt) {
-    for (var i = 0; i <= 4; i++) {
-      var v = (max * i) / 4, y = y1 - ((y1 - y0) * i) / 4;
+  function yAxis(svg, ticks, x0, x1, y0, y1) {
+    var top = ticks[ticks.length - 1];
+    ticks.forEach(function (v, i) {
+      var y = y1 - ((y1 - y0) * v) / top;
       svg.appendChild(s("line", { x1: x0, x2: x1, y1: y, y2: y, class: i ? "gridline" : "baseline" }));
-      svg.appendChild(s("text", { x: x0 - 6, y: y + 3.5, "text-anchor": "end" }, fmt ? fmt(v) : String(Math.round(v))));
-    }
+      svg.appendChild(s("text", { x: x0 - 6, y: y + 3.5, "text-anchor": "end" }, String(v)));
+    });
   }
 
   // ---------- chart: merges per day ----------
@@ -241,9 +236,9 @@
     el.appendChild(chartHead("Merges per day", total.toLocaleString("en-US") + " merged in the selection, by merge day (" + (state.tz === "UTC" ? "UTC" : "Pacific") + ")"));
     if (!total) { el.appendChild(h("div", { class: "empty-note", text: "No merges match these filters." })); return; }
     var W = 520, H = 220, x0 = 36, x1 = W - 6, y0 = 10, y1 = H - 26;
-    var max = niceMax(Math.max.apply(null, days.map(function (d) { return d.total; })));
+    var ticks = S.countTicks(Math.max.apply(null, days.map(function (d) { return d.total; }))), max = ticks[ticks.length - 1];
     var svg = s("svg", { viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": "Stacked columns of merged pull requests per day by repository" });
-    yAxis(svg, max, x0, x1, y0, y1);
+    yAxis(svg, ticks, x0, x1, y0, y1);
     var band = (x1 - x0) / days.length, bw = Math.min(24, band - 4);
     var labelEvery = Math.ceil(days.length / 8);
     days.forEach(function (d, i) {
@@ -279,9 +274,9 @@
     var total = bins.reduce(function (a, b) { return a + b.n; }, 0);
     if (!total) { el.appendChild(h("div", { class: "empty-note", text: emptyText })); return; }
     var W = 520, H = 220, x0 = 36, x1 = W - 6, y0 = 18, y1 = H - 26;
-    var max = niceMax(Math.max.apply(null, bins.map(function (b) { return b.n; })));
+    var ticks = S.countTicks(Math.max.apply(null, bins.map(function (b) { return b.n; }))), max = ticks[ticks.length - 1];
     var svg = s("svg", { viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": title });
-    yAxis(svg, max, x0, x1, y0, y1);
+    yAxis(svg, ticks, x0, x1, y0, y1);
     var band = (x1 - x0) / bins.length, bw = Math.min(24, band - 8);
     bins.forEach(function (b, i) {
       var x = x0 + band * i + (band - bw) / 2, hh = ((y1 - y0) * b.n) / max;
