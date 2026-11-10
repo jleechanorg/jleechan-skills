@@ -113,12 +113,18 @@ process is not covered by the user's Full Disk Access. What breaks differs by ve
 
 - `probe` still works, but reports `verified: "imagent_only"` rather than claiming the contact was
   checked, because it cannot read the store.
+- `send` refuses to run at all when the configured handle has no chat in the store
+  (exit 5, before anything is submitted) — so a *brand-new* iMessage conversation
+  cannot be started from this bridge. Resolve the conversation once in Messages and
+  the chat row exists from then on.
 - `send` still submits the message, but **cannot confirm** it: it exits **9** (`sent=unverified`)
   and the transport chain deliberately does **not** fall back, since a fallback would send the
   message a second time. A `--db SNAPSHOT` cannot fix this: a copy taken *before* the send can never
   contain the row it creates, so `send --db` is expected to report exit 9. Confirmation is a
   property of a process that can read the live store.
-- `read` exits 4. Use an interactive session, or `--db SNAPSHOT`.
+- `read` exits `5` for a handle with no chat (which also lets the chain fall back to
+  WhatsApp), and `4` when the store itself cannot be read. Use an interactive session,
+  or `--db SNAPSHOT`, for the store case.
 
 Exit `9` is therefore distinct from `6`: `6` means nothing was sent and a fallback is safe; `9`
 means it may have gone out.
