@@ -106,20 +106,12 @@ for existing cmux Cloud capacity, follow
 | IO/network-bound (API sweeps, fetches, downloads) | high (10s) | workers, not machines | CPU idle; bound is latency/rate-limit |
 | Memory-bound | per host's RAM admission tier | fewer per machine | measure available RAM and current RSS |
 
-## Worked example (a gold-test preflight across 4 machines)
+## Worked example
 
-- **Capacity boundary:** This example assumes a measured safe per-host capacity
-  of 6 light rows; other machines take the remaining independent rows only
-  after the current host reaches that bound, not just because they are quieter.
-- **Bug:** a sharded preflight passed `--max-workers 1` → each of 4 machines
-  ran its ~8 rows **serially** → 4 concurrent total, ~7 min wall-time.
-- **Token fix:** `--max-workers 3` → 6 concurrent.
-- **Right fix:** `--max-workers 6` + the heavy/light split → **14 concurrent**.
-  Light rows filled to machine concurrency; the few heavy rows still dominated
-  one machine each (the real long pole).
-- **To go to true all-34-at-once:** heavy rows each want a machine, so this
-  needs more eligible capacity than the four already available. The worker
-  count was never the real ceiling — per-item CPU and machine count were.
+A sharded gold-test preflight passed `--max-workers 1` and ran only 4 rows at
+once across 4 machines; the real ceiling was per-item CPU and machine count,
+never the worker flag. Full numbers and the heavy/light split:
+[`references/worked-examples-and-incidents.md`](references/worked-examples-and-incidents.md#gold-test-preflight-across-4-machines).
 
 ## Failure modes this kills
 
@@ -141,29 +133,25 @@ for existing cmux Cloud capacity, follow
 Memory is a first-class resource bound. A harness process died silently at
 the instant it forked a 20-minute foreground CLI delegate on a host at 92%
 swap / memory-pressure WARNING / ~64MB free — the spawn itself was the kill
-site, and silent self-exits leave no OS trace. That failure is real and this
-gate stays mandatory. But **a false stop is also a failure**: refusing to
-parallelize on a healthy machine costs real throughput and tempts reporting
-a serial run as if the ceiling were zero.
+site. That gate stays mandatory. But **a false stop is also a failure**:
+refusing to parallelize on a healthy machine costs real throughput and tempts
+reporting a serial run as if the ceiling were zero. Incident detail and the
+2026-09-02 false-stop observation:
+[`references/worked-examples-and-incidents.md`](references/worked-examples-and-incidents.md#resource-admission-incidents).
 
 **Do not gate on swap used/total ratio.** macOS sizes the swapfile
 dynamically, so `vm.swapusage` used-vs-current-size can read >80% "full" on
 a perfectly healthy machine indefinitely — used/total is not a saturation
 metric. Under the current shared action policy, pressure 2 is informational
-and not the defer tier; treating it as a hard stop over-triggers
-when available memory is ample. (Observed 2026-09-02: 8.9GB/10.24GB swap +
-pressure=2 read as "stop" under the old wording, while real available memory
-was 12.9GB and the pressure source was a steady-state 11GB Virtualization.framework
-VM — a constant that doesn't change whether you spawn 0 or 3 lanes. That was a false stop.)
+and not the defer tier; treating it as a hard stop over-triggers when
+available memory is ample.
 
-Before spawning any new lane, subprocess fleet, or CLI delegation:
+Before spawning any new lane, subprocess fleet, or CLI delegation (exact probe
+commands: [`references/specialist-commands.md`](references/specialist-commands.md#memory-admission-probes)):
 
 1. **Probe available memory — the primary signal.**
-   - macOS: `vm_stat | awk -v ps=$(sysctl -n hw.pagesize) '/Pages free/{f=$3}
-     /Pages inactive/{i=$3} /Pages purgeable/{p=$3} /Pages speculative/{s=$3}
-     END{gsub(/\./,"",f);gsub(/\./,"",i);gsub(/\./,"",p);gsub(/\./,"",s);
-     printf "%.1f GB available\n",(f+i+p+s)*ps/1073741824}'` — available =
-     free + inactive + purgeable + speculative, not free alone.
+   - macOS: available = free + inactive + purgeable + speculative (times page
+     size) from `vm_stat`, not free alone.
    - Read `sysctl kern.memorystatus_vm_pressure_level` as a secondary signal
      use the current shared numeric action policy: pressure 3 reduces
      concurrency; pressure 4 is a defer condition by itself.
@@ -244,7 +232,7 @@ below by this order, don't pick whichever is more convenient):**
    verifier** (a track large enough to earn its own context, where a second
    independent pass adds real value) do you reach for the AGY pair described
    next.
-5. **Parallel coding lanes for one feature merge into one shared integration branch/PR**: When multiple coding lanes execute in parallel for a single feature, integrate their commits into **one shared feature branch/PR** (or at most `≤ 3` coarse stage PRs per `${CLAUDE_HOME:-$HOME/.claude}/skills/pr-quantity-control/SKILL.md`) rather than opening N separate GitHub PRs.
+5. **Parallel coding lanes for one feature merge into one shared integration branch/PR** — the single integration PR rule in Core law (≤ 3 coarse stage PRs per `${CLAUDE_HOME:-$HOME/.claude}/skills/pr-quantity-control/SKILL.md`), never N separate PRs.
 
 For implementation and review lanes that clear step 4 above, prefer the
 installed AGY CLI pair. Use the canonical profiles for the complete launch,
@@ -254,11 +242,8 @@ logging, isolation, and signaling contracts:
 - Verifier: `${CLAUDE_HOME:-$HOME/.claude}/agents/agy-pair-verifier.md`
 
 **Before writing the handoff**, resolve three things — skipping this is how a
-narrow evidence gap grows into an unrequested replacement framework (session
-incident 2026-09-26: a 264-line capture script's narrow gap turned into an
-unfinished 987-line replay adapter that itself needed correctness fixes, and
-still incorrectly accepted synthetic input with no real reply, no real
-stream, and invented data):
+narrow evidence gap grows into an unrequested replacement framework (incident:
+[`references/worked-examples-and-incidents.md`](references/worked-examples-and-incidents.md#narrow-gap-became-a-replacement-framework-2026-09-26)):
 
 1. **State hard constraints vs. preferences** in the task line — the coder
    can't tell which parts of your framing are mandatory and which are just
@@ -273,12 +258,10 @@ stream, and invented data):
 
 ### Two-agent pair template
 
-```text
-PAIR TASK: <bounded task and explicit file scope>
-CODER: follow `${CLAUDE_HOME:-$HOME/.claude}/agents/agy-pair-coder.md`; implement and signal IMPLEMENTATION_READY with `Revision: <exact git SHA>` and `Worktree: <absolute path>`.
-VERIFIER: follow `${CLAUDE_HOME:-$HOME/.claude}/agents/agy-pair-verifier.md`; independently verify the handed-off revision and signal VERIFICATION_COMPLETE or VERIFICATION_FAILED.
-FALLBACK: if an AGY lane concretely fails, retry that lane with a Codex subagent using gpt-6-luna. If Luna is unavailable or concretely fails, or the task requires more capability, retry the same bounded lane with a Codex subagent using gpt-6.1-terra. Only if Terra is unavailable, concretely fails, or lacks required capability, use a Codex subagent with gpt-6.1-sol as the final fallback. Preserve isolation and independent verification. Never use 5.6 models.
-```
+The copy-paste `PAIR TASK` handoff block is in
+[`references/specialist-commands.md`](references/specialist-commands.md#two-agent-pair-handoff-template). It must carry the
+exact committed `Revision` and absolute `Worktree` of the coder's hand-off, and
+its fallback is governed by the Fallback precedence section below.
 
 ## Fallback precedence
 
@@ -363,38 +346,6 @@ Run this in order; stop at the first that explains it:
    because another host has more idle CPU. Additional provisioning or spend
    needs separate authorization.
 
-## Resource admission gate (macOS) — command source of truth
-
-Origin: session crash 2026-08-30 (a foreground multi-minute CLI fork under
-apparent swap starvation killed the parent session and every lane); thresholds
-corrected 2026-09-02 after the swap-ratio model proved wrong.
-
-Run this before spawning lanes, subprocess fleets, or CLI delegations — or any
-time diagnosing whether this Mac is under memory pressure:
-
-1. **Available RAM** from `vm_stat`:
-   `(free + inactive + purgeable + speculative) × page_size`.
-2. **Top RSS consumer**: `ps -Ao rss,comm -m | head`.
-3. **Pressure**: `sysctl kern.memorystatus_vm_pressure_level` — apply the
-   current shared numeric action tiers above: pressure 3 reduces concurrency; pressure 4
-   defers new heavy work.
-
-**Never gate on `vm.swapusage` used/total.** macOS sizes the swapfile
-dynamically, so an "89% full" swapfile can coexist with 12+ GB available.
-
-| Available RAM | Pressure | Action |
-|---|---|---|
-| < 4 GB or pressure 4 | any | defer new heavy work |
-| 4–8 GB or pressure 3 (with at least 4 GB available) | pressure ≤ 3 | reduce lane count |
-| > 8 GB | pressure ≤ 2 | spawn normally |
-
-Even when deferring, attribute the pressure to its real top-RSS source first —
-it is often a steady-state VM or daemon, not the agent fleet.
-
-Never fork a multi-minute CLI delegation (`agy`, `codex`, `claude -p`) as a
-foreground Bash call: always `run_in_background` with an explicit timeout, then
-read the output file on the task notification.
-
 ## Model-tier routing and delegation defaults — source of truth
 
 Origin: `${CLAUDE_HOME:-$HOME/.claude}/CLAUDE.md` § Parallel subagents and model routing (compressed
@@ -410,14 +361,12 @@ there to a pointer 2026-09-06; this section is the full policy).
   or capability gap that justifies escalation. Honor an explicit user model
   choice under the precedence above.
 - Small/mechanical bounded coding:
-  - AGY CLI (`agy`): pass `--model gemini-3.8-flash-high` (or `gemini-3.8-flash-medium` / `gemini-3.8-flash-low` per `agy models`; alias `gemini-3.8-flash`).
-  - Antigravity native subagents (`invoke_subagent`): pass `Model: "flash"` (or `Model: "flash_lite"` for simple lookups/reads); never leave `Model: "inherit"` or `"pro"` on bounded subagent lanes.
-  - Codex: spawn a `gpt-6-luna` subagent when available. If Luna is unavailable,
-    concretely fails, or the task requires more capability, use `gpt-6.1-terra`.
-    Use `gpt-6.1-sol` only as the final fallback if Terra is unavailable,
-    concretely fails, or lacks required capability. Explicit model requests
-    remain authoritative; see the Codex model routing section above. Never use
-    5.6 models.
+  - AGY CLI (`agy`) and Antigravity native subagents (`invoke_subagent`): use
+    Gemini 3.8 Flash tiers per the Gemini Model Invariant below; exact flag and
+    `Model:` values are in [`references/specialist-commands.md`](references/specialist-commands.md#gemini-flash-lane-flags).
+  - Codex: spawn a `gpt-6-luna` subagent when available; escalation and
+    fallback follow the Codex model routing section above (it is the single
+    owner of that order). Never use 5.6 models.
   - Claude: `haiku` subagent.
 - Simple task-driving, polling, and mechanical sweeps: the available Gemini 3.8 Flash (`Model: "flash"` / `--model gemini-3.8-flash-medium`), Luna, or
   haiku/mini tier.
@@ -438,7 +387,7 @@ there to a pointer 2026-09-06; this section is the full policy).
   the existing completion handle until a meaningful deadline instead of chaining
   short empty waits. Report progress at the runtime cadence. Never call a wait
   on a finished handle; inspect its delivered result or transcript first.
-- **Gemini Model Invariant**: Never use Gemini 3.1 Pro (or older Gemini Pro models), and never default subagents to `Model: "inherit"` when running in AGY CLI. Always use Gemini 3.8 Flash (`gemini-3.8-flash`, `gemini-3.8-flash-high`, `gemini-3.8-flash-medium`, or `Model: "flash"` in `invoke_subagent`) or later.
+- **Gemini Model Invariant**: Never use Gemini 3.1 Pro (or older Gemini Pro models), and never default subagents to `Model: "inherit"` when running in AGY CLI. Always use Gemini 3.8 Flash or later (exact `agy --model` and `invoke_subagent` `Model:` values: [`references/specialist-commands.md`](references/specialist-commands.md#gemini-flash-lane-flags)).
 - Top tier (the session's own model): reserve for adversarial judgment, or
   only after a cheaper tier has already failed on that unit.
 - Before you repeat a delegated claim **or act on it**, read the artifact it
@@ -479,9 +428,7 @@ before scaling the fan-out.
 The inverse trap is just as real: `running` means "active", not "progressing".
 A lane producing frequent transcript updates, tool calls, or status pings is
 not evidence of progress by itself — only a promised artifact, test result,
-or completed acceptance criterion is (session incident 2026-09-25: repeated
-"still exploring wording" updates from an active lane were mistaken for
-progress while no patch landed). If a lane has been running for a while with
+or completed acceptance criterion is (incident: [`references/worked-examples-and-incidents.md`](references/worked-examples-and-incidents.md#active-is-not-progressing-2026-09-25)). If a lane has been running for a while with
 activity but no artifact, reassess and re-scope or switch it to a cheaper
 path per the routing precedence above — don't wait longer just because it's
 still "running", and don't restart an equivalent job automatically without
@@ -504,11 +451,10 @@ Before re-doing any lane's work yourself:
 3. **Only then re-run it** — and if you do, say so in the final report, because
    the duplicated cost is real.
 
-Failure mode this kills (observed 2026-09-07): 15 lanes all completed, direct
-delivery silently dropped every report, the orchestrator re-did the analysis
-itself, and the original 15 reports arrived afterwards — while the bead-comment
-channel had been working the entire time and was never checked. Roughly half a
-session's review work paid for twice.
+Failure mode this kills: a fan-out whose direct delivery silently dropped every
+report while the bead-comment channel worked the whole time, so the orchestrator
+paid twice for the same review work (detail:
+[`references/worked-examples-and-incidents.md`](references/worked-examples-and-incidents.md#collecting-results-failure-2026-09-07)).
 
 Corollary: **verify the delivery path on the first lane before scaling to N.**
 Spawn one, confirm its result actually reaches you, then fan out. A broken
