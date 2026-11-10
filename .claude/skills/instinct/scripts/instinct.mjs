@@ -847,6 +847,11 @@ async function main() {
     process.stdout.write(
       JSON.stringify({
         signed_in: ok,
+        // Name the transport that actually answered. The iMessage branch returns
+        // before this point and its bridge already emits transport=imessage, so
+        // without this field a caller cannot tell an iMessage verification from a
+        // WhatsApp fallback that never checked the intended peer at all.
+        transport: 'whatsapp',
         state: result.state,
         saw_signed_out_transient: result.sawSignedOutTransient,
         consecutive_signed_out_samples: result.signedOutStreak,
