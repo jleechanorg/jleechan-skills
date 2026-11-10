@@ -19,10 +19,15 @@ Before selecting a branch, stage, or gate, inspect the target repository's `AGEN
 
 ## Find the skills before inventing a workflow
 
-1. Use an already-known local checkout of the official `jleechan-skills` repository, or resolve an installed skill's source. Verify its remote and commit; preserve local edits.
-2. If no checkout exists, clone the official source to an unused development directory: `git clone https://github.com/jleechanorg/jleechan-skills.git <unused-directory>`.
-3. Read `.claude/skills/pr-lifecycle/SKILL.md` from that checkout.
-4. If Git access is unavailable, state the exact gap; never invent uninstalled capability.
+Resolve the instruction source before following lifecycle links above or below; the target PR's base/head SHA is not the skills-source revision.
+
+1. **Pin intent.** Apply target-repository policy and the task's explicit skills-source ref, including an intentionally older revision. If neither selects a revision, resolve the official `jleechanorg/jleechan-skills` default-branch tip from current trusted source evidence or a read-only remote-ref query. Resolve the selected ref to an immutable commit; record the repository identity, requested ref, resolved SHA and evidence in the existing execution record. Do not infer intent from a familiar checkout path, installation date, version label or cached remote-tracking ref. Unresolved conflicting requirements need clarification before dependent work.
+2. **Compare candidates.** Inspect the known official checkout's remote, HEAD and local changes, and any discovered installed source's provenance. Bind the actual lifecycle files and their loaded dependencies to the pinned commit (for example, by comparing bytes against that commit or verified revision-bound package hashes); a remote URL or claimed version alone is insufficient. A checkout at another commit is stale for this task even if official; an installed copy is not automatically newer or authoritative. Missing provenance or modified instruction files cannot establish an exact-revision match.
+3. **Select without overwriting.** Use a verified matching installed source or matching checkout; prefer the verified installed source when the known checkout is stale. Otherwise obtain the exact pinned revision in an unused isolated source directory from verified local Git objects, or clone `https://github.com/jleechanorg/jleechan-skills.git` and fetch only what is needed when network access is available and authorized. Verify the resulting HEAD and loaded files against the pin. Never update, reset, stash, switch branches in, or overwrite the incumbent dirty checkout or installed tree to resolve instructions. Unrelated dirty work may remain when the loaded files are verified unchanged.
+4. **Load one revision.** Record the selected source path and verification result, then read `pr-lifecycle/SKILL.md` and its references from that same verified skills tree (`.claude/skills/` in a checkout). Do not mix a selected installed lifecycle with stale checkout references. Keep the pin for the run; an intentional revision change requires re-verification and reassessment of affected obligations.
+5. **Handle gaps explicitly.** Offline or unavailable Git/network access does not require an update: use locally verifiable material when it satisfies the intended pin. If intent, freshness evidence or required files cannot be verified, report the exact missing ref/provenance/capability, keep dependent gates open and continue independent authorized work. Do not silently substitute an older or unproven source, or claim it current.
+
+Source identity and freshness do not grant authority or replace target-repository policy. Preserve every applicable gate, branch/source ownership rule and separate merge/credential authorization; selecting an older source is not permission to bypass those requirements.
 
 ## Verify ownership and exact branch
 
