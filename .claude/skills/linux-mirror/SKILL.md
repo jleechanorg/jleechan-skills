@@ -80,42 +80,59 @@ If `$REMOTE_URL` is an HTTPS URL with an embedded credential (`https://<token>@h
 
 ### 2. Resolve the target and verify readiness
 
-Pick a connectivity tier — try in order, stop at first success. Carry the resolved connection forward into `SSH_ARGS`/`SSH_TARGET` for step 4 — don't just check reachability and then reconnect a different way. For a capacity-driven heavy handoff, the preflight immediately before proceeding must complete an authenticated SSH command roundtrip and return a contemporaneous CPU-idle sample in the same probe:
+First run the [cross-machine-ssh-tier](../cross-machine-ssh-tier/SKILL.md) Tier 1→2 ladder with the configured peer alias, key and user. Resolve `SSH_ARGS`/`SSH_TARGET` before running the probe below, then retain that exact connection for step 4. An empty target selects Tier 3; it does not authorize dispatch yet. Publish and verify the branch in step 3 before sending any gateway handoff.
+
+For a resolved SSH target, complete an authenticated command roundtrip and obtain a contemporaneous CPU sample. Failure stops the caller before publication or dispatch even when its shell does not use `set -e`:
 
 ```bash
-if [ "$CLAUDE_LAUNCHER" = claudewa ]; then
-  ssh "${SSH_ARGS[@]}" "$SSH_TARGET" bash -l -s <<'EOF'
-command -v claudewa >/dev/null 2>&1 || {
-  echo "ERROR: selected claudewa wrapper is unavailable in the target login shell" >&2
-  exit 127
+mirror_readiness() {
+  if [ -z "$SSH_TARGET" ]; then
+    # Tier 3 readiness is checked by the receiving operator before execution.
+    return 0
+  fi
+  if [ "$CLAUDE_LAUNCHER" = claudewa ]; then
+    ssh "${SSH_ARGS[@]}" "$SSH_TARGET" bash -l -s <<'EOF'
+  command -v claudewa >/dev/null 2>&1 || {
+    echo "ERROR: selected claudewa wrapper is unavailable in the target login shell" >&2
+    exit 127
+  }
+  CPU_SAMPLE=$(top -bn2 -d1 | grep "%Cpu" | tail -1)
+  [ -n "$CPU_SAMPLE" ] || {
+    echo "ERROR: top returned no CPU sample" >&2
+    exit 75
+  }
+  printf "%s\n" "$CPU_SAMPLE"
+EOF
+  else
+    ssh "${SSH_ARGS[@]}" "$SSH_TARGET" 'CPU_SAMPLE=$(top -bn2 -d1 | grep "%Cpu" | tail -1); [ -n "$CPU_SAMPLE" ] || { echo "ERROR: top returned no CPU sample" >&2; exit 75; }; printf "%s\n" "$CPU_SAMPLE"'
+  fi
 }
-CPU_SAMPLE=$(top -bn2 -d1 | grep "%Cpu" | tail -1)
-[ -n "$CPU_SAMPLE" ] || {
-  echo "ERROR: top returned no CPU sample" >&2
+mirror_readiness || {
+  echo "ERROR: resolved target failed readiness; stopping before push or dispatch" >&2
   exit 75
 }
-printf "%s\n" "$CPU_SAMPLE"
-EOF
-else
-  ssh "${SSH_ARGS[@]}" "$SSH_TARGET" 'CPU_SAMPLE=$(top -bn2 -d1 | grep "%Cpu" | tail -1); [ -n "$CPU_SAMPLE" ] || { echo "ERROR: top returned no CPU sample" >&2; exit 75; }; printf "%s\n" "$CPU_SAMPLE"'
-fi
 ```
 
 Ping, TCP reachability, and dated CPU samples do not establish readiness. Apply the task's recorded admission criterion; keep host selection and thresholds out of this portable skill. When `CLAUDE_LAUNCHER=claudewa`, also verify that wrapper and its intended profile/account on the target.
 
-See [cross-machine-ssh-tier](../cross-machine-ssh-tier/SKILL.md) for the Tier 1→2→3 connectivity ladder (LAN SSH → SSH over Tailscale → messaging-gateway fallback), its debugging caveats, and the key-naming convention. Run that skill's ladder block with `PEER_LAN_ALIAS="mylinux"` (and the matching `PEER_TS_PATTERN`/`PEER_KEY`/`PEER_USER`) to resolve `SSH_ARGS`/`SSH_TARGET` before continuing to step 4. If `$SSH_TARGET` comes back empty, both Tier 1 and Tier 2 failed — fall through to that skill's Tier 3 (messaging-gateway handoff): post the exact repo/branch/commit and the steps from §4 below, asking it to execute them locally and reply when the tmux session is ready.
-
 ### 3. Push the branch (make it visible to the Linux machine)
 
 ```bash
-if [ -n "$CONTEXT" ]; then
-  git -C "$REPO_ROOT" push -u origin "$BRANCH"
-else
-  echo "ERROR: CONTEXT is required before pushing or opening SSH" >&2
-fi
+[ -n "$CONTEXT" ] || { echo "ERROR: CONTEXT is required" >&2; exit 75; }
+CURRENT_SHA=$(git -C "$REPO_ROOT" rev-parse HEAD) || exit 75
+[ "$CURRENT_SHA" = "$INTENDED_SHA" ] || {
+  echo "ERROR: source changed since preflight; resolve the new candidate first" >&2
+  exit 75
+}
+git -C "$REPO_ROOT" push -u origin "$BRANCH" || exit 75
+PUBLISHED_REF=$(git -C "$REPO_ROOT" ls-remote --exit-code origin "refs/heads/$BRANCH") || exit 75
+[ "${PUBLISHED_REF%%[[:space:]]*}" = "$INTENDED_SHA" ] || {
+  echo "ERROR: published branch does not match intended source; refusing dispatch" >&2
+  exit 75
+}
 ```
 
-Confirm with the user before pushing if the branch has no upstream yet or diverges from origin (normal push-safety rules apply).
+Follow existing push authority and branch ownership; a successful push alone is not the readback above. If the target is empty (Tier 3), only now send the authorized gateway handoff with the verified remote URL, branch, exact published SHA, caller/profile, context and step 4's remote payload. Require the receiver to verify its own readiness/profile and exact fetched SHA before starting work; report unavailable checks rather than implying SSH readiness. A failed push or mismatched ref stops both transports. Do not run the SSH block below for Tier 3.
 
 ### 4. Remote checkout + tmux (Tier 1/2 only — skip if `$SSH_TARGET` is empty, that means Tier 3 applies instead)
 
@@ -554,7 +571,7 @@ If a PR is already open for `$BRANCH`, pushes update that PR's head automaticall
 - Tool-owned auth, transcripts, and tmux state remain in their normal HOME locations; generated agent output and disposable test files use the Scratch output path reported by `READY`/`RESUMED`.
 - Remote Git commands in the step 4 bootstrap run in transient user-systemd scopes under `agents.slice`, with per-command memory, swap, and task limits. The existing finite `agents.slice` `MemoryMax` bounds their aggregate use; bootstrap shell, SSH, tmux, and the launched agent remain outside this Git-only boundary.
 - Step 4 launches the calling CLI (`$AGENT_CLI`, resolved in step 1 — `pi`/`claude`/`codex`/`agy`) as the session's command with `$CONTEXT` passed as its argv (not typed via `send-keys`), but only on a freshly created session. Never assume a `RESUMED` session is idle just because this skill didn't launch anything into it.
-- A bare host alias is typically LAN-only; off-LAN (traveling), target the Tailscale IP + explicit `-i` per Tier 2 — and make sure step 4 actually uses the resolved `$SSH_ARGS`/`$SSH_TARGET` from step 3, not a re-hardcoded alias, or the whole point of the fallback is lost.
+- A bare host alias is typically LAN-only; off-LAN (traveling), target the Tailscale IP + explicit `-i` per Tier 2 — and make sure step 4 actually uses the resolved `$SSH_ARGS`/`$SSH_TARGET` from step 2, not a re-hardcoded alias, or the whole point of the fallback is lost.
 - Never pass unencoded user-controlled values (repo path, branch name, remote URL) as literal SSH command arguments — a branch name is attacker-controllable shell input the moment someone else can push to your fork, and SSH doesn't preserve argv separation across the wire. Base64-encode first (see step 4).
 - Tier 3 (messaging-gateway handoff) hands off to a *different* agent/process with no shared context — give it complete, explicit instructions, don't assume it can infer intent from this conversation. Also verify it's genuinely reactive before relying on it (see Tier 3 caveats above) — a live-looking connection isn't proof it's actually processing events, and a missing permission grant is a much likelier culprit than the connection itself.
 - If your remote origin URL embeds a credential (HTTPS + PAT), that credential gets written to the target machine's `.git/config` in cleartext the first time this clones there — prefer an SSH remote or an external credential helper.
