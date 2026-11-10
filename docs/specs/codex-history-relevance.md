@@ -20,9 +20,14 @@ the discovery/candidate budgets. No installed-host activation claim.
 - Exact project cwd and updated time (creation time on legacy indexes) prioritize
   admitted candidates; an unrelated index hit does not suppress rollout search.
 - Modern and legacy indexes remain usable and read-only. Reject out-of-profile
-  and symlink rollout pointers before opening them; explicit profiles stay isolated.
+  and symlink rollout pointers before opening them; reject a symlink sessions root
+  before discovery as well. Explicit profiles stay isolated.
 - Search only explicitly identified user-role records, not tool payloads; retain
   `human_verified: false`, timestamp, source path/thread and excerpt budgets.
+  Conflicting explicit roles invalidate legacy `user_message` records.
+- First-message index hints retain creation time. Thread activity time and its
+  source are separate metadata used for candidate selection, never a fabricated
+  message timestamp that outranks a newer matching rollout.
 - Read at most 1 MiB per rollout: whole files within that size, otherwise 512 KiB
   at each end. Parse at most 2000 selected records, preserving both ends when
   needed; skip records larger than 64 KiB and incomplete segment fragments.

@@ -636,6 +636,11 @@ def _search_codex_store(
     candidate_limit = max(20, limit * 4)
     indexed_files: dict[Path, dict[str, Any]] = {}
     errors = 0
+    # The root itself must satisfy the same no-symlink rule as its children.
+    # Reject before discovery or admitting any indexed rollout pointers.
+    if sess_dir is not None and sess_dir.is_symlink():
+        errors += 1
+        sess_dir = None
 
     if database is not None and database.is_file():
         con = None
@@ -670,13 +675,14 @@ def _search_codex_store(
             model_select = ", model" if has_model_col else ""
             rollout_select = ", rollout_path" if "rollout_path" in col_names else ", NULL"
             recent_col = "updated_at" if "updated_at" in col_names else "created_at"
-            date_expr = date_expr.replace("created_at", recent_col)
+            activity_date_expr = date_expr.replace("created_at", recent_col)
 
             if query:
                 sql = f"""
                     SELECT title, substr(first_user_message, 1, ?), cwd, git_branch,
                            {date_expr} as created, id{model_select},
-                           (title LIKE ? OR first_user_message LIKE ?) as query_match{rollout_select}
+                           (title LIKE ? OR first_user_message LIKE ?) as query_match{rollout_select},
+                           {activity_date_expr} as activity_time
                     FROM threads
                     WHERE (cwd = ? OR title LIKE ? OR first_user_message LIKE ?)
                       AND (archived = 0 OR archived IS NULL)
@@ -687,7 +693,8 @@ def _search_codex_store(
             else:
                 sql = f"""
                     SELECT title, substr(first_user_message, 1, ?), cwd, git_branch,
-                           {date_expr} as created, id{model_select}, 1 as query_match{rollout_select}
+                           {date_expr} as created, id{model_select}, 1 as query_match{rollout_select},
+                           {activity_date_expr} as activity_time
                     FROM threads
                     WHERE (cwd LIKE ? OR cwd IS NULL)
                       AND (archived = 0 OR archived IS NULL)
@@ -700,7 +707,8 @@ def _search_codex_store(
             if not rows and not query:
                 sql_recent = f"""
                     SELECT title, substr(first_user_message, 1, ?), cwd, git_branch,
-                           {date_expr} as created, id{model_select}, 1 as query_match{rollout_select}
+                           {date_expr} as created, id{model_select}, 1 as query_match{rollout_select},
+                           {activity_date_expr} as activity_time
                     FROM threads
                     WHERE (archived = 0 OR archived IS NULL)
                     ORDER BY created_at DESC
@@ -722,8 +730,10 @@ def _search_codex_store(
                     "thread_id": thread_id, "database": str(database),
                     "role": "user", "role_source": "first_user_message",
                     "human_verified": False, "coverage": "bounded index hint",
+                    "thread_activity_timestamp": str(row[-1] or ""),
+                    "thread_activity_source": recent_col,
                 }
-                rollout_path = row[-1]
+                rollout_path = row[-2]
                 if rollout_path and sess_dir is not None:
                     # Reject out-of-scope pointers before stat/open; never follow
                     # index pointers into another profile or credential store.
@@ -740,7 +750,7 @@ def _search_codex_store(
                             indexed_files[candidate] = meta
                     except ValueError:
                         pass
-                if query and not row[-2]:
+                if query and not row[-3]:
                     continue
                 if row_model:
                     meta["model"] = str(row_model)
@@ -858,6 +868,14 @@ def _search_codex_store(
                             elif obj.get("model"):
                                 record_model = str(obj["model"])
 
+                            # An explicit conflicting role overrides a legacy
+                            # user_message key; never relabel tool content.
+                            message = obj.get("message")
+                            roles = [obj.get("role"), payload.get("role")]
+                            if isinstance(message, dict):
+                                roles.append(message.get("role"))
+                            if any(role is not None and role != "user" for role in roles):
+                                continue
                             text = ""
                             if (
                                 line_type == "response_item"

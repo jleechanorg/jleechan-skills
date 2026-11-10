@@ -42,6 +42,46 @@ class CodexRelevanceTests(unittest.TestCase):
                             str(self.sessions / f"rollout-{row[0]}.jsonl"))
                 con.execute("INSERT INTO threads VALUES (" + ",".join("?" for _ in row) + ")", row)
 
+    def test_sessions_root_symlink_is_never_scanned_or_opened(self):
+        outside = self.home / "outside"
+        outside.mkdir()
+        (outside / "rollout-secret.jsonl").write_text(json.dumps({"role": "user", "content": "needle secret"}) + "\n")
+        self.sessions.rmdir()
+        self.sessions.symlink_to(outside, target_is_directory=True)
+        with patch("builtins.open") as opened, patch("os.scandir") as scanned:
+            hits = search_codex("needle", codex_homes=[self.home])
+        self.assertEqual(hits, [])
+        opened.assert_not_called()
+        scanned.assert_not_called()
+
+    def test_legacy_user_message_rejects_contradictory_roles(self):
+        path = self.sessions / "rollout-legacy.jsonl"
+        records = [{"role": role, "user_message": "needle tool payload"}
+                   for role in ("tool", "assistant", "system")]
+        records += [{"message": {"role": "tool"}, "user_message": "needle nested tool"},
+                    {"user_message": "needle genuine legacy"}]
+        path.write_text("\n".join(map(json.dumps, records)) + "\n")
+        hits = search_codex("needle", codex_homes=[self.home], limit=10)
+        self.assertEqual([hit.snippet for hit in hits], ["needle genuine legacy"])
+        self.assertFalse(hits[0].metadata["human_verified"])
+
+    def test_index_activity_does_not_redate_first_message(self):
+        from datetime import datetime
+        self.index()
+        activity = 1794355200
+        with sqlite3.connect(self.db) as con:
+            con.execute("UPDATE threads SET cwd=?, updated_at=?, rollout_path=NULL WHERE id='old'",
+                        ("/work/project", activity))
+        self.rollout("recent", "/work/project", [("user", "needle actual recent message")])
+        hits = search_codex("needle", cwd="/work/project", codex_homes=[self.home], limit=1)
+        self.assertEqual(hits[0].snippet, "needle actual recent message")
+        all_hits = search_codex("needle", cwd="/work/project", codex_homes=[self.home], limit=5)
+        hint = next(hit for hit in all_hits if hit.metadata["thread_id"] == "old")
+        self.assertEqual(hint.timestamp, datetime.fromtimestamp(1).strftime("%Y-%m-%d %H:%M:%S"))
+        self.assertEqual(hint.metadata["thread_activity_timestamp"],
+                         datetime.fromtimestamp(activity).strftime("%Y-%m-%d %H:%M:%S"))
+        self.assertEqual(hint.metadata["thread_activity_source"], "updated_at")
+
     def test_public_cli_finds_project_followup_despite_unrelated_index_hit(self):
         self.index()
         path = self.rollout("recent", "/work/project", [("user", "needle followup " + "x" * 100)])
