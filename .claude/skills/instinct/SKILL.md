@@ -186,7 +186,7 @@ WhatsApp rather than guessing variants.
 |---|---|---|
 | 2 | bad args, missing/empty message file, profile rejected by an isolation guard | fix the invocation |
 | 3 | playwright or Chrome binary not found | report the missing dependency; do not substitute a personal browser |
-| 4 | not signed in. **From `probe`**: a visible QR screen persisted to the end of the poll | run the one-time headed link; do not copy cookies |
+| 4 | not signed in. **From `probe`**: the FINAL poll sample shows a visible QR screen (a QR that appeared and cleared is never exit 4) | run the one-time headed link; do not copy cookies |
 | 5 | contact name not found | confirm the exact saved contact name |
 | 6 | draft mismatch or send not confirmed | re-read the chat and report honestly; never claim delivery |
 | 7 | profile owned by a live Chrome | close that Chrome; never delete `SingletonLock` |

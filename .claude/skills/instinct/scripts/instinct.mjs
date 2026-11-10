@@ -641,11 +641,17 @@ async function compose(page, text) {
       // FIRST QR sighting would let a transient startup QR win, so persistence is established by
       // the final sample rather than by one early glimpse.
       let sawSignedOut = false;
+      let signedOutStreak = 0;
       let state = 'loading';
       for (;;) {
         state = await classifyState(page);
         if (state === 'linked') break;
-        if (state === 'signed_out') sawSignedOut = true;
+        if (state === 'signed_out') {
+          sawSignedOut = true;
+          signedOutStreak += 1;
+        } else {
+          signedOutStreak = 0;
+        }
 
         const remaining = deadline - Date.now();
         // No budget left: take one last sample so a chat list that appeared during the final
@@ -659,7 +665,14 @@ async function compose(page, text) {
       // `state` is the FINAL sample, so a QR that appeared and then cleared leaves us at
       // 'loading' (UNVERIFIED) rather than a false signed_out. `sawSignedOut` is reported so an
       // operator can tell "never rendered anything" from "showed a QR that went away".
-      return { state, sawSignedOut, waited_ms: Date.now() - started };
+      // A QR only counts as the outcome when the FINAL sample says so; signed_outStreak reports
+      // how long it had been on screen. A QR seen mid-poll that cleared is a transient.
+      return {
+        state,
+        signedOutStreak,
+        sawSignedOutTransient: sawSignedOut && state !== 'signed_out',
+        waited_ms: Date.now() - started,
+      };
     }, { headed });
 
     const ok = result.state === 'linked';
@@ -667,7 +680,8 @@ async function compose(page, text) {
       JSON.stringify({
         signed_in: ok,
         state: result.state,
-        saw_signed_out_transient: result.sawSignedOut,
+        saw_signed_out_transient: result.sawSignedOutTransient,
+        consecutive_signed_out_samples: result.signedOutStreak,
         waited_ms: result.waited_ms,
         profile_dir: PROFILE_DIR,
       }) + '\n'
