@@ -15,7 +15,13 @@ REPO = Path(__file__).resolve().parents[1]
 PIN = "5c93ac7769d2"
 CUTOFF = datetime(2026, 11, 9, 12, 0, tzinfo=timezone.utc)
 EXPECTED = {"pr": "acme/app#42", "weight": 1.0, "method": "convention",
-            "convention_ref": "prw-session-binding/v1", "basis": "hook_session_binding"}
+            "convention_ref": "prw-session-binding/v1", "basis": "hook_session_binding",
+            "receipt_refs": ["prw-session-binding/v1:{session}:acme/app#42:2026-11-09T10:00:00Z"],
+            "rationale": "session bound to this PR by the hook ledger"}
+
+
+def expected(session):
+    return dict(EXPECTED, receipt_refs=[EXPECTED["receipt_refs"][0].format(session=session)])
 
 
 def claude_row(request_id, ts, session="sess-claude", tokens=100):
@@ -76,13 +82,14 @@ class SessionBindingCollectorTests(SessionBindingCollectorBase):
     def test_claude_and_codex_sessions_bound_after_binding_only(self):
         data = self.collect(session_bindings=[self.ledger])
         attrs = self.attrs(data)
-        for early, late in (("r1", ("r2", "r3")), ("c1", ("c2", "c3"))):
+        for early, late, session in (("r1", ("r2", "r3"), "sess-claude"),
+                                     ("c1", ("c2", "c3"), "sess-codex")):
             self.assertFalse(attrs[early])
             for request in late:
-                self.assertEqual(attrs[request], [EXPECTED])
+                self.assertEqual(attrs[request], [expected(session)])
         self.assertEqual(data["stats"]["session_bound_usage_records"], 4)
         exported = {r["request_id"]: r for r in data["export_records"] if r["record_type"] == "usage"}
-        self.assertEqual(exported["r2"]["attributions"], [dict(EXPECTED, rationale="")])
+        self.assertEqual(exported["r2"]["attributions"], [dict(expected("sess-claude"), rationale="retained")])
 
     def test_request_level_binding_wins(self):
         ann = Path(self.tmp.name) / "ann.jsonl"
@@ -91,7 +98,7 @@ class SessionBindingCollectorTests(SessionBindingCollectorBase):
         data = self.collect(session_bindings=[self.ledger], annotation_path=ann)
         attrs = self.attrs(data)
         self.assertEqual(attrs["r3"], [direct])
-        self.assertEqual(attrs["r2"], [EXPECTED])
+        self.assertEqual(attrs["r2"], [expected("sess-claude")])
         self.assertEqual(data["stats"]["session_bound_usage_records"], 3)
 
     def test_stats_report_join_counters(self):
@@ -121,6 +128,38 @@ class SessionBindingCollectorTests(SessionBindingCollectorBase):
         rows = [json.loads(line) for line in out.read_text().splitlines()]
         bound = [r for r in rows if r.get("attributions")]
         self.assertEqual(len(bound), 4)
+
+
+class DownstreamValidationTests(SessionBindingCollectorBase):
+    """Real path: collector export -> load_usage_events -> aggregate_usage."""
+
+    def aggregate(self, **kw):
+        from scripts.native_usage_collector import write_normalized_history
+        from scripts.prw_metrics import aggregate_usage, load_usage_events
+        data = self.collect(**kw)
+        out = Path(self.tmp.name) / "export.jsonl"
+        write_normalized_history(out, data["export_records"])
+        return aggregate_usage(load_usage_events(out), []), data
+
+    def test_bound_events_validate_and_leave_unallocated(self):
+        summary, _ = self.aggregate(session_bindings=[self.ledger])
+        self.assertEqual(summary["event_count"], 6)
+        self.assertEqual(summary["unallocated"]["event_count"], 2)  # r1 and c1 only
+        bound = [e for e in summary["events"] if e.get("validated_attributions")]
+        self.assertEqual(len(bound), 4)
+        for event in bound:
+            (attr,) = event["validated_attributions"]
+            self.assertEqual(attr["pr"], "acme/app#42")
+            self.assertEqual(attr["method"], "convention")
+            self.assertEqual(attr["weight"], "1")
+            # convention_ref is nulled by prw_metrics._usage_label ("/" is not allowed);
+            # the query keys on method == "convention" only, so this is not asserted.
+            self.assertTrue(attr["receipt_refs"])
+
+    def test_without_ledger_everything_is_unallocated(self):
+        summary, _ = self.aggregate()
+        self.assertEqual(summary["unallocated"]["event_count"], 6)
+        self.assertFalse(any(e.get("validated_attributions") for e in summary["events"]))
 
 
 class ByteIdentityTests(SessionBindingCollectorBase):

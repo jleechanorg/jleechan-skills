@@ -6,7 +6,7 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 
-from scripts.prw_session_bindings import binding_at, load
+from scripts.prw_session_bindings import binding_at, binding_record_at, load
 
 
 def T(h, m=0):
@@ -44,6 +44,15 @@ class SessionBindingTests(unittest.TestCase):
         idx, _ = self.index([pr("2026-11-09T10:00:00Z"), pr("2026-11-09T11:00:00Z", 43)])
         self.assertEqual(binding_at(idx, "s1", T(10, 59)), "acme/app#42")
         self.assertEqual(binding_at(idx, "s1", T(11, 0)), "acme/app#43")
+
+    def test_record_carries_ledger_ts_and_source(self):
+        idx, _ = self.index([pr("2026-11-09T10:00:00Z") | {"source": "gh_pr_create"},
+                             pr("2026-11-09T11:00:00Z", 43) | {"source": "gh_pr_checkout"}])
+        self.assertEqual(binding_record_at(idx, "s1", T(10, 5)),
+                         ("acme/app#42", "2026-11-09T10:00:00Z", "gh_pr_create"))
+        self.assertEqual(binding_record_at(idx, "s1", T(11, 5)),
+                         ("acme/app#43", "2026-11-09T11:00:00Z", "gh_pr_checkout"))
+        self.assertIsNone(binding_record_at(idx, "s1", T(9)))
 
     def test_branch_other_same_repo_clears(self):
         idx, _ = self.index([pr("2026-11-09T10:00:00Z"),

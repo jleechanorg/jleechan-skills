@@ -12,9 +12,9 @@ from urllib.parse import urlparse
 
 if __package__:
     from .prw_metrics import _parse_utc_instant, _safe_pr_id, _usage_count, _usage_label, format_iso_utc
-    from .prw_session_bindings import binding_at as _session_binding_at, load as _load_session_bindings
+    from .prw_session_bindings import binding_record_at as _session_binding_record_at, load as _load_session_bindings
 else:
-    from prw_session_bindings import binding_at as _session_binding_at, load as _load_session_bindings
+    from prw_session_bindings import binding_record_at as _session_binding_record_at, load as _load_session_bindings
     from prw_metrics import _parse_utc_instant, _safe_pr_id, _usage_count, _usage_label, format_iso_utc
 
 
@@ -487,13 +487,16 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                                 record["attributions"] = [{key: binding[key] for key in
                                     ("pr", "weight", "method", "receipt_refs", "rationale", "basis", "convention_ref") if key in binding}]
                             elif session_index is not None:
-                                session_pr = _session_binding_at(session_index, namespace, at)
-                                if session_pr:
+                                found = _session_binding_record_at(session_index, namespace, at)
+                                if found:
+                                    session_pr, ledger_ts, _source = found
                                     stats["session_bound_usage_records"] += 1
                                     stats["pr_bound_usage_records"] += 1
                                     record["attributions"] = [{"pr": session_pr, "weight": 1.0,
                                         "method": "convention", "convention_ref": "prw-session-binding/v1",
-                                        "basis": "hook_session_binding"}]
+                                        "basis": "hook_session_binding",
+                                        "receipt_refs": [f"prw-session-binding/v1:{namespace}:{session_pr}:{ledger_ts}"],
+                                        "rationale": "session bound to this PR by the hook ledger"}]
                             key = (provider, request)
                             if request and key in seen_usage:
                                 stats["duplicate_usage_records"] += 1

@@ -30,7 +30,7 @@ def _parse_ts(value):
 
 
 def _clean_record(obj):
-    """Return (ts, session, kind, pr, repo, branch) or None when malformed."""
+    """Return (ts, session, kind, pr, repo, branch, source, ts_text) or None when malformed."""
     if not isinstance(obj, dict) or obj.get("v") != 1:
         return None
     ts = _parse_ts(obj.get("ts"))
@@ -44,7 +44,8 @@ def _clean_record(obj):
             return None
     repo = obj.get("repo") if isinstance(obj.get("repo"), str) else None
     branch = obj.get("branch") if isinstance(obj.get("branch"), str) else None
-    return ts, session, kind, pr if kind == "pr_binding" else None, repo, branch
+    source = obj.get("source") if isinstance(obj.get("source"), str) else None
+    return ts, session, kind, pr if kind == "pr_binding" else None, repo, branch, source, obj["ts"]
 
 
 def load(paths: Iterable) -> tuple[dict, dict]:
@@ -83,11 +84,11 @@ def load(paths: Iterable) -> tuple[dict, dict]:
         recs.sort(key=lambda r: r[0])  # stable: file order breaks ties
         times, states = [], []
         active = None  # (pr, repo, branch)
-        for ts, _s, kind, pr, repo, branch in recs:
+        for ts, _s, kind, pr, repo, branch, source, ts_text in recs:
             if kind == "pr_binding":
-                active = (pr, pr.split("#", 1)[0], branch)
+                active = (pr, pr.split("#", 1)[0], branch, ts_text, source)
             elif kind == "branch" and active is not None:
-                _pr, bound_repo, bound_branch = active
+                _pr, bound_repo, bound_branch = active[:3]
                 if repo is not None and repo != bound_repo:
                     active = None
                 elif repo == bound_repo and branch is not None and bound_branch is not None \
@@ -96,20 +97,24 @@ def load(paths: Iterable) -> tuple[dict, dict]:
             else:
                 continue
             times.append(ts)
-            states.append(active[0] if active else None)
+            states.append((active[0], active[3], active[4]) if active else None)
         index[session] = (times, states)
     return index, stats
 
 
-def binding_at(index: dict, session_id, at: datetime):
-    """Active `owner/name#N` for the session at instant `at`, or None."""
+def binding_record_at(index: dict, session_id, at: datetime):
+    """(pr, ledger ts text, source) of the pr_binding record active at `at`, or None."""
     if not session_id or not isinstance(session_id, str) or at is None:
         return None
     entry = index.get(session_id)
-    if not entry:
-        return None
-    if at.tzinfo is None:
+    if not entry or at.tzinfo is None:
         return None
     times, states = entry
     pos = bisect_right(times, at)
     return states[pos - 1] if pos else None
+
+
+def binding_at(index: dict, session_id, at: datetime):
+    """Active `owner/name#N` for the session at instant `at`, or None."""
+    found = binding_record_at(index, session_id, at)
+    return found[0] if found else None
