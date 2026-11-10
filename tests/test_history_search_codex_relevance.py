@@ -1,6 +1,7 @@
 """Synthetic bounded Codex retrieval regressions; never read live history."""
 
 import json
+import os
 from pathlib import Path
 import sqlite3
 import tempfile
@@ -41,6 +42,21 @@ class CodexRelevanceTests(unittest.TestCase):
                     row += (100 if row[0] == "recent" else 1,
                             str(self.sessions / f"rollout-{row[0]}.jsonl"))
                 con.execute("INSERT INTO threads VALUES (" + ",".join("?" for _ in row) + ")", row)
+
+    def test_discovery_error_preserves_index_admitted_followup(self):
+        self.index()
+        self.rollout("recent", "/work/project", [("user", "needle admitted followup")])
+        denied = self.sessions / "unreadable"
+        denied.mkdir()
+        original_scandir = os.scandir
+        def scandir(path):
+            if Path(path) == denied:
+                raise PermissionError("directory listing denied")
+            return original_scandir(path)
+        with patch("scripts.history_search.os.scandir", side_effect=scandir):
+            hits = search_codex("needle", cwd="/work/project", codex_homes=[self.home], limit=1)
+        self.assertEqual([hit.snippet for hit in hits], ["needle admitted followup"])
+        self.assertGreaterEqual(hits[0].metadata["coverage_errors"], 1)
 
     def test_sessions_root_symlink_is_never_scanned_or_opened(self):
         outside = self.home / "outside"

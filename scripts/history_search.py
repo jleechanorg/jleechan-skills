@@ -784,17 +784,20 @@ def _search_codex_store(
             pending = [sess_dir]
             visited = 0
             while pending and visited < 200:
-                with os.scandir(pending.pop()) as directory:
-                    for item in directory:
-                        visited += 1
-                        if item.is_dir(follow_symlinks=False):
-                            pending.append(Path(item.path))
-                        elif item.is_file(follow_symlinks=False) and item.name.startswith("rollout-") and item.name.endswith(".jsonl"):
-                            path = Path(item.path)
-                            if path not in indexed_files:
-                                rollout_files.append(path)
-                        if visited >= 200:
-                            break
+                try:
+                    with os.scandir(pending.pop()) as directory:
+                        for item in directory:
+                            visited += 1
+                            if item.is_dir(follow_symlinks=False):
+                                pending.append(Path(item.path))
+                            elif item.is_file(follow_symlinks=False) and item.name.startswith("rollout-") and item.name.endswith(".jsonl"):
+                                path = Path(item.path)
+                                if path not in indexed_files:
+                                    rollout_files.append(path)
+                            if visited >= 200:
+                                break
+                except OSError:
+                    errors += 1
 
             def safe_mtime_p(p: Path) -> float:
                 try:
