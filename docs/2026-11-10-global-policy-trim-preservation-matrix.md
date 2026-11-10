@@ -14,7 +14,7 @@ Three texts existed before the trim, so each number names its baseline:
 | Installed copy on the author's host ("live") | 76,494 | Had drifted from the source in both directions |
 | Lossless union of the two (not committed) | 79,254 | Every rule from either text; the trim's true "before" |
 | After narrative trim only (step 1; not committed separately) | 76,827 | Union minus non-rule text |
-| **After this change** | **76,223** | New `md_files/AGENTS.shared.md` |
+| **After this change** | **76,410** | New `md_files/AGENTS.shared.md` |
 
 Effects, separated:
 
@@ -24,9 +24,10 @@ Effects, separated:
 | Reconcile drift (adds rules that were on `main` but never installed) | +2,760 | 79,254 |
 | Trim narrative, identifiers and duplicate cross-references (Part 3) | -2,427 | 76,827 |
 | Move one narrow-context block (native build authority) to a skill behind an inline trigger (Part 3b) | -604 | 76,223 |
-| **Net against the installed copy** | **-271 (-0.4%)** | |
+| Replace the two named hosts in "Blocked on one host" with "current host" and "configured companion host" (row R10; independent-review fix) | +187 | 76,410 |
+| **Net against the installed copy** | **-84 (-0.1%)** | |
 
-Against the source at `main` the file grows by 5,007 bytes, because rules that existed only in the installed
+Against the source at `main` the file grows by 5,194 bytes, because rules that existed only in the installed
 copy are now in the source. The moved text is not deleted: the new skill file is 3,103 bytes, loaded
 only when its situation arises.
 
@@ -36,7 +37,7 @@ installed-copy delta, not the union delta.
 ## Part 1 — Reconciliation (source vs installed copy)
 
 The source wording was kept wherever the two differed on the same sentence and the source was stricter or
-portable; rules found only in the installed copy were added. Five rows are conflicts that need the owner (R2, R8, R9, R12, R15); the text chosen here is a placeholder for that decision, with both versions quoted.
+portable; rules found only in the installed copy were added. Five rows are conflicts that need the owner (R2, R8, R9, R12, R15); the text chosen here is a placeholder for that decision, with both versions quoted. Row R10 was reworded after review and also needs the owner's signoff.
 
 | # | Location | Source at `main` | Installed copy | Kept |
 |---|---|---|---|---|
@@ -49,7 +50,7 @@ portable; rules found only in the installed copy were added. Five rows are confl
 | R7 | Verify before reporting: "A local checkout is not the repository" | Absent | Present | Added |
 | R8 | Core behavior: runner-safety pointer | "the installed `self-hosted-runners` plugin's `self-hosted-runner-preflight` skill, if present" | A fixed skill path | Source. It makes the pointer optional ("if present") and gives no path, where the installed copy named a fixed path; it matches where the skill lives in this repository. **Owner decision.** |
 | R9 | Core behavior: CPU cap paragraph | "Treat this Mac and jeff-ubuntu as one pool: place each new heavy lane on whichever host has more idle CPU" | "Prefer the current host when it has task-specific headroom; do not transfer solely because another host has more idle CPU" | Installed. It matches `parallelize-to-ceiling/references/host-load-balancing.md` on `main`; the 25% and 10% idle thresholds are identical in both. **Owner decision.** |
-| R10 | "Blocked on one host — use the other" subsection | Absent | Present | Added verbatim |
+| R10 | "Blocked on one host — use the other" subsection | Absent | Present; names two specific hosts | Added with the host names made portable: "the current host" and "a configured companion host", plus the two cases the named-host text did not need (an unreachable companion counts as blocked; with no companion configured, report that and treat the blocker normally). The rest is verbatim. An independent review blocked the verbatim text under the repository's fresh-machine invariant. This rewording was not approved by the owner: **owner signoff needed.** |
 | R11 | "Unmandated enforcement gates" subsection | Absent | Present | Added |
 | R12 | Disk diagnosis | Longer paragraph separating root-cause questions from quick capacity checks | Shorter paragraph | Source. It narrows the installed copy's unconditional "before any other measurement" to root-cause questions and routes quick capacity checks to `disk-audit`; merged on `main` on 2026-11-02. **Owner decision.** |
 | R13 | "Native iOS proof for user-visible UI changes (canonical)" section | Present | Absent | Source, verbatim |
@@ -86,7 +87,7 @@ checked mechanically per heading. Only the "changed" rows needed a rule-by-rule 
 | Verify before reporting | 3359 | 2532 | 3199 | -160 | changed |
 | Core behavior | 18 | 18 | 18 | +0 | identical to live |
 | Model-owned domain state and semantic decisions | 3429 | 3208 | 3466 | +37 | changed |
-| Blocked on one host — use the other (user directive 2026-11-03) | 993 | — | 993 | +0 | identical to live |
+| Blocked on one host — use the other (user directive 2026-11-03) | 993 | — | 1180 | +187 | changed (row R10) |
 | Upstream and root-cause engineering | 524 | 524 | 524 | +0 | identical to live |
 | Unmandated enforcement gates | 1563 | — | 1382 | -181 | changed |
 | Ponytail — lazy senior dev mode | 403 | 403 | 403 | +0 | identical to live |
@@ -122,7 +123,7 @@ checked mechanically per heading. Only the "changed" rows needed a rule-by-rule 
 | Native build authority — canary rules (2026-10-19) | 2460 | 2460 | 1856 | -604 | changed |
 | Context-full behavior — auto-compact and keep going (user directive 20 | 1481 | 1480 | 1481 | +0 | identical to live |
 | Agent workspaces live on the scratch volume, never in /tmp (2026-10-29 | 1693 | — | 1401 | -292 | changed |
-| **Total file** | 76494 | 71216 | 76223 | -271 | |
+| **Total file** | 76494 | 71216 | 76410 | -84 | |
 
 ## Part 3 — Rule-by-rule check of the trimmed sections
 
@@ -308,5 +309,6 @@ One independent reviewer (adversarial, read-only) checked three candidates.
 1. First draft (cmux procedure and command-guard notes moved to skills, Slack runner line shortened): **FAIL**, 17 findings. Rules became conditional on a skill being loaded. All moved text was restored inline.
 2. Four-move draft (PR descriptions, native iOS proof, WorldAI fallback and native build authority moved behind inline triggers): **FAIL**. Three of the moves left a rule the inline trigger did not cover. Those three were reverted in full.
 3. This candidate (narrative trim plus the native-build move), reviewed at 76,179 bytes: **PASS**. No rule conditional, narrower, weaker or absent beyond the rows marked "Skill only"; the native-build trigger is at least as broad as the original section; byte figures correct. Two non-blocking notes were applied afterwards without another review: the canary-identifier line under Part 3b, and the restored parenthesis "(threshold plus how/when it is re-measured)", which adds 44 bytes (76,223 final).
+4. A second, separate reviewer (Codex CLI, full base and head content) reviewed commit `5f3ca55c3a44f611fb7877c0b01f09c76bbe9487` at 76,223 bytes: **NOT APPROVED**. One blocking finding: the "Blocked on one host" subsection named two specific hosts, against the repository's fresh-machine invariant. Row R10 records the fix. Two non-blocking findings were left unchanged for the owner: the `/f`, `/factory` and `/af` lines name skills that are not in the catalog (R14), and the scratch-volume section states a guard and a Linux scratch layout as facts about every host.
 
-The reviewer could not verify owner approval of the move or of the five reconciliation conflicts.
+No reviewer could verify owner approval of the move, of the five reconciliation conflicts or of the R10 rewording.
