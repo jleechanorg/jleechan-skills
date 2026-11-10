@@ -27,6 +27,7 @@ Track the active execution state in the PR description or task context. Every un
 ```text
 accepted_at: <UTC time the /prw task was accepted, captured at start; UNKNOWN if not observed; kept on resume; never PR creation time>
 endpoint: FINAL_READY
+merge_authorization: <authorized (source) | not authorized | not asked; set at preflight>
 candidate: <head-SHA>
 next_action: <specific unmet obligation>
 owner: <driver or delegated lane>
