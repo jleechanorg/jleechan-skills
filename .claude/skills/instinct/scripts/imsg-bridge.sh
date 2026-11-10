@@ -91,16 +91,25 @@ have /usr/bin/osascript || die "osascript not found" 3
 # semantic for a snapshot.
 # Usage: q <db-path> [sqlite flags] <sql...>
 LIVE_DB="$HOME/Library/Messages/chat.db"
+
+# Is this path the LIVE message store? Resolve the FILE, not just its directory:
+# `pwd -P` on the parent leaves a symlinked database unresolved. A snapshot supplied
+# through --db OR through IMSG_CHAT_DB must both be recognised as NOT live.
+is_live_store() {
+  local p="$1" r rl
+  [ "$p" = "$LIVE_DB" ] && return 0
+  r=$(realpath "$p" 2>/dev/null || printf '%s' "$p")
+  rl=$(realpath "$LIVE_DB" 2>/dev/null || printf '%s' "$LIVE_DB")
+  [ "$r" = "$rl" ]
+}
+
 q() {
   local dbpath="$1"; shift
   # immutable=1 is only valid for a SNAPSHOT. Applying it to the live store would
   # tell sqlite the file cannot change and hide committed rows (including the one a
   # send just wrote), so the live path — and anything resolving to it — is opened
   # with a plain read-only handle instead.
-  local real real_live
-  real=$(cd "$(dirname "$dbpath")" 2>/dev/null && pwd -P)/$(basename "$dbpath")
-  real_live=$(cd "$(dirname "$LIVE_DB")" 2>/dev/null && pwd -P)/$(basename "$LIVE_DB")
-  if [ "$dbpath" = "$LIVE_DB" ] || [ "$real" = "$real_live" ]; then
+  if is_live_store "$dbpath"; then
     /usr/bin/sqlite3 -readonly "$dbpath" "$@"
   elif [ -n "$DB_OVERRIDE" ]; then
     /usr/bin/sqlite3 -readonly "file:${dbpath}?immutable=1" "$@"
@@ -148,14 +157,33 @@ do_send() {
   # raises it), but the confirmation below is filtered to THIS chat — otherwise an
   # unrelated outgoing message can masquerade as this send's receipt.
   local can_read=0 before=0
+  # Defaulted so `set -u` cannot abort the unreadable-store path; replaced with the
+  # canonical stored identifier as soon as the store is readable.
+  DB_HANDLE="$CONTACT_HANDLE"
   if db_readable; then
     can_read=1
     before=$(q "$DB" 'select coalesce(max(ROWID),0) from message;' 2>/dev/null)
+    # A handle written in a non-canonical form ("+1 555 123 4567" vs the stored
+    # "+15551234567") sends fine but never matches `chat_identifier = ...`, which
+    # would silently blind every later absence check. Resolve the ACTUAL stored
+    # identifier now and use that from here on; if the chat does not exist at all,
+    # fail before sending (exit 5) rather than send and later claim "not sent".
+    local stored_id
+    stored_id=$(q "$DB" "select chat_identifier from chat where chat_identifier = '$CONTACT_HANDLE'
+         union all
+         select chat_identifier from chat where replace(replace(replace(replace(chat_identifier,' ',''),'-',''),'(',''),')','') = replace(replace(replace(replace('$CONTACT_HANDLE',' ',''),'-',''),'(',''),')','')
+         limit 1;" 2>/dev/null)
+    [ -n "$stored_id" ] || die "contact $CONTACT_HANDLE has no chat in the message store; refusing to send" 5
+    DB_HANDLE="$stored_id"
   fi
 
   # argv-passed text: no shell interpolation, so quotes/$/backticks/newlines are
   # inert. NEVER interpolate "$text" into the AppleScript source.
-  /usr/bin/osascript - "$CONTACT_HANDLE" "$text" <<'APPLESCRIPT'
+  # stderr is captured so the AppleScript error NUMBER can be classified: only an
+  # error that shows the event was rejected before dispatch may count as "not sent".
+  local OSPEC="" ERRLOG rc
+  ERRLOG="$(mktemp "${TMPDIR:-/tmp}/imsg-osas.XXXXXX")" || die "cannot create temp file" 3
+  /usr/bin/osascript - "$CONTACT_HANDLE" "$text" 2>"$ERRLOG" <<'APPLESCRIPT'
 on run argv
   set theHandle to item 1 of argv
   set theText to item 2 of argv
@@ -164,7 +192,10 @@ on run argv
   end tell
 end run
 APPLESCRIPT
-  local rc=$?
+  rc=$?
+  # Extract the AppleScript error number, e.g. "(-1728)" from stderr.
+  OSPEC=$(sed -n 's/.*(\(-*[0-9]\{3,\}\)).*/\1/p' "$ERRLOG" 2>/dev/null | tail -1)
+  rm -f "$ERRLOG"
   # osascript returned non-zero. That is NOT proof the message was not submitted:
   # an AppleEvent timeout (-1712) can arrive after Messages already queued it.
   #
@@ -178,16 +209,27 @@ APPLESCRIPT
   #   4. and a short wait-and-recheck agrees, in case the row was still landing.
   # Anything else is exit 9.
   if [ "$rc" -ne 0 ]; then
-    if [ "$can_read" -ne 1 ] || [ -n "$DB_OVERRIDE" ]; then
+    # Absence can only be proven against the LIVE store: a snapshot (however it was
+    # supplied) is frozen and can never contain the row this send created.
+    if [ "$can_read" -ne 1 ] || ! is_live_store "$DB"; then
       die "osascript rc=$rc and the store in use cannot prove absence (unreadable or a snapshot). NOT falling back" 9
     fi
+    # An AppleEvent timeout does NOT cancel the event: Messages can process it later,
+    # so a short absence window proves nothing. Only errors that show the event was
+    # rejected before dispatch may be treated as "not sent".
+    case "$OSPEC" in
+      "-1728"|"-600"|"-609"|"-10810"|"-10814"|"") ;;   # can't get buddy / app not running / no service
+      *)
+        die "osascript failed with AppleScript error ${OSPEC}, which does not prove the message was not dispatched (a timeout can still deliver). NOT falling back" 9
+        ;;
+    esac
     local attempt raced qrc
     for attempt in 1 2 3; do
       raced=$(q "$DB" "select m.ROWID from message m
           join chat_message_join cmj on cmj.message_id = m.ROWID
           join chat c on c.ROWID = cmj.chat_id
          where m.ROWID > $before and m.is_from_me = 1
-           and c.chat_identifier = '$CONTACT_HANDLE'
+           and c.chat_identifier = '$DB_HANDLE'
          order by m.ROWID desc limit 1;" 2>/tmp/imsg_raced.err)
       qrc=$?
       if [ "$qrc" -ne 0 ]; then
@@ -216,7 +258,7 @@ APPLESCRIPT
         join chat_message_join cmj on cmj.message_id = m.ROWID
         join chat c on c.ROWID = cmj.chat_id
        where m.ROWID > $before and m.is_from_me = 1
-         and c.chat_identifier = '$CONTACT_HANDLE'
+         and c.chat_identifier = '$DB_HANDLE'
        order by m.ROWID desc limit 1;" 2>/dev/null)
     [ -n "$newrow" ] && break
   done
@@ -230,14 +272,21 @@ APPLESCRIPT
 
   # A row that exists but never reaches is_delivered=1 is a real failure, not a
   # success: report it instead of printing delivered=0 and exiting 0.
-  local delivered=0 j
-  for j in 1 2 3 4 5 6 7 8 9 10; do
+  # is_delivered can lag well past 10s (observed on a self-thread: the flag flipped
+  # after the row had been visible for ~40s). Poll up to INSTINCT_SEND_CONFIRM_SECS,
+  # default 60. A row that exists but is still unconfirmed is exit 9 — never 6.
+  local delivered=0 j maxwait
+  maxwait=${INSTINCT_SEND_CONFIRM_SECS:-60}
+  case "$maxwait" in ''|*[!0-9]*) maxwait=60 ;; esac
+  j=0
+  while [ "$j" -lt "$maxwait" ]; do
     delivered=$(q "$DB" "select coalesce(is_delivered,0) from message where ROWID = $newrow;" 2>/dev/null)
     [ "$delivered" = "1" ] && break
     sleep 1
+    j=$((j+1))
   done
   if [ "$delivered" != "1" ]; then
-    die "row $newrow exists but is_delivered=$delivered after 10s; delivery NOT confirmed. NOT falling back (the row exists, so the peer may have it)" 9
+    die "row $newrow exists but is_delivered=$delivered after ${maxwait}s; delivery NOT confirmed. NOT falling back (the peer may have it)" 9
   fi
   echo "sent rowid=$newrow delivered=1"
   exit 0

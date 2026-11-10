@@ -134,6 +134,7 @@ registry.
 | `INSTINCT_READ_THEIRS` | `1` = `/instinct read` returns only the peer's messages, excluding outgoing rows | — | unset |
 | `INSTINCT_SELF` | This account's own display name in the peer's WhatsApp chat. Required for `read --theirs` on the WhatsApp transport, which needs it to tell your bubbles from the peer's | — | unset (the WhatsApp `--theirs` read fails closed without it) |
 | `IMSG_CHAT_DB` | Path to the macOS Messages store read by `imsg-bridge.sh` | — | `$HOME/Library/Messages/chat.db` |
+| `INSTINCT_SEND_CONFIRM_SECS` | How long `imsg-bridge.sh send` polls for `is_delivered=1` before reporting exit 9 | — | `60` |
 
 ## Values that are deleted, not parameterized
 
