@@ -25,7 +25,7 @@ For every review type that runs, including `/es`, `/er`, `/advice`, `/wa`, `/cs`
 Track the active execution state in the PR description or task context. Every unfinished obligation (`OPEN` or `PENDING`) maps directly to an active execution record exposing `owner`, `next_action`, and the actual resumption handle (`job_handle` + `wake_condition`), retaining candidate/claim applicability:
 
 ```text
-accepted_at: <UTC time the /prw task was accepted, captured at start; never PR creation time>
+accepted_at: <UTC time the /prw task was accepted, captured at start; UNKNOWN if not observed; kept on resume; never PR creation time>
 endpoint: FINAL_READY
 candidate: <head-SHA>
 next_action: <specific unmet obligation>
