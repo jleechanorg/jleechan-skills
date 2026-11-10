@@ -36,6 +36,9 @@ FILE=""
 THEIRS_ONLY=0
 SINCE_ROWID=0
 DB_OVERRIDE=""
+# Initialised here, not only in the --dry-run arm: line 232 reads it on EVERY
+# send, and `set -u` aborts a real send when the caller never exported it.
+DRY_RUN=0
 # Every option that takes a value must actually receive one: `shift 2` on a
 # trailing option would otherwise leave $1 unchanged and spin forever (errexit is
 # intentionally off so failures can be reported with a specific exit code).
@@ -64,6 +67,10 @@ while [ $# -gt 0 ]; do
       need_value "$@"; SINCE_ROWID="$2"; shift 2
       is_uint "$SINCE_ROWID" || { echo "imsg-bridge: --since must be a non-negative integer, got '$SINCE_ROWID'" >&2; exit 2; }
       ;;
+    # Prove the wire WITHOUT delivering: every validation, guard and resolution a real
+    # send performs, then stop before handing anything to Messages. This is the
+    # sanctioned way to test the transport; never test by sending to a handle.
+    --dry-run) DRY_RUN=1; shift ;;
     *) echo "imsg-bridge: unknown arg '$1'" >&2; exit 2 ;;
   esac
 done
@@ -192,6 +199,46 @@ do_send() {
     asked_handle="$CONTACT_HANDLE"
     stored_id=$(stored_chat_id) || die "contact $asked_handle has no chat in the message store; refusing to send" 5
     DB_HANDLE="$stored_id"
+  fi
+
+  # --- recipient guard: a send needs a DECLARED target, and self is not one ------
+  # This bridge verifies DELIVERY (is_delivered=1 bound to the exact text), which is
+  # a different property from RECIPIENT CORRECTNESS. On 2026-11-09/10 a hardcoded
+  # default handle turned 46 self-tests plus 7 production PING nudges into real
+  # messages to a contact. Every one satisfied the delivery check, and delivery
+  # being TRUE is precisely why nothing objected.
+  #
+  # The failure was not a missing comparison against a known-good handle: it was
+  # that a DEFAULT existed at all. An undeclared default is indistinguishable from a
+  # declaration, so it can point at anyone. require_contact() already fails closed
+  # when nothing is declared; that is the real guard. --dry-run exists so proving the
+  # wire never requires nominating a plausible-looking recipient.
+  #
+  # What IS refused here: sending to the account's own handle. A self-send is not a
+  # peer send, and "send to myself" is the exact intent that produced this incident
+  # once a wrong value stood in for "myself".
+  if [ "$can_read" -eq 1 ]; then
+    local mine
+    while IFS= read -r mine; do
+      [ -n "$mine" ] || continue
+      [ "$mine" = "$DB_HANDLE" ] || continue
+      # Exit 8 is deliberately NOT in the transport chain's safe-to-fall-back set
+      # ({2,3,4,5,6}). A refusal must TERMINATE the send: falling back would deliver the
+      # exact message this guard just refused, turning the guard into a redirect. Caught
+      # by exercising the real path: rc=2 fell through and posted to WhatsApp instead.
+      die "refusing to send to $DB_HANDLE: it is one of my OWN accounts. A self-send is not a peer send, and a 'myself' target that resolves to a contact's number delivers to a real person. Use --dry-run to prove the wire." 8
+    done <<EOF
+$(q "$DB" "select distinct replace(destination_caller_id,'tel:','') from message where is_from_me=1 and destination_caller_id is not null and destination_caller_id <> '';" 2>/dev/null)
+EOF
+  fi
+
+  # --- dry run: everything above has already run, nothing is handed to Messages ---
+  # Deliberately AFTER the recipient guard and contact resolution, so a dry run
+  # proves the same checks a real send would, and deliberately BEFORE the osascript
+  # call, which is the only step that can deliver.
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "dry-run: would send ${#text} bytes to $DB_HANDLE; no message delivered" >&2
+    exit 0
   fi
 
   # argv-passed text: no shell interpolation, so quotes/$/backticks/newlines are
