@@ -140,6 +140,28 @@ class TestRecords(unittest.TestCase):
             with self.subTest(cmd=cmd):
                 self.assertEqual(run(post(cmd))[0], [])
 
+    def test_uncertain_state_change_anywhere_gives_nothing(self):
+        url = "https://github.com/acme/app/pull/42"
+        for cmd, out in (("true || cd /different/repo; gh pr checkout 42", ""),
+                         ("cd /a || cd /b && git switch x", ""),
+                         ("cd /a; gh pr checkout 5", ""),
+                         ("pushd /x && gh pr checkout 5", ""),
+                         ("true || git -C /different/repo switch other", ""),
+                         ("git switch x || true", ""),
+                         ("gh pr checkout 42 && git push; echo done", ""),
+                         ("true || x | gh pr checkout 5", ""),
+                         ("cd /x | gh pr checkout 5", ""),
+                         ("echo " + url + "; gh pr create --fill >/dev/null", url),
+                         ("echo " + url + " && gh pr create --fill", url),
+                         ("gh pr create --fill > out.txt", url),
+                         ("gh pr checkout 42 && gh pr create --fill", ""),
+                         ("gh pr checkout 42 && gh pr create --fill", url + " https://github.com/acme/app/pull/43")):
+            with self.subTest(cmd=cmd, out=out):
+                self.assertEqual(run(post(cmd, out))[0], [])
+        recs, git = run(post("cd /x && gh pr create --fill", url))
+        self.assertEqual([r["pr"] for r in recs], ["acme/app#42"])
+        self.assertEqual(git.calls, ["/x"])
+
     def test_checkout_url(self):
         recs, _ = run(post("gh pr checkout https://github.com/acme/web/pull/9"))
         self.assertEqual(recs[0]["pr"], "acme/web#9")

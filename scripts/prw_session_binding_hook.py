@@ -24,6 +24,8 @@ SHELLS = {"bash", "sh", "zsh", "dash", "ksh", "fish"}
 MAX_BYTES = 1024
 DEFAULT_LEDGER = "~/.local/share/prw-metrics/bindings/session-bindings.jsonl"
 GIT_TIMEOUT = 2
+STATE_VERBS = {("gh", "create"), ("gh", "checkout"), ("git", "switch"), ("git", "checkout"),
+               ("git", "push"), ("git", "worktree add")}
 
 
 def _valid_repo(v):
@@ -85,8 +87,8 @@ def _segments(command):
     """Yield (tokens, status_known, grouped) per command segment, ignoring quoted/heredoc text.
 
     status_known is True only when every later separator is `&&` (a single
-    trailing `;` aside) and the segment surely ran: no `||` right before it, or
-    anywhere before it when the command groups with parentheses. Then the
+    trailing `;` aside) and the segment surely ran: no `||` right before it or
+    its pipeline, or anywhere before it when the command groups with parentheses. Then the
     command's exit status reflects this segment.
     """
     command = HEREDOC_RE.sub("\n", command)
@@ -110,7 +112,10 @@ def _segments(command):
     grouped = any(c in s for s in seps for c in "()")
     seps = [_norm_sep(s) for s in seps]
     for n, seg in enumerate(segs):
-        before = seps[:n][-1:] if not grouped else seps[:n]
+        k = n - 1
+        while k >= 0 and seps[k] == "|":  # a pipeline binds tighter than `||`
+            k -= 1
+        before = seps[k:k + 1] if not grouped and k >= 0 else seps[:max(k + 1, 0)]
         ran = "||" not in before
         yield seg, ran and all(s == "&&" for s in seps[n:-1]) and seps[-1] in ("", ";", "\0"), grouped
 
@@ -220,7 +225,9 @@ def records_for(payload, runtime, git, now=None):
     output = _output_text(resp)
 
     # The last checkout, creation or branch switch decides; git state is read
-    # where that command ran (after `cd`, honouring `git -C`), or not at all.
+    # where that command ran (after `cd`, honouring `git -C`). Any directory or
+    # state change that may not have run, or whose result is unresolved, makes
+    # the outcome unknown, so the command records nothing.
     pr = source = branch_source = None
     here = where = cwd
     try:
@@ -229,39 +236,48 @@ def records_for(payload, runtime, git, now=None):
         return []
     for seg, status_known, grouped in segs:
         if seg and seg[0] in ("cd", "pushd", "popd"):
-            ok = here and not grouped and seg[0] != "popd" and len(seg) == 2 and seg[1] != "-"
-            here = os.path.normpath(os.path.join(here, os.path.expanduser(seg[1]))) if ok else None
+            if not (status_known and here and not grouped and seg[0] == "cd"
+                    and len(seg) == 2 and seg[1] != "-"):
+                return []
+            here = os.path.normpath(os.path.join(here, os.path.expanduser(seg[1])))
             continue
         c = _classify(seg)
         if not c:
             continue
         tool, verb, args, cdir = c
+        if (tool, verb) not in STATE_VERBS:
+            continue
+        if not status_known:
+            return []
         at = os.path.normpath(os.path.join(here, cdir)) if here and cdir else here
+        if tool == "git":
+            if verb in ("switch", "checkout"):
+                pr = source = None
+                branch_source, where = "git_switch", at
+            elif pr is None and branch_source is None:
+                branch_source, where = ("git_push" if verb == "push" else "git_switch"), at
+            continue
         found = None
-        if tool == "gh" and verb == "create" and status_known:
+        if verb == "create":
+            # Only creation's own output may name the PR: no other command
+            # besides `cd`, and no redirection.
+            alone = all(o is seg or o[:1] == ["cd"] for o, _, _ in segs)
             urls = {f"{m[1]}/{m[2]}#{int(m[3])}" for m in PR_URL_RE.finditer(output)}
-            if len(urls) == 1:
+            if alone and not any(re.match(r"[0-9]*[<>]", a) for a in args) and len(urls) == 1:
                 found = urls.pop(), "gh_pr_create"
-        elif tool == "gh" and verb == "checkout" and status_known:
+        else:
             target, flag_repo = _checkout_args(args)
-            if target is None:
-                continue
-            m = PR_URL_RE.search(target)
+            m = PR_URL_RE.search(target or "")
             if m:
                 found = f"{m[1]}/{m[2]}#{int(m[3])}", "gh_pr_checkout"
-            elif target.isdigit() and int(target) > 0:
+            elif target and target.isdigit() and int(target) > 0:
                 if flag_repo and flag_repo.lower().startswith("github.com/"):
                     flag_repo = flag_repo[len("github.com/"):]
-                if flag_repo is not None and not _valid_repo(flag_repo):
-                    continue
-                found = (f"{flag_repo}#{int(target)}" if flag_repo else int(target)), "gh_pr_checkout"
-        elif tool == "git" and verb in ("switch", "checkout"):
-            pr = source = None
-            branch_source, where = "git_switch", at
-        elif tool == "git" and verb in ("push", "worktree add") and pr is None and branch_source is None:
-            branch_source, where = ("git_push" if verb == "push" else "git_switch"), at
-        if found:
-            (pr, source), branch_source, where = found, None, at
+                if flag_repo is None or _valid_repo(flag_repo):
+                    found = (f"{flag_repo}#{int(target)}" if flag_repo else int(target)), "gh_pr_checkout"
+        if not found:
+            return []
+        (pr, source), branch_source, where = found, None, at
 
     if (pr is None and branch_source is None) or not where:
         return []
