@@ -38,6 +38,22 @@ python3 "$HISTORY_HELPER" --source claude --limit 5 --max-chars 500 --json -- "$
 python3 "$HISTORY_HELPER" --source codex --codex-home "$ADMITTED_CODEX_HOME" --limit 5 --max-chars 500 --json -- "$HIST_QUERY"
 ```
 
+Codex query searches prioritize exact cwd matches, then recent indexed candidates
+(updated time when available, otherwise creation time), and inspect their admitted
+rollouts even when unrelated index titles match. Each profile samples at most
+`max(20, 4 * limit)` candidates/files, discovers at most 200 directory entries,
+and reads at most 1 MiB per rollout (whole small files, otherwise 512 KiB from
+each end), selecting at most 2,000 records and skipping records over 64 KiB.
+Large samples retain both ends, not every middle message. Byte offsets are exact;
+absolute line numbers are null when the preceding bytes were not read. Model
+turn context resets across omitted intervals rather than leaking into tail hits.
+SQLite work is also capped; an interrupted query is reported as an error. Legacy
+indexes without rollout paths use bounded file discovery, which cannot guarantee
+the newest or project-relevant file is discovered. Messages beyond these bounds
+remain unsearched. Coverage diagnostics go to stderr even for empty JSON results;
+entry metadata carries coverage and error counts without changing the JSON shape.
+An index first-message hint or a rollout `role=user` is not verified human authorship.
+
 For JSON results, preserve source, path/message/thread ID, timestamp, role/actor evidence, cwd/profile, and excerpt budget when present. To read more, open only the exact returned path or message/thread through its admitted source, inspect bounded surrounding records, and keep the actual path/ID and timestamp. A selected-file fallback starts with at most three candidate files per source and three user prompts per file; expand only as the request/evidence warrants. Never dump full transcripts. For Hermes or agy SQLite, use read-only connections, explicit SQL `LIMIT`, and bounded excerpts; search Hermes last. Exclude thinking and tool payloads unless explicitly required and admitted.
 
 Connector/helper defaults are also five results and 500 characters. Keep exact returned message/thread ID or permitted file path, timestamp, source/runtime, task scope, and excerpt length. Use verified links only. Distinguish hits, no-match with verified coverage, zero returned hits with unverified coverage, unavailable/denied, and not searched/partial. The helper may suppress read/parse errors or omit coverage metadata, so an empty result alone is not a no-match. Use plain text in nonterminal channels; terminal color is display-only. JSON mode is useful when paths, IDs, or source metadata are needed.
