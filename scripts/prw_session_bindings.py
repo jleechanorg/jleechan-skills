@@ -22,11 +22,9 @@ def _parse_ts(value):
         return None
     try:
         dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
+        return dt.astimezone(timezone.utc) if dt.tzinfo is not None else None
+    except (ValueError, OverflowError):
         return None
-    if dt.tzinfo is None:
-        return None
-    return dt.astimezone(timezone.utc)
 
 
 def _clean_record(obj):

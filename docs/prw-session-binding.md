@@ -18,7 +18,7 @@ Specification: [docs/specs/prw-session-binding-spec.md](specs/prw-session-bindin
 | `git push`, `git switch`, `git checkout`, `git worktree add` | `branch` with the branch and commit afterwards |
 | Stop, subagent stop | `stop` |
 
-Reading a PR (`gh pr view`, `list`, `checks`, `diff`, comments, reviews) records nothing. A `gh pr checkout` whose exit status a later `;`, `||`, `|`, `&` or newline could hide records nothing, because success cannot be confirmed.
+Reading a PR (`gh pr view`, `list`, `checks`, `diff`, comments, reviews) records nothing. A `gh pr checkout` or `gh pr create` whose exit status a later `;`, `||`, `|`, `&` or newline could hide, or that a `||` before it may have skipped, records nothing, because success cannot be confirmed. When one command holds several of these, the last checkout, creation or `git switch`/`git checkout` decides. Repository and branch are read where the deciding command ran: after a plain `cd <dir>`, and in the `git -C` directory. A `cd` inside parentheses, `cd` with no or `-` argument, `pushd`/`popd`, `--git-dir` and `--work-tree` make that place unknown, so nothing is recorded.
 
 The ledger holds only: schema version, timestamp, runtime, session id, kind, repository, branch, commit, PR and source. It never holds command text, prompts, tool output or paths. It names private repositories and branches, so it stays on the host.
 

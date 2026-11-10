@@ -108,6 +108,12 @@ class SessionBindingTests(unittest.TestCase):
         self.assertEqual(stats["session_binding_records"], 1)
         self.assertEqual(binding_at(idx, "s1", T(11)), "acme/app#42")
 
+    def test_out_of_range_timestamp_is_malformed(self):
+        idx, stats = self.index([pr("2026-11-09T10:00:00Z")],
+                                [json.dumps(pr("0001-01-01T00:00:00+01:00"))])
+        self.assertEqual(stats["session_binding_malformed"], 1)
+        self.assertEqual(binding_at(idx, "s1", T(11)), "acme/app#42")
+
     def test_fork_push_keeps_upstream_binding(self):
         idx, _ = self.index([
             rec("2026-11-09T10:00:00Z", "pr_binding", pr="up/repo#5", repo="me/fork", branch="feat"),

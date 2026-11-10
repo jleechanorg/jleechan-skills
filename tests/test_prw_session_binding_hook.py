@@ -104,6 +104,42 @@ class TestRecords(unittest.TestCase):
             with self.subTest(cmd=cmd):
                 self.assertEqual([r["pr"] for r in run(post(cmd))[0]], ["me/origin#17"])
 
+    def test_checkout_that_may_have_been_skipped_gives_nothing(self):
+        for cmd in ("true || gh pr checkout 42", "false || (gh pr checkout 17)",
+                    "a && b || gh pr checkout 3", "x ||\ngh pr checkout 4"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(run(post(cmd))[0], [])
+        for cmd in ("a || b && gh pr checkout 5", "gh pr checkout 5 &&\ngit log", "gh pr checkout 5; \n"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual([r["pr"] for r in run(post(cmd))[0]], ["me/origin#5"])
+
+    def test_last_checkout_or_switch_decides(self):
+        self.assertEqual([r["pr"] for r in run(post("gh pr checkout 42 && gh pr checkout 43"))[0]],
+                         ["me/origin#43"])
+        recs, _ = run(post("gh pr checkout 42 && git switch other"))
+        self.assertEqual([(r["kind"], r.get("pr")) for r in recs], [("branch", None)])
+        self.assertEqual([r["pr"] for r in run(post("git switch x && gh pr checkout 5"))[0]], ["me/origin#5"])
+
+    def test_create_whose_status_is_not_the_command_status_gives_nothing(self):
+        url = "https://github.com/acme/app/pull/42"
+        for cmd in ("gh pr create --fill || echo " + url, "gh pr create --fill; echo " + url):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(run(post(cmd, url))[0], [])
+
+    def test_git_state_is_read_where_the_command_ran(self):
+        for cmd, where in (("git -C /different/repo switch other", "/different/repo"),
+                           ("cd /x && gh pr checkout 5", "/x"),
+                           ("cd sub && git push", "/somewhere/sub"),
+                           ("gh pr checkout 5", "/somewhere")):
+            with self.subTest(cmd=cmd):
+                recs, git = run(post(cmd))
+                self.assertEqual(len(recs), 1)
+                self.assertEqual(git.calls, [where])
+        for cmd in ("(cd x); gh pr checkout 5", "cd && gh pr checkout 5", "cd - && git push",
+                    "git --git-dir=/a/.git switch b", "git --work-tree /a switch b"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(run(post(cmd))[0], [])
+
     def test_checkout_url(self):
         recs, _ = run(post("gh pr checkout https://github.com/acme/web/pull/9"))
         self.assertEqual(recs[0]["pr"], "acme/web#9")

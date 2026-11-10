@@ -20,7 +20,7 @@ Token usage from an agent session that declared which PR it is working on is cre
 
 ## 3. Acceptance criteria
 
-1. The hook records `session_start`, `pr_binding` (from `gh pr create` output carrying exactly one PR URL, or a successful `gh pr checkout <number|URL>` honouring `-R`/`--repo`, counted only when its exit status is the command's), `branch` (after `git push`, `git switch`, `git checkout`, `git worktree add`) and `stop` events. Read-only `gh pr` commands, failed commands and quoted or heredoc text record nothing.
+1. The hook records `session_start`, `pr_binding` (from `gh pr create` output carrying exactly one PR URL, or a successful `gh pr checkout <number|URL>` honouring `-R`/`--repo`, each counted only when its exit status is the command's and no earlier `||` may have skipped it; the last such command or `git switch`/`git checkout` decides, with git state read where it ran), `branch` (after `git push`, `git switch`, `git checkout`, `git worktree add`) and `stop` events. Read-only `gh pr` commands, failed commands and quoted or heredoc text record nothing.
 2. A ledger record holds only schema version, timestamp, runtime, session id, kind, repository, branch, commit, PR and source; never command text, prompts, tool output or paths.
 3. Record timestamps keep millisecond precision, so a request issued before a branch switch in the same second stays bound and a request issued just before a binding is not credited to it.
 4. The hook always exits 0, prints nothing and writes no record when anything fails.

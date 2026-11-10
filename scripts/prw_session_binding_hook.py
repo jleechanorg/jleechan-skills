@@ -75,11 +75,19 @@ def _failed(resp):
     return False
 
 
+def _norm_sep(sep):
+    """Drop grouping; a newline next to another separator is a line continuation."""
+    s = sep.replace("(", "").replace(")", "").replace("\n", "\0")
+    return s.replace("\0", "") or s[:1]
+
+
 def _segments(command):
-    """Yield (tokens, status_known) per command segment, ignoring quoted/heredoc text.
+    """Yield (tokens, status_known, grouped) per command segment, ignoring quoted/heredoc text.
 
     status_known is True only when every later separator is `&&` (a single
-    trailing `;` aside), so the command's exit status reflects this segment.
+    trailing `;` aside) and the segment surely ran: no `||` right before it, or
+    anywhere before it when the command groups with parentheses. Then the
+    command's exit status reflects this segment.
     """
     command = HEREDOC_RE.sub("\n", command)
     lex = shlex.shlex(command, posix=True, punctuation_chars=";&|()\n")
@@ -99,13 +107,16 @@ def _segments(command):
     if seg:
         segs.append(seg)
         seps.append("")
-    seps = [s.replace("(", "").replace(")", "").replace("\n", "\0") for s in seps]
+    grouped = any(c in s for s in seps for c in "()")
+    seps = [_norm_sep(s) for s in seps]
     for n, seg in enumerate(segs):
-        yield seg, all(s == "&&" for s in seps[n:-1]) and seps[-1] in ("", ";", "\0")
+        before = seps[:n][-1:] if not grouped else seps[:n]
+        ran = "||" not in before
+        yield seg, ran and all(s == "&&" for s in seps[n:-1]) and seps[-1] in ("", ";", "\0"), grouped
 
 
 def _classify(seg):
-    """Return (tool, verb, args) for a segment, or None."""
+    """Return (tool, verb, args, git -C directory or None) for a segment, or None."""
     i = 0
     while i < len(seg) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", seg[i]):
         i += 1
@@ -119,17 +130,22 @@ def _classify(seg):
             n = 1 if "=" in rest[0] else 2
             repo_flag, rest = rest[:n], rest[n:]
         if len(rest) >= 2 and rest[0] == "pr":
-            return "gh", rest[1], rest[2:] + repo_flag
+            return "gh", rest[1], rest[2:] + repo_flag, None
     elif prog == "git":
+        cdir = None
         while rest and rest[0].startswith("-"):
-            if rest[0] in ("-C", "-c", "--git-dir", "--work-tree", "--namespace"):
+            if rest[0].startswith(("--git-dir", "--work-tree")):
+                return None
+            if rest[0] == "-C" and len(rest) >= 2:
+                cdir = os.path.join(cdir or "", rest[1])
+            if rest[0] in ("-C", "-c", "--namespace"):
                 rest = rest[2:]
             else:
                 rest = rest[1:]
         if rest:
             if rest[0] == "worktree" and len(rest) >= 2 and rest[1] == "add":
-                return "git", "worktree add", rest[2:]
-            return "git", rest[0], rest[1:]
+                return "git", "worktree add", rest[2:], cdir
+            return "git", rest[0], rest[1:], cdir
     return None
 
 
@@ -182,9 +198,9 @@ def records_for(payload, runtime, git, now=None):
         rec.update(extra)
         return rec
 
-    def state():
+    def state(where=cwd):
         try:
-            return git(cwd) if cwd else {}
+            return git(where) if where else {}
         except Exception:
             return {}
 
@@ -203,43 +219,53 @@ def records_for(payload, runtime, git, now=None):
         return []
     output = _output_text(resp)
 
-    pr = source = None
-    branch_source = None
+    # The last checkout, creation or branch switch decides; git state is read
+    # where that command ran (after `cd`, honouring `git -C`), or not at all.
+    pr = source = branch_source = None
+    here = where = cwd
     try:
         segs = list(_segments(command))
     except ValueError:
         return []
-    for seg, status_known in segs:
+    for seg, status_known, grouped in segs:
+        if seg and seg[0] in ("cd", "pushd", "popd"):
+            ok = here and not grouped and seg[0] != "popd" and len(seg) == 2 and seg[1] != "-"
+            here = os.path.normpath(os.path.join(here, os.path.expanduser(seg[1]))) if ok else None
+            continue
         c = _classify(seg)
         if not c:
             continue
-        tool, verb, args = c
-        if tool == "gh" and verb == "create" and pr is None:
+        tool, verb, args, cdir = c
+        at = os.path.normpath(os.path.join(here, cdir)) if here and cdir else here
+        found = None
+        if tool == "gh" and verb == "create" and status_known:
             urls = {f"{m[1]}/{m[2]}#{int(m[3])}" for m in PR_URL_RE.finditer(output)}
             if len(urls) == 1:
-                pr, source = urls.pop(), "gh_pr_create"
-        elif tool == "gh" and verb == "checkout" and pr is None:
+                found = urls.pop(), "gh_pr_create"
+        elif tool == "gh" and verb == "checkout" and status_known:
             target, flag_repo = _checkout_args(args)
-            if target is None or not status_known:
+            if target is None:
                 continue
             m = PR_URL_RE.search(target)
             if m:
-                pr, source = f"{m[1]}/{m[2]}#{int(m[3])}", "gh_pr_checkout"
+                found = f"{m[1]}/{m[2]}#{int(m[3])}", "gh_pr_checkout"
             elif target.isdigit() and int(target) > 0:
                 if flag_repo and flag_repo.lower().startswith("github.com/"):
                     flag_repo = flag_repo[len("github.com/"):]
                 if flag_repo is not None and not _valid_repo(flag_repo):
                     continue
-                pr, source = (f"{flag_repo}#{int(target)}" if flag_repo else int(target)), "gh_pr_checkout"
-        elif tool == "git" and branch_source is None:
-            if verb == "push":
-                branch_source = "git_push"
-            elif verb in ("switch", "checkout", "worktree add"):
-                branch_source = "git_switch"
+                found = (f"{flag_repo}#{int(target)}" if flag_repo else int(target)), "gh_pr_checkout"
+        elif tool == "git" and verb in ("switch", "checkout"):
+            pr = source = None
+            branch_source, where = "git_switch", at
+        elif tool == "git" and verb in ("push", "worktree add") and pr is None and branch_source is None:
+            branch_source, where = ("git_push" if verb == "push" else "git_switch"), at
+        if found:
+            (pr, source), branch_source, where = found, None, at
 
-    if pr is None and branch_source is None:
+    if (pr is None and branch_source is None) or not where:
         return []
-    info = state()
+    info = state(where)
     if isinstance(pr, int):
         repo = _clean_git(info).get("repo")
         if not repo:
