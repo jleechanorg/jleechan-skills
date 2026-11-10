@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import re
 import subprocess
 import unittest
@@ -27,6 +28,16 @@ INSTINCT = ROOT / ".claude" / "skills" / "instinct"
 SCRIPT = INSTINCT / "scripts" / "instinct.mjs"
 BRIDGE = INSTINCT / "scripts" / "imsg-bridge.sh"
 SKILL = INSTINCT / "SKILL.md"
+
+# The bridge refuses to run off macOS at its own platform guard ("iMessage is
+# macOS-only", exit 3) BEFORE it ever looks at the contact. That is correct
+# behaviour, so the contact-refusal assertions only mean anything where iMessage
+# can exist at all. CI runs these suite on Linux, where exit 3 is the right
+# answer and exit 5 is unreachable -- skip rather than encode the wrong platform.
+_IS_MACOS = platform.system() == "Darwin"
+_MACOS_ONLY = unittest.skipUnless(
+    _IS_MACOS, "iMessage bridge is macOS-only; its platform guard exits 3 first"
+)
 
 # Every inherited variable that could change behaviour under test.
 _ENV_KEYS = (
@@ -60,17 +71,20 @@ def _bridge(verb: str, **overrides: str) -> subprocess.CompletedProcess[str]:
 class UndeclaredPeerTest(unittest.TestCase):
     """The bridge fails closed; the docs must not supply a default."""
 
+    @_MACOS_ONLY
     def test_bridge_refuses_probe_without_a_declared_peer(self) -> None:
         result = _bridge("probe")
         self.assertEqual(result.returncode, 5, result.stderr)
         self.assertIn("INSTINCT_IMSG_CONTACT", result.stderr)
         self.assertNotIn('"signed_in":true', result.stdout)
 
+    @_MACOS_ONLY
     def test_bridge_refuses_read_without_a_declared_peer(self) -> None:
         result = _bridge("read")
         self.assertEqual(result.returncode, 5, result.stderr)
         self.assertIn("INSTINCT_IMSG_CONTACT", result.stderr)
 
+    @_MACOS_ONLY
     def test_bridge_refuses_send_without_a_declared_peer(self) -> None:
         with tempfile_message("probe") as path:
             result = subprocess.run(
