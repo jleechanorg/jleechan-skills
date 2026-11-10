@@ -76,6 +76,17 @@ class TestRecords(unittest.TestCase):
         self.assertEqual(recs[0]["pr"], "me/origin#17")
         self.assertEqual(recs[0]["source"], "gh_pr_checkout")
 
+    def test_checkout_number_uses_explicit_repo_flag(self):
+        for cmd in ("gh -R acme/web pr checkout 17", "gh pr checkout 17 -R acme/web",
+                    "gh pr checkout --repo=acme/web 17", "gh pr checkout -b local 17 --repo acme/web"):
+            with self.subTest(cmd=cmd):
+                recs, _ = run(post(cmd))
+                self.assertEqual([r["pr"] for r in recs], ["acme/web#17"])
+
+    def test_checkout_branch_flag_value_is_not_the_target(self):
+        recs, _ = run(post("gh pr checkout -b local 17"))
+        self.assertEqual([r["pr"] for r in recs], ["me/origin#17"])
+
     def test_checkout_url(self):
         recs, _ = run(post("gh pr checkout https://github.com/acme/web/pull/9"))
         self.assertEqual(recs[0]["pr"], "acme/web#9")

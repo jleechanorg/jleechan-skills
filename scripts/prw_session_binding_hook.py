@@ -103,10 +103,12 @@ def _classify(seg):
     prog = seg[i]
     rest = seg[i + 1:]
     if prog == "gh":
-        while rest and rest[0] in ("-R", "--repo"):
-            rest = rest[2:]
+        repo_flag = []
+        while rest and (rest[0] in ("-R", "--repo") or rest[0].startswith("--repo=")):
+            n = 1 if "=" in rest[0] else 2
+            repo_flag, rest = rest[:n], rest[n:]
         if len(rest) >= 2 and rest[0] == "pr":
-            return "gh", rest[1], rest[2:]
+            return "gh", rest[1], rest[2:] + repo_flag
     elif prog == "git":
         while rest and rest[0].startswith("-"):
             if rest[0] in ("-C", "-c", "--git-dir", "--work-tree", "--namespace"):
@@ -118,6 +120,25 @@ def _classify(seg):
                 return "git", "worktree add", rest[2:]
             return "git", rest[0], rest[1:]
     return None
+
+
+def _checkout_args(args):
+    """(first positional target, -R/--repo value) of `gh pr checkout` arguments."""
+    target = repo = None
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a in ("-R", "--repo", "-b", "--branch"):
+            if a in ("-R", "--repo") and i + 1 < len(args):
+                repo = args[i + 1]
+            i += 2
+            continue
+        if a.startswith("--repo="):
+            repo = a.split("=", 1)[1]
+        elif not a.startswith("-") and target is None:
+            target = a
+        i += 1
+    return target, repo
 
 
 def _clean_git(info):
@@ -187,14 +208,16 @@ def records_for(payload, runtime, git, now=None):
             if m:
                 pr, source = f"{m[1]}/{m[2]}#{int(m[3])}", "gh_pr_create"
         elif tool == "gh" and verb == "checkout" and pr is None:
-            target = next((a for a in args if not a.startswith("-")), None)
+            target, flag_repo = _checkout_args(args)
             if target is None:
                 continue
             m = PR_URL_RE.search(target)
             if m:
                 pr, source = f"{m[1]}/{m[2]}#{int(m[3])}", "gh_pr_checkout"
             elif target.isdigit() and int(target) > 0:
-                pr, source = int(target), "gh_pr_checkout"
+                if flag_repo is not None and not _valid_repo(flag_repo):
+                    continue
+                pr, source = (f"{flag_repo}#{int(target)}" if flag_repo else int(target)), "gh_pr_checkout"
         elif tool == "git" and branch_source is None:
             if verb == "push":
                 branch_source = "git_push"

@@ -85,4 +85,6 @@ cat "$S/ledger.jsonl"   # expect session_start, branch, stop with one session_id
 - A coordinator session that drives several PRs is attributed to the PR it last created or checked out. Usage before its first binding stays unattributed.
 - Child agents inherit a binding only when they share the parent's session id.
 - A PR created outside an agent session produces no binding.
+- `gh pr checkout <number>` without `-R`/`--repo` is bound to the `origin` remote's repository. In a fork checkout where `gh` resolves a different base repository, the binding names the wrong repository; pass `-R` or a PR URL there.
+- The ledger is append-only with no rotation or size cap.
 - Crediting a whole request to the bound PR is an inference from the session's last declared PR. It is labelled as session-bound wherever it is shown, separate from requests that name a PR directly.
