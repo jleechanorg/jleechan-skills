@@ -78,7 +78,8 @@ class TestRecords(unittest.TestCase):
 
     def test_checkout_number_uses_explicit_repo_flag(self):
         for cmd in ("gh -R acme/web pr checkout 17", "gh pr checkout 17 -R acme/web",
-                    "gh pr checkout --repo=acme/web 17", "gh pr checkout -b local 17 --repo acme/web"):
+                    "gh pr checkout --repo=acme/web 17", "gh pr checkout -b local 17 --repo acme/web",
+                "gh pr checkout 17 -R github.com/acme/web"):
             with self.subTest(cmd=cmd):
                 recs, _ = run(post(cmd))
                 self.assertEqual([r["pr"] for r in recs], ["acme/web#17"])
@@ -94,7 +95,9 @@ class TestRecords(unittest.TestCase):
 
     def test_checkout_whose_exit_status_is_masked_gives_nothing(self):
         for cmd in ("gh pr checkout 17 || true", "gh pr checkout 17; echo done",
-                    "gh pr checkout 17 | tee log", "gh pr checkout 17 &"):
+                    "gh pr checkout 17 | tee log", "gh pr checkout 17 &",
+                    "gh pr checkout 17 && echo a || true", "gh pr checkout 17 && git log -1; echo done",
+                    "cd x && gh pr checkout 17 && true\necho z"):
             with self.subTest(cmd=cmd):
                 self.assertEqual(run(post(cmd))[0], [])
         for cmd in ("gh pr checkout 17 && git log -1", "cd x && gh pr checkout 17", "(gh pr checkout 17)"):

@@ -78,8 +78,8 @@ def _failed(resp):
 def _segments(command):
     """Yield (tokens, status_known) per command segment, ignoring quoted/heredoc text.
 
-    status_known is False when a later `;`, `||`, `|`, `&` or newline means the
-    command's exit status need not be this segment's.
+    status_known is True only when every later separator is `&&` (a single
+    trailing `;` aside), so the command's exit status reflects this segment.
     """
     command = HEREDOC_RE.sub("\n", command)
     lex = shlex.shlex(command, posix=True, punctuation_chars=";&|()\n")
@@ -99,9 +99,9 @@ def _segments(command):
     if seg:
         segs.append(seg)
         seps.append("")
-    for n, (seg, sep) in enumerate(zip(segs, seps)):
-        sep = sep.replace("(", "").replace(")", "").replace("\n", "")
-        yield seg, sep == "&&" or (n == len(segs) - 1 and sep in ("", ";"))
+    seps = [s.replace("(", "").replace(")", "").replace("\n", "\0") for s in seps]
+    for n, seg in enumerate(segs):
+        yield seg, all(s == "&&" for s in seps[n:-1]) and seps[-1] in ("", ";", "\0")
 
 
 def _classify(seg):
@@ -226,6 +226,8 @@ def records_for(payload, runtime, git, now=None):
             if m:
                 pr, source = f"{m[1]}/{m[2]}#{int(m[3])}", "gh_pr_checkout"
             elif target.isdigit() and int(target) > 0:
+                if flag_repo and flag_repo.lower().startswith("github.com/"):
+                    flag_repo = flag_repo[len("github.com/"):]
                 if flag_repo is not None and not _valid_repo(flag_repo):
                     continue
                 pr, source = (f"{flag_repo}#{int(target)}" if flag_repo else int(target)), "gh_pr_checkout"
