@@ -199,6 +199,17 @@ class PayloadTests(unittest.TestCase):
         snapshot = export.build_snapshot(None, None, None)
         self.assertEqual((snapshot["schema_version"], snapshot["prs"], snapshot["data_through"]), (1, [], None))
 
+    def test_data_through_is_the_collectors_freshness_not_the_query_cutoff(self):
+        summary = {"status": "STALE", "data_through": "2026-11-08T00:00:00Z"}
+        snapshot = export.build_snapshot(summary, query([metric(1)]), [])
+        self.assertEqual(snapshot["data_through"], "2026-11-08T00:00:00Z")
+        self.assertEqual(snapshot["window_end"], "2026-11-09T21:25:21Z")
+        # No collector summary: freshness is unknown; the reporting window is still known.
+        bare = export.build_snapshot(None, query([metric(1)]), [])
+        self.assertEqual((bare["data_through"], bare["window_end"]), (None, "2026-11-09T21:25:21Z"))
+        unknown = export.build_snapshot({"data_through": "UNKNOWN"}, query([metric(1)]), [])
+        self.assertIsNone(unknown["data_through"])
+
     def test_write_is_atomic_and_rejects_non_finite_numbers(self):
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory) / "nested" / "dashboard.json"

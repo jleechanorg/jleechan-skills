@@ -79,7 +79,7 @@
 
   // ---------- filters ----------
   function bounds() {
-    var end = Date.parse(data.data_through), start = Date.parse(data.window_start);
+    var end = Date.parse(data.window_end || data.data_through), start = Date.parse(data.window_start);
     var w1 = data.windows && data.windows.w1, w2 = data.windows && data.windows.w2;
     if (state.range === "w1" && w1) return { startMs: Date.parse(w1[0]), endMs: Date.parse(w1[1]) };
     if (state.range === "w2" && w2) return { startMs: Date.parse(w2[0]), endMs: Date.parse(w2[1]) };
@@ -121,10 +121,10 @@
 
   // ---------- header ----------
   function renderHeader() {
-    var stale = data.status && data.status !== "FRESH";
+    var chip = S.statusChip(data.status), stale = chip.stale;
     var ribbon = clear($("ribbon"));
     append(ribbon, [
-      h("span", { class: "chip " + (stale ? "warn" : "good") }, [h("i"), stale ? (data.status === "STALE" ? "Stale" : "Status: " + data.status) : "Fresh"]),
+      h("span", { class: "chip " + chip.tone }, [h("i"), chip.label]),
       h("span", null, ["Data through ", h("b", { text: fmtTime(data.data_through) || "unknown" })]),
       h("span", null, ["Generated ", h("b", { text: fmtTime(data.generated_at) || "unknown" })]),
     ]);
@@ -133,14 +133,14 @@
     ribbon.appendChild(h("span", { class: "chip " + (names.length && complete === names.length ? "good" : "warn") },
       [h("i"), "Sources " + complete + "/" + names.length + " complete"]));
     $("scope-line").textContent = data.prs.length.toLocaleString("en-US") + " pull requests in this snapshot across " + data.repositories.length +
-      " repositories, " + fmtTime(data.window_start, false) + " to " + fmtTime(data.data_through, false) + ".";
+      " repositories, " + fmtTime(data.window_start, false) + " to " + fmtTime(data.window_end || data.data_through, false) + ".";
     var banner = $("banner");
     if (data.fixture) {
       banner.hidden = false;
       banner.textContent = "Synthetic fixture: " + data.fixture + " These are not real measurements.";
     } else if (stale) {
       banner.hidden = false;
-      banner.textContent = "This snapshot is marked " + data.status + ". Figures reflect data through " + fmtTime(data.data_through) + ", not the present.";
+      banner.textContent = "This snapshot is marked " + data.status + ". Figures reflect data through " + (fmtTime(data.data_through) || "an unknown time") + ", not the present.";
     } else banner.hidden = true;
   }
 
@@ -296,12 +296,11 @@
   function renderWow() {
     var el = clear($("c-wow"));
     var w1 = data.windows && data.windows.w1, w2 = data.windows && data.windows.w2;
-    el.appendChild(chartHead("Preceding 7 days vs recent 7 days", "Merged PRs and open-to-merge time. Follows the repository, attribution and search filters, not the period."));
+    el.appendChild(chartHead("Preceding 7 days vs recent 7 days", "Merged PRs and open-to-merge time. Follows every filter except the period."));
     if (!w1 || !w2) { el.appendChild(h("div", { class: "empty-note", text: "Comparison windows are not in this snapshot." })); return; }
     var base = currentFilter();
     function slice(win, repo) {
-      var f = { startMs: Date.parse(win[0]), endMs: Date.parse(win[1]), repos: repo ? (function () { var o = {}; o[repo] = true; return o; })() : base.repos,
-        state: "all", attribution: base.attribution, search: base.search };
+      var f = S.windowFilter(base, win, repo);
       return S.aggregate(S.filterPrs(data.prs, f), f);
     }
     var names = data.repositories.filter(function (r) { return state.repos[r]; });
@@ -519,7 +518,7 @@
         h("div", { class: "pr-id" }, [swatch(repoColor(pr.repo)), shortRepo(pr.repo) + " #" + pr.number]),
         h("div", { class: "t", text: pr.title || "(no title)" }),
         h("div", { class: "m" }, [stateChip(pr), h("span", { text: elapsedText(pr) || "elapsed unknown" }),
-          h("span", { text: pr.usage ? S.compact(pr.usage.total) + " tokens" : "tokens unavailable" })]),
+          h("span", { text: pr.usage && typeof pr.usage.total === "number" ? S.compact(pr.usage.total) + " tokens" : "tokens unavailable" })]),
       ]));
     });
     var pager = clear($("pager"));
@@ -616,6 +615,7 @@
     ]);
   }
   function aggCsv(agg) {
+    var ep = S.episodeCounts(agg);
     var lines = [
       ["pull_requests_in_selection", agg.total, agg.total, ""], ["merged", agg.merged, agg.total, ""],
       ["open_to_merge_seconds_mean", agg.elapsed.mean, agg.elapsed.n, "nearest-rank"], ["open_to_merge_seconds_p50", agg.elapsed.p50, agg.elapsed.n, "nearest-rank"],
@@ -626,8 +626,8 @@
       ["verified_steering_messages_sum", agg.human.sum, agg.humanN, ""], ["active_seconds_p50", agg.active.p50, agg.activeN, ""],
       ["eligible_unattended_seconds_mean", agg.idle.mean, agg.idleN, ""], ["eligible_unattended_seconds_p50", agg.idle.p50, agg.idleN, ""],
       ["eligible_unattended_seconds_p90", agg.idle.p90, agg.idleN, ""], ["eligible_unattended_seconds_p99", agg.idle.p99, agg.idleN, ""],
-      ["steering_episodes_good", agg.episodes.good, agg.episodePrN, ""], ["steering_episodes_bad", agg.episodes.bad, agg.episodePrN, ""],
-      ["steering_episodes_mixed", agg.episodes.mixed, agg.episodePrN, ""], ["steering_episodes_unknown", agg.episodes.unknown, agg.episodePrN, ""],
+      ["steering_episodes_good", ep.good, agg.episodePrN, ""], ["steering_episodes_bad", ep.bad, agg.episodePrN, ""],
+      ["steering_episodes_mixed", ep.mixed, agg.episodePrN, ""], ["steering_episodes_unknown", ep.unknown, agg.episodePrN, ""],
     ].concat((data.handoff_transitions || []).reduce(function (out, t) {
       var sm = agg.handoffs[t.key];
       return out.concat(["mean", "p50", "p90", "p99"].map(function (k) { return ["handoff_" + t.key + "_seconds_" + k, sm ? sm[k] : null, sm ? sm.n : 0, ""]; }));

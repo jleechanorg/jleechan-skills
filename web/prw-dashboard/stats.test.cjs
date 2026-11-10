@@ -132,3 +132,35 @@ test("csv keeps negative numbers numeric and still guards formula text", () => {
   const cols = [{ header: "v", value: (r) => r.v }];
   assert.equal(S.csv([{ v: -5 }, { v: "-cmd" }, { v: "=SUM(A1)" }], cols), "v\n-5\n'-cmd\n'=SUM(A1)\n");
 });
+
+test("a comparison window keeps every filter except the period", () => {
+  const small = { ...pr(1), size: { additions: 10, deletions: 5, files: 1 } };
+  const large = { ...pr(2), size: { additions: 900, deletions: 400, files: 30 } };
+  const stillOpen = { ...pr(3, { state: "OPEN" }), size: { additions: 3, deletions: 0, files: 1 } };
+  const rows = [small, large, stillOpen];
+  const base = { ...range, repos: { "acme/app": true }, state: "all", attribution: "all", size: "xs", search: "" };
+  const win = [iso(T0), iso(T0 + 7 * DAY)];
+  const f = S.windowFilter(base, win, null);
+  assert.deepEqual([f.startMs, f.endMs], [T0, T0 + 7 * DAY]);
+  assert.deepEqual(S.filterPrs(rows, f).map((p) => p.number), [1, 3]);
+  assert.equal(S.aggregate(S.filterPrs(rows, f), f).merged, 1); // the 1,300-line merge is outside "Under 50 lines"
+  const openOnly = S.windowFilter({ ...base, size: "all", state: "OPEN" }, win, null);
+  assert.equal(S.aggregate(S.filterPrs(rows, openOnly), openOnly).merged, 0);
+  assert.deepEqual(S.windowFilter(base, win, "acme/web").repos, { "acme/web": true });
+});
+
+test("a snapshot without a status is shown as unknown, not fresh", () => {
+  assert.deepEqual(S.statusChip("FRESH"), { tone: "good", label: "Fresh", stale: false });
+  assert.deepEqual(S.statusChip("STALE"), { tone: "warn", label: "Stale", stale: true });
+  assert.deepEqual(S.statusChip("FAILED"), { tone: "warn", label: "Status: FAILED", stale: true });
+  assert.deepEqual(S.statusChip(null), { tone: "warn", label: "Status unknown", stale: false });
+  assert.deepEqual(S.statusChip(undefined), { tone: "warn", label: "Status unknown", stale: false });
+});
+
+test("episode counts are unknown, not zero, when no episode was observed", () => {
+  const none = S.aggregate([pr(1)], range);
+  assert.equal(none.episodeTotal, 0);
+  assert.deepEqual(S.episodeCounts(none), { good: null, bad: null, mixed: null, unknown: null });
+  const some = S.aggregate([{ ...pr(1), human: { verified_messages: 1, episodes: { good: 2, bad: 0, mixed: 0, unknown: 1 } } }], range);
+  assert.deepEqual(S.episodeCounts(some), { good: 2, bad: 0, mixed: 0, unknown: 1 });
+});

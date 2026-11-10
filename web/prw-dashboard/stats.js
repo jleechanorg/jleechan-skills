@@ -67,6 +67,29 @@
 
   function filterPrs(prs, f) { return prs.filter(function (pr) { return matches(pr, f); }); }
 
+  /** The current filter moved to a comparison window: only the period (and optionally the repository) changes. */
+  function windowFilter(base, win, repo) {
+    var f = {};
+    for (var k in base) f[k] = base[k];
+    f.startMs = Date.parse(win[0]); f.endMs = Date.parse(win[1]);
+    if (repo) { f.repos = {}; f.repos[repo] = true; }
+    return f;
+  }
+
+  /** Header chip for the snapshot status. A missing status is unknown, never fresh. */
+  function statusChip(status) {
+    if (status === "FRESH") return { tone: "good", label: "Fresh", stale: false };
+    if (!status) return { tone: "warn", label: "Status unknown", stale: false };
+    return { tone: "warn", label: status === "STALE" ? "Stale" : "Status: " + status, stale: true };
+  }
+
+  /** Episode counts for export: null (unknown) when no episode was observed in the selection. */
+  function episodeCounts(agg) {
+    var out = {};
+    ["good", "bad", "mixed", "unknown"].forEach(function (k) { out[k] = agg.episodeTotal ? agg.episodes[k] : null; });
+    return out;
+  }
+
   /** Aggregate the filtered rows. Every figure carries its own observed n. */
   function aggregate(rows, f) {
     var merged = rows.filter(function (pr) { return mergedIn(pr, f.startMs, f.endMs); });
@@ -204,6 +227,7 @@
 
   return {
     quantile: quantile, summarize: summarize, filterPrs: filterPrs, aggregate: aggregate,
+    windowFilter: windowFilter, statusChip: statusChip, episodeCounts: episodeCounts,
     mergedIn: mergedIn, inRange: inRange, sizeBand: sizeBand, dailyMerges: dailyMerges, histogram: histogram,
     ELAPSED_EDGES: ELAPSED_EDGES, ELAPSED_LABELS: ELAPSED_LABELS,
     TOKEN_EDGES: TOKEN_EDGES, TOKEN_LABELS: TOKEN_LABELS,

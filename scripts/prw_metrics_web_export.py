@@ -376,8 +376,10 @@ def build_snapshot(summary_data, query_summary, prs, *, generated_at=None, code_
     return _scrub_secrets(_finite({
         "schema_version": SCHEMA_VERSION,
         "generated_at": to_utc_iso(generated_at or summary_data.get("generated_at")),
-        "data_through": to_utc_iso(query_summary.get("snapshot_at_utc") or summary_data.get("data_through")),
+        # Freshness is the collector's verified value; the query cutoff only bounds the reporting window.
+        "data_through": to_utc_iso(summary_data.get("data_through")),
         "window_start": to_utc_iso(query_summary.get("window_start_utc")),
+        "window_end": to_utc_iso(query_summary.get("snapshot_at_utc")),
         "status": summary_data.get("status"),
         "code_version": code_version,
         "windows": {"w1": summary_data.get("w1_bounds"), "w2": summary_data.get("w2_bounds")},
