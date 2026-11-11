@@ -276,6 +276,22 @@ class FlowTests(unittest.TestCase):
         self.assertIsNone(self.snapshot_row({"title": "t"})["flow"])
         self.assertIsNone(self.snapshot_row()["flow"])
 
+    def test_timeline_label_events_give_flow_when_record_has_no_transitions(self):
+        timeline = [
+            {"repo": "acme/app", "pr_number": 1, "event": "labeled", "label": "stage:1-coding", "createdAt": "2026-11-01T10:00:00Z"},
+            {"repo": "acme/app", "pr_number": 1, "event": "labeled", "label": {"name": "stage:5-final-approval"}, "createdAt": "2026-11-01T12:30:00Z"},
+            {"repo": "acme/app", "pr_number": 1, "event": "unlabeled", "label": "stage:1-coding", "createdAt": "2026-11-01T09:00:00Z"},
+            {"repo": "acme/app", "pr_number": 1, "event": "labeled", "label": "bug", "createdAt": "2026-11-01T08:00:00Z"},
+            {"repo": "acme/app", "pr_number": 2, "event": "labeled", "label": "stage:5-final-approval", "createdAt": "2026-11-01T11:00:00Z"},
+        ]
+        snap = export.build_snapshot({}, query([metric(1)]), [{"repo": "acme/app", "number": 1}], timeline=timeline)
+        self.assertEqual(snap["prs"][0]["flow"], {"reached_final": True, "started_at": "2026-11-01T10:00:00Z", "final_at": "2026-11-01T12:30:00Z"})
+
+    def test_timeline_without_stage_events_leaves_flow_unknown(self):
+        timeline = [{"repo": "acme/app", "pr_number": 1, "event": "labeled", "label": "bug", "createdAt": "2026-11-01T08:00:00Z"}]
+        snap = export.build_snapshot({}, query([metric(1)]), [], timeline=timeline)
+        self.assertIsNone(snap["prs"][0]["flow"])
+
     def test_steer_count_is_verified_followups_and_unknown_stays_null(self):
         known = self.snapshot_row(None, human_coverage_status="OBSERVED_SCOPE_ONLY", raw_verified_human_message_count=3,
                                   verified_initial_human_message_count=1, verified_followup_human_message_count=2)
