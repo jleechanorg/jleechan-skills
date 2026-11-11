@@ -43,13 +43,14 @@ Use the agent automation browser or a separate isolated context.
   build, version, channel, launch arguments, and result. Check materially
   relevant, supported headless alternatives that are already available and
   authorized, using a bounded diagnostic plan. Do not weaken security, broaden
-  access, reuse another task's profile, or bypass a denial. Describe a failure as
-  configuration-specific unless broader evidence supports the broader claim.
+  access, reuse another task's profile, or bypass an authorization or
+  access-control denial. Describe a failure as configuration-specific unless
+  broader evidence supports the broader claim.
   Playwright's ordinary `headless: true` launches the stripped headless-shell
-  build while `headless: true, channel: "chromium"` launches full Chromium, so
-  probing only the former tests the build, not headless mode. Technical necessity
-  does not authorize headed mode: the explicit current-thread request and
-  isolation requirements above still apply.
+  build while `headless: true, channel: "chromium"` launches full Chromium, so a
+  shell-only failure does not establish a limitation of headless mode generally.
+  Technical necessity does not authorize headed mode: the explicit current-thread
+  request and isolation requirements above still apply.
 - Close only exact tabs/contexts/processes created by the current task. Never use
   `closeAllTabs()`, `killall`, or broad `pkill` against shared browsers. Never remove
   profile locks while their holder is alive; Dot profiles remain exclusive to Dot.
