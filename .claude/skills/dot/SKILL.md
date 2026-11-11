@@ -11,7 +11,7 @@ Talk to the user's ChatGPT dot assistant using `scripts/dot.sh`. The scripts are
 
 ## Peers: /instinct is an alternative coder/reviewer/worker
 
-Instinct (`/instinct`, `/in`) takes bounded coding, independent review and worker tasks.
+Instinct (`/instinct`, `/in`) is an additional reviewer option: with three configured Dots, it is the fourth; use the configured roster rather than assuming a fixed count.
 Its [transport chain](../instinct/SKILL.md#transport-chain-imessage-first-whatsapp-secondary) uses iMessage first and WhatsApp Web as fallback.
 
 - **Dispatch it** with `~/.claude/skills/instinct/SKILL.md` (goal + repo/branch + acceptance +
