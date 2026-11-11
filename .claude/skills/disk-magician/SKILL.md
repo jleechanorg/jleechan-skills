@@ -7,9 +7,13 @@ description: Use when diagnosing disk capacity or growth and when previewing rep
 
 This skill teaches Claude how to use `disk_magician` to audit disk space, identify growth regressions, and perform cleanups.
 
+## Measurement rule
+
+All Disk Magician measurements, reports, cleanup previews, and candidate scans follow `../disk-root-cause/SKILL.md` § Mandatory 100 MiB directory descent. A large directory total or prefix bucket locates where to investigate; it cannot stand in for child measurements, leaf age, or reclaim eligibility. Candidate size filters such as `DISK_MAGICIAN_SCRATCH_MIN_KB` only prioritize already traversed candidates; they never limit descent.
+
 ## Skill Integration & Commands
 
-* **Which procedure**: a quick capacity check or plain reclaim question runs the zero-`du` triage in `../disk-audit/SKILL.md`. A root-cause investigation or cleanup-target decision runs the full forensic procedure in `../disk-root-cause/SKILL.md`. Do not start a full audit for a quick check. On the quick path, escalate when a precomputed ledger or snapshot is missing, or its own freshness probe reports `STALE`; use `diskm ledger-freshness` for the ledger and follow the probe result rather than a fixed interval.
+* **Which procedure**: a quick capacity check runs the zero-`du` triage in `../disk-audit/SKILL.md`. A reclaimable-amount estimate, root-cause investigation, or cleanup-target decision runs the full forensic procedure in `../disk-root-cause/SKILL.md`. Do not stop at a quick check when the request needs attribution. On the quick path, escalate when precomputed data is missing or its owner reports it stale or incomplete; follow the probe result rather than a fixed interval.
 * **Default forensic diagnosis (attribution only)**: For a root-cause request, run the full three-lane `diskm audit` before drilling down. The residual is not backup size or reclaimable without evidence.
 * **Cleanup previews**: Use the canonical preview interfaces before choosing a cleanup target:
   ```bash
