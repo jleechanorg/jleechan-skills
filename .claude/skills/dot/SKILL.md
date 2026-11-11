@@ -7,11 +7,13 @@ description: Use when the user invokes /dot or asks to "message the dot", "ask d
 
 Talk to the user's ChatGPT dot assistant using `scripts/dot.sh`. The scripts are a thin mechanical pointer (type, read, submit, clear, verify — see `GUARDRAIL.md`); every judgment call lives in this file, read top-down: how to work through the dot first, then transport actions and the peer-draft policy, then operational reference.
 
+[Delegation](#default-delegate-non-small-work-then-monitor) · [Actions](#actions) · [Recovery](#interactive-login--session-recovery) · [Concurrency](#concurrency--safety-rules) · [Account rotation](#account-rotation-on-limits-mandatory) · [Configuration](#machine-configuration-configdotconfigjson--reference)
+
 ## Peers: /instinct is an alternative coder/reviewer/worker
 
-Instinct is a **peer chat agent** reached over WhatsApp Web (`/instinct`, `/in`), on the contact
-**"Instinct WhatsApp"**, sharing this Mac's Chrome profile with Dot. It can take bounded coding,
-independent review, and worker tasks the same way Dot can.
+Instinct is a **peer chat agent** (`/instinct`, `/in`) that takes bounded coding, independent review and worker
+tasks. Its [transport chain](../instinct/SKILL.md#transport-chain-imessage-first-whatsapp-secondary) uses
+iMessage first and WhatsApp Web as fallback.
 
 - **Dispatch it** with `~/.claude/skills/instinct/SKILL.md` (goal + repo/branch + acceptance +
   constraints + receipt request). Do not invent a second protocol here.
@@ -22,13 +24,9 @@ independent review, and worker tasks the same way Dot can.
 - **Prefer Dot for**: multi-coder campaigns, PRs Dot already owns, work needing Dot's own tools.
   **Prefer Instinct for**: a second independent opinion when Dot is saturated or walled, WhatsApp-native
   handoff, and bounded work where one peer's receipt is enough.
-- **Never run Dot and Instinct against the same Chrome profile at once.** Chromium's `ProcessSingleton`
-  makes a genuinely simultaneous second launch fail, and Instinct waits out a busy profile instead of
-  racing it — but that exclusion is **one-sided**: Instinct honours its lock, Dot does not. This is not
-  an oversight in Instinct: the per-profile kernel flock was deliberately deleted from `dot.sh` on
-  2026-10-20 at the operator's request (see the machine-checks note below), so Dot no longer serializes
-  concurrent invocations and concurrent launches are "the caller's own risk". Serialization therefore
-  depends on you not launching Dot while Instinct is running.
+- **Keep browser profiles separate.** Instinct's WhatsApp fallback uses its own
+  [dedicated profile](../instinct/SKILL.md#profile-dedicated-never-the-dot-profile); it must never use a Dot profile.
+  Serialize callers that target the same Dot profile. Separate profiles may run concurrently within host limits.
 
 ## Default: delegate non-small work, then monitor
 
@@ -278,9 +276,7 @@ If an account returns `DOT_CHROME_UNAVAILABLE: not signed in`:
 - **Session-loss forensics (read-only, before any recovery):** a wiped profile shows a rebuilt anonymous cookie store (fresh `oai-did`/csrf cookies, zero `session-token` rows) while the account itself is fine server-side. `dot.sh` now classifies this automatically: a not-signed-in read/send also emits `DOT_STORE_REBUILD: ...` when the store shows the rebuild signature. After diagnosis, follow [Interactive Login & Session Recovery](#interactive-login--session-recovery); visible login remains subject to its step 3. Never treat profile logout as an account logout.
 - **Machine checks now built into dot.sh (do not weaken them):** disk-space floor (`DOT_MIN_FREE_MB`, default 512 — a full disk corrupts the SQLite cookie store); OPT-IN foreign-binary enforcement (`DOT_ENFORCE_SYSTEM_CHROME=1`, honoured on login, headless and send-prepared): refuses a non-system binary unless `DOT_ALLOW_FOREIGN_BINARY=1`, because `DOT_CHROME_BIN` is a supported override for tests and alternate Chrome channels — the real 2026-10-11 wipe came from an ad-hoc script that bypassed `dot.sh` entirely; login launches with the same `--password-store` flags as headless; process-group teardown even when the node wrapper exits before the browser. The per-profile kernel flock and the coordinator STOP marker were deleted on 2026-10-20 at the operator's request: dot.sh no longer serializes concurrent invocations on one profile and `DOT_PROFILE_LOCKED` no longer exists, so concurrent launches against the same profile are the caller's own risk.
 - **Session snapshots (own-profile, no coupling):** authenticated read/send/probe keeps `Cookies.snapshot` beside the live store (`DOT_SNAPSHOT=0` disables); `restore-session` requires Chrome fully stopped and keeps a `.pre-restore` copy. A snapshot can be stale after token rotation; verify with the recovery sequence above.
-- **Login-window hygiene:** there is no per-profile flock or coordinator STOP marker any more (removed 2026-10-20), so
-  concurrent launches against the same profile remain the caller's own risk; `.dot-profile.lock.ready.*` files are
-  legacy scratch and carry no authority.
+- `.dot-profile.lock.ready.*` files are legacy scratch and carry no authority.
 **Directory exclusivity.** A dot `user_data_dir` is owned by dot alone: no other tool, MCP server, or browser may
 be configured to use it. **Lock-holder probe (run whenever `dot.sh` exits with
 `profile directory locked by active process PID`):** the singleton target embeds only `<hostname>-<pid>`, so resolve
@@ -304,13 +300,35 @@ unidentified. Do not use `! kill -0` alone - it succeeds on `EPERM` for a live c
 
 ## Account Rotation on Limits (Mandatory)
 
-Every configured account is eligible for new work and participates in `rotation`. Route new work to `default_account` first, then the next account in `rotation` when it is limited or its composer is blocked. Select a specific account with `--account <name>` or `DOT_ACCOUNT=<name>`. Do not withhold work from an account based on whether the request originated from a human operator or an AI agent: all configured accounts accept both kinds of request. A user may keep optional per-account work restrictions in a machine-local `~/.config/dot/account-policy.md`, keyed by account name or alias; if that file exists, honor its applicable restrictions for the resolved account, including on explicit `--account` selection and blocked-composer fallback. The policy is agent guidance, not transport enforcement; `dot.sh` does not read that file.
+Resolve eligible accounts and work restrictions from [Machine Configuration](#machine-configuration-configdotconfigjson--reference).
+Route new work to `default_account`, then the next eligible account in `rotation` when it is limited or its
+composer remains blocked. Do not exclude an account merely because an agent originated the request. Explicit
+account/target bindings and [coordinator recovery checkbacks](#coordinator-recovery-checkbacks) keep their
+existing reassignment rules. Read back uncertain sends before dispatching the same task elsewhere.
 
-Always rotate across configured accounts when hitting a rate limit, usage limit, abuse prevention cooldown, or message cap:
-- **Limit Detection:** Detected directly from ChatGPT UI alert elements (`[role=alert]`, alert banners), emitting structured `DOT_USAGE_LIMIT_REACHED` events.
-- **Mandatory Rotation:** When an account hits a limit or cooldown, immediately rotate to the next configured account in `rotation` using `--account <next>`.
-- **Clean Profile Hand-off:** Rotation unsets `DOT_CHROME_USER_DATA`, `DOT_URL`, and `DOT_PROFILE_DIRECTORY` across the boundary so the next account automatically resolves its own dedicated profile directory, target URL, and configured subprofile.
-- **Automatic Script Support:** `dot.sh` implements automatic account rotation (`DOT_ROTATE_ON_LIMIT=1` by default) using the `rotation` sequence declared in `~/.config/dot/config.json`.
+Before selection, inspect the configured account roster, applicable account policy, known in-flight work and
+existing identity/health receipts. Use the supported `probe` action with the verified expected identity when a
+fresh check is needed. It checks the session/composer without sending a message; it does not establish model
+quota or task completion. Do not send test pings to every Dot. Read-only probes may run concurrently only on
+distinct profiles within measured resources; serialize callers of the same Dot profile. Instinct uses its own profile.
+
+Independent authorized tasks may use different eligible accounts concurrently. For one task, use backups on
+verified failure or unavailability, preserving ownership and attempt deadlines. For advice, follow its
+[candidate checks and fallback](../advice/SKILL.md#candidate-checks-fan-out-and-fallback): all Dot accounts
+collectively supply at most one vote, and runtime dispatch limits still apply. The caller owns interactive
+routing and receipts; `dot-coordinator` remains a single-account scheduled reminder.
+
+Before the required closing receipt or verdict, include every configured account's disclosure-safe alias, health evidence/time,
+actual send attempted (yes/no), outcome or concrete skip reason, receipt and next action. For example:
+“A attempted: quota refusal (receipt); B attempted: delivered (receipt); C not attempted: task already delivered
+to B.” Delivery is not completion. Missing evidence means UNKNOWN or attempt UNVERIFIED, never guessed quota.
+A skipped account needs a reason such as task already delivered, account policy, verified quota window, existing
+ownership, profile contention or deadline. Keep private account identifiers out of published receipts.
+
+`dot.sh` supports automatic rotation (`DOT_ROTATE_ON_LIMIT=1` by default), clearing `DOT_CHROME_USER_DATA`,
+`DOT_URL` and `DOT_PROFILE_DIRECTORY` so the next account resolves its own profile and target. Attribute every
+automatic attempt from transport output; if the visited accounts cannot be verified, report that gap rather
+than claiming the roster was exhausted. Advice and bound recovery callers retain `DOT_ROTATE_ON_LIMIT=0`.
 
 ## Backend & Persistent Profiles
 
@@ -381,4 +399,4 @@ coordinator rules and all existing authorization and capacity constraints.
 }
 ```
 
-Each `user_data_dir` must be dedicated to that Dot account and must not point inside the system Google Chrome profile. No other tool, MCP server, or browser may share a dot `user_data_dir`; exclusivity covers the directory, not only dot's own launches. **One documented exception:** `/instinct` (see Peers, above) is an operator-authorized peer that shares this Mac's `dot-headless-chrome-jeffrey` directory under the credential-store pin and Chromium's `ProcessSingleton`; that exception is named, not a general licence, and any other consumer is still forbidden. If `user_data_dir` is omitted, Dot derives a separate local directory from the account key. `profile_directory` is optional: it selects a named Chrome subprofile and defaults to `Default` when absent. The value must be one safe directory name, such as `Profile 1`; path separators, `.` and `..`, and control characters are rejected. `DOT_PROFILE_DIRECTORY` may temporarily override the configured subprofile for one invocation, subject to the same validation. Chrome is the only backend. Multi-account targeting uses `--account <name>` / `DOT_ACCOUNT`, with independent headless-Chrome sessions per host/account pair and unified profile resolution with non-destructive lock recovery.
+Each `user_data_dir` must be dedicated to that Dot account and must not point inside the system Google Chrome profile. No other tool, MCP server, or browser may share a dot `user_data_dir`; exclusivity covers the directory, not only dot's own launches. If `user_data_dir` is omitted, Dot derives a separate local directory from the account key. `profile_directory` is optional: it selects a named Chrome subprofile and defaults to `Default` when absent. The value must be one safe directory name, such as `Profile 1`; path separators, `.` and `..`, and control characters are rejected. `DOT_PROFILE_DIRECTORY` may temporarily override the configured subprofile for one invocation, subject to the same validation. Chrome is the only backend. Multi-account targeting uses `--account <name>` / `DOT_ACCOUNT`, with independent headless-Chrome sessions per host/account pair and unified profile resolution with non-destructive lock recovery.

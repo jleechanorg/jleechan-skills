@@ -10,6 +10,8 @@ isolation and receipts. [static-review](../static-review/SKILL.md) owns reviewer
 applicability](../pr-lifecycle/SKILL.md#advice-applicability) section owns phases, thresholds, applicability and
 publication; evidence-standards owns evidence classes. Do not restate those here.
 
+[Scope](#1-pin-the-question-and-complete-scope) · [Reviewers](#2-select-independent-reviewers) · [Deadlines](#3-enforce-the-attempt-deadline) · [Access](#4-review-access-modes-and-isolation) · [Report](#5-reconcile-and-report)
+
 ## 1. Pin the question and complete scope
 
 Before queueing reviewers, inspect existing verdicts under §5's resubmission and applicability rules. An eligible approval for unchanged
@@ -60,15 +62,16 @@ of one account independent.
 
 | Tier | Available reviewers | Admission and counting |
 |---|---|---|
-| 1 — preferred | Available authorized CLI seats, including configured extra CLIs; authorized ChatGPT Dot accounts; the Instinct WhatsApp peer (`/instinct`) | Prefer different eligible CLI/model identities. CLI, Dot and Instinct are alternatives in the same tier; no brand or mixture is mandatory. Count at most one Dot vote and at most one Instinct vote, and never combine Dot with Instinct into a two-vote quorum. |
+| 1 — preferred | Available authorized CLI seats, including configured extra CLIs; authorized ChatGPT Dot accounts; the Instinct peer (`/instinct`) | Prefer different eligible CLI/model identities. CLI, Dot and Instinct are alternatives in the same tier; no brand or mixture is mandatory. Count at most one Dot vote and at most one Instinct vote, and never combine Dot with Instinct into a two-vote quorum. |
 | 2 — fallback | Native static subagents; Hermes or Hermes-PC | Static subagents collectively count as at most one vote; Hermes instances collectively count as at most one distinct vote. Each counted vote must independently cover the entire scope. |
 | 3 — last fallback | Existing authorized authenticated web chats through /web-advice | Use only after earlier-tier candidates cannot fill the remaining quorum. Preserve packet, upload, account-attestation and receipt rules. |
 
-Start independent eligible candidates concurrently where transport and resource rules permit. Retain valid earlier-tier
-votes and fill only remaining slots. Advance when the current tier cannot fill them; a missing brand is not a reason to
-wait. An eligible in-flight attempt remains bounded by §3, not declared unavailable merely to prefer a later result.
-Stop new dispatch once quorum is met unless another workflow obligation requires it; retain competent findings from
-valid in-flight attempts.
+Start independent eligible reviews concurrently for the missing votes where transport, resource and runtime dispatch
+limits permit. Retain valid votes and in-flight attempts with their existing deadlines. When a selected candidate
+is unavailable, failed or timed out, use another eligible account or CLI; advance tiers when the current tier cannot
+fill the remaining quorum. One unavailable provider does not exhaust the roster. Avoid duplicate requests and stop
+new dispatch once quorum is met unless another authorized obligation requires it. Retain competent findings from
+valid in-flight attempts. Every replacement is a new assignment under any per-PR dispatch budget.
 The author, orchestrator and /research do not vote. One competent blocking objection can block.
 
 Record availability separately from verdicts: AVAILABLE; UNAVAILABLE with missing capability, unsupported scope
@@ -76,6 +79,37 @@ or authorization reason; BUSY with an existing handle when known; QUOTA with a p
 or DUPLICATE with the shared identity key. Busy, missing, quota-blocked and duplicate seats do not reserve votes
 or justify indefinite waits. Do not duplicate an active request. Keep the existing deadline and explicit-wait
 rules for in-flight attempts. Delivery, acknowledgement and assignment are not approval.
+
+### Candidate checks, fan-out and fallback
+
+Before dispatch, enumerate the configured accounts and hosts in the capability profile, including alternate
+CLIs and outside routes. Carry that roster, authorization sources, existing attempts and remaining dispatch
+budget into orchestration delegates' task briefs, never cold reviewer prompts, which retain §1's exact templates.
+Any exclusion needs its controlling instruction or observed constraint; a preferred CLI pair must not become
+the delegate's only permitted reviewers. Preserve the active runtime's dispatch limits.
+
+Check candidates with existing configuration, executable/auth status, verified account bindings and applicable
+quota-cache receipts first. Independent read-only checks may run concurrently within host/profile limits.
+Use a supported non-message health probe when it resolves an unknown needed for selection; record its scope
+and time. A successful probe proves only what it checked, not review capacity or a vote. Do not send chat pings
+or model prompts to every candidate as a health check, or make all probes finish before useful work starts.
+
+**Account for every candidate in the existing receipt and user-facing report.** Separate health checks from actual
+review launches/sends. Use disclosure-safe aliases; keep verified identities and private evidence machine-local.
+
+| Candidate / host alias | Health evidence and time | Review attempted? | Outcome or reason not attempted | Receipt / next action |
+|---|---|---|---|---|
+| Claude / host A | executable and binding verified | Yes | approved | complete review receipt |
+| Codex / host A | explicit quota refusal, reset recorded | Yes | quota | refusal receipt; use eligible fallback |
+| Cursor / host A | not checked | No | quorum filled by other eligible votes | counted vote receipts |
+| AGY / host B | confirmed unexpired account quota cache | No | quota cache applies | original refusal and reset |
+
+These rows illustrate the format, not actual attempts. Include configured extra and outside candidates. Valid skip
+reasons include quorum met, an existing request, duplicate identity, a verified quota window, missing capability,
+profile/resource contention, exhausted dispatch budget or a scoped authorization restriction. Cite the evidence or
+instruction; unknown availability stays UNKNOWN. A probe is not a review attempt; missing receipts make a claimed
+attempt UNVERIFIED. Never report all routes exhausted while an eligible unattempted candidate can fill a missing
+vote within the remaining authority and budget. Show the unresolved gate and next eligible action when none can.
 
 ### CLI capabilities
 
@@ -150,10 +184,14 @@ identities from the machine-local profile before selecting them.
 **Authorization is machine-local.** These routes send PR content off the machine, so this portable skill grants
 nothing by itself. A route is authorized only when `ADVICE_OUTSIDE_ROUTES` lists it (comma-separated `dot,hermes,web`)
 in that machine's `~/.bashrc`, or the current task explicitly authorizes it. That opt-in is the standing authorization
-required by pr-lifecycle's optional-`/wa` rule and `/hermes`'s disclosure rule. Unlisted routes are `UNAVAILABLE —
+required by pr-lifecycle's optional-`/wa` rule and `/hermes`'s disclosure rule. Unlisted routes without task authorization are `UNAVAILABLE —
 disclosure not authorized`, as are routes restricted by the user, task or repository, or content holding secrets. (The
 repository owner opted in on 2026-11-04: "when all cli reviewers out of quota ... it should try to use /wa and ask
 hermes hermes pc and the dots in dot coordination for a review".)
+
+For Instinct, resolve authorization through [instinct](../instinct/SKILL.md); tier membership alone grants none.
+Record each outside candidate's authorization source and scope in the orchestration receipt and delegation context,
+never the cold reviewer prompt.
 
 Each Dot account gets its own §3 attempt, capped at the Dot route's absolute deadline: one budget B after its
 first send. No account is asked after that deadline; record a running one TIMED_OUT at it unless the user
@@ -162,7 +200,7 @@ After one eligible Dot vote, do not request another Dot to fill a second vote.
 
 | Route | Transport and scope |
 |---|---|
-| Dot (tier 1) | Use the host-installed [dot](../dot/SKILL.md) skill and [dot-coordinator](../dot-coordinator/SKILL.md)'s configured account rotation, explicitly targeting `--account <name>` with `DOT_ROTATE_ON_LIMIT=0`; coordinator ask, `isolation: remote`, revision review only. |
+| Dot (tier 1) | Use the host-installed [dot](../dot/SKILL.md#account-rotation-on-limits-mandatory) interactive transport and configured rotation. The advice caller selects each `--account <name>` with `DOT_ROTATE_ON_LIMIT=0` and owns attempts/readback; `isolation: remote`, revision review only. The scheduled dot-coordinator sends reminders, not review requests. |
 | Hermes or Hermes-PC (tier 2) | Use the host-installed /hermes Slack-only transport, coordinator ask and `isolation: remote`, revision review only. Resolve the configured eligible instance; another instance may replace a failed/unavailable one, not add a second Hermes vote. Use an available authorized machine-local `ADVICE_HERMES_CHANNEL` destination, otherwise the conversation /hermes resolves. |
 | Web (tier 3) | Use host-installed [web-advice](../web-advice/SKILL.md); `isolation: packet` for revisions, `none` for documents. Record the authenticated provider/account from the session as `attested.account`. |
 
@@ -194,10 +232,10 @@ obligation. Review votes never replace missing substantive evidence.
   pr-lifecycle `/dot` leg at this head is not also an `/advice` vote.
 - Run every seat with full permissions and record its actual command, model, account and transport.
 
-Record every unavailable or skipped reviewer as `UNAVAILABLE: <host> — <reviewer> — attempted|skipped — <time> —
-<reason>` and tell the user. A failure on one host (a cloud box) says nothing about the same CLI on another host (a
-Mac or Ubuntu machine); try or record each host separately. When the tiers cannot supply the required eligible votes within their counting caps, the result is
-`WITHHELD`, listing every `UNAVAILABLE` line and the earliest known quota reset.
+Use the [candidate report](#candidate-checks-fan-out-and-fallback) for unavailable and unattempted seats;
+a skipped candidate is not necessarily unavailable. A failure on one host says nothing about another host:
+account for each configured host separately. When eligible candidates cannot supply the required votes under
+the counting caps, authority and dispatch budget, report `WITHHELD` with the remaining gap and earliest known reset.
 
 ## 3. Enforce the attempt deadline
 
@@ -293,7 +331,8 @@ independent full-coverage approvals under §2's tier caps, the result is
 
 **Report.** Give the full 40-hex reviewed SHA for revision-bound review or `DOCUMENTS sha256:<bundle hash>` for a
 complete bundle-only review; never use an abbreviated SHA or mutable `HEAD`. Each reviewer's verdict,
-coverage, reasoning, risk and findings, the question's answer, and every `UNAVAILABLE` line. Keep a receipt per
+coverage, reasoning, risk and findings, the question's answer, and the complete
+[candidate report](#candidate-checks-fan-out-and-fallback). Keep a receipt per
 attempt: identity, actual CLI, account and model, start and completion times, exit or timeout, the exact prompt
 (any deviation voids the vote, per static-review), complete output, coverage and cleanup result. End with exactly
 one line: `VERDICT: APPROVED at `<SHA>``, `VERDICT: NOT APPROVED at `<SHA>``, or `VERDICT: WITHHELD at `<SHA>` — <reason>`;
