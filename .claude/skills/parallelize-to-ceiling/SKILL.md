@@ -179,10 +179,10 @@ commands: [`references/specialist-commands.md`](references/specialist-commands.m
 5. **Never fork a multi-minute CLI delegation (agy, codex, claude -p) as a
    foreground Bash call.** Always `run_in_background` + explicit timeout —
    a foreground fork pins the parent at the worst possible moment. Read the
-   output file on the task notification. Only a top-level session receives
-   the task notification: a background job started by a subagent never
-   reports back once that subagent's turn ends. Subagents run only bounded
-   foreground steps that finish inside their own turn.
+   output file on the task notification. In Claude Code, background commands
+   owned by a foreground subagent end with that subagent's run; do not hand
+   off a long-lived job that way. Subagents run bounded foreground steps
+   that finish inside their own turn; the top-level session owns longer jobs.
 6. **Cap concurrent pytest lanes** in gRPC-loaded repos (macOS
    fork-unsafety: "multi-threaded process forked" SIGTRAP storms). 2-3
    lanes max per host unless measured safe; fill the current host's safe
@@ -193,10 +193,12 @@ commands: [`references/specialist-commands.md`](references/specialist-commands.m
 
 ### /prw endpoint lanes
 
-Start each /prw endpoint lane as a top-level session, with `/prw <PR URL>` as
-its first prompt, so it can hold the session goal and receive its own
+For Claude Code, start each /prw endpoint lane as a top-level session, with
+`/prw <PR URL>` as its first prompt, so it can hold the session goal and receive its own
 background-job results (waiting rules: [pr-workflow-manager](../pr-workflow-manager/SKILL.md#terminal-goal-and-entry-contract)).
-The lane runs under the operator's existing permission settings.
+The lane runs under the operator's existing permission settings. For another
+runtime, use its supported independent-session interface; if none is available,
+keep endpoint ownership in the coordinator and delegate only bounded steps.
 
 - cmux host: `cmux new-workspace --name "prw <repo>#<N>" --cwd <worktree> --command "claude '/prw <PR URL>'"`
 - tmux host: `tmux new-window -d -n "prw-<N>" -c <worktree> "claude '/prw <PR URL>'"`
