@@ -19,9 +19,9 @@ A real permission, identity, enumeration, or deadline failure is unfinished work
 
 Start with the ground-truth probes defined in `../disk-audit/SKILL.md`, including the fleet check, existing per-host ledger, and 7-day growth history. Read those results before drilling down.
 
-For root-cause, floor, growth, or reclaim-estimate requests, run the full `diskm audit` after these probes. A quick capacity-only request may stop after the triage if its answer is sufficient.
+For root-cause, floor, growth, or reclaim-estimate requests, run the full `diskm audit` after these probes unless an existing current report already proves complete 100 MiB leaf coverage for every requested path and period. Directory-aggregate snapshots cannot prove that coverage. A quick capacity-only request may stop after the triage if its answer is sufficient.
 
-The audit is the three-lane diagnostic. Its top-down accounting must resolve the requested Data paths into file leaves and directories below 100 MiB. This instruction defines the required result; it does not change the scanner. Check the emitted report's actual resolution and unfinished paths. Until the installed runtime produces complete leaf itemization, treat its coarse or unfinished paths as incomplete and any reclaim estimate that depends on them as unknown. The audit launches in parallel:
+The audit is the three-lane diagnostic. Its top-down accounting must resolve requested Data paths into file leaves and directories below 100 MiB. This instruction defines the required result; it does not change the scanner. Check the emitted report's actual resolution and unfinished paths. Until the installed runtime produces complete leaf itemization, treat coarse or unfinished paths as incomplete and any reclaim estimate that depends on them as unknown. The audit launches in parallel:
 
 1. top-down whole-disk accounting from physical/APFS capacity through the Data volume to individual files and directories smaller than 100 MiB;
 2. coverage-validated snapshot deltas, so a coverage change cannot masquerade as physical growth; and
@@ -65,7 +65,16 @@ For a one-file size query, report that file's size directly. A directory below 1
 # Resolve the snapshot from the machine-specific state repository reported by the CLI.
 df -h
 STATE_REPO="$(diskm state status | sed -n 's/^\[state_repo\] state repo: //p')"
+if [[ -z "$STATE_REPO" || ! -d "$STATE_REPO" ]]; then
+  echo "state repo unavailable; snapshot history is incomplete" >&2
+  exit 1
+fi
+MACHINE="$(sed -n 's/^hostname: //p' "$STATE_REPO/MACHINE" 2>/dev/null)"
 SNAP="$STATE_REPO/snapshots/disk_snapshot.json"
+if [[ ! -r "$SNAP" && -n "$MACHINE" ]]; then
+  LEGACY_SNAPSHOT="$STATE_REPO/backup/$MACHINE/disk_snapshot.json"
+  [[ ! -r "$LEGACY_SNAPSHOT" ]] || SNAP="$LEGACY_SNAPSHOT"
+fi
 git -C "$STATE_REPO" log --oneline -1 -- 'backup/*/disk_snapshot.json' snapshots/disk_snapshot.json 2>/dev/null
 if [[ -r "$SNAP" ]]; then
   python3 -c 'import json,sys; from pathlib import Path; d=json.loads(Path(sys.argv[1]).read_text()); print("schema_version:", d.get("schema_version"), "coverage:", d.get("snapshot_coverage_pct"))' "$SNAP"
@@ -109,7 +118,7 @@ Single-pass `du` answers questions fast (<2 min). When the attribution crosses t
 | **lane-history** | Snapshot-history growth attribution | "From the state repository reported by `diskm state status`, identify directory aggregates that grew between <floor-sha> and HEAD; treat these as navigation hints and itemize any current directory at or above 100 MiB before attributing or estimating reclaim. Cite commit SHAs." |
 | **lane-tmp** | /private/tmp live holders vs orphan candidates | "Use directory sizes to locate candidates; descend each directory at or above 100 MiB to files and smaller directories. List each terminal item's size, age, open-handle/cwd owner, and cleanup gate." |
 | **lane-colima** | Colima sparse-disk inflation + recovery sequence | "Measure the VM image file and its allocation; do not treat the enclosing ~/.colima directory total as itemized. Run the authorized fstrim sequence and measure its result. NEVER docker prune -af." |
-| **lane-frontier** | Run `disk_frontier_scan.py --granularity-gib 0.09765625 --output-default` (900s cap) | Resolve directories to file and under-100-MiB directory leaves; failures stay on the unfinished frontier |
+| **lane-frontier** | Configure `disk_frontier_scan.py --granularity-gib 0.09765625 --output-default` after the scanner passes the inclusive-boundary and file-leaf checks | Do not claim complete leaves from this flag alone; verify that equality descends and that no synthetic chunks or skipped children remain. Record unfinished paths. |
 | **lane-critic** | Adversarial reality-check on top claims | "Try to refute each finding by recomputing from raw data. Cite file:line." |
 
 Fan-out rule: **single-writer per file**, `grep -n "agent(" <swarm-script>` cost-routed (haiku for mechanical, sonnet for analysis), staggered starts (rule 4 in `/swarm`), explicit `--model:` on every call. Adversarial verify ≥3 lenses before any actionable claim.
@@ -122,11 +131,11 @@ Fan-out rule: **single-writer per file**, `grep -n "agent(" <swarm-script>` cost
 ↘ FLOOR (last week):  used=YGB / free=YGB @ <iso> (commit <sha>)
 ↘ NOW (live df):      used=YGB / free=YGB (GiB, GiB; units confirmed)
 ↘ DELTA (30 d):       used_now − used_min = ±Y GB;    free_min − free_now = ±Y GB
-↘ Per-bucket attribution:
-  - colima: +X (sawtooth Y; what range over time)
-  - /tmp: +X
-  - AO sessions: +X (post-.bak-drop, mostly live)
-  - ~/projects: +X
+↘ Per-bucket attribution (non-overlapping sums of measured file/small-directory leaves; directory aggregates are navigation hints only):
+  - colima: +X (sum of measured leaves; sawtooth Y; what range over time)
+  - /tmp: +X (sum of measured leaves)
+  - AO sessions: +X (sum of measured leaves; post-.bak-drop, mostly live)
+  - ~/projects: +X (sum of measured leaves)
   - residual (unaccounted): X (frontalier scanner names these within 36h of first nightly run)
 ↘ Safe-cleanup recommendations (require explicit OK):
   - run A: cleanup_tmp.sh --clean (~X GB, low risk)
@@ -181,7 +190,7 @@ A complete root-cause answer for this machine has:
 - [ ] Residual is explicitly not called backup or reclaimable without evidence
 - [ ] Phase 0 ground-truth probe done
 - [ ] Phase 1 floor deltas computed (last week + last month + all-time min)
-- [ ] Phase 2 attribution buckets with credible per-bucket numbers
+- [ ] Phase 2 attribution buckets are non-overlapping sums of measured leaves; directory aggregates remain navigation hints
 - [ ] Phase 3 readout in the format above, with explicit limits listed
 - [ ] No destructive command proposed without an explicit human-OK gate
 - [ ] Honest attribution: where any bucket delta is sourced from a concurrent agent or external sweep, say so
