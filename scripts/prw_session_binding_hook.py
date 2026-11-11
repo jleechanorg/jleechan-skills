@@ -26,10 +26,19 @@ DEFAULT_LEDGER = "~/.local/share/prw-metrics/bindings/session-bindings.jsonl"
 GIT_TIMEOUT = 2
 STATE_VERBS = {("gh", "create"), ("gh", "checkout"), ("git", "switch"), ("git", "checkout"),
                ("git", "push"), ("git", "worktree add")}
-# Builtins and wrappers that can change the directory, environment or command
-# run; with any of them, or an assignment before cd/gh/git, the outcome is unknown.
-WRAPPERS = {"builtin", "command", "eval", "source", ".", "exec", "env", "sudo", "export",
-            "unset", "declare", "typeset", "alias", "xargs", "nohup", "time"}
+# Fail closed: a command records something only when every segment runs one of
+# these programs (by bare name) and every gh/git subcommand is known. Anything
+# else (keywords, wrappers, paths, aliases, other programs) may change the
+# directory, environment or branch, so the outcome is unknown.
+PROGRAMS = {"cd", "gh", "git", "echo", "printf", "true", "false", "pwd", "ls", "cat", "test",
+            "[", "sleep", "grep", "head", "tail", "wc", "jq", "sort", "date"}
+GIT_READ = {"status", "log", "diff", "show", "fetch", "rev-parse", "rev-list", "branch", "remote",
+            "add", "commit", "stash", "tag", "ls-files", "ls-remote", "blame", "grep", "describe",
+            "cat-file", "merge-base", "shortlog", "worktree"}
+GH_PR_READ = {"view", "list", "checks", "diff", "comment", "review", "edit", "ready", "close",
+              "reopen", "status"}
+GH_GROUPS = {"pr", "issue", "repo", "run", "api", "auth", "release", "gist", "workflow", "search",
+             "label", "browse", "status", "secret", "variable", "cache", "project"}
 ASSIGN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*")
 
 
@@ -246,23 +255,26 @@ def records_for(payload, runtime, git, now=None):
         while lead < len(seg) and ASSIGN_RE.fullmatch(seg[lead]):
             lead += 1
         prog = seg[lead] if lead < len(seg) else None
-        if prog in WRAPPERS or (lead and prog in ("cd", "pushd", "popd", "gh", "git")):
+        if prog is not None and (prog not in PROGRAMS or (lead and prog in ("cd", "gh", "git"))):
             return []
-        if prog in ("cd", "pushd", "popd"):
-            if not (status_known and here and not grouped and not piped and prog == "cd"
+        if prog == "cd":
+            if not (status_known and here and not grouped and not piped
                     and len(seg) == 2 and seg[1] != "-" and not re.search(r"[$`]", seg[1])):
                 return []
             here = os.path.normpath(os.path.join(here, os.path.expanduser(seg[1])))
             continue
         c = _classify(seg)
         if not c:
-            if prog == "git":  # --git-dir/--work-tree: unresolved
+            # git with --git-dir/--work-tree, or a gh alias/unknown group: unresolved
+            if prog == "git" or (prog == "gh" and not set(seg[lead + 1:]) & GH_GROUPS):
                 return []
             continue
         tool, verb, args, cdir = c
-        if cdir and re.search(r"[$`]", cdir):
+        if cdir and re.search(r"^~|[$`]", cdir):
             return []
         if (tool, verb) not in STATE_VERBS:
+            if verb not in (GIT_READ if tool == "git" else GH_PR_READ):
+                return []
             continue
         if not status_known:
             return []

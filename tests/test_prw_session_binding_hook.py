@@ -109,7 +109,7 @@ class TestRecords(unittest.TestCase):
                     "a && b || gh pr checkout 3", "x ||\ngh pr checkout 4"):
             with self.subTest(cmd=cmd):
                 self.assertEqual(run(post(cmd))[0], [])
-        for cmd in ("a || b && gh pr checkout 5", "gh pr checkout 5 &&\ngit log", "gh pr checkout 5; \n"):
+        for cmd in ("false || true && gh pr checkout 5", "gh pr checkout 5 &&\ngit log", "gh pr checkout 5; \n"):
             with self.subTest(cmd=cmd):
                 self.assertEqual([r["pr"] for r in run(post(cmd))[0]], ["me/origin#5"])
 
@@ -170,7 +170,13 @@ class TestRecords(unittest.TestCase):
                     "export GH_REPO=x/y && gh pr checkout 5", "env GH_REPO=x/y gh pr checkout 5",
                     "gh pr checkout 42 && git --git-dir=.git switch other",
                     "cd $REPO && git switch x", "cd `pwd`/x && git switch x",
-                    "git -C $R switch x"):
+                    "git -C $R switch x", "git -C ~/x switch y",
+                    "if true; then cd /different/repo; fi; gh pr checkout 42",
+                    "{ cd /w/x; } && gh pr checkout 5", "! cd /x && gh pr checkout 5",
+                    "set -a; GH_REPO=o/z; gh pr checkout 5", "make && gh pr checkout 5",
+                    "gh pr checkout 42 && /usr/bin/git switch other", "/usr/bin/env git switch other",
+                    "gh pr checkout 42 && git sw other", "gh pr checkout 42 && gh co 43",
+                    "gh pr checkout 42 && gh pr merge 42 -d"):
             with self.subTest(cmd=cmd):
                 self.assertEqual(run(post(cmd))[0], [])
 
