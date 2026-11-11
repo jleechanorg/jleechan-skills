@@ -323,25 +323,51 @@ class BubbleAttributionTest(unittest.TestCase):
         self.assertEqual(len(bubbles), 1, "continuation nodes must collapse")
         self.assertEqual(bubbles[0]["sender"], "Me")
 
-    def test_read_messages_does_not_truncate_before_dedup(self) -> None:
-        """The raw node list must be deduped before any limit is applied.
+    def test_read_messages_dedupes_before_applying_the_limit(self) -> None:
+        """The limit must be applied AFTER deduplication, not before.
 
-        Truncating inside the page evaluate kept only the tail continuation nodes,
-        whose sender label is garbage, so the real sender was lost and our own
-        outgoing text was attributed to the peer. This is the actual defect; the
-        reduceBubbles behaviour was always correct.
+        Truncating the raw node list kept only the tail continuation nodes, whose
+        sender label is garbage ("1."), so the real sender was lost and our own
+        outgoing text was attributed to the peer.
+
+        Driven behaviourally: with limit 1 the single returned bubble must still be
+        the one carrying the real sender label. Slicing the raw list first would
+        return the continuation node instead.
         """
-        source = SCRIPT.read_text(encoding="utf-8")
-        # The evaluate must not slice; the slice belongs after reduceBubbles.
-        self.assertNotIn(
-            "return out.slice(-lim)",
-            source,
-            "readMessages truncates the raw node list before deduplication",
+        script = (
+            "const mod = await import(process.argv[1]);"
+            "const nodes = ["
+            '  { meta: "[12:00, 11/10/2026] Me: ", text: "my outgoing VERDICT: PASS", id: "A" },'
+            '  { meta: "[12:00, 11/10/2026] 1. ", text: "continuation of my text", id: "A" }'
+            "];"
+            "const page = {"
+            "  locator: () => ({ count: async () => 0, evaluateAll: async () => {} }),"
+            "  waitForTimeout: async () => {},"
+            "  evaluate: async () => nodes,"
+            "};"
+            "const out = await mod.readMessages(page, 1);"
+            'process.stdout.write("__RESULT__" + JSON.stringify(out));'
         )
-        self.assertIn(
-            "reduceBubbles(raw).slice(-limit)",
-            source,
-            "the limit must be applied AFTER reduceBubbles",
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", script, str(SCRIPT)],
+            capture_output=True,
+            text=True,
+            env=_clean_env(),
+            timeout=120,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        line = next(
+            (l for l in result.stdout.splitlines() if l.startswith("__RESULT__")), None
+        )
+        self.assertIsNotNone(line, f"harness produced no result: {result.stdout!r}")
+        out = json.loads(line[len("__RESULT__") :])
+        self.assertEqual(len(out), 1, "limit 1 must return exactly one message")
+        self.assertEqual(
+            out[0]["sender"],
+            "Me",
+            "slicing before dedup keeps the tail continuation node (garbage label) "
+            "and attributes our own text to the peer",
         )
 
     def test_slicing_after_dedup_preserves_attribution(self) -> None:
@@ -368,3 +394,198 @@ class BubbleAttributionTest(unittest.TestCase):
             "slicing before dedup loses the real sender and attributes our own "
             "text to the peer",
         )
+
+
+class CollapsedBubbleExpansionTest(unittest.TestCase):
+    """A collapsed bubble must be expanded BEFORE its text is read.
+
+    WhatsApp renders a long message as a short prefix plus a "… Read more" caption
+    button. The hidden remainder is NOT in the DOM until that button is clicked:
+    innerText and textContent measure the same length, so the text is absent rather
+    than merely clipped.
+
+    This drives the real readMessages() with a fake page, because the user-visible
+    failure is the returned text, not the shape of the source. The fake models one
+    fact: until the expander runs, a long bubble reports truncated text.
+    """
+
+    # The fake records the selector readMessages asked for, and yields truncated
+    # text unless a click already happened on that selector.
+    HARNESS = """
+const mod = await import(process.argv[1]);
+const collapsedCount = Number(process.env.FAKE_COLLAPSED ?? "2");
+const clicks = [];
+const selectors = [];
+const nodes = [
+  { meta: "[12:00, 11/10/2026] Peer: ", text: "long reply ending in VERDICT: PASS", id: "A" },
+];
+let expanded = false;
+const page = {
+  locator(sel) {
+    selectors.push(sel);
+    return {
+      count: async () => (expanded ? 0 : collapsedCount),
+      evaluateAll: async (fn) => {
+        fn(Array.from({ length: collapsedCount }, () => ({ click: () => { clicks.push(sel); expanded = true; } })));
+      },
+    };
+  },
+  async waitForTimeout() {},
+  async evaluate() {
+    return nodes.map((n) => ({
+      ...n,
+      text: expanded ? n.text : n.text + " … Read more",
+    }));
+  },
+};
+const out = await mod.readMessages(page, 5);
+process.stdout.write("__RESULT__" + JSON.stringify({ clicks: clicks.length, selectors, out }));
+"""
+
+    def _run(self, **overrides: str) -> dict:
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", self.HARNESS, str(SCRIPT)],
+            capture_output=True,
+            text=True,
+            env=_clean_env(**overrides),
+            timeout=120,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        marker = "__RESULT__"
+        line = next(
+            (l for l in result.stdout.splitlines() if l.startswith(marker)), None
+        )
+        self.assertIsNotNone(line, f"harness produced no result: {result.stdout!r}")
+        return json.loads(line[len(marker) :])
+
+    def test_collapsed_bubbles_are_expanded_before_text_is_read(self) -> None:
+        payload = self._run()
+        self.assertEqual(
+            payload["clicks"], 2, "every collapsed bubble must be clicked before the read"
+        )
+        # Assert the content, not just the loop: an empty result would otherwise
+        # pass without checking anything.
+        self.assertEqual(len(payload["out"]), 1, "the read returned no bubbles")
+        for bubble in payload["out"]:
+            self.assertNotIn(
+                "Read more",
+                bubble["text"],
+                "a truncated bubble was returned; the expansion did not run before "
+                "the scrape, so a reply ending in VERDICT reads as absent",
+            )
+            self.assertIn("VERDICT: PASS", bubble["text"])
+
+    def test_expander_selects_the_read_more_caption_button(self) -> None:
+        """The click must target the real caption button, scoped to the open chat.
+
+        A typo'd testid matches nothing in WhatsApp, so the fix would silently do
+        nothing while every other test still passed. The selector is a literal token
+        the program hands to a browser API, so pinning it is mechanical, not prose.
+        """
+        payload = self._run()
+        self.assertTrue(payload["selectors"], "readMessages queried no selector")
+        for sel in payload["selectors"]:
+            self.assertIn(
+                'data-testid="caption-read-more-button"',
+                sel,
+                f"unexpected expander selector {sel!r}",
+            )
+            # Require scoping as a PREFIX, not a substring: "#main" appearing anywhere
+            # would also pass for an unscoped or oddly-composed selector.
+            self.assertTrue(
+                sel.lstrip().startswith("#main "),
+                f"expander selector {sel!r} is not scoped to the open conversation; a "
+                "page-wide match could click another chat's button",
+            )
+
+    def test_warning_fires_only_on_the_real_truncation_marker(self) -> None:
+        """A message that merely ends in the words "read more" must not warn.
+
+        The warning exists so silent truncation becomes loud. If it fired on
+        ordinary prose, callers would learn to ignore it - so the pattern must
+        require the ellipsis WhatsApp actually renders.
+        """
+        script = """
+const mod = await import(process.argv[1]);
+const text = process.env.FAKE_TEXT;
+let warned = false;
+const write = process.stderr.write.bind(process.stderr);
+process.stderr.write = (s) => { warned = true; return true; };
+const page = {
+  locator: () => ({ count: async () => 0, evaluateAll: async () => {} }),
+  waitForTimeout: async () => {},
+  evaluate: async () => [{ meta: "[T] Peer: ", text, id: "A" }],
+};
+await mod.readMessages(page, 5, { warnIfTruncated: true });
+process.stderr.write = write;
+process.stdout.write("__RESULT__" + JSON.stringify({ warned }));
+"""
+        cases = [
+            ("prose ending in the words", "I will read more", False),
+            ("real marker with ellipsis", "long reply\u2026 Read more", True),
+            ("prose mid-sentence", "please read more carefully next time", False),
+        ]
+        for name, text, expect in cases:
+            with self.subTest(name):
+                result = subprocess.run(
+                    ["node", "--input-type=module", "-e", script, str(SCRIPT)],
+                    capture_output=True,
+                    text=True,
+                    env=_clean_env(FAKE_TEXT=text),
+                    timeout=120,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                line = next(
+                    (l for l in result.stdout.splitlines() if l.startswith("__RESULT__")),
+                    None,
+                )
+                self.assertIsNotNone(line, result.stdout)
+                warned = json.loads(line[len("__RESULT__") :])["warned"]
+                self.assertEqual(warned, expect, f"warning mismatch for {name!r}")
+
+    def test_warning_is_silent_for_callers_that_do_not_opt_in(self) -> None:
+        """send/open read a tail for display; they must not emit the read warning.
+
+        The warning exists for callers that grep bubble text for a verdict. Emitting
+        it from send's 3-bubble tail would add unrelated stderr noise to a success
+        path and dilute the signal.
+        """
+        script = """
+const mod = await import(process.argv[1]);
+let warned = false;
+const write = process.stderr.write.bind(process.stderr);
+process.stderr.write = (s) => { warned = true; return true; };
+const page = {
+  locator: () => ({ count: async () => 0, evaluateAll: async () => {} }),
+  waitForTimeout: async () => {},
+  evaluate: async () => [{ meta: "[T] Peer: ", text: "tail\u2026 Read more", id: "A" }],
+};
+await mod.readMessages(page, 3);          // no opt-in, as send/open call it
+process.stderr.write = write;
+process.stdout.write("__RESULT__" + JSON.stringify({ warned }));
+"""
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", script, str(SCRIPT)],
+            capture_output=True,
+            text=True,
+            env=_clean_env(),
+            timeout=120,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        line = next(
+            (l for l in result.stdout.splitlines() if l.startswith("__RESULT__")), None
+        )
+        self.assertIsNotNone(line, result.stdout)
+        self.assertFalse(
+            json.loads(line[len("__RESULT__") :])["warned"],
+            "a non-opting caller emitted the truncation warning",
+        )
+
+    def test_read_with_nothing_collapsed_skips_the_click(self) -> None:
+        """No collapsed bubbles must mean no click, so short reads stay cheap."""
+        payload = self._run(FAKE_COLLAPSED="0")
+        self.assertEqual(payload["clicks"], 0, "clicked with nothing collapsed")
+        self.assertEqual(len(payload["out"]), 1)
