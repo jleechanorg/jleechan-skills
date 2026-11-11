@@ -51,9 +51,12 @@ Before selecting a branch, stage, or gate, inspect the target repository's `AGEN
 Apply these compact defaults where explicit repository instructions are silent; existing global merge/push safety remains canonical:
 - **First branch push:** Verify target and upstream tracking (`git push -u <verified-remote> HEAD`), following [git-branch-tracking](../git-branch-tracking/SKILL.md).
 - **Same-repository PR creation:** Verify head and base repositories are identical, then bind explicitly:
-  `gh pr create --repo <verified-base-owner/repo> --draft --base <verified-base> --head <verified-branch>`.
+  `gh pr create --repo <verified-base-owner/repo> --draft --base <verified-base> --head <verified-branch>`; in a repository that opts into [six-stage](../pr-lifecycle/six-stage.md#stage-title-and-labels), also pass `--label <current stage label>` so the draft is labeled at creation. If that fails (missing label or permission):
+  1. Check whether the failed call already opened the PR: `gh pr list --repo <verified-base-owner/repo> --head <verified-branch> --base <verified-base> --json number,headRefOid,isCrossRepository,baseRefName`, accepting only a same-repository match into the verified base whose `headRefOid` equals the pushed SHA (`--head` matches branch names only, so a same-name fork PR is not ours).
+  2. Create without the label only if no such PR exists, then apply it with `gh pr edit <that PR number> --repo <verified-base-owner/repo> --add-label <current stage label>`.
+  3. If labeling still fails, record the label as missing in the readback, keep label sync open for the next transition, and continue rather than stalling.
 - **User-owned fork PR creation:** Use the same explicit `--repo` and `--base` with `--head <verified-head-user>:<verified-branch>`. If a tool cannot express the exact head repository (such as GitHub CLI fork or organization limitations), use an already-authorized capable interface or report the precise blocker; never guess from a same-name branch.
-- **After-create readback:** Read back both repository identities, head/base branches, and head SHA before updating or claiming the intended PR.
+- **After-create readback:** Read back both repository identities, head/base branches, head SHA and, for six-stage repositories, the stage label before updating or claiming the intended PR.
 - **Existing PR updates:** Scoped commit and ordinary push only through the PR's sole writer; re-read remote head SHA immediately afterward to verify publication.
 - **Missing upstream repair:** Verify the remote branch, then configure tracking: `git branch --set-upstream-to=<remote>/<branch>`.
 - **Connector updates:** Connector authorized expected-head non-forced updates and exact readback are distinct from native Git upstream; do not treat connector publication as establishing native Git upstream tracking.

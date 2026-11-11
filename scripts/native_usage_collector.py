@@ -12,7 +12,9 @@ from urllib.parse import urlparse
 
 if __package__:
     from .prw_metrics import _parse_utc_instant, _safe_pr_id, _usage_count, _usage_label, format_iso_utc
+    from .prw_session_bindings import binding_record_at as _session_binding_record_at, load as _load_session_bindings
 else:
+    from prw_session_bindings import binding_record_at as _session_binding_record_at, load as _load_session_bindings
     from prw_metrics import _parse_utc_instant, _safe_pr_id, _usage_count, _usage_label, format_iso_utc
 
 
@@ -215,7 +217,12 @@ def load_normalized_history(path, cutoff, days=14, annotation_path=None):
                     seen_usage.add(identity)
                 usage.append(record)
                 stats["usage_records_in_window"] += 1
-                stats["pr_bound_usage_records"] += bool(record.get("attributions"))
+                attributions = record.get("attributions") or []
+                if any(isinstance(a, dict) and a.get("convention_ref") == "prw-session-binding.v1"
+                       for a in attributions):
+                    stats["session_bound_usage_records"] = stats.get("session_bound_usage_records", 0) + 1
+                else:
+                    stats["pr_bound_usage_records"] += bool(attributions)
             else:
                 humans.append(record)
                 automated = (
@@ -321,7 +328,7 @@ def enrich_replay_state(records, state_db):
 
 
 def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=None,
-                           repository_map=None, state_db=None):
+                           repository_map=None, state_db=None, session_bindings=None):
     if cutoff.tzinfo is None or days <= 0:
         raise ValueError("An aware cutoff and positive window are required")
     repository_map = repository_map if isinstance(repository_map, dict) else {}
@@ -344,6 +351,10 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                  human_unannotated=0, automated_excluded_messages=0, pr_bound_usage_records=0,
                  tool_result_records_excluded=0, context_records_excluded=0)
     stats["runtime_coverage"] = "Claude and Codex configured roots; other runtimes not collected"
+    session_index = None
+    if session_bindings:
+        session_index, join_stats = _load_session_bindings(session_bindings)
+        stats.update(join_stats, session_bound_usage_records=0)
     usage, humans, exported, seen_files, seen_usage = [], [], [], set(), set()
     for root in history_roots:
         root = Path(root)
@@ -480,6 +491,16 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                                 stats["pr_bound_usage_records"] += 1
                                 record["attributions"] = [{key: binding[key] for key in
                                     ("pr", "weight", "method", "receipt_refs", "rationale", "basis", "convention_ref") if key in binding}]
+                            elif session_index is not None:
+                                found = _session_binding_record_at(session_index, namespace, at)
+                                if found:
+                                    session_pr, ledger_ts, _source = found
+                                    stats["session_bound_usage_records"] += 1
+                                    record["attributions"] = [{"pr": session_pr, "weight": 1.0,
+                                        "method": "convention", "convention_ref": "prw-session-binding.v1",
+                                        "basis": "hook_session_binding",
+                                        "receipt_refs": [f"prw-session-binding.v1:{namespace}:{session_pr}:{ledger_ts}"],
+                                        "rationale": "session bound to this PR by the hook ledger"}]
                             key = (provider, request)
                             if request and key in seen_usage:
                                 stats["duplicate_usage_records"] += 1
@@ -547,12 +568,15 @@ def main():
     parser.add_argument("--days", type=int, default=14)
     parser.add_argument("--annotations")
     parser.add_argument("--state-db", help="Optional read-only Codex thread snapshot database")
+    parser.add_argument("--session-bindings", action="append", default=None,
+                        help="Session-to-PR binding ledger (JSONL); repeatable")
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
     cutoff = _parse_utc_instant(args.cutoff)
     if cutoff is None:
         parser.error("--cutoff must include a UTC offset")
-    data = collect_native_history(args.history_root, cutoff=cutoff, days=args.days, annotation_path=args.annotations, state_db=args.state_db)
+    data = collect_native_history(args.history_root, cutoff=cutoff, days=args.days, annotation_path=args.annotations, state_db=args.state_db,
+                                  session_bindings=args.session_bindings)
     write_normalized_history(args.output, data["export_records"])
     Path(args.output + ".stats.json").write_text(json.dumps(data["stats"], sort_keys=True, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(data["stats"], sort_keys=True))

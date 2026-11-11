@@ -1,0 +1,315 @@
+#!/usr/bin/env python3
+"""Hook that records session-to-PR bindings in a local JSONL ledger.
+
+Reads one hook payload as JSON on stdin and appends zero or more records.
+Always exits 0 and prints nothing. Command text is used in memory only.
+"""
+
+import json
+import os
+import re
+import shlex
+import subprocess
+import sys
+from datetime import datetime, timezone
+
+SHELL_TOOLS = {"Bash", "shell", "exec_command", "local_shell"}
+SESSION_RE = re.compile(r"[A-Za-z0-9_.:-]{1,128}")
+REPO_RE = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
+SHA_RE = re.compile(r"[0-9a-fA-F]{7,64}")
+PR_URL_RE = re.compile(r"github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/pull/([0-9]+)")
+PR_URL_FULL_RE = re.compile(r"(?:https?://)?github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/pull/([0-9]+)/?")
+HEREDOC_RE = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1[^\n]*\n.*?(?:\n[ \t]*\2[ \t]*(?=\n|$)|\Z)", re.S)
+SEP_CHARS = set(";&|()\n")
+SHELLS = {"bash", "sh", "zsh", "dash", "ksh", "fish"}
+MAX_BYTES = 1024
+DEFAULT_LEDGER = "~/.local/share/prw-metrics/bindings/session-bindings.jsonl"
+GIT_TIMEOUT = 2
+
+
+def _valid_repo(v):
+    return isinstance(v, str) and REPO_RE.fullmatch(v) is not None
+
+
+def _valid_branch(v):
+    return (isinstance(v, str) and 0 < len(v) <= 200
+            and not any(ord(c) < 32 or ord(c) == 127 for c in v))
+
+
+def _valid_sha(v):
+    return isinstance(v, str) and SHA_RE.fullmatch(v) is not None
+
+
+def _command_text(tool_input):
+    if not isinstance(tool_input, dict):
+        return ""
+    cmd = tool_input.get("command")
+    if cmd is None:
+        cmd = tool_input.get("cmd")
+    if isinstance(cmd, list):
+        argv = [str(a) for a in cmd]
+        if (len(argv) >= 3 and os.path.basename(argv[0]) in SHELLS
+                and argv[1].startswith("-") and "c" in argv[1]):
+            return argv[2]
+        return shlex.join(argv)
+    return cmd if isinstance(cmd, str) else ""
+
+
+def _output_text(resp):
+    if isinstance(resp, str):
+        return resp
+    if not isinstance(resp, dict):
+        return ""
+    parts = [resp.get(k) for k in ("output", "stdout")]
+    return "\n".join(p for p in parts if isinstance(p, str))
+
+
+def _failed(resp):
+    if not isinstance(resp, dict):
+        return False
+    if resp.get("interrupted") is True:
+        return True
+    for k in ("exit_code", "returncode"):
+        v = resp.get(k)
+        if isinstance(v, int) and not isinstance(v, bool) and v != 0:
+            return True
+    return False
+
+
+def _norm_sep(sep):
+    """Drop grouping; a newline next to another separator is a line continuation."""
+    s = sep.replace("(", "").replace(")", "").replace("\n", "\0")
+    return s.replace("\0", "") or s[:1]
+
+
+def _segments(command):
+    """Return (segments, separators, grouped) of a command, ignoring quoted/heredoc text."""
+    command = HEREDOC_RE.sub("\n", command)
+    lex = shlex.shlex(command, posix=True, punctuation_chars=";&|()\n")
+    lex.whitespace = " \t\r"
+    lex.whitespace_split = True
+    segs, seps, seg = [], [], []
+    for tok in lex:
+        if tok and set(tok) <= SEP_CHARS:
+            if seg:
+                segs.append(seg)
+                seps.append("")
+            seg = []
+            if seps:
+                seps[-1] += tok
+        else:
+            seg.append(tok)
+    if seg:
+        segs.append(seg)
+        seps.append("")
+    grouped = any(c in s for s in seps for c in "()")
+    return segs, [_norm_sep(s) for s in seps], grouped
+
+
+def _classify(seg):
+    """Return (tool, verb, args, git -C directory or None) for a gh/git segment, or None."""
+    prog, rest = seg[0], seg[1:]
+    if prog == "gh":
+        repo_flag = []
+        while rest and (rest[0] in ("-R", "--repo") or rest[0].startswith("--repo=")):
+            n = 1 if "=" in rest[0] else 2
+            repo_flag, rest = rest[:n], rest[n:]
+        if len(rest) >= 2 and rest[0] == "pr":
+            return "gh", rest[1], rest[2:] + repo_flag, None
+    elif prog == "git":
+        cdir = None
+        while rest and rest[0].startswith("-"):
+            if rest[0].startswith(("--git-dir", "--work-tree")):
+                return None
+            if rest[0] == "-C" and len(rest) >= 2:
+                cdir = os.path.join(cdir or "", rest[1])
+            if rest[0] in ("-C", "-c", "--namespace"):
+                rest = rest[2:]
+            else:
+                rest = rest[1:]
+        if rest:
+            if rest[0] == "worktree" and len(rest) >= 2 and rest[1] == "add":
+                return "git", "worktree add", rest[2:], cdir
+            return "git", rest[0], rest[1:], cdir
+    return None
+
+
+def _clean_git(info):
+    out = {}
+    if not isinstance(info, dict):
+        return out
+    if _valid_repo(info.get("repo")):
+        out["repo"] = info["repo"]
+    if _valid_branch(info.get("branch")):
+        out["branch"] = info["branch"]
+    if _valid_sha(info.get("sha")):
+        out["sha"] = info["sha"]
+    return out
+
+
+def records_for(payload, runtime, git, now=None):
+    """Return ledger records (list of dicts) for one hook payload."""
+    if not isinstance(payload, dict):
+        return []
+    sid = payload.get("session_id")
+    if not isinstance(sid, str) or not SESSION_RE.fullmatch(sid):
+        return []
+    event = payload.get("hook_event_name")
+    cwd = payload.get("cwd") if isinstance(payload.get("cwd"), str) else None
+    ts = (now or datetime.now(timezone.utc)).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+    def make(kind, info, **extra):
+        rec = {"v": 1, "ts": ts, "runtime": runtime, "session_id": sid, "kind": kind}
+        rec.update(_clean_git(info))
+        rec.update(extra)
+        return rec
+
+    def state(where=cwd):
+        try:
+            return git(where) if where else {}
+        except Exception:
+            return {}
+
+    if event == "SessionStart":
+        return [make("session_start", state(), source="session_start")]
+    if event in ("Stop", "SubagentStop"):
+        return [make("stop", state())]
+    if event != "PostToolUse" or payload.get("tool_name") not in SHELL_TOOLS:
+        return []
+
+    command = _command_text(payload.get("tool_input"))
+    if "gh" not in command and "git" not in command:
+        return []
+    resp = payload.get("tool_response")
+    if _failed(resp):
+        return []
+    output = _output_text(resp)
+
+    # Coverage is a deliberate lower bound: only one simple command (no other
+    # command, condition, grouping, assignment, alias, path or substitution)
+    # counts, and a PR is bound only from a fully qualified URL, never from a
+    # number or from gh's repository resolution.
+    if "`" in command or "$(" in command:
+        return []
+    try:
+        segs, seps, grouped = _segments(command)
+    except ValueError:
+        return []
+    if len(segs) != 1 or grouped or seps[0] not in ("", ";", "\0"):
+        return []
+    seg = segs[0]
+    if any("<" in a or ">" in a for a in seg):
+        return []
+    c = _classify(seg) if seg[0] in ("gh", "git") else None
+    if not c:
+        return []
+    tool, verb, args, cdir = c
+    if tool == "gh":
+        if seg[1] != "pr" or any(a in ("-R", "--repo") or a.startswith("--repo=") for a in args):
+            return []
+        if verb == "create":
+            if {"--dry-run", "--web", "-w", "--help", "-h"} & set(args):
+                return []
+            urls = {f"{m[1]}/{m[2]}#{int(m[3])}" for m in PR_URL_RE.finditer(output)}
+            if len(urls) != 1:
+                return []
+            pr, source = urls.pop(), "gh_pr_create"
+        elif verb == "checkout":
+            # Exactly `gh pr checkout <URL>`: any flag (--help, --detach, -b) may
+            # mean no checkout or a detached one.
+            m = PR_URL_FULL_RE.fullmatch(args[0]) if len(args) == 1 else None
+            if not m:
+                return []
+            pr, source = f"{m[1]}/{m[2]}#{int(m[3])}", "gh_pr_checkout"
+        else:
+            return []
+        return [make("pr_binding", state(), pr=pr, source=source)]
+    if verb not in ("switch", "checkout", "push", "worktree add"):
+        return []
+    if cdir and (cdir.startswith("~") or "$" in cdir):
+        return []
+    where = os.path.normpath(os.path.join(cwd, cdir)) if cwd and cdir else cwd
+    if not where:
+        return []
+    return [make("branch", state(where), source="git_push" if verb == "push" else "git_switch")]
+
+
+def _parse_origin(url):
+    url = url.strip()
+    m = re.search(r"[:/]([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/?$", url)
+    return f"{m[1]}/{m[2]}" if m else None
+
+
+def real_git(cwd):
+    def run(*args):
+        r = subprocess.run(["git", "-C", cwd, *args], capture_output=True, text=True,
+                           timeout=GIT_TIMEOUT, stdin=subprocess.DEVNULL)
+        return r.stdout.strip() if r.returncode == 0 else None
+
+    info = {}
+    for key, args in (("sha", ("rev-parse", "HEAD")),
+                      ("branch", ("rev-parse", "--abbrev-ref", "HEAD")),
+                      ("repo", ("remote", "get-url", "origin"))):
+        try:
+            val = run(*args)
+        except Exception:
+            val = None
+        if not val:
+            continue
+        if key == "repo":
+            val = _parse_origin(val)
+        elif key == "branch" and val == "HEAD":
+            continue
+        if val:
+            info[key] = val
+    return info
+
+
+def ledger_path():
+    return os.environ.get("PRW_BINDING_LEDGER") or os.path.expanduser(DEFAULT_LEDGER)
+
+
+def append(records, path):
+    dirname = os.path.dirname(path)
+    if dirname:
+        os.makedirs(dirname, mode=0o700, exist_ok=True)
+    for rec in records:
+        line = (json.dumps(rec, separators=(",", ":")) + "\n").encode()
+        if len(line) > MAX_BYTES:
+            continue
+        fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+        try:
+            os.write(fd, line)
+        finally:
+            os.close(fd)
+
+
+def main():
+    try:
+        runtime = "claude"
+        argv = sys.argv[1:]
+        for i, a in enumerate(argv):
+            if a == "--runtime" and i + 1 < len(argv):
+                runtime = argv[i + 1]
+            elif a.startswith("--runtime="):
+                runtime = a.split("=", 1)[1]
+        if runtime not in ("claude", "codex"):
+            return 0
+        payload = json.loads(sys.stdin.read())
+        records = records_for(payload, runtime, real_git)
+        if records:
+            append(records, ledger_path())
+    except BaseException:
+        pass
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    finally:
+        try:
+            sys.stdout.flush()
+        except Exception:
+            pass
+    os._exit(0)
