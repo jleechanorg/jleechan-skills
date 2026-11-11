@@ -4925,6 +4925,7 @@ def main():
     parser.add_argument("--cutoff", help="Optional ISO-8601 UTC cutoff timestamp (default now)")
     parser.add_argument("--offline", action="store_true", default=os.environ.get("PRW_METRICS_OFFLINE", "").lower() in ("1", "true"), help="Offline mode: skip live GitHub API and use cached data")
     parser.add_argument("--output", help="Optional output path for rendered Markdown")
+    parser.add_argument("--dashboard-json", help="Optional output path for the compact web-dashboard snapshot (requires query metrics)")
     parser.add_argument("--publish", action="store_true", default=os.environ.get("PRW_METRICS_PUBLISH", "").lower() in ("1", "true"), help="Publish dashboard to roadmap repo")
     parser.add_argument("--roadmap-repo", default=os.environ.get("PRW_METRICS_ROADMAP_REPO"), help="Path to local clone of roadmap repo")
     parser.add_argument("--telemetry-dir", default=os.environ.get("PRW_METRICS_TELEMETRY_DIR"), help="Path to telemetry directory containing pilot_events.jsonl, etc.")
@@ -5220,6 +5221,17 @@ def main():
         print(f"Wrote dashboard to {args.output}")
     else:
         print(md_output)
+
+    if args.dashboard_json:
+        if query_summary is None:
+            sys.stderr.write("WARNING: --dashboard-json skipped: query metrics were not run, previous snapshot left in place.\n")
+        else:
+            try:
+                from scripts.prw_metrics_web_export import build_snapshot, write_snapshot
+            except ModuleNotFoundError:
+                from prw_metrics_web_export import build_snapshot, write_snapshot
+            write_snapshot(args.dashboard_json, build_snapshot(summary_data, query_summary, query_prs))
+            print(f"Wrote web dashboard snapshot to {args.dashboard_json}")
 
     if args.publish and args.roadmap_repo:
         publication_status = summary_data["status"]
