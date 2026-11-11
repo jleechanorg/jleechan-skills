@@ -164,7 +164,7 @@ Fan-out rule: **single-writer per file**, `grep -n "agent(" <swarm-script>` cost
 3. **`cleanup_tmp.sh` defaults to DRY-RUN despite header claiming otherwise** — header was fixed in v0.2.0 (commit `5341a6f`); callers still must pass `--clean`.
 4. **Colima wedges with I/O errors when host disk hits 100%** — fstrim can't run; **must** `colima stop && colima start` first. 49.6→6.8 GB recovery verified live.
 5. **Confirm the runner supervisor** — `launchctl list | grep -i runner` (macOS) or `systemctl --user list-units | grep -i runner` (Linux), plus `ps aux | grep -i runner`, before any VACATE-style directive.
-6. **Legacy snapshot path:** State and history commands resolve `snapshots/disk_snapshot.json` or legacy `backup/<host>/disk_snapshot.json` through the state-repo owner. Use `diskm state status` to identify the current per-host state repository; do not invent a different host path.
+6. **Legacy snapshot path:** `backup/<host>/disk_snapshot.json` is frozen historical data, not a current measurement. Consider it only as an in-window historical sample with a valid embedded capture timestamp and coverage of at least 70%. Current measurement uses `snapshots/disk_snapshot.json`; `diskm state status` identifies the per-host state repository.
 
 ## Anti-patterns to flag in code review
 
