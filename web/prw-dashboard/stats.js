@@ -148,7 +148,9 @@
   function oneShot(rows) {
     var started = rows.filter(function (pr) { return pr.flow; });
     var reached = started.filter(function (pr) { return pr.flow.reached_final; });
-    var steerRows = reached.filter(function (pr) { return pr.human && typeof pr.human.followup === "number"; });
+    var steerRows = reached.filter(function (pr) {
+      return pr.human && pr.human.coverage_status !== "CANDIDATE_ONLY" && typeof pr.human.followup === "number";
+    });
     var steers = steerRows.map(function (pr) { return pr.human.followup; });
     var minutes = [];
     reached.forEach(function (pr) {

@@ -210,6 +210,21 @@ test("one-shot tiles: rate, steers and minutes use only known inputs with their 
   assert.deepEqual([t.minutes.n, t.minutes.p50, t.minutes.p90, t.minutes.unknown], [5, 60, 120, 1]);
 });
 
+test("one-shot tiles exclude candidate-only human follow-up from steering observations", () => {
+  const candidate = {
+    ...flowPr(1, { followup: 0, min: 30 }),
+    human: { coverage_status: "CANDIDATE_ONLY", verified_messages: 0, followup: 0 },
+  };
+  const known = [
+    flowPr(2, { followup: 0, min: 40 }),
+    flowPr(3, { followup: 1, min: 50 }),
+    flowPr(4, { followup: 2, min: 60 }),
+  ];
+  const t = S.oneShot([candidate, ...known]);
+  assert.deepEqual([t.rate.n, t.rate.ones, t.rate.unknown], [3, 1, 1]);
+  assert.deepEqual([t.steers.n, t.steers.unknown], [3, 1]);
+});
+
 test("one-shot tiles refuse a number below three observations", () => {
   const t = S.oneShot([flowPr(1, { followup: 0, min: 10 }), flowPr(2, { followup: 0, min: 20 })]);
   for (const k of ["rate", "steers", "minutes", "counts"]) assert.equal(t[k].ok, false, k);
