@@ -176,7 +176,13 @@ class TestRecords(unittest.TestCase):
                     "set -a; GH_REPO=o/z; gh pr checkout 5", "make && gh pr checkout 5",
                     "gh pr checkout 42 && /usr/bin/git switch other", "/usr/bin/env git switch other",
                     "gh pr checkout 42 && git sw other", "gh pr checkout 42 && gh co 43",
-                    "gh pr checkout 42 && gh pr merge 42 -d"):
+                    "gh pr checkout 42 && gh pr merge 42 -d",
+                    "GH_REPO=other/repo && gh pr checkout 5", "GH_REPO=other/repo; gh pr checkout 5",
+                    "GIT_DIR=/x/.git && git switch foo", "CDPATH=/x && cd proj && git switch foo",
+                    "gh pr checkout 42 && gh myalias pr", "gh pr checkout 42 && gh co 43 -b pr",
+                    "gh pr checkout 42 && git stash branch other",
+                    "gh pr checkout 42 && echo `git switch other`",
+                    "gh pr checkout 42 && echo $(git switch other)"):
             with self.subTest(cmd=cmd):
                 self.assertEqual(run(post(cmd))[0], [])
 

@@ -33,7 +33,7 @@ STATE_VERBS = {("gh", "create"), ("gh", "checkout"), ("git", "switch"), ("git", 
 PROGRAMS = {"cd", "gh", "git", "echo", "printf", "true", "false", "pwd", "ls", "cat", "test",
             "[", "sleep", "grep", "head", "tail", "wc", "jq", "sort", "date"}
 GIT_READ = {"status", "log", "diff", "show", "fetch", "rev-parse", "rev-list", "branch", "remote",
-            "add", "commit", "stash", "tag", "ls-files", "ls-remote", "blame", "grep", "describe",
+            "add", "commit", "tag", "ls-files", "ls-remote", "blame", "grep", "describe",
             "cat-file", "merge-base", "shortlog", "worktree"}
 GH_PR_READ = {"view", "list", "checks", "diff", "comment", "review", "edit", "ready", "close",
               "reopen", "status"}
@@ -246,6 +246,8 @@ def records_for(payload, runtime, git, now=None):
     # the outcome unknown, so the command records nothing.
     pr = source = branch_source = None
     here = where = cwd
+    if "`" in command or "$(" in command:  # a substituted command may change state
+        return []
     try:
         segs = list(_segments(command))
     except ValueError:
@@ -255,7 +257,9 @@ def records_for(payload, runtime, git, now=None):
         while lead < len(seg) and ASSIGN_RE.fullmatch(seg[lead]):
             lead += 1
         prog = seg[lead] if lead < len(seg) else None
-        if prog is not None and (prog not in PROGRAMS or (lead and prog in ("cd", "gh", "git"))):
+        # An assignment alone persists for later segments (GH_REPO=, CDPATH=).
+        if prog is None and lead or prog is not None and (
+                prog not in PROGRAMS or (lead and prog in ("cd", "gh", "git"))):
             return []
         if prog == "cd":
             if not (status_known and here and not grouped and not piped
@@ -266,7 +270,8 @@ def records_for(payload, runtime, git, now=None):
         c = _classify(seg)
         if not c:
             # git with --git-dir/--work-tree, or a gh alias/unknown group: unresolved
-            if prog == "git" or (prog == "gh" and not set(seg[lead + 1:]) & GH_GROUPS):
+            first = next((a for a in seg[lead + 1:] if not a.startswith("-")), None)
+            if prog == "git" or (prog == "gh" and first not in GH_GROUPS):
                 return []
             continue
         tool, verb, args, cdir = c
