@@ -147,3 +147,37 @@ class PrLifecycleSectionReferences(unittest.TestCase):
 if __name__ == "__main__":
     unittest.main()
 
+
+
+class EndpointLaneLiveness(unittest.TestCase):
+    """A /prw lane that must reach an endpoint is a top-level session whose goal does the waiting."""
+
+    def test_manager_runs_endpoint_lanes_top_level_and_lets_the_goal_wait(self):
+        text = read("pr-workflow-manager")
+        for phrase in (
+            "An endpoint lane runs as a top-level session",
+            "start each long job in the background and end the turn",
+            "skips the goal check while that job runs",
+            "`CLAUDE_CODE_GOAL_CHECKIN_MINUTES`",
+            "Do not poll or sleep in a loop",
+            "wait in the foreground for the job's completion marker",
+            "re-run it once, then record a `blocker:`",
+        ):
+            self.assertEqual(text.count(phrase), 1, phrase)
+
+    def test_dispatcher_starts_lanes_top_level_and_keeps_subagents_bounded(self):
+        text = read("parallelize-to-ceiling")
+        for phrase in (
+            "Start each /prw endpoint lane as a top-level session",
+            "Subagents run only bounded foreground steps",
+            'cmux new-workspace --name "prw <repo>#<N>" --cwd <worktree> --command "claude \'/prw <PR URL>\'"',
+            'tmux new-window -d -n "prw-<N>" -c <worktree> "claude \'/prw <PR URL>\'"',
+        ):
+            self.assertEqual(text.count(phrase), 1, phrase)
+
+    def test_rule_five_keeps_background_start_and_names_who_gets_the_notice(self):
+        text = read("parallelize-to-ceiling")
+        rule = re.search(r"5\. \*\*Never fork.*?(?=6\. \*\*Cap concurrent)", text)
+        self.assertIsNotNone(rule)
+        self.assertIn("Always `run_in_background`", rule.group(0))
+        self.assertIn("Only a top-level session receives the task notification", rule.group(0))

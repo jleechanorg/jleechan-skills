@@ -179,7 +179,10 @@ commands: [`references/specialist-commands.md`](references/specialist-commands.m
 5. **Never fork a multi-minute CLI delegation (agy, codex, claude -p) as a
    foreground Bash call.** Always `run_in_background` + explicit timeout —
    a foreground fork pins the parent at the worst possible moment. Read the
-   output file on the task notification.
+   output file on the task notification. Only a top-level session receives
+   the task notification: a background job started by a subagent never
+   reports back once that subagent's turn ends. Subagents run only bounded
+   foreground steps that finish inside their own turn.
 6. **Cap concurrent pytest lanes** in gRPC-loaded repos (macOS
    fork-unsafety: "multi-threaded process forked" SIGTRAP storms). 2-3
    lanes max per host unless measured safe; fill the current host's safe
@@ -187,6 +190,16 @@ commands: [`references/specialist-commands.md`](references/specialist-commands.m
    another measured constraint makes the current host ineligible.
 7. **Watch delegate RSS.** A CLI delegate above ~2-3GB RSS is itself a
    heavy item — one per machine, per the resource-bound table.
+
+### /prw endpoint lanes
+
+Start each /prw endpoint lane as a top-level session, with `/prw <PR URL>` as
+its first prompt, so it can hold the session goal and receive its own
+background-job results (waiting rules: [pr-workflow-manager](../pr-workflow-manager/SKILL.md#terminal-goal-and-entry-contract)).
+The lane runs under the operator's existing permission settings.
+
+- cmux host: `cmux new-workspace --name "prw <repo>#<N>" --cwd <worktree> --command "claude '/prw <PR URL>'"`
+- tmux host: `tmux new-window -d -n "prw-<N>" -c <worktree> "claude '/prw <PR URL>'"`
 
 ## Isolation invariants (always, when parallelizing)
 
