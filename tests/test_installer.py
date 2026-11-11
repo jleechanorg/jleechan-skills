@@ -959,6 +959,67 @@ class InstallerIntegrationTest(unittest.TestCase):
                 archived.read_text(encoding="utf-8"), "active legacy skill\n"
             )
 
+    def test_merge_migrates_nested_command_paths_and_preserves_other_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fixture = self.make_fixture(root)
+            target = root / "claude-home"
+            mappings = {
+                "backup-old/team.md": "backup-old/team.md",
+                "top-level/root-command.md": "root-command.md",
+                "protected-folder/team.md": "protected-folder/team.md",
+            }
+            for archived, active in mappings.items():
+                source = fixture / ".claude/commands_archive/2026-retired" / archived
+                source.parent.mkdir(parents=True, exist_ok=True)
+                source.write_text("exported snapshot\n", encoding="utf-8")
+                live = target / "commands" / active
+                live.parent.mkdir(parents=True, exist_ok=True)
+                live.write_text("local " + active + "\n", encoding="utf-8")
+            sentinel = target / "commands/backup-old/unrelated.txt"
+            sentinel.write_text("keep me\n", encoding="utf-8")
+            (target / ".jleechan-skills-protected").write_text("protected-folder\n", encoding="utf-8")
+
+            result = self.run_installer(fixture, target, "--merge", "--migrate-archives")
+
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            for archived, active in mappings.items():
+                live = target / "commands" / active
+                saved = target / "commands_archive/2026-retired" / archived
+                if active.startswith("protected-folder/"):
+                    self.assertEqual(live.read_text(), "local " + active + "\n")
+                    self.assertFalse(saved.exists())
+                else:
+                    self.assertFalse(live.exists())
+                    self.assertEqual(saved.read_text(), "local " + active + "\n")
+            self.assertEqual(sentinel.read_text(), "keep me\n")
+
+    def test_nested_command_migration_refuses_linked_parents(self):
+        for side in ("commands", "commands_archive/2026-retired"):
+            with self.subTest(side=side), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                fixture = self.make_fixture(root)
+                source = fixture / ".claude/commands_archive/2026-retired/backup-old/team.md"
+                source.parent.mkdir(parents=True)
+                source.write_text("snapshot\n", encoding="utf-8")
+                target = root / "claude-home"
+                outside = root / "outside"
+                outside.mkdir()
+                linked = target / side / "backup-old"
+                linked.parent.mkdir(parents=True)
+                linked.symlink_to(outside, target_is_directory=True)
+                live = target / "commands/backup-old/team.md"
+                live.parent.mkdir(parents=True, exist_ok=True)
+                live.write_text("local data\n", encoding="utf-8")
+
+                result = self.run_installer(fixture, target, "--merge", "--migrate-archives")
+
+                self.assertNotEqual(result.returncode, 0, result.stderr + result.stdout)
+                self.assertTrue(linked.is_symlink())
+                self.assertEqual(live.read_text(), "local data\n")
+                self.assertEqual(sorted(p.name for p in outside.iterdir()),
+                                 ["team.md"] if side == "commands" else [])
+
     def test_merge_migrate_archives_without_collisions_installs_under_bash32(self):
         bash32 = Path("/bin/bash")
         version = subprocess.run([str(bash32), "--version"], capture_output=True, text=True).stdout.split() \
