@@ -69,6 +69,45 @@ class NativeHumanSteeringTests(unittest.TestCase):
             },
         ]
 
+    def test_verified_followup_message_count_does_not_require_episode_id(self):
+        binding = {"pr": "example/repo#5"}
+        events = [
+            {
+                "event_id": "followup-no-episode",
+                "timestamp": "2026-10-05T10:00:00Z",
+                "origin_status": "verified_human",
+                "pr_binding": binding,
+                "episode_role": "followup",
+                "source_fingerprint": "sha256:no-episode",
+            },
+            {
+                "event_id": "followup-with-episode",
+                "timestamp": "2026-10-05T11:00:00Z",
+                "origin_status": "verified_human",
+                "pr_binding": binding,
+                "episode_role": "followup",
+                "episode_id": "e",
+                "quality_label": "good",
+                "source_fingerprint": "sha256:with-episode",
+            },
+            {
+                "event_id": "other-message",
+                "timestamp": "2026-10-05T12:00:00Z",
+                "origin_status": "verified_human",
+                "pr_binding": binding,
+                "source_fingerprint": "sha256:other",
+            },
+        ]
+        result = aggregate_native_human_steering(
+            events, self.prs, window_start="2026-10-01T00:00:00Z",
+            window_end="2026-10-20T00:00:00Z", source_stats=self.stats,
+        )
+        pr5 = next(
+            row for row in result["per_pr"] if row["pr"] == "example/repo#5"
+        )
+        self.assertEqual(pr5["verified_followup_messages"], 2)
+        self.assertEqual(pr5["followup_episodes"], 1)
+
     def test_direct_and_branch_associations_remain_separate_and_episode_labels_are_explicit(self):
         result = aggregate_native_human_steering(
             self.events, self.prs,
