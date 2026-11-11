@@ -64,11 +64,33 @@ const CHROME =
 // Resolve the bridge relative to THIS file first: the installer symlinks the skill
 // package into the runtime, so a sibling script is always present on a fresh
 // machine. `~/.local/bin` is only a fallback for hand-installed copies.
+/**
+ * The real on-disk path of THIS module.
+ *
+ * import.meta.url only knows the path the module was LOADED from. When the skill
+ * is installed as a symlink, that path is the link (e.g. ~/.agents/skills/instinct),
+ * not the target. Two things break if we use it raw:
+ *   1. the sibling bridge lookup misses (`<link-dir>/imsg-bridge.sh` does not exist),
+ *      so an installed copy silently loses iMessage;
+ *   2. the `IS_MAIN` entry check fails, because it compares that link path against
+ *      argv[1]; the module then exports without running, and the CLI prints nothing
+ *      while still exiting 0 — a probe or send that looks successful and did nothing.
+ * realpath collapses the link so both comparisons use the same file.
+ */
+function thisModuleRealPath() {
+  const loaded = fileURLToPath(import.meta.url);
+  try {
+    return fs.realpathSync(loaded);
+  } catch {
+    return loaded; // unresolvable: fall back rather than crash the CLI
+  }
+}
+
 const IMSG_BRIDGE = (() => {
   if (process.env.INSTINCT_IMSG_BRIDGE) return process.env.INSTINCT_IMSG_BRIDGE;
   // fileURLToPath, not .pathname: a pathname keeps %20 escapes, so a checkout under
   // a directory with a space would silently miss the sibling bridge.
-  const sibling = path.join(path.dirname(fileURLToPath(import.meta.url)), 'imsg-bridge.sh');
+  const sibling = path.join(path.dirname(thisModuleRealPath()), 'imsg-bridge.sh');
   if (fs.existsSync(sibling)) return sibling;
   return path.join(os.homedir(), '.local', 'bin', 'imsg-bridge.sh');
 })();
@@ -584,7 +606,7 @@ async function readMessages(page, limit) {
   // This WhatsApp build dropped .message-in/.message-out. Bubbles carry
   // [data-pre-plain-text] = "[<time>, <date>] <Sender>: ", which gives direction
   // and timestamp without depending on obfuscated class names.
-  const raw = await page.evaluate((lim) => {
+  const raw = await page.evaluate(() => {
     const nodes = [...document.querySelectorAll('[data-pre-plain-text]')];
     const out = [];
     for (const n of nodes) {
@@ -603,8 +625,13 @@ async function readMessages(page, limit) {
         id,
       });
     }
-    return out.slice(-lim);
-  }, limit);
+    // Return EVERY node. Truncating here would keep only the tail of the list, and a
+    // long message's continuation nodes sit at the tail carrying a garbage sender
+    // label ("1.") instead of the real one. reduceBubbles relies on the FIRST node
+    // per data-id for attribution, so slicing before dedup attributes our own outgoing
+    // text to the peer — including literal "VERDICT: PASS" strings that a watcher greps.
+    return out;
+  });
   return reduceBubbles(raw).slice(-limit);
 }
 
@@ -676,9 +703,17 @@ async function compose(page, text) {
   return box;
 }
 
+// Compare against the REAL module path, not the loaded one: a symlinked install must
+// still run the CLI instead of silently exporting and exiting 0.
 const IS_MAIN =
   !!process.argv[1] &&
-  path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
+  (() => {
+    try {
+      return fs.realpathSync(path.resolve(process.argv[1])) === thisModuleRealPath();
+    } catch {
+      return path.resolve(process.argv[1]) === thisModuleRealPath();
+    }
+  })();
 
 async function main() {
   const headed = process.env.INSTINCT_HEADED === '1';

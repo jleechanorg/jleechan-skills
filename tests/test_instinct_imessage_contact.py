@@ -20,6 +20,7 @@ import os
 import platform
 import re
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -256,3 +257,114 @@ class tempfile_message:  # noqa: N801 - used as a context manager, not a class
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SymlinkedInstallTest(unittest.TestCase):
+    """An installed copy is a symlink; it must still run the CLI.
+
+    import.meta.url reports the path the module was LOADED from, which for an
+    installed skill is the link, not the target. Comparing that raw against
+    argv[1] failed, so the module exported without running the CLI and printed
+    nothing while exiting 0 — a probe or send that looked successful and did
+    nothing at all.
+    """
+
+    def test_symlinked_invocation_still_prints_whoami(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            link = Path(tmp) / "instinct-link.mjs"
+            link.symlink_to(SCRIPT)
+            result = subprocess.run(
+                ["node", str(link), "whoami"],
+                capture_output=True,
+                text=True,
+                env=_clean_env(),
+                timeout=120,
+                check=False,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(
+            result.stdout.strip(),
+            "a symlinked invocation printed nothing; the entry-point check did not "
+            "resolve the link",
+        )
+        self.assertIn("transport_order", result.stdout)
+
+
+class BubbleAttributionTest(unittest.TestCase):
+    """Our own text must never be attributed to the peer.
+
+    WhatsApp re-emits one long message as several nested nodes sharing a data-id.
+    Only the FIRST carries the real sender label; continuations carry garbage like
+    "1.". Truncating the node list before deduplication keeps the tail (garbage
+    labels), so an outgoing message — including a literal "VERDICT: PASS" string a
+    watcher greps for — was attributed to the peer.
+    """
+
+    NODES = [
+        {"meta": "[12:00, 11/10/2026] Me: ", "text": "my outgoing VERDICT: PASS", "id": "A"},
+        {"meta": "[12:00, 11/10/2026] 1. ", "text": "continuation of my own text", "id": "A"},
+    ]
+
+    def test_first_node_wins_attribution(self) -> None:
+        script = (
+            "const m = await import(process.argv[1]);"
+            f"const n = {self.NODES!r};"
+            "process.stdout.write(JSON.stringify(m.reduceBubbles(n)));"
+        )
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", script, str(SCRIPT)],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        bubbles = json.loads(result.stdout.strip().splitlines()[-1])
+        self.assertEqual(len(bubbles), 1, "continuation nodes must collapse")
+        self.assertEqual(bubbles[0]["sender"], "Me")
+
+    def test_read_messages_does_not_truncate_before_dedup(self) -> None:
+        """The raw node list must be deduped before any limit is applied.
+
+        Truncating inside the page evaluate kept only the tail continuation nodes,
+        whose sender label is garbage, so the real sender was lost and our own
+        outgoing text was attributed to the peer. This is the actual defect; the
+        reduceBubbles behaviour was always correct.
+        """
+        source = SCRIPT.read_text(encoding="utf-8")
+        # The evaluate must not slice; the slice belongs after reduceBubbles.
+        self.assertNotIn(
+            "return out.slice(-lim)",
+            source,
+            "readMessages truncates the raw node list before deduplication",
+        )
+        self.assertIn(
+            "reduceBubbles(raw).slice(-limit)",
+            source,
+            "the limit must be applied AFTER reduceBubbles",
+        )
+
+    def test_slicing_after_dedup_preserves_attribution(self) -> None:
+        """Dedup must happen before truncation, or the sender label is lost."""
+        script = (
+            "const m = await import(process.argv[1]);"
+            f"const n = {self.NODES!r};"
+            "const one = m.reduceBubbles(n).slice(-1);"
+            "process.stdout.write(JSON.stringify(one));"
+        )
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", script, str(SCRIPT)],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        one = json.loads(result.stdout.strip().splitlines()[-1])
+        self.assertEqual(len(one), 1)
+        self.assertEqual(
+            one[0]["sender"],
+            "Me",
+            "slicing before dedup loses the real sender and attributes our own "
+            "text to the peer",
+        )
