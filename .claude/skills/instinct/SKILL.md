@@ -37,7 +37,7 @@ required one is unset.
 |---|---|---|
 | `INSTINCT_IMSG_CONTACT` | The peer's iMessage handle (E.164 phone or Apple ID email) | none — required for iMessage |
 | `INSTINCT_CONTACT` | The peer's WhatsApp chat title (falls back to a built-in default title) | `"Instinct WhatsApp"` |
-| `INSTINCT_IMSG_BRIDGE` | Path to `imsg-bridge.sh` | `$HOME/.local/bin/imsg-bridge.sh` |
+| `INSTINCT_IMSG_BRIDGE` | Path to `imsg-bridge.sh` | the skill's own `scripts/imsg-bridge.sh` (sibling) |
 | `INSTINCT_TRANSPORT` | Force `imessage` or `whatsapp`, disabling fallback | unset = chain |
 | `INSTINCT_READ_THEIRS` | `1` = `read` returns only the peer's messages | unset |
 | `INSTINCT_SELF` | Your own display name in the peer's WhatsApp chat. Optional: it upgrades each bubble from the attributable `?` form to an explicit `me`/`them` | unset |
@@ -46,6 +46,11 @@ required one is unset.
 The bridge is resolved as a **sibling script of this skill package**
 (`scripts/imsg-bridge.sh`), so an installed copy works with no extra step. Set
 `INSTINCT_IMSG_BRIDGE` only to point somewhere else.
+
+There is exactly **one** bridge. A hand-installed `~/.local/bin/imsg-bridge.sh` used to shadow it as a
+fallback path and carried its own defaults; it was deleted on 2026-11-10 (archived under
+`~/.local/state/backups/`). Do not reintroduce a second copy — two files with send authority is how a
+recipient guard ends up enforced in one of them only.
 
 ---
 
@@ -126,8 +131,24 @@ all when no peer is declared. Neither check needs the caller's cooperation.
 ### A hardcoded default peer is a defect, not a convenience
 
 A default handle is indistinguishable from a declared one, so every caller inherits it silently and it
-can point at anyone. `INSTINCT_IMSG_CONTACT` has **no default** and both bridge copies fail closed
-(exit 5) when it is unset. Do not reintroduce one to make a script "just work".
+can point at anyone. `INSTINCT_IMSG_CONTACT` has **no default** and the bridge fails closed (exit 5)
+when it is unset. Do not reintroduce one to make a script "just work".
+
+### This bridge messages its peer and nobody else
+
+`INSTINCT_IMSG_CONTACT` defines **the peer**, and a send reaches that peer or nothing. There is no
+second way to address a message:
+
+- `--contact-handle` may only **restate** the configured peer. A different value is refused with exit
+  `8` instead of retargeting, because an override that actually changed the destination would make
+  every recipient guard compare the target against itself. The parser refuses it whenever a peer is
+  configured, and `send` re-pins the destination once more so an environment with no peer at all still
+  fails closed rather than reaching whoever the flag named.
+- The legacy `IMSG_CONTACT_HANDLE` alias **cannot** define the peer. It is accepted for hand-installed
+  copies but is no longer a peer source: the 2026-11-09/10 incident used precisely this alias, so
+  "the configured peer" and "the send target" were the same variable and the guard passed itself.
+- To message someone else, change `INSTINCT_IMSG_CONTACT` deliberately. That is the one auditable
+  action, and it is visible in the invoking command rather than hidden in a flag.
 
 ### `read --theirs` is required for verdict-matching callers
 
