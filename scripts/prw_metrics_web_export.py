@@ -138,6 +138,57 @@ def _handoffs(record):
     return intervals or None
 
 
+FINAL_STAGE = "stage:5-final-approval"
+
+
+def _stage_events_by_pr(timeline):
+    """Stage label events per PR as (utc time, stage) from the collector's timeline (labeled events only)."""
+    by_pr = {}
+    for event in timeline or []:
+        if not isinstance(event, dict) or event.get("event") != "labeled":
+            continue
+        label = event.get("label")
+        label = label.get("name") if isinstance(label, dict) else label
+        number = _count(event.get("pr_number") if event.get("pr_number") is not None else event.get("number"))
+        when = to_utc_iso(event.get("createdAt"))
+        if isinstance(label, str) and label.startswith("stage:") and when and isinstance(event.get("repo"), str) and number is not None:
+            by_pr.setdefault(_pr_key(event["repo"], number), []).append((when, label))
+    return by_pr
+
+
+def _flow(record, stage_events=None):
+    """Whether the PR reached the final stage, and when /prw started and the final stage began.
+
+    Entries come from the PR's stage transitions and from stage label events in the timeline.
+    Start is the earliest recorded stage entry; final is the first entry into the final stage.
+    Without any stage evidence the answer is unknown (None), not "never reached".
+    """
+    record = record if isinstance(record, dict) else {}
+    starts, finals = [], []
+    for when, label in stage_events or []:
+        starts.append(when)
+        if label == FINAL_STAGE:
+            finals.append(when)
+    for transition in record.get("stage_transitions") or []:
+        if not isinstance(transition, dict):
+            continue
+        entered = to_utc_iso(_first(transition, ("entered_at", "start_at", "start")))
+        if entered:
+            starts.append(entered)
+            if (transition.get("stage") or transition.get("label")) == FINAL_STAGE:
+                finals.append(entered)
+    label = record.get("legacy_stage")
+    label_final = label == FINAL_STAGE
+    has_stage_label = isinstance(label, str) and label.startswith("stage:")
+    if not starts and not has_stage_label:
+        return None
+    return {
+        "reached_final": bool(finals) or label_final,
+        "started_at": min(starts) if starts else None,
+        "final_at": min(finals) if finals else None,
+    }
+
+
 # Strongest first, matching the usage basis precedence in _pr_row (direct > session binding > branch).
 _SCENARIO_METHODS = ("direct", "convention", "branch_associated")
 
@@ -198,7 +249,7 @@ def _scenarios_by_pr(rows):
     return grouped
 
 
-def _pr_row(metric, record, scenario):
+def _pr_row(metric, record, scenario, stage_events=None):
     repository = metric.get("repository")
     number = _count(metric.get("pr_number"))
     record = record or {}
@@ -277,6 +328,7 @@ def _pr_row(metric, record, scenario):
         "human": human,
         "human_coverage_status": metric.get("human_coverage_status"),
         "handoffs": _handoffs(record),
+        "flow": _flow(record, stage_events),
         "active_s": _number(metric.get("observed_active_wall_seconds")),
         "agent_effort_s": _number(metric.get("agent_effort_seconds")),
         "eligible_idle_s": _number(metric.get("eligible_idle_seconds")),
@@ -358,19 +410,20 @@ def _finite(value):
     return value
 
 
-def build_snapshot(summary_data, query_summary, prs, *, generated_at=None, code_version=None):
+def build_snapshot(summary_data, query_summary, prs, *, generated_at=None, code_version=None, timeline=None):
     """Build the dashboard payload. All three inputs are optional; absent means unknown."""
     # The retained-summary schema projection: only listed fields, at every depth.
     summary_data = _project_summary(summary_data)
     query_summary = query_summary if isinstance(query_summary, dict) else {}
     index = _index_prs(prs)
     scenarios = _scenarios_by_pr(query_summary.get("catalog_scenario_pr_metrics"))
+    stage_events = _stage_events_by_pr(timeline)
     rows = []
     for metric in query_summary.get("pr_metrics") or []:
         if not isinstance(metric, dict) or _count(metric.get("pr_number")) is None:
             continue
         key = _pr_key(metric.get("repository"), _count(metric.get("pr_number")))
-        rows.append(_pr_row(metric, index.get(key), scenarios.get(key)))
+        rows.append(_pr_row(metric, index.get(key), scenarios.get(key), stage_events.get(key)))
     rows.sort(key=lambda row: (row["repo"] or "", row["number"]))
     cohorts = [_cohort_row(row) for row in query_summary.get("metric_cohorts") or [] if isinstance(row, dict)]
     usage = summary_data.get("usage_summary") if isinstance(summary_data.get("usage_summary"), dict) else {}

@@ -5230,7 +5230,7 @@ def main():
                 from scripts.prw_metrics_web_export import build_snapshot, write_snapshot
             except ModuleNotFoundError:
                 from prw_metrics_web_export import build_snapshot, write_snapshot
-            write_snapshot(args.dashboard_json, build_snapshot(summary_data, query_summary, query_prs))
+            write_snapshot(args.dashboard_json, build_snapshot(summary_data, query_summary, query_prs, timeline=timeline))
             print(f"Wrote web dashboard snapshot to {args.dashboard_json}")
 
     if args.publish and args.roadmap_repo:
