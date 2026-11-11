@@ -27,7 +27,13 @@ set -uo pipefail
 # One documented name (INSTINCT_IMSG_CONTACT, registered in the env-var
 # registry). IMSG_CONTACT_HANDLE is accepted as a compatibility alias for direct
 # bridge invocations. Neither silently wins over an explicit --contact-handle.
-CONTACT_HANDLE="${INSTINCT_IMSG_CONTACT:-${IMSG_CONTACT_HANDLE:-}}"
+# THE PEER comes from INSTINCT_IMSG_CONTACT and nothing else. The legacy
+# IMSG_CONTACT_HANDLE alias below must NEVER be able to define the peer: on
+# 2026-11-09/10 it did, so "the configured peer" and "the send target" were the same
+# variable, and every guard compared the recipient against itself. A send reaches
+# exactly one configured peer; to message anyone else you change the peer.
+PEER_HANDLE="${INSTINCT_IMSG_CONTACT:-}"
+CONTACT_HANDLE="$PEER_HANDLE"
 DB="${IMSG_CHAT_DB:-$HOME/Library/Messages/chat.db}"
 
 VERB="${1:-whoami}"; shift || true
@@ -36,8 +42,12 @@ FILE=""
 THEIRS_ONLY=0
 SINCE_ROWID=0
 DB_OVERRIDE=""
-# Initialised here, not only in the --dry-run arm: line 232 reads it on EVERY
-# send, and `set -u` aborts a real send when the caller never exported it.
+# PEER_HANDLE was captured above, directly from INSTINCT_IMSG_CONTACT, and is never
+# re-derived from CONTACT_HANDLE. Re-deriving it here was the bug: it made the guard
+# compare the send target against itself and it delivered a real message.
+# Initialised here, not only in the --dry-run arm: the dry-run branch and the
+# recipient guard read it on EVERY send, and `set -u` aborts a real send when the
+# caller never exported it.
 DRY_RUN=0
 # Every option that takes a value must actually receive one: `shift 2` on a
 # trailing option would otherwise leave $1 unchanged and spin forever (errexit is
@@ -55,7 +65,19 @@ while [ $# -gt 0 ]; do
       ;;
     --file) need_value "$@"; FILE="$2"; shift 2 ;;
     --db) need_value "$@"; DB_OVERRIDE="$2"; shift 2 ;;
-    --contact-handle) need_value "$@"; CONTACT_HANDLE="$2"; shift 2 ;;
+    # CONFIRM, never RETARGET. The peer comes from INSTINCT_IMSG_CONTACT; this flag lets
+    # a caller restate the peer it intends and be told when that differs. An override
+    # that actually changed the target would let any caller reach anyone, which is
+    # precisely the shape of the 2026-11-09/10 incident. Guarded whenever a peer is
+    # configured, and re-pinned in do_send so an unconfigured call still fails closed.
+    --contact-handle)
+      need_value "$@"
+      if [ -n "$PEER_HANDLE" ] && [ "$2" != "$PEER_HANDLE" ]; then
+        echo "imsg-bridge: --contact-handle '$2' is not the configured peer '$PEER_HANDLE'; this bridge sends only to its configured peer. Change INSTINCT_IMSG_CONTACT to send elsewhere." >&2
+        exit 8
+      fi
+      CONTACT_HANDLE="$2"; shift 2
+      ;;
     # --theirs restricts read to messages the CONTACT sent. Required for any
     # caller that greps for a reply: matching our own outgoing text is a false
     # positive waiting to happen (a prompt that says "reply VERDICT: PASS|FAIL"
@@ -168,6 +190,10 @@ require_contact() {
 # --- send ---------------------------------------------------------------------
 do_send() {
   require_contact
+  # Re-pin the destination to the configured peer. The parse-time check is skipped when
+  # no peer was configured, so without this a `--contact-handle` call with an empty
+  # environment would reach whoever it named. A send reaches the peer or nobody.
+  [ "$CONTACT_HANDLE" = "$PEER_HANDLE" ] || die "refusing to send to '$CONTACT_HANDLE': this bridge sends only to its configured peer '$PEER_HANDLE'. Set INSTINCT_IMSG_CONTACT to change the peer." 8
   [ -n "$FILE" ] || die "send requires --file PATH" 2
   [ -f "$FILE" ] || die "message file not found: $FILE" 2
   local text; text="$(cat "$FILE")"
