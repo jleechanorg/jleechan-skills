@@ -121,6 +121,7 @@ registry.
 | `PRW_METRICS_MIN_INTERVAL_SEC` | Minimum seconds between scheduled collection runs (sleep catch-up deduplication) | — | `900` |
 | `PRW_METRICS_FORCE_RUN` | Force execution, bypassing the interval check (`1` or `true`) | — | `0` |
 | `PRW_METRICS_COLLECTOR_CMD` | Collector command executed by `run_prw_metrics.sh` | — | `python3 $REPO_ROOT/scripts/prw_metrics.py --roadmap-repo $PRW_METRICS_ROADMAP_REPO --state-dir $STATE_DIR` |
+| `PRW_BINDING_LEDGER` | Session-to-PR binding ledger the binding hook appends to; see [session binding](prw-session-binding.md) | — | `$HOME/.local/share/prw-metrics/bindings/session-bindings.jsonl` |
 | `PRW_METRICS_INPUT_DIR` | Path to cached scratch dataset directory | — | unset |
 | `PRW_METRICS_TELEMETRY_DIR` | Path to retained telemetry store directory | — | unset (checks `${PRW_METRICS_ROADMAP_REPO}/dashboards/prw/telemetry`) |
 | `PRW_METRICS_RECEIPTS_DIR` | Path to directory containing task receipts (`run.stats.json`, `start_*.json`, `completion_*.json`) | — | unset |
