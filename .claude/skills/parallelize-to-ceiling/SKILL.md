@@ -193,15 +193,22 @@ commands: [`references/specialist-commands.md`](references/specialist-commands.m
 
 ### /prw endpoint lanes
 
-For Claude Code, start each /prw endpoint lane as a top-level session, with
-`/prw <PR URL>` as its first prompt, so it can hold the session goal and receive its own
-background-job results (waiting rules: [pr-workflow-manager](../pr-workflow-manager/SKILL.md#terminal-goal-and-entry-contract)).
-The lane runs under the operator's existing permission settings. For another
-runtime, use its supported independent-session interface; if none is available,
-keep endpoint ownership in the coordinator and delegate only bounded steps.
-
-- cmux host: `cmux new-workspace --name "prw <repo>#<N>" --cwd <worktree> --command "claude '/prw <PR URL>'"`
-- tmux host: `tmux new-window -d -n "prw-<N>" -c <worktree> "claude '/prw <PR URL>'"`
+For Claude Code, start each `/prw` endpoint lane as a top-level session so it
+can hold the session goal and receive its own background-job results (waiting
+rules: [pr-workflow-manager](../pr-workflow-manager/SKILL.md#terminal-goal-and-entry-contract)).
+Its first prompt must be the coordinator's complete, authoritative task brief,
+including the intended `/prw <PR URL>` endpoint; a bare PR URL or command is
+not a sufficient handoff. The brief must preserve the requested endpoint and
+task scope, any stop point or no-merge hold, the pinned source/revision, the
+original authority and approval constraints, and the remaining deadline. Before
+starting `/prw` or taking other action, the lane must confirm that it accepts
+the scope and restate those constraints. If the brief is missing or conflicts
+with the coordinator's instructions, it must stop and return the discrepancy
+for resolution. The lane runs under the operator's existing permission
+settings. For another runtime, use its supported independent-session interface
+and provide the same complete brief and scope confirmation; if none is
+available, keep endpoint ownership in the coordinator and delegate only bounded
+steps.
 
 ## Isolation invariants (always, when parallelizing)
 
