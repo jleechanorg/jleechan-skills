@@ -59,6 +59,7 @@ host aliases, names and paths at `${XDG_CONFIG_HOME:-$HOME/.config}/jleechan-ski
 
 | Variable | Meaning | Derived from | Default |
 |---|---|---|---|
+| `CLAUDE_CODE_GOAL_CHECKIN_MINUTES` | Claude Code goal check-in base interval in minutes; `0` disables check-ins and automatic retries | runtime configuration | `30` (later intervals back off) |
 | `HERMES_HOME` | Hermes agent home | — | `$HOME/.hermes` if it exists; otherwise skip Hermes steps |
 | `AO_CONFIG_PATH` | Agent Orchestrator config file | — | `${HERMES_HOME:-$HOME/.hermes}/agent-orchestrator.yaml` when it exists, else required |
 | `AO_REPO_ROOT` | Local Agent Orchestrator checkout | — | required where used |
