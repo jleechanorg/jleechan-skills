@@ -231,3 +231,9 @@ test("a negative start-to-final interval is excluded as a recording conflict", (
   const t = S.oneShot([bad, flowPr(2, { followup: 0, min: 10 }), flowPr(3, { followup: 0, min: 20 }), flowPr(4, { followup: 0, min: 30 })]);
   assert.deepEqual([t.minutes.n, t.minutes.unknown], [3, 1]);
 });
+
+
+test("started count retains missing-stage coverage as unknown", () => {
+  const t = S.oneShot([flowPr(1, { flow: { reached_final: false, started_at: null, final_at: null } }), pr(2), pr(3)]);
+  assert.deepEqual(t.counts, { ok: false, started: 1, reached: 0, unknown: 2 });
+});

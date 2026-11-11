@@ -162,7 +162,7 @@
       rate: { ok: steerOk, n: s.n, ones: ones, pct: steerOk ? (100 * ones) / s.n : null, unknown: reached.length - s.n },
       steers: { ok: steerOk, n: s.n, p50: steerOk ? s.p50 : null, p90: steerOk ? s.p90 : null, unknown: reached.length - s.n },
       minutes: { ok: minOk, n: m.n, p50: minOk ? m.p50 : null, p90: minOk ? m.p90 : null, unknown: reached.length - m.n },
-      counts: { ok: started.length >= MIN_TILE_N, started: started.length, reached: reached.length },
+      counts: { ok: started.length >= MIN_TILE_N, started: started.length, reached: reached.length, unknown: rows.length - started.length },
     };
   }
 

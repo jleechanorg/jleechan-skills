@@ -179,7 +179,7 @@
       tile({ label: "Start to final stage, median / p90", value: t.minutes.ok ? minutes(t.minutes.p50) + " / " + minutes(t.minutes.p90) : null, naText: na,
         detail: sample(t.minutes, "reached final") + (t.minutes.ok ? "" : " (needs " + min + "+)") }),
       tile({ label: "Reached final stage vs started", value: t.counts.ok ? t.counts.reached.toLocaleString("en-US") + " of " + t.counts.started.toLocaleString("en-US") : null, naText: na,
-        detail: "n = " + t.counts.started.toLocaleString("en-US") + " started" + (t.counts.ok ? "" : " (needs " + min + "+)") }),
+        detail: "n = " + t.counts.started.toLocaleString("en-US") + " started · unknown: " + t.counts.unknown.toLocaleString("en-US") + (t.counts.ok ? "" : " (needs " + min + "+)") }),
     ]);
     box.style.marginBottom = "12px";
   }

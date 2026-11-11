@@ -177,8 +177,10 @@ def _flow(record, stage_events=None):
             starts.append(entered)
             if (transition.get("stage") or transition.get("label")) == FINAL_STAGE:
                 finals.append(entered)
-    label_final = record.get("legacy_stage") == FINAL_STAGE
-    if not starts and not label_final:
+    label = record.get("legacy_stage")
+    label_final = label == FINAL_STAGE
+    has_stage_label = isinstance(label, str) and label.startswith("stage:")
+    if not starts and not has_stage_label:
         return None
     return {
         "reached_final": bool(finals) or label_final,

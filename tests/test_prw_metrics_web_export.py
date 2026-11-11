@@ -272,6 +272,10 @@ class FlowTests(unittest.TestCase):
             {"stage": "stage:1-coding", "entered_at": "2026-11-01T10:00:00Z"}]})["flow"]
         self.assertEqual(flow, {"reached_final": False, "started_at": "2026-11-01T10:00:00Z", "final_at": None})
 
+    def test_nonfinal_stage_label_without_timestamps_is_started_but_untimed(self):
+        flow = self.snapshot_row({"legacy_stage": "stage:1-coding"})["flow"]
+        self.assertEqual(flow, {"reached_final": False, "started_at": None, "final_at": None})
+
     def test_no_stage_evidence_is_unknown_not_false(self):
         self.assertIsNone(self.snapshot_row({"title": "t"})["flow"])
         self.assertIsNone(self.snapshot_row()["flow"])
