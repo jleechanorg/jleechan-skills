@@ -435,6 +435,7 @@ const SEARCH = 'input[aria-label="Search or start a new chat"], input[placeholde
 const COMPOSER =
   '[data-testid="conversation-compose-box-input"], footer div[contenteditable="true"]';
 const SEND_BTN = 'footer button[aria-label="Send"], button[aria-label="Send"]';
+const READ_MORE = '[data-testid="caption-read-more-button"]';
 
 async function openContact(page, name) {
   await page.goto(WA, { waitUntil: 'domcontentloaded' });
@@ -602,10 +603,34 @@ function reduceBubbles(nodes) {
   return out;
 }
 
-async function readMessages(page, limit) {
+async function readMessages(page, limit, { warnIfTruncated = false } = {}) {
   // This WhatsApp build dropped .message-in/.message-out. Bubbles carry
   // [data-pre-plain-text] = "[<time>, <date>] <Sender>: ", which gives direction
   // and timestamp without depending on obfuscated class names.
+  // A long message collapses behind "… Read more", and the remainder is ABSENT from the
+  // DOM until that button is clicked — not merely clipped. Expand before scraping, or a
+  // reply ending in "VERDICT" reads as absent to a grepping caller.
+  //
+  // Scoped to #main (the open conversation): a page-wide selector could click a button
+  // belonging to another chat after the header guard already passed, and the scrape
+  // would then report that chat's text as the peer's.
+  const expanders = page.locator(`#main ${READ_MORE}`);
+  const collapsed = await expanders.count().catch(() => 0);
+  if (collapsed > 0) {
+    await expanders.evaluateAll((els) => els.forEach((e) => e.click())).catch(() => {});
+    // Expansion is a client-side render. Poll rather than sleep a fixed interval: the
+    // file already records (probe) that guessing a duration reported a healthy session
+    // as broken, and a slow render here silently yields the truncated text again.
+    const deadline = Date.now() + 5000;
+    for (;;) {
+      const left = await page
+        .locator(`#main ${READ_MORE}`)
+        .count()
+        .catch(() => 0);
+      if (left === 0 || Date.now() > deadline) break;
+      await page.waitForTimeout(100);
+    }
+  }
   const raw = await page.evaluate(() => {
     const nodes = [...document.querySelectorAll('[data-pre-plain-text]')];
     const out = [];
@@ -632,7 +657,23 @@ async function readMessages(page, limit) {
     // text to the peer — including literal "VERDICT: PASS" strings that a watcher greps.
     return out;
   });
-  return reduceBubbles(raw).slice(-limit);
+  const bubbles = reduceBubbles(raw).slice(-limit);
+  // A bubble that still ends in the marker means expansion did not take. Say so: silent
+  // truncation is the exact failure this function exists to prevent, and a caller that
+  // greps for a verdict would otherwise read an absent reply as "not answered yet".
+  // The marker carries an ellipsis ("… Read more"); requiring it keeps a message that
+  // legitimately ends with the words "read more" from crying wolf.
+  //
+  // Only the read verb acts on bubble text. Warning from `send`'s 3-bubble tail or
+  // `open` would add unrelated stderr noise to those success paths and dilute the
+  // signal for the callers that actually need it.
+  if (warnIfTruncated && bubbles.some((m) => /(?:…|\.\.\.)\s*read more\s*$/i.test(m.text))) {
+    process.stderr.write(
+      'instinct: WARNING a bubble is still collapsed after expanding; its tail (and any ' +
+        'verdict in it) may be missing. Re-read, or treat the tail as UNREAD.\n'
+    );
+  }
+  return bubbles;
 }
 
 // Direction is only ever reported when it is actually known.
@@ -962,7 +1003,7 @@ async function main() {
       // needs to see whether ANY bubble is ours, and a run of peer replies (the
       // normal reply-polling case) would otherwise contain none and be refused.
       const scan = wantTheirs ? Math.max(limit * 4, 40) : limit;
-      const allMsgs = await readMessages(page, scan);
+      const allMsgs = await readMessages(page, scan, { warnIfTruncated: true });
       const msgs = allMsgs.slice(-limit);
       // --theirs must filter the fallback transport too. Without this, a prompt that
       // asks for "VERDICT: PASS|FAIL|BLOCKED" matches its own outgoing text here and
@@ -1113,4 +1154,6 @@ async function main() {
 // without launching Chrome or touching the profile.
 if (IS_MAIN) main().catch((e) => die(e?.message || String(e), 1));
 
-export { reduceBubbles, formatMsg };
+// readMessages is exported so its expand-before-scrape behaviour can be driven
+// with a fake page; the click would otherwise be untestable off a live browser.
+export { reduceBubbles, formatMsg, readMessages };
