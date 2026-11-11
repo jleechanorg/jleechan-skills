@@ -24,8 +24,8 @@ gate.
 ## Retired behaviour
 
 `/pr` previously defined a five-phase sequence (Think → Execute → Push →
-Copilot → Review) that ran `/think`, `/execute`, `/push`, `/copilot` and
-`/review` as one mandatory pipeline. That contract is retired because its
+Copilot → Review) that ran a thinking step, `/execute`, a push step, `/copilot`
+and `/review` as one mandatory pipeline. That contract is retired because its
 fixed five-phase endpoint was not the canonical, evidenced `FINAL_READY`
 endpoint, and because it made automatic Copilot feedback handling a required
 phase when reviewers are advisory. It did *not* claim that a push alone was

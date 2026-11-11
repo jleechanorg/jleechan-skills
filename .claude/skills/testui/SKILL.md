@@ -1,6 +1,6 @@
 ---
 name: testui
-description: Compatibility alias for real-service browser acceptance tests through /testuif.
+description: Run real-service browser acceptance tests under the testing_ui/CLAUDE.md contract.
 ---
 
 ## ⚡ EXECUTION INSTRUCTIONS FOR CLAUDE
@@ -13,7 +13,7 @@ description: Compatibility alias for real-service browser acceptance tests throu
 ### Phase 1: Execute the real-service UI workflow
 
 **Action Steps:**
-1. Follow `testing_ui/CLAUDE.md` and the `/testuif` command for the selected real application, services, account, and runner
+1. Follow `testing_ui/CLAUDE.md` for the selected real application, services, account, and runner
 2. Do not set mock endpoints or authentication-bypass variables for acceptance
 3. Stream test output and track progress with TodoWrite as each selected test completes
 4. Collect the artifacts required by the UI evidence owner
@@ -24,27 +24,22 @@ description: Compatibility alias for real-service browser acceptance tests throu
 
 # Browser Tests Command
 
-**Purpose**: Compatibility alias for `/testuif`, which runs the repository's real-service UI acceptance workflow.
+**Purpose**: Run the repository's real-service UI acceptance workflow.
 
-**Action**: Redirect to `/testuif` without changing service or authentication configuration
+**Action**: Run the selected browser tests without changing service or authentication configuration
 
 **Usage**: `/testui`
 
-## 🔄 **Command Redirect**
+## 🔄 **Method**
 
-This command delegates to `/testuif` and follows `testing_ui/CLAUDE.md`:
+Follow `testing_ui/CLAUDE.md`:
 
-- **Same testing methodology**: Claude vision analysis, accessibility trees, visual regression
-- **Same validation protocols**: Enhanced screenshot validation, progressive baselines
-- **Same execution workflow**: `/think` → `/execute` with comprehensive testing
-- **Same documentation**: Structured PR comments with visual evidence
-
-## 📋 **Full Documentation**
-
-**See**: `/testuif` command documentation for complete details
+- **Testing methodology**: Claude vision analysis, accessibility trees, visual regression
+- **Validation protocols**: Screenshot validation, progressive baselines
+- **Execution workflow**: plan the checks, then `/execute` with comprehensive testing
+- **Documentation**: Structured PR comments with visual evidence
 
 Deterministic unit tests with mocks remain useful outside `testing_ui/`, but do
 not establish UI acceptance against the real application and services.
 
-**For complete command documentation and validation protocols, see**:
-`~/.claude/commands/extended-library/testuif.md` and `testing_ui/CLAUDE.md`.
+**For the validation protocol, see**: `testing_ui/CLAUDE.md`.

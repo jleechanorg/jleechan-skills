@@ -390,7 +390,7 @@ Commands and skills compose naturally in a single prompt:
 "/smoke and if any test fails /repro the failure then /execute the fix"
 
 # Full feature lifecycle
-"/think about user notifications /design the schema /execute with tests /green"
+"/thinku about user notifications /design the schema /execute with tests /green"
 ```
 
 ---

@@ -304,7 +304,7 @@ Based on software engineering research showing:
 - **One Change at a Time:** Implement one precise change at a time
 - **NO STOPPING:** Continue debugging until the ORIGINAL problem is completely solved
 
-## When to Use `/debugp` vs `/debug`
+## When to Use `/debugp`
 
 **Use `/debugp` for:**
 - Complex production issues requiring forensic analysis
@@ -313,18 +313,15 @@ Based on software engineering research showing:
 - Team debugging scenarios needing clear methodology
 - High-stakes debugging where validation is critical
 
-**Use `/debug` for:**
-- Routine debugging and quick issues
-- General debugging with other commands (`/debug /test`)
-- Lightweight debugging scenarios
+For routine, quick issues, debug directly (reproduce, read the failing code path, fix, re-run the failing check) without the full protocol.
 
 ## Integration with Other Commands
 
 **Enhanced Command Composition**:
 - `/debug-protocol /execute` - Apply protocol during implementation with comprehensive logging
-- `/debug-protocol /test` - Use protocol for test debugging with systematic validation
+- `/debug-protocol` on a failing test - Use protocol for test debugging with systematic validation
 - `/debug-protocol /arch` - Apply forensic methodology to architectural debugging
-- `/debug-protocol /think` - Enhanced analytical depth with protocol structure
+- `/debug-protocol /thinku` - Enhanced analytical depth with protocol structure
 - `/debug-protocol /research` - Comprehensive debugging with research-backed analysis
 - `/debug-protocol /learn` - Capture debugging insights with Memory MCP integration
 
@@ -342,9 +339,7 @@ Automatically captures debugging insights using Memory MCP:
 - Technical implementation details with file:line references
 - Reusable debugging methodologies and validation techniques
 
-**With Other Debug Commands:**
-- Can be combined with `/debug` for maximum debugging coverage
-- Complements `/debug`'s lightweight approach with comprehensive methodology
+**With Other Commands:**
 - Integrates with `/research` for research-backed debugging analysis
 - Works with `/learn` for persistent debugging knowledge capture
 

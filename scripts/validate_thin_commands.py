@@ -13,8 +13,6 @@ SKILL_REFERENCE = re.compile(
 IGNORED_COMMAND_DOCS = frozenset(
     {
         "_shared/header.md",
-        "backup-2026-06-27-team-claude-no-teamcreate/team-claude.md",
-        "backup-2026-06-27-team-claude-no-teamcreate/team-mini.md",
         "extended-library/README_EXPORT_TEMPLATE.md",
         "extended-library/pair-examples.md",
     }
