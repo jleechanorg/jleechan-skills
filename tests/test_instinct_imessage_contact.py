@@ -368,3 +368,77 @@ class BubbleAttributionTest(unittest.TestCase):
             "slicing before dedup loses the real sender and attributes our own "
             "text to the peer",
         )
+
+
+class CollapsedBubbleExpansionTest(unittest.TestCase):
+    """A collapsed bubble must be expanded before its text is read.
+
+    WhatsApp renders a long message as a short visible prefix followed by a
+    "… Read more" caption button. The hidden remainder is NOT in the DOM:
+    ``innerText`` and ``textContent`` measure the same length, so the text is
+    not merely visually clipped, it is absent until the button is clicked.
+
+    Before the fix ``readMessages`` scraped the nodes directly, so every bubble
+    over roughly 700 characters came back ending in "… Read more". A reply whose
+    ``VERDICT: PASS`` line sat at the end therefore read as *absent* to the
+    verdict-grepping callers this skill exists to serve — the failure was silent,
+    because the truncated text is well-formed and simply stops early.
+    """
+
+    SCRIPT_SRC = SCRIPT.read_text(encoding="utf-8")
+
+    def test_read_messages_clicks_the_read_more_button(self) -> None:
+        """The expander must target the real caption button selector."""
+        self.assertIn(
+            'caption-read-more-button',
+            self.SCRIPT_SRC,
+            "readMessages no longer references the read-more caption button, so a "
+            "collapsed bubble is read truncated",
+        )
+
+    def test_expansion_happens_before_the_nodes_are_scraped(self) -> None:
+        """Click first, scrape second. Order is the whole fix.
+
+        If the expansion runs after the scrape, the nodes are already truncated
+        and clicking is pointless.
+        """
+        rm_at = self.SCRIPT_SRC.find("async function readMessages")
+        self.assertGreater(rm_at, -1, "readMessages is gone")
+        # Anchor on the actual locator CALL, not on the bare selector string: the
+        # selector also appears in the comment explaining it, and matching that
+        # would only prove the comment exists.
+        expand_at = self.SCRIPT_SRC.find(
+            "caption-read-more-button", rm_at
+        )
+        scrape_at = self.SCRIPT_SRC.find(
+            "querySelectorAll('[data-pre-plain-text]')", rm_at
+        )
+        self.assertGreater(expand_at, -1, "no read-more expansion in the script")
+        self.assertGreater(scrape_at, -1, "no bubble scrape in the script")
+        self.assertLess(
+            expand_at,
+            scrape_at,
+            "the read-more expansion must run BEFORE the bubbles are scraped",
+        )
+
+    def test_read_messages_still_dedupes_after_scraping(self) -> None:
+        """The expansion must not have replaced the attribution fix."""
+        self.assertIn(
+            "reduceBubbles(raw).slice(-limit)",
+            self.SCRIPT_SRC,
+            "readMessages must still dedupe before applying the limit",
+        )
+
+    def test_expansion_is_skipped_when_nothing_is_collapsed(self) -> None:
+        """No collapsed bubbles must mean no click, so short reads stay cheap.
+
+        The count is taken first and the click is guarded by it; an unconditional
+        click sequence would pay a round trip on every read.
+        """
+        idx = self.SCRIPT_SRC.find("caption-read-more-button")
+        window = self.SCRIPT_SRC[idx : idx + 700]
+        self.assertIn(
+            "if (collapsed > 0)",
+            window,
+            "the expansion must be conditional on at least one collapsed bubble",
+        )

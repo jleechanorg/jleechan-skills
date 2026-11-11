@@ -606,6 +606,21 @@ async function readMessages(page, limit) {
   // This WhatsApp build dropped .message-in/.message-out. Bubbles carry
   // [data-pre-plain-text] = "[<time>, <date>] <Sender>: ", which gives direction
   // and timestamp without depending on obfuscated class names.
+  // A long message collapses behind "… Read more", and the remainder is ABSENT from the
+  // DOM until that button is clicked — not merely clipped. Expand before scraping, or a
+  // reply ending in "VERDICT" reads as absent to a grepping caller.
+  const collapsed = await page
+    .locator('[data-testid="caption-read-more-button"]')
+    .count()
+    .catch(() => 0);
+  if (collapsed > 0) {
+    await page
+      .locator('[data-testid="caption-read-more-button"]')
+      .evaluateAll((els) => els.forEach((e) => e.click()))
+      .catch(() => {});
+    // Expansion is a client-side render; give it a tick before reading.
+    await page.waitForTimeout(400);
+  }
   const raw = await page.evaluate(() => {
     const nodes = [...document.querySelectorAll('[data-pre-plain-text]')];
     const out = [];
@@ -1104,7 +1119,6 @@ async function main() {
     }, { headed });
     return;
   }
-
 
   die(`unknown verb "${VERB}"; use login | probe | read | open | send | whoami`);
 }
