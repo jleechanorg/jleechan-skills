@@ -138,6 +138,36 @@ def _handoffs(record):
     return intervals or None
 
 
+FINAL_STAGE = "stage:5-final-approval"
+
+
+def _flow(record):
+    """Whether the PR reached the final stage, and when /prw started and the final stage began.
+
+    Start is the earliest recorded stage entry; final is the first entry into the final stage.
+    Without any stage evidence the answer is unknown (None), not "never reached".
+    """
+    if not isinstance(record, dict):
+        return None
+    starts, finals = [], []
+    for transition in record.get("stage_transitions") or []:
+        if not isinstance(transition, dict):
+            continue
+        entered = to_utc_iso(_first(transition, ("entered_at", "start_at", "start")))
+        if entered:
+            starts.append(entered)
+            if (transition.get("stage") or transition.get("label")) == FINAL_STAGE:
+                finals.append(entered)
+    label_final = record.get("legacy_stage") == FINAL_STAGE
+    if not starts and not label_final:
+        return None
+    return {
+        "reached_final": bool(finals) or label_final,
+        "started_at": min(starts) if starts else None,
+        "final_at": min(finals) if finals else None,
+    }
+
+
 # Strongest first, matching the usage basis precedence in _pr_row (direct > session binding > branch).
 _SCENARIO_METHODS = ("direct", "convention", "branch_associated")
 
@@ -277,6 +307,7 @@ def _pr_row(metric, record, scenario):
         "human": human,
         "human_coverage_status": metric.get("human_coverage_status"),
         "handoffs": _handoffs(record),
+        "flow": _flow(record),
         "active_s": _number(metric.get("observed_active_wall_seconds")),
         "agent_effort_s": _number(metric.get("agent_effort_seconds")),
         "eligible_idle_s": _number(metric.get("eligible_idle_seconds")),

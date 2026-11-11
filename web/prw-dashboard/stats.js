@@ -137,6 +137,35 @@
     };
   }
 
+  var MIN_TILE_N = 3;
+
+  /**
+   * Headline "one-shot" figures over the given rows. Reached final = a final-stage entry (or label) was
+   * recorded; started = any stage evidence. Steers = verified follow-up human messages; an unknown steer
+   * count or an unusable start-to-final interval is excluded and counted as unknown, never zero.
+   * Below MIN_TILE_N observations a tile reports ok:false and no figure.
+   */
+  function oneShot(rows) {
+    var started = rows.filter(function (pr) { return pr.flow; });
+    var reached = started.filter(function (pr) { return pr.flow.reached_final; });
+    var steerRows = reached.filter(function (pr) { return pr.human && typeof pr.human.followup === "number"; });
+    var steers = steerRows.map(function (pr) { return pr.human.followup; });
+    var minutes = [];
+    reached.forEach(function (pr) {
+      var a = ms(pr.flow.started_at), b = ms(pr.flow.final_at);
+      if (a !== null && b !== null && b >= a) minutes.push((b - a) / 60e3);
+    });
+    var s = summarize(steers), m = summarize(minutes);
+    var ones = steers.filter(function (v) { return v === 0; }).length;
+    var steerOk = s.n >= MIN_TILE_N, minOk = m.n >= MIN_TILE_N;
+    return {
+      rate: { ok: steerOk, n: s.n, ones: ones, pct: steerOk ? (100 * ones) / s.n : null, unknown: reached.length - s.n },
+      steers: { ok: steerOk, n: s.n, p50: steerOk ? s.p50 : null, p90: steerOk ? s.p90 : null, unknown: reached.length - s.n },
+      minutes: { ok: minOk, n: m.n, p50: minOk ? m.p50 : null, p90: minOk ? m.p90 : null, unknown: reached.length - m.n },
+      counts: { ok: started.length >= MIN_TILE_N, started: started.length, reached: reached.length },
+    };
+  }
+
   /** Calendar-day key in UTC or a fixed-offset zone label resolved by the caller. */
   function dayKey(msValue, timeZone) {
     var parts = new Intl.DateTimeFormat("en-CA", {
@@ -230,7 +259,7 @@
 
   return {
     quantile: quantile, summarize: summarize, filterPrs: filterPrs, aggregate: aggregate,
-    windowFilter: windowFilter, statusChip: statusChip, episodeCounts: episodeCounts,
+    windowFilter: windowFilter, oneShot: oneShot, MIN_TILE_N: MIN_TILE_N, statusChip: statusChip, episodeCounts: episodeCounts,
     mergedIn: mergedIn, inRange: inRange, sizeBand: sizeBand, dailyMerges: dailyMerges, histogram: histogram,
     ELAPSED_EDGES: ELAPSED_EDGES, ELAPSED_LABELS: ELAPSED_LABELS,
     TOKEN_EDGES: TOKEN_EDGES, TOKEN_LABELS: TOKEN_LABELS,

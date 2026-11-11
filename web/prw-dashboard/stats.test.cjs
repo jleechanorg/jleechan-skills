@@ -185,3 +185,49 @@ test("a PR with zero verified steering messages is not counted as having verifie
   assert.equal(agg.humanN, S.filterPrs(rows, { ...range, attribution: "human" }).length);
   assert.deepEqual([agg.humanN, agg.human.sum], [1, 3]);
 });
+
+function flowPr(n, o = {}) {
+  const row = pr(n);
+  if (o.followup !== undefined) row.human = { verified_messages: o.followup + 1, followup: o.followup };
+  if (o.flow !== undefined) row.flow = o.flow;
+  else if (o.min !== undefined) row.flow = { reached_final: true, started_at: iso(T0), final_at: iso(T0 + o.min * 60e3) };
+  return row;
+}
+
+test("one-shot tiles: rate, steers and minutes use only known inputs with their own n", () => {
+  const rows = [
+    flowPr(1, { followup: 0, min: 30 }), flowPr(2, { followup: 0, min: 60 }), flowPr(3, { followup: 2, min: 90 }),
+    flowPr(4, { followup: 5, min: 120 }), flowPr(5, { min: 45 }), // steers unknown: excluded, never zero
+    flowPr(6, { followup: 0, flow: { reached_final: false, started_at: iso(T0), final_at: null } }),
+    flowPr(7, { followup: 1, flow: { reached_final: true, started_at: null, final_at: null } }), // reached, untimed
+    pr(8), // no stage evidence: not started
+  ];
+  const t = S.oneShot(rows);
+  assert.deepEqual([t.counts.reached, t.counts.started, t.counts.ok], [6, 7, true]);
+  assert.deepEqual([t.rate.ok, t.rate.n, t.rate.ones, t.rate.unknown], [true, 5, 2, 1]);
+  assert.equal(Math.round(t.rate.pct), 40);
+  assert.deepEqual([t.steers.n, t.steers.p50, t.steers.p90, t.steers.unknown], [5, 1, 5, 1]);
+  assert.deepEqual([t.minutes.n, t.minutes.p50, t.minutes.p90, t.minutes.unknown], [5, 60, 120, 1]);
+});
+
+test("one-shot tiles refuse a number below three observations", () => {
+  const t = S.oneShot([flowPr(1, { followup: 0, min: 10 }), flowPr(2, { followup: 0, min: 20 })]);
+  for (const k of ["rate", "steers", "minutes", "counts"]) assert.equal(t[k].ok, false, k);
+  assert.equal(t.rate.n, 2);
+  assert.equal(t.rate.pct, null);
+  assert.equal(t.steers.p50, null);
+  assert.equal(t.minutes.p90, null);
+});
+
+test("one-shot tiles with no flow or steering data are empty, not zero", () => {
+  const t = S.oneShot([pr(1), pr(2), pr(3)]);
+  assert.deepEqual([t.counts.reached, t.counts.started, t.counts.ok], [0, 0, false]);
+  assert.deepEqual([t.rate.n, t.rate.ok, t.rate.unknown], [0, false, 0]);
+  assert.equal(S.oneShot([]).rate.ok, false);
+});
+
+test("a negative start-to-final interval is excluded as a recording conflict", () => {
+  const bad = flowPr(1, { followup: 0, flow: { reached_final: true, started_at: iso(T0 + 3600e3), final_at: iso(T0) } });
+  const t = S.oneShot([bad, flowPr(2, { followup: 0, min: 10 }), flowPr(3, { followup: 0, min: 20 }), flowPr(4, { followup: 0, min: 30 })]);
+  assert.deepEqual([t.minutes.n, t.minutes.unknown], [3, 1]);
+});

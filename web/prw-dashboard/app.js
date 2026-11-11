@@ -164,6 +164,25 @@
   function dist(sum, fmt) {
     return "mean " + fmt(sum.mean) + " · p90 " + fmt(sum.p90) + " · p99 " + fmt(sum.p99);
   }
+  function renderOneShot(rows) {
+    var t = S.oneShot(rows), box = clear($("oneshot"));
+    var min = S.MIN_TILE_N, na = "Not enough data";
+    function sample(x, noun) {
+      return "n = " + x.n.toLocaleString("en-US") + " " + noun + " · unknown: " + x.unknown.toLocaleString("en-US");
+    }
+    function minutes(v) { return v < 90 ? Math.round(v) + " min" : S.formatDuration(v * 60); }
+    append(box, [
+      tile({ label: "One-shot rate (0 human steers)", value: t.rate.ok ? t.rate.ones + " of " + t.rate.n + " · " + t.rate.pct.toFixed(0) + "%" : null, naText: na,
+        detail: sample(t.rate, "reached final") + (t.rate.ok ? "" : " (needs " + min + "+)") }),
+      tile({ label: "Human steers per PR, median / p90", value: t.steers.ok ? t.steers.p50 + " / " + t.steers.p90 : null, naText: na,
+        detail: sample(t.steers, "reached final") + (t.steers.ok ? "" : " (needs " + min + "+)") }),
+      tile({ label: "Start to final stage, median / p90", value: t.minutes.ok ? minutes(t.minutes.p50) + " / " + minutes(t.minutes.p90) : null, naText: na,
+        detail: sample(t.minutes, "reached final") + (t.minutes.ok ? "" : " (needs " + min + "+)") }),
+      tile({ label: "Reached final stage vs started", value: t.counts.ok ? t.counts.reached.toLocaleString("en-US") + " of " + t.counts.started.toLocaleString("en-US") : null, naText: na,
+        detail: "n = " + t.counts.started.toLocaleString("en-US") + " started" + (t.counts.ok ? "" : " (needs " + min + "+)") }),
+    ]);
+    box.style.marginBottom = "12px";
+  }
   function renderCards(rows, agg) {
     var box = clear($("cards")), N = agg.total;
     append(box, [
@@ -644,6 +663,7 @@
     var f = currentFilter(), rows = S.filterPrs(data.prs, f), agg = S.aggregate(rows, f);
     current = { rows: rows, agg: agg };
     renderHeader();
+    renderOneShot(rows);
     renderCards(rows, agg);
     renderDaily(rows, f);
     var merged = rows.filter(function (pr) { return S.mergedIn(pr, f.startMs, f.endMs); });

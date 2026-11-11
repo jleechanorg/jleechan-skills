@@ -240,6 +240,52 @@ class PayloadTests(unittest.TestCase):
             self.assertEqual(json.loads(target.read_text())["schema_version"], 1)
 
 
+class FlowTests(unittest.TestCase):
+    """Final-stage reach and start-to-final timing used by the one-shot tiles."""
+
+    def snapshot_row(self, record=None, **metric_overrides):
+        prs = [dict(record, repo="acme/app", number=1)] if record is not None else []
+        return export.build_snapshot({}, query([metric(1, **metric_overrides)]), prs)["prs"][0]
+
+    def test_final_transition_gives_reach_and_minutes_source_timestamps(self):
+        flow = self.snapshot_row({"stage_transitions": [
+            {"stage": "stage:1-coding", "entered_at": "2026-11-01T10:00:00Z", "exited_at": "2026-11-01T11:00:00Z"},
+            {"stage": "stage:0-spec", "entered_at": "2026-11-01T09:30:00Z", "exited_at": "2026-11-01T10:00:00Z"},
+            {"stage": "stage:5-final-approval", "entered_at": "2026-11-01T12:00:00Z"},
+        ]})["flow"]
+        self.assertEqual(flow, {"reached_final": True, "started_at": "2026-11-01T09:30:00Z", "final_at": "2026-11-01T12:00:00Z"})
+
+    def test_first_entry_into_final_is_used(self):
+        flow = self.snapshot_row({"stage_transitions": [
+            {"stage": "stage:5-final-approval", "start_at": "2026-11-01T14:00:00Z"},
+            {"stage": "stage:1-coding", "start_at": "2026-11-01T09:00:00Z"},
+            {"stage": "stage:5-final-approval", "start_at": "2026-11-01T12:00:00Z"},
+        ]})["flow"]
+        self.assertEqual(flow["final_at"], "2026-11-01T12:00:00Z")
+
+    def test_final_stage_label_without_timestamp_is_reached_but_untimed(self):
+        flow = self.snapshot_row({"legacy_stage": "stage:5-final-approval"})["flow"]
+        self.assertEqual(flow, {"reached_final": True, "started_at": None, "final_at": None})
+
+    def test_never_final_is_not_reached(self):
+        flow = self.snapshot_row({"legacy_stage": "stage:1-coding", "stage_transitions": [
+            {"stage": "stage:1-coding", "entered_at": "2026-11-01T10:00:00Z"}]})["flow"]
+        self.assertEqual(flow, {"reached_final": False, "started_at": "2026-11-01T10:00:00Z", "final_at": None})
+
+    def test_no_stage_evidence_is_unknown_not_false(self):
+        self.assertIsNone(self.snapshot_row({"title": "t"})["flow"])
+        self.assertIsNone(self.snapshot_row()["flow"])
+
+    def test_steer_count_is_verified_followups_and_unknown_stays_null(self):
+        known = self.snapshot_row(None, human_coverage_status="OBSERVED_SCOPE_ONLY", raw_verified_human_message_count=3,
+                                  verified_initial_human_message_count=1, verified_followup_human_message_count=2)
+        self.assertEqual(known["human"]["followup"], 2)
+        zero = self.snapshot_row(None, human_coverage_status="OBSERVED_SCOPE_ONLY", raw_verified_human_message_count=1,
+                                 verified_initial_human_message_count=1, verified_followup_human_message_count=0)
+        self.assertEqual(zero["human"]["followup"], 0)
+        self.assertIsNone(self.snapshot_row(None)["human"])
+
+
 @unittest.skipUnless(shutil.which("node"), "node is not installed")
 class FrontendStatsTests(unittest.TestCase):
     def test_frontend_statistics(self):
