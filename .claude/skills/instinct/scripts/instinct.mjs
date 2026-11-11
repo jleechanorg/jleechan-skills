@@ -1127,4 +1127,6 @@ async function main() {
 // without launching Chrome or touching the profile.
 if (IS_MAIN) main().catch((e) => die(e?.message || String(e), 1));
 
-export { reduceBubbles, formatMsg };
+// readMessages is exported so its expand-before-scrape behaviour can be driven
+// with a fake page; the click would otherwise be untestable off a live browser.
+export { reduceBubbles, formatMsg, readMessages };
