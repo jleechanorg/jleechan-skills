@@ -37,7 +37,7 @@ required one is unset.
 |---|---|---|
 | `INSTINCT_IMSG_CONTACT` | The peer's iMessage handle (E.164 phone or Apple ID email) | none — required for iMessage |
 | `INSTINCT_CONTACT` | The peer's WhatsApp chat title (falls back to a built-in default title) | `"Instinct WhatsApp"` |
-| `INSTINCT_IMSG_BRIDGE` | Path to `imsg-bridge.sh` | `$HOME/.local/bin/imsg-bridge.sh` |
+| `INSTINCT_IMSG_BRIDGE` | Path to `imsg-bridge.sh` | the skill's own `scripts/imsg-bridge.sh` (sibling) |
 | `INSTINCT_TRANSPORT` | Force `imessage` or `whatsapp`, disabling fallback | unset = chain |
 | `INSTINCT_READ_THEIRS` | `1` = `read` returns only the peer's messages | unset |
 | `INSTINCT_SELF` | Your own display name in the peer's WhatsApp chat. Optional: it upgrades each bubble from the attributable `?` form to an explicit `me`/`them` | unset |
@@ -46,6 +46,11 @@ required one is unset.
 The bridge is resolved as a **sibling script of this skill package**
 (`scripts/imsg-bridge.sh`), so an installed copy works with no extra step. Set
 `INSTINCT_IMSG_BRIDGE` only to point somewhere else.
+
+There is exactly **one** bridge. A hand-installed `~/.local/bin/imsg-bridge.sh` used to shadow it as a
+fallback path, carried its own defaults, and was deleted on 2026-11-10 (archived under
+`~/.local/state/backups/`). Do not reintroduce a second copy: two files with send authority is how the
+recipient guard ends up enforced in one of them only.
 
 ---
 
