@@ -162,6 +162,18 @@ class TestRecords(unittest.TestCase):
         self.assertEqual([r["pr"] for r in recs], ["acme/app#42"])
         self.assertEqual(git.calls, ["/x"])
 
+    def test_unrecognised_command_shapes_give_nothing(self):
+        for cmd in ("FOO=1 cd /different/repo && gh pr checkout 42",
+                    "builtin cd /x && gh pr checkout 5", "command cd /x && gh pr checkout 5",
+                    "true | cd /x && gh pr checkout 5",
+                    "GH_REPO=x/y gh pr checkout 5", "GIT_DIR=/o/.git git switch x",
+                    "export GH_REPO=x/y && gh pr checkout 5", "env GH_REPO=x/y gh pr checkout 5",
+                    "gh pr checkout 42 && git --git-dir=.git switch other",
+                    "cd $REPO && git switch x", "cd `pwd`/x && git switch x",
+                    "git -C $R switch x"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(run(post(cmd))[0], [])
+
     def test_checkout_url(self):
         recs, _ = run(post("gh pr checkout https://github.com/acme/web/pull/9"))
         self.assertEqual(recs[0]["pr"], "acme/web#9")
@@ -208,7 +220,7 @@ class TestRecords(unittest.TestCase):
 
     def test_later_segment(self):
         for cmd in ("cd repo && gh pr checkout 5", "git fetch; gh pr checkout 5",
-                    "true | gh pr checkout 5", "FOO=1 gh pr checkout 5",
+                    "true | gh pr checkout 5",
                     "echo hi\ngh pr checkout 5"):
             with self.subTest(cmd=cmd):
                 recs, _ = run(post(cmd))
