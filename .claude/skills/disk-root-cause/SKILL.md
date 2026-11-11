@@ -110,11 +110,11 @@ Per-directory snapshot deltas locate growers but remain directory aggregates. Th
 
 ## Phase 2 — parallel-subagent fan-out (when scope demands it)
 
-Single-pass `du` answers questions fast (<2 min). When the attribution crosses the boundary into "find everything growing in category X", fan out via /swarm:
+For a point size query on an individual file, report that file's size. A parent `du` total locates a directory; it never replaces descent at or above 100 MiB. When the attribution crosses the boundary into "find everything growing in category X", fan out via /swarm:
 
 | Lane | Fan-out scope | Sample prompt shape |
 |---|---|---|
-| **lane-audit** | Safe-safe-reclaim inventory across dev caches, worktrees, AO sessions, /tmp, ~/Library/Caches | "Estimate safe-delete inventory from <scope>. Run each cleanup in DRY-RUN. NEVER delete. Hand-rm forbidden. NEVER touch never-delete list." |
+| **lane-audit** | Reclaim-candidate inventory across dev caches, worktrees, AO sessions, /tmp, and Library caches | "Descend each directory at or above 100 MiB; measure file-level size/activity. Use cleanup previews and preserve their delete gates. Report unfinished paths and skip reasons." |
 | **lane-history** | Snapshot-history growth attribution | "From the state repository reported by `diskm state status`, identify directory aggregates that grew between <floor-sha> and HEAD; treat these as navigation hints and itemize any current directory at or above 100 MiB before attributing or estimating reclaim. Cite commit SHAs." |
 | **lane-tmp** | /private/tmp live holders vs orphan candidates | "Use directory sizes to locate candidates; descend each directory at or above 100 MiB to files and smaller directories. List each terminal item's size, age, open-handle/cwd owner, and cleanup gate." |
 | **lane-colima** | Colima sparse-disk inflation + recovery sequence | "Measure the VM image file and its allocation; do not treat the enclosing ~/.colima directory total as itemized. Run the authorized fstrim sequence and measure its result. NEVER docker prune -af." |
