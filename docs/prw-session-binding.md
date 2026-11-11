@@ -13,12 +13,12 @@ Specification: [docs/specs/prw-session-binding-spec.md](specs/prw-session-bindin
 | Event | Record |
 |---|---|
 | Session start | `session_start` with repository, branch and commit |
-| `gh pr create` whose output has exactly one PR URL | `pr_binding` for that PR |
-| `gh pr checkout <number or URL>` that did not fail, with `-R`/`--repo` honoured | `pr_binding` for that PR |
-| `git push`, `git switch`, `git checkout`, `git worktree add` | `branch` with the branch and commit afterwards |
+| `gh pr create` whose output has exactly one PR URL | `pr_binding` for that URL's PR |
+| `gh pr checkout <full PR URL>` that did not fail | `pr_binding` for that URL's PR |
+| `git push`, `git switch`, `git checkout`, `git worktree add`, optionally with a literal `git -C <dir>` | `branch` with the branch and commit afterwards |
 | Stop, subagent stop | `stop` |
 
-Reading a PR (`gh pr view`, `list`, `checks`, `diff`, comments, reviews) records nothing. A command records nothing when any `cd`, `gh pr checkout`, `gh pr create`, `git switch`, `git checkout`, `git push` or `git worktree add` in it may not have run or may have failed unseen: a later `;`, `||`, `|`, `&` or newline could hide its exit status, or a `||` before it may have skipped it. It also records nothing when a checkout or creation does not resolve to exactly one PR. `gh pr create` counts only when every other command in the line is a `cd` and its output is not redirected, so the URL can only be its own. When one command holds several of these, the last checkout, creation or `git switch`/`git checkout` decides. Repository and branch are read where the deciding command ran: after a plain `cd <dir>`, and in the `git -C` directory. A `cd` inside parentheses or after a `|`, `cd` with no or `-` argument or with `$` or a backtick in it, `pushd`/`popd`, `--git-dir`, `--work-tree` and a `$` or backtick in `git -C` make that place unknown, so nothing is recorded. The hook fails closed on anything else: a command records nothing unless every part of it runs one of `cd`, `gh`, `git`, `echo`, `printf`, `true`, `false`, `pwd`, `ls`, `cat`, `test`, `[`, `sleep`, `grep`, `head`, `tail`, `wc`, `jq`, `sort` or `date` by its bare name, with no variable assignment before `cd`, `gh` or `git` (such as `GH_REPO=`), and every `git` subcommand and `gh pr` subcommand is one it knows (aliases, `gh pr merge` and `git rebase`, for example, are not). Shell keywords (`if`, `for`, `{`, `!`), wrappers (`env`, `sudo`, `command`), `set`, `export`, executable paths (`/usr/bin/git`), `git stash`, a variable assignment on its own (`GH_REPO=x &&`, `CDPATH=`) and any `$(...)` or backtick substitution therefore record nothing.
+Coverage is a deliberate lower bound. Each row counts only as one simple command: literally `gh pr ...` or `git ...` with nothing else in the line apart from a trailing `;`, no condition, grouping, pipe, redirection, assignment, alias, executable path or `$(...)`/backtick substitution. A PR is bound only from a fully qualified `github.com/<owner>/<repo>/pull/<N>` URL. A bare number, `-R`/`--repo`, `gh repo set-default`, fork remotes, `gh pr create --dry-run`/`--web` and every other form record nothing, so the hook never guesses which repository gh resolved. Reading a PR (`gh pr view`, `list`, `checks`, `diff`, comments, reviews) records nothing.
 
 The ledger holds only: schema version, timestamp, runtime, session id, kind, repository, branch, commit, PR and source. It never holds command text, prompts, tool output or paths. It names private repositories and branches, so it stays on the host.
 
@@ -64,7 +64,7 @@ The script path above assumes the sync workflow installs it under `~/.claude/scr
 |---|---|
 | Hook unit tests (Claude payload shape) | Pass |
 | Hook invoked directly with a Claude-shaped `SessionStart` payload in a scratch repository | Wrote a correct record |
-| Hook fired by a real Claude Code session | Pass: a headless `claude -p --settings` session (Claude Code 2.1.310) running `gh pr view`, `gh pr checkout` and `git switch` wrote `session_start`, `pr_binding`, `branch` and `stop`, and nothing for `gh pr view`. Earlier attempts launched from inside another agent session wrote no records; this run first unset that session's `CLAUDECODE` and `CLAUDE_CODE_*` session variables. Which variable mattered was not isolated. |
+| Hook fired by a real Claude Code session | Pass at `efab4368`, an earlier hook revision, which bound the run's `gh pr checkout <number> -R <owner/repo>`; the narrowed hook's URL-only checkout binding has not been re-run in a real session (unverified). That run: a headless `claude -p --settings` session (Claude Code 2.1.310) running `gh pr view`, `gh pr checkout` and `git switch` wrote `session_start`, `pr_binding`, `branch` and `stop`, and nothing for `gh pr view`. Earlier attempts launched from inside another agent session wrote no records; this run first unset that session's `CLAUDECODE` and `CLAUDE_CODE_*` session variables. Which variable mattered was not isolated. |
 | Hook `session_id` equals the transcript's session id | Pass, same run |
 | Collector on that session's transcript with `--session-bindings` | Pass: the request issued while bound was credited to the PR; requests before the checkout and after the switch were not |
 | Codex payload field names; Codex child threads | **Not verified.** No Codex session was run. |
@@ -85,6 +85,7 @@ cat "$S/ledger.jsonl"   # expect session_start, branch, stop with one session_id
 - A coordinator session that drives several PRs is attributed to the PR it last created or checked out. Usage before its first binding stays unattributed.
 - Child agents inherit a binding only when they share the parent's session id.
 - A PR created outside an agent session produces no binding.
-- `gh pr checkout <number>` without `-R`/`--repo` is bound to the `origin` remote's repository. In a fork checkout where `gh` resolves a different base repository, the binding names the wrong repository; pass `-R` or a PR URL there.
+- Most real binding commands are not recorded: `gh pr checkout <number>`, `git push ... && gh pr create`, `cd x && gh pr checkout ...`. Only the simple forms above count.
+- A branch change the hook does not record (a compound or unmodelled `git switch`) does not clear an earlier binding; the session stays credited to that PR until its next recorded binding or branch record.
 - The ledger is append-only with no rotation or size cap.
 - Crediting a whole request to the bound PR is an inference from the session's last declared PR. It is labelled as session-bound wherever it is shown, separate from requests that name a PR directly.

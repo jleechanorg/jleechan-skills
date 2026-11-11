@@ -18,28 +18,13 @@ SESSION_RE = re.compile(r"[A-Za-z0-9_.:-]{1,128}")
 REPO_RE = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 SHA_RE = re.compile(r"[0-9a-fA-F]{7,64}")
 PR_URL_RE = re.compile(r"github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/pull/([0-9]+)")
+PR_URL_FULL_RE = re.compile(r"(?:https?://)?github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/pull/([0-9]+)/?")
 HEREDOC_RE = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1[^\n]*\n.*?(?:\n[ \t]*\2[ \t]*(?=\n|$)|\Z)", re.S)
 SEP_CHARS = set(";&|()\n")
 SHELLS = {"bash", "sh", "zsh", "dash", "ksh", "fish"}
 MAX_BYTES = 1024
 DEFAULT_LEDGER = "~/.local/share/prw-metrics/bindings/session-bindings.jsonl"
 GIT_TIMEOUT = 2
-STATE_VERBS = {("gh", "create"), ("gh", "checkout"), ("git", "switch"), ("git", "checkout"),
-               ("git", "push"), ("git", "worktree add")}
-# Fail closed: a command records something only when every segment runs one of
-# these programs (by bare name) and every gh/git subcommand is known. Anything
-# else (keywords, wrappers, paths, aliases, other programs) may change the
-# directory, environment or branch, so the outcome is unknown.
-PROGRAMS = {"cd", "gh", "git", "echo", "printf", "true", "false", "pwd", "ls", "cat", "test",
-            "[", "sleep", "grep", "head", "tail", "wc", "jq", "sort", "date"}
-GIT_READ = {"status", "log", "diff", "show", "fetch", "rev-parse", "rev-list", "branch", "remote",
-            "add", "commit", "tag", "ls-files", "ls-remote", "blame", "grep", "describe",
-            "cat-file", "merge-base", "shortlog", "worktree"}
-GH_PR_READ = {"view", "list", "checks", "diff", "comment", "review", "edit", "ready", "close",
-              "reopen", "status"}
-GH_GROUPS = {"pr", "issue", "repo", "run", "api", "auth", "release", "gist", "workflow", "search",
-             "label", "browse", "status", "secret", "variable", "cache", "project"}
-ASSIGN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*")
 
 
 def _valid_repo(v):
@@ -98,14 +83,7 @@ def _norm_sep(sep):
 
 
 def _segments(command):
-    """Yield (tokens, status_known, grouped, piped) per command segment, ignoring quoted/heredoc text.
-
-    status_known is True only when every later separator is `&&` (a single
-    trailing `;` aside) and the segment surely ran: no `||` right before it or
-    its pipeline, or anywhere before it when the command groups with parentheses. Then the
-    command's exit status reflects this segment. piped is True after a `|`
-    (the segment runs in a subshell).
-    """
+    """Return (segments, separators, grouped) of a command, ignoring quoted/heredoc text."""
     command = HEREDOC_RE.sub("\n", command)
     lex = shlex.shlex(command, posix=True, punctuation_chars=";&|()\n")
     lex.whitespace = " \t\r"
@@ -125,26 +103,12 @@ def _segments(command):
         segs.append(seg)
         seps.append("")
     grouped = any(c in s for s in seps for c in "()")
-    seps = [_norm_sep(s) for s in seps]
-    for n, seg in enumerate(segs):
-        k = n - 1
-        while k >= 0 and seps[k] == "|":  # a pipeline binds tighter than `||`
-            k -= 1
-        before = seps[k:k + 1] if not grouped and k >= 0 else seps[:max(k + 1, 0)]
-        ran = "||" not in before
-        yield (seg, ran and all(s == "&&" for s in seps[n:-1]) and seps[-1] in ("", ";", "\0"),
-               grouped, n > 0 and seps[n - 1] == "|")
+    return segs, [_norm_sep(s) for s in seps], grouped
 
 
 def _classify(seg):
-    """Return (tool, verb, args, git -C directory or None) for a segment, or None."""
-    i = 0
-    while i < len(seg) and ASSIGN_RE.fullmatch(seg[i]):
-        i += 1
-    if i >= len(seg):
-        return None
-    prog = seg[i]
-    rest = seg[i + 1:]
+    """Return (tool, verb, args, git -C directory or None) for a gh/git segment, or None."""
+    prog, rest = seg[0], seg[1:]
     if prog == "gh":
         repo_flag = []
         while rest and (rest[0] in ("-R", "--repo") or rest[0].startswith("--repo=")):
@@ -240,93 +204,50 @@ def records_for(payload, runtime, git, now=None):
         return []
     output = _output_text(resp)
 
-    # The last checkout, creation or branch switch decides; git state is read
-    # where that command ran (after `cd`, honouring `git -C`). Any directory or
-    # state change that may not have run, or whose result is unresolved, makes
-    # the outcome unknown, so the command records nothing.
-    pr = source = branch_source = None
-    here = where = cwd
-    if "`" in command or "$(" in command:  # a substituted command may change state
+    # Coverage is a deliberate lower bound: only one simple command (no other
+    # command, condition, grouping, assignment, alias, path or substitution)
+    # counts, and a PR is bound only from a fully qualified URL, never from a
+    # number or from gh's repository resolution.
+    if "`" in command or "$(" in command:
         return []
     try:
-        segs = list(_segments(command))
+        segs, seps, grouped = _segments(command)
     except ValueError:
         return []
-    for seg, status_known, grouped, piped in segs:
-        lead = 0
-        while lead < len(seg) and ASSIGN_RE.fullmatch(seg[lead]):
-            lead += 1
-        prog = seg[lead] if lead < len(seg) else None
-        # An assignment alone persists for later segments (GH_REPO=, CDPATH=).
-        if prog is None and lead or prog is not None and (
-                prog not in PROGRAMS or (lead and prog in ("cd", "gh", "git"))):
-            return []
-        if prog == "cd":
-            if not (status_known and here and not grouped and not piped
-                    and len(seg) == 2 and seg[1] != "-" and not re.search(r"[$`]", seg[1])):
-                return []
-            here = os.path.normpath(os.path.join(here, os.path.expanduser(seg[1])))
-            continue
-        c = _classify(seg)
-        if not c:
-            # git with --git-dir/--work-tree, or a gh alias/unknown group: unresolved
-            first = next((a for a in seg[lead + 1:] if not a.startswith("-")), None)
-            if prog == "git" or (prog == "gh" and first not in GH_GROUPS):
-                return []
-            continue
-        tool, verb, args, cdir = c
-        if cdir and re.search(r"^~|[$`]", cdir):
-            return []
-        if (tool, verb) not in STATE_VERBS:
-            if verb not in (GIT_READ if tool == "git" else GH_PR_READ):
-                return []
-            continue
-        if not status_known:
-            return []
-        at = os.path.normpath(os.path.join(here, cdir)) if here and cdir else here
-        if tool == "git":
-            if verb in ("switch", "checkout"):
-                pr = source = None
-                branch_source, where = "git_switch", at
-            elif pr is None and branch_source is None:
-                branch_source, where = ("git_push" if verb == "push" else "git_switch"), at
-            continue
-        found = None
-        if verb == "create":
-            # Only creation's own output may name the PR: no other command
-            # besides `cd`, and no redirection.
-            alone = all(o is seg or o[:1] == ["cd"] for o, *_ in segs)
-            urls = {f"{m[1]}/{m[2]}#{int(m[3])}" for m in PR_URL_RE.finditer(output)}
-            if alone and not any(re.match(r"[0-9]*[<>]", a) for a in args) and len(urls) == 1:
-                found = urls.pop(), "gh_pr_create"
-        else:
-            target, flag_repo = _checkout_args(args)
-            m = PR_URL_RE.search(target or "")
-            if m:
-                found = f"{m[1]}/{m[2]}#{int(m[3])}", "gh_pr_checkout"
-            elif target and target.isdigit() and int(target) > 0:
-                if flag_repo and flag_repo.lower().startswith("github.com/"):
-                    flag_repo = flag_repo[len("github.com/"):]
-                if flag_repo is None or _valid_repo(flag_repo):
-                    found = (f"{flag_repo}#{int(target)}" if flag_repo else int(target)), "gh_pr_checkout"
-        if not found:
-            return []
-        (pr, source), branch_source, where = found, None, at
-
-    if (pr is None and branch_source is None) or not where:
+    if len(segs) != 1 or grouped or seps[0] not in ("", ";", "\0"):
         return []
-    info = state(where)
-    if isinstance(pr, int):
-        repo = _clean_git(info).get("repo")
-        if not repo:
-            pr = None
+    seg = segs[0]
+    c = _classify(seg) if seg[0] in ("gh", "git") else None
+    if not c:
+        return []
+    tool, verb, args, cdir = c
+    if tool == "gh":
+        if seg[1] != "pr" or any(a in ("-R", "--repo") or a.startswith("--repo=") for a in args):
+            return []
+        if verb == "create":
+            if ({"--dry-run", "--web", "-w"} & set(args)
+                    or any(re.match(r"[0-9]*[<>]", a) for a in args)):
+                return []
+            urls = {f"{m[1]}/{m[2]}#{int(m[3])}" for m in PR_URL_RE.finditer(output)}
+            if len(urls) != 1:
+                return []
+            pr, source = urls.pop(), "gh_pr_create"
+        elif verb == "checkout":
+            m = PR_URL_FULL_RE.fullmatch(_checkout_args(args)[0] or "")
+            if not m:
+                return []
+            pr, source = f"{m[1]}/{m[2]}#{int(m[3])}", "gh_pr_checkout"
         else:
-            pr = f"{repo}#{pr}"
-    if pr is not None:
-        return [make("pr_binding", info, pr=pr, source=source)]
-    if branch_source:
-        return [make("branch", info, source=branch_source)]
-    return []
+            return []
+        return [make("pr_binding", state(), pr=pr, source=source)]
+    if verb not in ("switch", "checkout", "push", "worktree add"):
+        return []
+    if cdir and (cdir.startswith("~") or "$" in cdir):
+        return []
+    where = os.path.normpath(os.path.join(cwd, cdir)) if cwd and cdir else cwd
+    if not where:
+        return []
+    return [make("branch", state(where), source="git_push" if verb == "push" else "git_switch")]
 
 
 def _parse_origin(url):

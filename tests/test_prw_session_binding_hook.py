@@ -61,154 +61,60 @@ class TestRecords(unittest.TestCase):
 
     def test_pr_create(self):
         recs, _ = run(post("gh pr create --fill", "https://github.com/acme/app/pull/42\n"))
-        prs = [r for r in recs if r["kind"] == "pr_binding"]
-        self.assertEqual(len(recs), 1)
-        self.assertEqual(prs[0]["pr"], "acme/app#42")
-        self.assertEqual(prs[0]["source"], "gh_pr_create")
+        self.assertEqual([(r["kind"], r["pr"], r["source"]) for r in recs],
+                         [("pr_binding", "acme/app#42", "gh_pr_create")])
 
-    def test_pr_create_without_url_gives_nothing(self):
-        recs, _ = run(post("gh pr create --fill", "error: something"))
-        self.assertEqual(recs, [])
-
-    def test_checkout_number_uses_origin_repo(self):
-        recs, _ = run(post("gh pr checkout 17"))
-        self.assertEqual(len(recs), 1)
-        self.assertEqual(recs[0]["pr"], "me/origin#17")
-        self.assertEqual(recs[0]["source"], "gh_pr_checkout")
-
-    def test_checkout_number_uses_explicit_repo_flag(self):
-        for cmd in ("gh -R acme/web pr checkout 17", "gh pr checkout 17 -R acme/web",
-                    "gh pr checkout --repo=acme/web 17", "gh pr checkout -b local 17 --repo acme/web",
-                "gh pr checkout 17 -R github.com/acme/web"):
-            with self.subTest(cmd=cmd):
-                recs, _ = run(post(cmd))
-                self.assertEqual([r["pr"] for r in recs], ["acme/web#17"])
-
-    def test_checkout_branch_flag_value_is_not_the_target(self):
-        recs, _ = run(post("gh pr checkout -b local 17"))
-        self.assertEqual([r["pr"] for r in recs], ["me/origin#17"])
-
-    def test_create_with_several_pr_urls_in_output_gives_nothing(self):
-        out = "https://github.com/acme/app/pull/7\nhttps://github.com/acme/app/pull/8\n"
-        recs, _ = run(post("gh pr view 7 --json url -q .url; gh pr create --fill", out))
-        self.assertEqual(recs, [])
-
-    def test_checkout_whose_exit_status_is_masked_gives_nothing(self):
-        for cmd in ("gh pr checkout 17 || true", "gh pr checkout 17; echo done",
-                    "gh pr checkout 17 | tee log", "gh pr checkout 17 &",
-                    "gh pr checkout 17 && echo a || true", "gh pr checkout 17 && git log -1; echo done",
-                    "cd x && gh pr checkout 17 && true\necho z"):
-            with self.subTest(cmd=cmd):
-                self.assertEqual(run(post(cmd))[0], [])
-        for cmd in ("gh pr checkout 17 && git log -1", "cd x && gh pr checkout 17", "(gh pr checkout 17)"):
-            with self.subTest(cmd=cmd):
-                self.assertEqual([r["pr"] for r in run(post(cmd))[0]], ["me/origin#17"])
-
-    def test_checkout_that_may_have_been_skipped_gives_nothing(self):
-        for cmd in ("true || gh pr checkout 42", "false || (gh pr checkout 17)",
-                    "a && b || gh pr checkout 3", "x ||\ngh pr checkout 4"):
-            with self.subTest(cmd=cmd):
-                self.assertEqual(run(post(cmd))[0], [])
-        for cmd in ("false || true && gh pr checkout 5", "gh pr checkout 5 &&\ngit log", "gh pr checkout 5; \n"):
-            with self.subTest(cmd=cmd):
-                self.assertEqual([r["pr"] for r in run(post(cmd))[0]], ["me/origin#5"])
-
-    def test_last_checkout_or_switch_decides(self):
-        self.assertEqual([r["pr"] for r in run(post("gh pr checkout 42 && gh pr checkout 43"))[0]],
-                         ["me/origin#43"])
-        recs, _ = run(post("gh pr checkout 42 && git switch other"))
-        self.assertEqual([(r["kind"], r.get("pr")) for r in recs], [("branch", None)])
-        self.assertEqual([r["pr"] for r in run(post("git switch x && gh pr checkout 5"))[0]], ["me/origin#5"])
-
-    def test_create_whose_status_is_not_the_command_status_gives_nothing(self):
-        url = "https://github.com/acme/app/pull/42"
-        for cmd in ("gh pr create --fill || echo " + url, "gh pr create --fill; echo " + url):
-            with self.subTest(cmd=cmd):
-                self.assertEqual(run(post(cmd, url))[0], [])
-
-    def test_git_state_is_read_where_the_command_ran(self):
-        for cmd, where in (("git -C /different/repo switch other", "/different/repo"),
-                           ("cd /x && gh pr checkout 5", "/x"),
-                           ("cd sub && git push", "/somewhere/sub"),
-                           ("gh pr checkout 5", "/somewhere")):
-            with self.subTest(cmd=cmd):
-                recs, git = run(post(cmd))
-                self.assertEqual(len(recs), 1)
-                self.assertEqual(git.calls, [where])
-        for cmd in ("(cd x); gh pr checkout 5", "cd && gh pr checkout 5", "cd - && git push",
-                    "git --git-dir=/a/.git switch b", "git --work-tree /a switch b"):
-            with self.subTest(cmd=cmd):
-                self.assertEqual(run(post(cmd))[0], [])
-
-    def test_uncertain_state_change_anywhere_gives_nothing(self):
-        url = "https://github.com/acme/app/pull/42"
-        for cmd, out in (("true || cd /different/repo; gh pr checkout 42", ""),
-                         ("cd /a || cd /b && git switch x", ""),
-                         ("cd /a; gh pr checkout 5", ""),
-                         ("pushd /x && gh pr checkout 5", ""),
-                         ("true || git -C /different/repo switch other", ""),
-                         ("git switch x || true", ""),
-                         ("gh pr checkout 42 && git push; echo done", ""),
-                         ("true || x | gh pr checkout 5", ""),
-                         ("cd /x | gh pr checkout 5", ""),
-                         ("echo " + url + "; gh pr create --fill >/dev/null", url),
-                         ("echo " + url + " && gh pr create --fill", url),
-                         ("gh pr create --fill > out.txt", url),
-                         ("gh pr checkout 42 && gh pr create --fill", ""),
-                         ("gh pr checkout 42 && gh pr create --fill", url + " https://github.com/acme/app/pull/43")):
-            with self.subTest(cmd=cmd, out=out):
-                self.assertEqual(run(post(cmd, out))[0], [])
-        recs, git = run(post("cd /x && gh pr create --fill", url))
-        self.assertEqual([r["pr"] for r in recs], ["acme/app#42"])
-        self.assertEqual(git.calls, ["/x"])
-
-    def test_unrecognised_command_shapes_give_nothing(self):
-        for cmd in ("FOO=1 cd /different/repo && gh pr checkout 42",
-                    "builtin cd /x && gh pr checkout 5", "command cd /x && gh pr checkout 5",
-                    "true | cd /x && gh pr checkout 5",
-                    "GH_REPO=x/y gh pr checkout 5", "GIT_DIR=/o/.git git switch x",
-                    "export GH_REPO=x/y && gh pr checkout 5", "env GH_REPO=x/y gh pr checkout 5",
-                    "gh pr checkout 42 && git --git-dir=.git switch other",
-                    "cd $REPO && git switch x", "cd `pwd`/x && git switch x",
-                    "git -C $R switch x", "git -C ~/x switch y",
-                    "if true; then cd /different/repo; fi; gh pr checkout 42",
-                    "{ cd /w/x; } && gh pr checkout 5", "! cd /x && gh pr checkout 5",
-                    "set -a; GH_REPO=o/z; gh pr checkout 5", "make && gh pr checkout 5",
-                    "gh pr checkout 42 && /usr/bin/git switch other", "/usr/bin/env git switch other",
-                    "gh pr checkout 42 && git sw other", "gh pr checkout 42 && gh co 43",
-                    "gh pr checkout 42 && gh pr merge 42 -d",
-                    "GH_REPO=other/repo && gh pr checkout 5", "GH_REPO=other/repo; gh pr checkout 5",
-                    "GIT_DIR=/x/.git && git switch foo", "CDPATH=/x && cd proj && git switch foo",
-                    "gh pr checkout 42 && gh myalias pr", "gh pr checkout 42 && gh co 43 -b pr",
-                    "gh pr checkout 42 && git stash branch other",
-                    "gh pr checkout 42 && echo `git switch other`",
-                    "gh pr checkout 42 && echo $(git switch other)"):
-            with self.subTest(cmd=cmd):
-                self.assertEqual(run(post(cmd))[0], [])
+    def test_pr_create_without_one_url_gives_nothing(self):
+        for out in ("error: something",
+                    "https://github.com/acme/app/pull/7\nhttps://github.com/acme/app/pull/8\n"):
+            with self.subTest(out=out):
+                self.assertEqual(run(post("gh pr create --fill", out))[0], [])
 
     def test_checkout_url(self):
-        recs, _ = run(post("gh pr checkout https://github.com/acme/web/pull/9"))
-        self.assertEqual(recs[0]["pr"], "acme/web#9")
-
-    def test_checkout_failed_or_interrupted(self):
-        self.assertEqual(run(post("gh pr checkout 17", interrupted=True))[0], [])
-        self.assertEqual(run(post("gh pr checkout 17", exit_code=1))[0], [])
-        self.assertEqual(run(post("gh pr checkout 17", returncode=2))[0], [])
-        self.assertEqual(len(run(post("gh pr checkout 17", exit_code=0))[0]), 1)
-
-    def test_branch_commands(self):
-        for cmd in ("git switch other", "git checkout -b x", "git push",
-                    "git push -u origin feat/x", "git worktree add ../w y",
-                    "git -C /tmp/r push"):
+        for cmd in ("gh pr checkout https://github.com/acme/web/pull/9",
+                    "gh pr checkout github.com/acme/web/pull/9 --force",
+                    "gh pr checkout https://github.com/acme/web/pull/9;"):
             with self.subTest(cmd=cmd):
                 recs, _ = run(post(cmd))
+                self.assertEqual([(r["pr"], r["source"]) for r in recs], [("acme/web#9", "gh_pr_checkout")])
+
+    def test_checkout_failed_or_interrupted(self):
+        url = "gh pr checkout https://github.com/acme/web/pull/9"
+        self.assertEqual(run(post(url, interrupted=True))[0], [])
+        self.assertEqual(run(post(url, exit_code=1))[0], [])
+        self.assertEqual(run(post(url, returncode=2))[0], [])
+        self.assertEqual(len(run(post(url, exit_code=0))[0]), 1)
+
+    def test_only_one_simple_fully_qualified_command_binds(self):
+        u = "https://github.com/acme/app/pull/42"
+        for cmd in ("gh pr checkout 42", "gh pr checkout 42 -R acme/app", "gh -R acme/app pr checkout " + u,
+                    "gh pr checkout " + u + " -R acme/app", "gh pr checkout " + u + "/files",
+                    "gh co " + u, "/usr/bin/gh pr checkout " + u, "GH_REPO=a/b gh pr checkout " + u,
+                    "gh pr create --dry-run --fill", "gh pr create --web", "gh pr create --fill > out.txt",
+                    'gh pr create --body "$(cat f)"', "cd x && gh pr checkout " + u,
+                    "gh pr checkout " + u + " && git log", "gh pr checkout " + u + " || true",
+                    "(gh pr checkout " + u + ")", "echo " + u + "; gh pr create --fill",
+                    "true || gh pr checkout " + u, "if true; then gh pr checkout " + u + "; fi",
+                    "gh pr checkout " + u + " | tee log", "gh pr view 42", "gh pr merge 42"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(run(post(cmd, u))[0], [])
+
+    def test_branch_commands(self):
+        for cmd, where in (("git switch other", "/somewhere"), ("git checkout -b x", "/somewhere"),
+                           ("git push", "/somewhere"), ("git push -u origin feat/x", "/somewhere"),
+                           ("git worktree add ../w y", "/somewhere"), ("git -C /srv/r push", "/srv/r")):
+            with self.subTest(cmd=cmd):
+                recs, git = run(post(cmd))
                 self.assertEqual([r["kind"] for r in recs], ["branch"])
-                self.assertEqual(recs[0]["branch"], "feat/x")
-                self.assertEqual(recs[0]["sha"], "a" * 40)
-                if "push" in cmd:
-                    self.assertEqual(recs[0]["source"], "git_push")
-                else:
-                    self.assertEqual(recs[0]["source"], "git_switch")
+                self.assertEqual((recs[0]["branch"], recs[0]["sha"]), ("feat/x", "a" * 40))
+                self.assertEqual(recs[0]["source"], "git_push" if "push" in cmd else "git_switch")
+                self.assertEqual(git.calls, [where])
+
+    def test_compound_or_unresolved_branch_commands_give_nothing(self):
+        for cmd in ("git fetch && git switch x", "cd x && git push", "git --git-dir=.git switch x",
+                    "git -C $R push", "git -C ~/r push", "GIT_DIR=x git switch y", "git switch x || true"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(run(post(cmd))[0], [])
 
     def test_failed_branch_command_gives_nothing(self):
         self.assertEqual(run(post("git push", exit_code=1))[0], [])
@@ -230,19 +136,11 @@ class TestRecords(unittest.TestCase):
                 out = "https://github.com/acme/app/pull/7"
                 self.assertEqual(run(post(cmd, out))[0], [])
 
-    def test_later_segment(self):
-        for cmd in ("cd repo && gh pr checkout 5", "git fetch; gh pr checkout 5",
-                    "true | gh pr checkout 5",
-                    "echo hi\ngh pr checkout 5"):
-            with self.subTest(cmd=cmd):
-                recs, _ = run(post(cmd))
-                self.assertEqual([r["pr"] for r in recs], ["me/origin#5"])
-
     def test_same_second_switch_keeps_earlier_request_bound(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         idx_path = Path(tmp.name) / "ledger.jsonl"
-        bound = records_for(post("gh pr checkout 5"), "claude", FakeGit(),
+        bound = records_for(post("gh pr checkout https://github.com/me/origin/pull/5"), "claude", FakeGit(),
                             now=datetime(2026, 11, 9, 10, 0, 1, 500000, tzinfo=timezone.utc))
         switched = records_for(post("git switch other"), "claude", FakeGit(GIT_OK | {"branch": "other"}),
                                now=datetime(2026, 11, 9, 10, 0, 3, 700000, tzinfo=timezone.utc))
@@ -322,14 +220,14 @@ class TestCodexUnverifiedPayloadShape(unittest.TestCase):
     def test_unverified_payload_shape_cmd_field(self):
         p = post("")
         p["tool_name"] = "exec_command"
-        p["tool_input"] = {"cmd": "gh pr checkout 4"}
+        p["tool_input"] = {"cmd": "gh pr checkout https://github.com/acme/app/pull/4"}
         recs, _ = run(p, "codex")
-        self.assertEqual(recs[0]["pr"], "me/origin#4")
+        self.assertEqual(recs[0]["pr"], "acme/app#4")
 
     def test_unverified_payload_shape_output_field_failed(self):
         p = post("")
         p["tool_name"] = "shell"
-        p["tool_input"] = {"command": "gh pr checkout 4"}
+        p["tool_input"] = {"command": "gh pr checkout https://github.com/acme/app/pull/4"}
         p["tool_response"] = {"output": "boom", "exit_code": 1}
         self.assertEqual(run(p, "codex")[0], [])
 
