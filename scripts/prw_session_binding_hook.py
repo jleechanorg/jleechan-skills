@@ -198,7 +198,7 @@ def records_for(payload, runtime, git, now=None):
     if len(segs) != 1 or grouped or seps[0] not in ("", ";", "\0"):
         return []
     seg = segs[0]
-    if any(re.match(r"[0-9]*[<>]", a) for a in seg):
+    if any("<" in a or ">" in a for a in seg):
         return []
     c = _classify(seg) if seg[0] in ("gh", "git") else None
     if not c:

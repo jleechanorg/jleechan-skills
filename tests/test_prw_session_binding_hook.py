@@ -99,7 +99,8 @@ class TestRecords(unittest.TestCase):
                     "gh pr checkout " + u + " --help", "gh pr checkout " + u + " --detach",
                     "gh pr checkout " + u + " --force", "gh pr checkout -b x " + u,
                     "gh pr checkout " + u + " > log", "gh pr checkout " + u + " 2>/dev/null",
-                    "gh pr create --fill --help", "gh pr create -h"):
+                    "gh pr create --fill --help", "gh pr create -h", "gh pr create --fill>/dev/null",
+                    "gh pr create --title a<b"):
             with self.subTest(cmd=cmd):
                 self.assertEqual(run(post(cmd, u))[0], [])
 
@@ -117,7 +118,7 @@ class TestRecords(unittest.TestCase):
     def test_compound_or_unresolved_branch_commands_give_nothing(self):
         for cmd in ("git fetch && git switch x", "cd x && git push", "git --git-dir=.git switch x",
                     "git -C $R push", "git -C ~/r push", "GIT_DIR=x git switch y", "git switch x || true",
-                    "git push > /dev/null", "git switch x 2>&1"):
+                    "git push > /dev/null", "git switch x 2>&1", "git push>/dev/null"):
             with self.subTest(cmd=cmd):
                 self.assertEqual(run(post(cmd))[0], [])
 

@@ -70,6 +70,15 @@ class SessionBindingTests(unittest.TestCase):
                              rec("2026-11-09T10:30:00Z", "branch", repo="acme/app", branch="feat")])
         self.assertEqual(binding_at(idx, "s1", T(11)), "acme/app#42")
 
+    def test_unknown_branch_on_either_side_clears(self):
+        no_branch = rec("2026-11-09T10:00:00Z", "pr_binding", pr="acme/app#42", repo="acme/app")
+        for first, later in ((no_branch, rec("2026-11-09T10:30:00Z", "branch", repo="acme/app", branch="feat")),
+                             (pr("2026-11-09T10:00:00Z"), rec("2026-11-09T10:30:00Z", "branch", repo="acme/app"))):
+            with self.subTest(first=first, later=later):
+                idx, _ = self.index([first, later])
+                self.assertEqual(binding_at(idx, "s1", T(10, 29)), "acme/app#42")
+                self.assertIsNone(binding_at(idx, "s1", T(10, 30)))
+
     def test_rebind_after_clear(self):
         idx, _ = self.index([pr("2026-11-09T10:00:00Z"),
                              rec("2026-11-09T10:30:00Z", "branch", repo="acme/app", branch="other"),

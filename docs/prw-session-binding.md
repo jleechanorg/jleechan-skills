@@ -28,7 +28,7 @@ The hook always exits 0 and prints nothing. If anything goes wrong it writes no 
 
 ## How usage gets attributed
 
-`scripts/native_usage_collector.py --session-bindings <ledger>` looks up, for each usage record without a request-level binding, the latest `pr_binding` in the same session at or before the record's time. A newer binding replaces it. A switch to a different branch, or to a repository other than the checkout's origin when the binding was made, clears it (repository names compare case-insensitively). A bound record gets a `convention` attribution with `convention_ref: prw-session-binding.v1` and a receipt that names the ledger record.
+`scripts/native_usage_collector.py --session-bindings <ledger>` looks up, for each usage record without a request-level binding, the latest `pr_binding` in the same session at or before the record's time. A newer binding replaces it. A switch to a different branch, or to a repository other than the checkout's origin when the binding was made, clears it (repository names compare case-insensitively). So does any branch record in that repository when the branch is unknown on either side, such as a detached HEAD or a binding recorded without a branch. A bound record gets a `convention` attribution with `convention_ref: prw-session-binding.v1` and a receipt that names the ledger record.
 
 Ledger timestamps have millisecond precision, so the request that issues a branch switch stays bound to the PR it was working on.
 

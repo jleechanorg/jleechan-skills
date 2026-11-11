@@ -93,8 +93,10 @@ def load(paths: Iterable) -> tuple[dict, dict]:
                 repo = repo.lower() if repo is not None else None
                 if repo is not None and repo != bound_repo:
                     active = None
-                elif repo == bound_repo and branch is not None and bound_branch is not None \
-                        and branch != bound_branch:
+                elif repo == bound_repo and (branch is None or bound_branch is None
+                                             or branch != bound_branch):
+                    # An unknown branch on either side (detached HEAD, binding
+                    # without a branch) cannot show the session is still on the PR.
                     active = None
             else:
                 continue
