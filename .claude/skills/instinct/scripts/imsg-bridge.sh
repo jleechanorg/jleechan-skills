@@ -25,15 +25,16 @@ set -uo pipefail
 # duplicated in a contact store (two different "Assistant" entries on different
 # services is a common shape), and a name lookup can silently pick the stale one.
 # One documented name (INSTINCT_IMSG_CONTACT, registered in the env-var
-# registry). IMSG_CONTACT_HANDLE is accepted as a compatibility alias for direct
-# bridge invocations. Neither silently wins over an explicit --contact-handle.
-# THE PEER comes from INSTINCT_IMSG_CONTACT and nothing else. The legacy
-# IMSG_CONTACT_HANDLE alias below must NEVER be able to define the peer: on
-# 2026-11-09/10 it did, so "the configured peer" and "the send target" were the same
-# variable, and every guard compared the recipient against itself. A send reaches
-# exactly one configured peer; to message anyone else you change the peer.
-PEER_HANDLE="${INSTINCT_IMSG_CONTACT:-}"
-CONTACT_HANDLE="$PEER_HANDLE"
+# registry). IMSG_CONTACT_HANDLE is an accepted ALTERNATIVE DECLARATION for a direct
+# bridge invocation, never a fallback value. It can declare a peer; it cannot declare a
+# DEFAULT one, and an undeclared start fails closed. Neither wins over --contact-handle,
+# which as of this change may only CONFIRM the peer (see the parse loop and do_send).
+#
+# PEER_HANDLE is captured ONCE from that single declaration and never re-derived after
+# argument parsing. Re-deriving it post-parse is what let a caller change the destination
+# and have the recipient guard compare the target against itself.
+CONTACT_HANDLE="${INSTINCT_IMSG_CONTACT:-${IMSG_CONTACT_HANDLE:-}}"
+PEER_HANDLE="$CONTACT_HANDLE"
 DB="${IMSG_CHAT_DB:-$HOME/Library/Messages/chat.db}"
 
 VERB="${1:-whoami}"; shift || true
@@ -42,9 +43,9 @@ FILE=""
 THEIRS_ONLY=0
 SINCE_ROWID=0
 DB_OVERRIDE=""
-# PEER_HANDLE was captured above, directly from INSTINCT_IMSG_CONTACT, and is never
-# re-derived from CONTACT_HANDLE. Re-deriving it here was the bug: it made the guard
-# compare the send target against itself and it delivered a real message.
+# PEER_HANDLE was captured above, from the same declaration CONTACT_HANDLE reads, and is
+# never re-derived from CONTACT_HANDLE. Re-deriving it after the parse step was the bug:
+# it made the guard compare the send target against itself and it delivered a real message.
 # Initialised here, not only in the --dry-run arm: the dry-run branch and the
 # recipient guard read it on EVERY send, and `set -u` aborts a real send when the
 # caller never exported it.
