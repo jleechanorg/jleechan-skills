@@ -14,7 +14,7 @@ You are a stateless code generation specialist optimized for large, complex codi
 1. **Validation Step**: First check if CEREBRAS_API_KEY is available
 2. **Analyze**: Understand the code generation request
 3. **Prepare**: Create detailed prompt for cerebras_direct.sh with full specifications
-4. **Execute**: Run the cerebras command using Bash tool: `.claude/commands/cerebras/cerebras_direct.sh "$ARGUMENTS"`
+4. **Execute**: Resolve the installed command path or repository fallback, then run `bash "$CEREBRAS_SCRIPT" "$ARGUMENTS"`.
 5. **Verify**: Confirm "🚀🚀🚀 CEREBRAS GENERATED" appears in output
 6. **Process**: Present the cerebras_direct.sh output with quality metrics
 7. **Create**: Use Write tool with cerebras_direct.sh-generated content
@@ -50,9 +50,13 @@ if [ -z "${CEREBRAS_API_KEY}" ] && [ -z "${OPENAI_API_KEY}" ]; then
 fi
 
 # Step 3: Verify command exists
-if [ ! -f ".claude/commands/cerebras/cerebras_direct.sh" ]; then
+CEREBRAS_SCRIPT="${CLAUDE_HOME:-$HOME/.claude}/commands/cerebras/cerebras_direct.sh"
+if [ ! -f "$CEREBRAS_SCRIPT" ]; then
+    CEREBRAS_SCRIPT=".claude/commands/cerebras/cerebras_direct.sh"
+fi
+if [ ! -f "$CEREBRAS_SCRIPT" ]; then
     echo "❌ CRITICAL ERROR: cerebras_direct.sh script not found!"
-    echo "Expected: .claude/commands/cerebras/cerebras_direct.sh"
+    echo "Checked installed Claude commands and repository fallback"
     echo "CEREBRAS-CODER AGENT EXITING - Cannot proceed without cerebras_direct.sh"
     exit 1
 fi
@@ -60,7 +64,7 @@ fi
 
 **Validation Rules**:
 - ✅ **API Key Present**: CEREBRAS_API_KEY or OPENAI_API_KEY must be set
-- ✅ **Command Available**: .claude/commands/cerebras/cerebras_direct.sh must exist
+- ✅ **Command Available**: The installed command or repository fallback must exist
 - ✅ **Execution Success**: Must see "🚀🚀🚀 CEREBRAS GENERATED" output
 - ❌ **Zero Tolerance**: Any validation failure = immediate agent exit
 
@@ -136,8 +140,12 @@ if [ -z "${CEREBRAS_API_KEY}" ] && [ -z "${OPENAI_API_KEY}" ]; then
     exit 1
 fi
 
-# Check command availability  
-if [ ! -f ".claude/commands/cerebras/cerebras_direct.sh" ]; then
+# Check command availability
+CEREBRAS_SCRIPT="${CLAUDE_HOME:-$HOME/.claude}/commands/cerebras/cerebras_direct.sh"
+if [ ! -f "$CEREBRAS_SCRIPT" ]; then
+    CEREBRAS_SCRIPT=".claude/commands/cerebras/cerebras_direct.sh"
+fi
+if [ ! -f "$CEREBRAS_SCRIPT" ]; then
     echo "❌ FATAL: cerebras_direct.sh not found"
     exit 1
 fi
@@ -155,6 +163,14 @@ echo "✅ Environment validated - proceeding with cerebras_direct.sh generation"
 ```bash
 # STEP 2: Execute cerebras_direct.sh (REQUIRED)
 echo "🚀 Delegating to Cerebras for code generation..."
+CEREBRAS_SCRIPT="${CLAUDE_HOME:-$HOME/.claude}/commands/cerebras/cerebras_direct.sh"
+if [ ! -f "$CEREBRAS_SCRIPT" ]; then
+  CEREBRAS_SCRIPT=".claude/commands/cerebras/cerebras_direct.sh"
+fi
+if [ ! -f "$CEREBRAS_SCRIPT" ]; then
+  echo "❌ cerebras_direct.sh not found in the installed commands or repository"
+  exit 1
+fi
 # Ensure prompt is provided
 if [ -z "${DETAILED_PROMPT:-}" ]; then
   echo "❌ FATAL: DETAILED_PROMPT is empty or undefined"
@@ -162,7 +178,7 @@ if [ -z "${DETAILED_PROMPT:-}" ]; then
   return 1 2>/dev/null || exit 1
 fi
 # Capture output (stdout+stderr) and exit code
-OUTPUT=$(bash .claude/commands/cerebras/cerebras_direct.sh "$DETAILED_PROMPT" 2>&1); CMD_STATUS=$?
+OUTPUT=$(bash "$CEREBRAS_SCRIPT" "$DETAILED_PROMPT" 2>&1); CMD_STATUS=$?
 
 # STEP 3: Verify Success (REQUIRED)
 if [ $CMD_STATUS -ne 0 ]; then

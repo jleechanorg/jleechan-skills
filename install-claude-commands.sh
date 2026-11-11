@@ -347,6 +347,9 @@ add_archive_migration_plan() {
 
     for index in "${!MIGRATION_ACTIVE_PATHS[@]}"; do
         if [ "${MIGRATION_ACTIVE_PATHS[$index]}" = "$active_path" ]; then
+            if [ "${MIGRATION_ARCHIVE_PATHS[$index]}" = "$archive_path" ]; then
+                return 0
+            fi
             log_error "Ambiguous archive migration for active path: $active_path"
             log_error "First archive target: ${MIGRATION_ARCHIVE_PATHS[$index]}"
             log_error "Second archive target: $archive_path"

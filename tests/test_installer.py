@@ -27,6 +27,9 @@ class InstallerIntegrationTest(unittest.TestCase):
             "commands/newbranch.py": "#!/usr/bin/env python3\nprint('newbranch v2')\n",
             "commands/nested/helper.sh": "#!/bin/sh\n",
             "commands_archive/2026-retired/retired-command.md": "archived command\n",
+            "commands_archive/2026-retired/top-level/retired-command.md": (
+                "archived command\n"
+            ),
             "scripts/nested/tool.py": "print('tool')\n",
             "skills/example/SKILL.md": "# Skill\n",
             "skills/example/scripts/helper.sh": "#!/bin/sh\n",
@@ -833,6 +836,77 @@ class InstallerIntegrationTest(unittest.TestCase):
                     / "commands_archive/2026-retired/extended-library/retired-command.md"
                 ).is_file()
             )
+
+    def test_cerebras_agent_snippets_prefer_installed_script_then_repository_copy(self):
+        agent_files = (
+            REPO_ROOT / ".claude/agents/cerebras-coder.md",
+            REPO_ROOT / ".claude/agents/cerebras-consultant.md",
+        )
+        snippets = []
+        for agent_file in agent_files:
+            markdown = agent_file.read_text(encoding="utf-8")
+            snippets.extend(
+                block
+                for block in re.findall(r"```bash\n(.*?)\n```", markdown, re.DOTALL)
+                if 'CEREBRAS_SCRIPT="${CLAUDE_HOME:-$HOME/.claude}' in block
+                and 'bash "$CEREBRAS_SCRIPT"' in block
+            )
+        self.assertEqual(len(snippets), 2)
+
+        for snippet in snippets:
+            scenarios = ((True, "installed"), (False, "repository"))
+            for installed_available, expected in scenarios:
+                with tempfile.TemporaryDirectory() as directory:
+                    temp_dir = Path(directory)
+                    home = temp_dir / "home"
+                    claude_home = temp_dir / "claude-home"
+                    repo_script = (
+                        temp_dir / ".claude/commands/cerebras/cerebras_direct.sh"
+                    )
+                    marker = temp_dir / "invoked-script"
+                    repo_script.parent.mkdir(parents=True)
+                    repo_script.write_text(
+                        '#!/bin/bash\n'
+                        'printf "%s\\n" repository > "$CEREBRAS_RUN_MARKER"\n'
+                        'printf "🚀🚀🚀 CEREBRAS GENERATED IN 1ms 🚀🚀🚀\\n"\n',
+                        encoding="utf-8",
+                    )
+                    repo_script.chmod(0o755)
+                    installed_script = (
+                        claude_home / "commands/cerebras/cerebras_direct.sh"
+                    )
+                    if installed_available:
+                        installed_script.parent.mkdir(parents=True)
+                        installed_script.write_text(
+                            '#!/bin/bash\n'
+                            'printf "%s\\n" installed > "$CEREBRAS_RUN_MARKER"\n'
+                            'printf "🚀🚀🚀 CEREBRAS GENERATED IN 1ms 🚀🚀🚀\\n"\n',
+                            encoding="utf-8",
+                        )
+                        installed_script.chmod(0o755)
+                    environment = os.environ | {
+                        "HOME": str(home),
+                        "CLAUDE_HOME": str(claude_home),
+                        "CEREBRAS_API_KEY": "test-key",
+                        "CEREBRAS_RUN_MARKER": str(marker),
+                        "DETAILED_PROMPT": "test prompt",
+                    }
+                    result = subprocess.run(
+                        ["bash", "-c", snippet],
+                        cwd=temp_dir,
+                        env=environment,
+                        text=True,
+                        capture_output=True,
+                        check=False,
+                        timeout=10,
+                    )
+
+                    self.assertEqual(
+                        result.returncode, 0, result.stderr + result.stdout
+                    )
+                    self.assertEqual(
+                        marker.read_text(encoding="utf-8").strip(), expected
+                    )
 
     def test_failed_merge_does_not_migrate_retired_packages(self):
         with tempfile.TemporaryDirectory() as directory:
