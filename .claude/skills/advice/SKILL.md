@@ -37,11 +37,11 @@ Before dispatch, enumerate every configured account and host, including extras a
 Read [candidate checks](reviewer-selection.md#candidate-checks-fan-out-and-fallback). Check existing configuration, verified bindings and quota receipts; use supported non-message probes when needed, never chat pings to all candidates.
 Launch missing eligible independent reviews concurrently within runtime/resource limits. Keep valid votes and in-flight deadlines, avoid duplicate requests, replace unavailable/failed/timed-out seats, and advance tiers when needed. Each replacement consumes an assignment; stop new dispatch at quorum unless another authorized obligation requires it.
 Account for **every candidate in the receipt and user-facing report**: disclosure-safe candidate/host alias, health evidence/time, review attempted yes/no, outcome or evidenced skip reason, receipt/next action. Distinguish probes from launches; unknown stays UNKNOWN, missing attempt receipts mean UNVERIFIED.
-Record AVAILABLE, UNAVAILABLE with reason, BUSY with handle, QUOTA with printed reset, or DUPLICATE with identity key. Busy/quota/duplicate seats reserve no votes. Do not claim exhaustion while an eligible unattempted candidate can fill the gap within authority/budget.
+Record AVAILABLE, UNAVAILABLE with reason, BUSY with handle, QUOTA with printed reset, or DUPLICATE for an already-requested seat/scope. Busy/quota/duplicate seats reserve no votes. Do not claim exhaustion while an eligible unattempted candidate can fill the gap within authority/budget.
 
 ### Identity
 
-Read [identity rules](reviewer-selection.md#identity) before admitting a seat. One actual account is one vote across aliases/hosts/retries. Author, orchestrator and /research do not vote; a Dot lifecycle-leg verdict cannot count again as advice.
+Read [identity rules](reviewer-selection.md#identity) before admitting a seat. Each separate cold full-scope review seat counts once, even on the same account/model; aliases and retries of one seat do not add votes. Preserve reviewer-class caps. Author, orchestrator and /research do not vote; a Dot lifecycle-leg verdict cannot count again as advice.
 CLI models require reliable runtime metadata; outside fields are `attested.` with privately verified frozen bindings and independence proof. Missing public fields differ from unverified identity. Keep private identities machine-local.
 
 ### CLI capabilities
