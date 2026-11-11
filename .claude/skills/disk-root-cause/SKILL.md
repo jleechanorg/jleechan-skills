@@ -17,14 +17,7 @@ A real permission, identity, enumeration, or deadline failure is unfinished work
 
 ## Default first-use workflow
 
-Start with the instant ground-truth probes before deeper attribution:
-
-```bash
-df -h /System/Volumes/Data /Volumes/diskm-scratch /System/Volumes/VM 2>/dev/null || df -h / ~/Scratch
-diskm check-launchd-fleet
-diskm reclaim-ledger --read-existing
-diskm history growth-top10 --days 7
-```
+Start with the ground-truth probes defined in `../disk-audit/SKILL.md`, including the fleet check, existing per-host ledger, and 7-day growth history. Read those results before drilling down.
 
 Run the full `diskm audit` when the existing ledger or snapshots are missing, stale according to their owner, or incomplete for the requested attribution. Never invoke it before these probes merely because the user asks why the disk is full.
 
