@@ -64,11 +64,33 @@ const CHROME =
 // Resolve the bridge relative to THIS file first: the installer symlinks the skill
 // package into the runtime, so a sibling script is always present on a fresh
 // machine. `~/.local/bin` is only a fallback for hand-installed copies.
+/**
+ * The real on-disk path of THIS module.
+ *
+ * import.meta.url only knows the path the module was LOADED from. When the skill
+ * is installed as a symlink, that path is the link (e.g. ~/.agents/skills/instinct),
+ * not the target. Two things break if we use it raw:
+ *   1. the sibling bridge lookup misses (`<link-dir>/imsg-bridge.sh` does not exist),
+ *      so an installed copy silently loses iMessage;
+ *   2. the `IS_MAIN` entry check fails, because it compares that link path against
+ *      argv[1]; the module then exports without running, and the CLI prints nothing
+ *      while still exiting 0 — a probe or send that looks successful and did nothing.
+ * realpath collapses the link so both comparisons use the same file.
+ */
+function thisModuleRealPath() {
+  const loaded = fileURLToPath(import.meta.url);
+  try {
+    return fs.realpathSync(loaded);
+  } catch {
+    return loaded; // unresolvable: fall back rather than crash the CLI
+  }
+}
+
 const IMSG_BRIDGE = (() => {
   if (process.env.INSTINCT_IMSG_BRIDGE) return process.env.INSTINCT_IMSG_BRIDGE;
   // fileURLToPath, not .pathname: a pathname keeps %20 escapes, so a checkout under
   // a directory with a space would silently miss the sibling bridge.
-  const sibling = path.join(path.dirname(fileURLToPath(import.meta.url)), 'imsg-bridge.sh');
+  const sibling = path.join(path.dirname(thisModuleRealPath()), 'imsg-bridge.sh');
   if (fs.existsSync(sibling)) return sibling;
   return path.join(os.homedir(), '.local', 'bin', 'imsg-bridge.sh');
 })();
@@ -93,11 +115,12 @@ function transportChain() {
  * (it re-reads the message store and binds the result to the exact text sent),
  * so we forward its exit code rather than re-implementing the check.
  */
-function imessageBridge(verb, { file = null, limit = null, theirs = false, contact = null, db = null } = {}) {
+function imessageBridge(verb, { file = null, limit = null, theirs = false, contact = null, db = null, dryRun = false } = {}) {
   if (!transportAvailable('imessage')) {
     die('iMessage transport unavailable (not macOS, or the bridge script is missing)', 4);
   }
   const args = [IMSG_BRIDGE, verb];
+  if (dryRun) args.push('--dry-run');
   if (file) args.push('--file', file);
   if (limit) args.push('--limit', String(limit));
   if (theirs) args.push('--theirs');
@@ -548,29 +571,81 @@ async function openContact(page, name) {
   return true;
 }
 
+// Reduce the raw [data-pre-plain-text] nodes to one entry per message.
+//
+// WhatsApp re-emits ONE message as several nodes: a long message's nested blocks
+// (lists, quoted replies) each carry their own copy, with a garbage sender label
+// like "1." instead of the real name. They share a data-id, so they are the same
+// message. Keeping them split a single reply into fragments and attributed a
+// continuation of OUR text to the peer — a false "reply" for a grep-based caller.
+//
+// Pure and exported so the reduction can be checked without a live browser.
+function reduceBubbles(nodes) {
+  const out = [];
+  const seen = new Set();
+  for (const n of nodes) {
+    const meta = n.meta || '';
+    const m = meta.match(/^\[(.+?)\]\s*([^:]*):/);
+    const when = m ? m[1] : '';
+    const sender = m ? m[2].trim() : '';
+    const text = (n.text || '').replace(/\s+/g, ' ').trim();
+    if (!text) continue;
+    const id = n.id || '';
+    // First occurrence wins: the outermost node carries the real sender label.
+    // Without a data-id a node cannot be proven a duplicate, so keep it.
+    if (id) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+    }
+    out.push({ when, sender, text, id });
+  }
+  return out;
+}
+
 async function readMessages(page, limit) {
   // This WhatsApp build dropped .message-in/.message-out. Bubbles carry
   // [data-pre-plain-text] = "[<time>, <date>] <Sender>: ", which gives direction
   // and timestamp without depending on obfuscated class names.
-  return page.evaluate((lim) => {
+  const raw = await page.evaluate(() => {
     const nodes = [...document.querySelectorAll('[data-pre-plain-text]')];
     const out = [];
     for (const n of nodes) {
-      const meta = n.getAttribute('data-pre-plain-text') || '';
-      const m = meta.match(/^\[(.+?)\]\s*([^:]*):/);
-      const when = m ? m[1] : '';
-      const sender = m ? m[2].trim() : '';
-      const text = (n.innerText || '').replace(/\s+/g, ' ').trim();
-      if (!text) continue;
-      out.push({ when, sender, text });
+      // The enclosing message node is the nearest ancestor carrying data-id.
+      let id = '';
+      for (let el = n, i = 0; el && i < 25; i++, el = el.parentElement) {
+        const v = el.getAttribute('data-id');
+        if (v) {
+          id = v;
+          break;
+        }
+      }
+      out.push({
+        meta: n.getAttribute('data-pre-plain-text') || '',
+        text: n.innerText || '',
+        id,
+      });
     }
-    return out.slice(-lim);
-  }, limit);
+    // Return EVERY node. Truncating here would keep only the tail of the list, and a
+    // long message's continuation nodes sit at the tail carrying a garbage sender
+    // label ("1.") instead of the real one. reduceBubbles relies on the FIRST node
+    // per data-id for attribution, so slicing before dedup attributes our own outgoing
+    // text to the peer — including literal "VERDICT: PASS" strings that a watcher greps.
+    return out;
+  });
+  return reduceBubbles(raw).slice(-limit);
 }
 
+// Direction is only ever reported when it is actually known.
+// so a caller grepping for a reply matched its own outgoing text. An unknown
+// direction is printed as `?` WITH the sender label, which is still attributable.
 function formatMsg(m, selfName) {
-  const mine = selfName && m.sender && m.sender.toLowerCase() === selfName.toLowerCase();
-  return `${mine ? 'me  ' : 'them'}  [${m.when}] ${m.text}`;
+  const sender = m.sender || '';
+  if (!sender) return `...   [${m.when}] ${m.text}`;
+  if (selfName && sender.toLowerCase() === selfName.toLowerCase()) {
+    return `me    [${m.when}] ${m.text}`;
+  }
+  if (selfName) return `them  [${m.when}] ${m.text}`;
+  return `?     [${m.when}] ${sender}: ${m.text}`;
 }
 
 async function compose(page, text) {
@@ -628,7 +703,19 @@ async function compose(page, text) {
   return box;
 }
 
-(async () => {
+// Compare against the REAL module path, not the loaded one: a symlinked install must
+// still run the CLI instead of silently exporting and exiting 0.
+const IS_MAIN =
+  !!process.argv[1] &&
+  (() => {
+    try {
+      return fs.realpathSync(path.resolve(process.argv[1])) === thisModuleRealPath();
+    } catch {
+      return path.resolve(process.argv[1]) === thisModuleRealPath();
+    }
+  })();
+
+async function main() {
   const headed = process.env.INSTINCT_HEADED === '1';
 
   if (VERB === 'login') {
@@ -795,6 +882,11 @@ async function compose(page, text) {
     process.stdout.write(
       JSON.stringify({
         signed_in: ok,
+        // Name the transport that actually answered. The iMessage branch returns
+        // before this point and its bridge already emits transport=imessage, so
+        // without this field a caller cannot tell an iMessage verification from a
+        // WhatsApp fallback that never checked the intended peer at all.
+        transport: 'whatsapp',
         state: result.state,
         saw_signed_out_transient: result.sawSignedOutTransient,
         consecutive_signed_out_samples: result.signedOutStreak,
@@ -875,32 +967,36 @@ async function compose(page, text) {
       // --theirs must filter the fallback transport too. Without this, a prompt that
       // asks for "VERDICT: PASS|FAIL|BLOCKED" matches its own outgoing text here and
       // reports a verdict that does not exist — the exact bug this flag prevents.
-      // Direction comes from each bubble's sender label vs SELF_NAME, so if the
-      // caller never set INSTINCT_SELF the filter cannot be applied: fail closed.
-      if (wantTheirs && !SELF_NAME) {
-        die(
-          'read --theirs on the WhatsApp transport needs INSTINCT_SELF set to your own ' +
-            'display name, otherwise your own messages cannot be told apart from replies.',
-          2
-        );
-      }
+      //
+      // Direction comes from each bubble's sender label. INSTINCT_SELF names OUR
+      // label; when it is unset, the OTHER party is named by the contact we opened
+      // (openContact has already verified the chat header, so exactly two senders
+      // exist). Refusing outright whenever INSTINCT_SELF was unset made reply
+      // polling unusable, while doing nothing leaked our own text into "theirs".
       let shown = msgs;
       if (wantTheirs) {
-        const selfLower = SELF_NAME.toLowerCase();
-        const matchedSome = allMsgs.some((m) => (m.sender || '').toLowerCase() === selfLower);
-        if (!matchedSome) {
-          // No bubble is labelled with exactly SELF_NAME, so direction cannot be
-          // established for this transcript. Filtering on a substring would either
-          // leak our own messages or hide the peer's; refuse instead.
+        const labels = [...new Set(allMsgs.map((m) => (m.sender || '').toLowerCase()))].filter(
+          Boolean
+        );
+        // The peer's label is the one matching the chat we deliberately opened. It can
+        // differ from the chat title (saved contact name vs push name), so fall back to
+        // "the only label that is not ours" when that is unambiguous.
+        let theirsLower = name.toLowerCase();
+        if (!labels.includes(theirsLower) && SELF_NAME) {
+          const others = labels.filter((l) => l !== SELF_NAME.toLowerCase());
+          if (others.length === 1) theirsLower = others[0];
+        }
+        if (!labels.includes(theirsLower)) {
           die(
-            `read --theirs could not identify your own bubbles on the WhatsApp transport ` +
-              `(no sender matched INSTINCT_SELF=${JSON.stringify(SELF_NAME)}). Set ` +
-              'INSTINCT_SELF to the exact display name this account uses in that chat.',
+            `read --theirs could not identify the peer's bubbles on the WhatsApp transport ` +
+              `(labels seen: ${JSON.stringify(labels.slice(0, 10))}). Set INSTINCT_SELF to ` +
+              'your own display name so direction can be resolved.',
             2
           );
         }
-        shown = msgs.filter((m) => (m.sender || '').toLowerCase() !== selfLower);
+        shown = msgs.filter((m) => (m.sender || '').toLowerCase() === theirsLower);
       }
+
       process.stdout.write(`chat: ${name} (last ${shown.length})\n`);
       shown.forEach((m) => process.stdout.write(`  ${formatMsg(m, SELF_NAME)}\n`));
     }, { headed });
@@ -911,9 +1007,26 @@ async function compose(page, text) {
   if (VERB === 'send') {
     const name = arg('contact', CONTACT);
     const file = arg('file', null);
+    const dryRun = process.argv.includes('--dry-run');
     if (!file) die('send requires --file <path> (write the message to a file first)', 2);
     if (!fs.existsSync(file)) die(`message file not found: ${file}`, 2);
     const text = fs.readFileSync(file, 'utf8').trim();
+
+    // A dry run proves the wire without delivering anything. It must NOT walk the
+    // transport chain's fallback logic: during a dry run a non-zero rc means the
+    // intent is broken, and "falling back" would attempt a second, real transport.
+    if (dryRun) {
+      if (!transportAvailable('imessage')) die('dry-run is only implemented for iMessage', 3);
+      const rc = imessageBridge('send', {
+        file,
+        contact: process.argv.includes('--contact') ? name : null,
+        db: arg('db', null),
+        dryRun: true,
+      });
+      if (rc !== 0) die(`imessage dry-run rc=${rc}: the intent is broken (nothing was sent)`, rc);
+      process.stderr.write('instinct: dry-run via imessage — nothing delivered\n');
+      return;
+    }
 
     // ---- transport chain: iMessage first, then WhatsApp -------------------
     const sendChain = transportChain();
@@ -992,5 +1105,12 @@ async function compose(page, text) {
     return;
   }
 
+
   die(`unknown verb "${VERB}"; use login | probe | read | open | send | whoami`);
-})().catch((e) => die(e?.message || String(e), 1));
+}
+
+// Only run the CLI when executed directly, so a test can import reduceBubbles
+// without launching Chrome or touching the profile.
+if (IS_MAIN) main().catch((e) => die(e?.message || String(e), 1));
+
+export { reduceBubbles, formatMsg };
