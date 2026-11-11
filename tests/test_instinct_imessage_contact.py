@@ -491,9 +491,10 @@ process.stdout.write("__RESULT__" + JSON.stringify({ clicks: clicks.length, sele
                 sel,
                 f"unexpected expander selector {sel!r}",
             )
-            self.assertIn(
-                "#main",
-                sel,
+            # Require scoping as a PREFIX, not a substring: "#main" appearing anywhere
+            # would also pass for an unscoped or oddly-composed selector.
+            self.assertTrue(
+                sel.lstrip().startswith("#main "),
                 f"expander selector {sel!r} is not scoped to the open conversation; a "
                 "page-wide match could click another chat's button",
             )
@@ -516,7 +517,7 @@ const page = {
   waitForTimeout: async () => {},
   evaluate: async () => [{ meta: "[T] Peer: ", text, id: "A" }],
 };
-await mod.readMessages(page, 5);
+await mod.readMessages(page, 5, { warnIfTruncated: true });
 process.stderr.write = write;
 process.stdout.write("__RESULT__" + JSON.stringify({ warned }));
 """
@@ -543,6 +544,45 @@ process.stdout.write("__RESULT__" + JSON.stringify({ warned }));
                 self.assertIsNotNone(line, result.stdout)
                 warned = json.loads(line[len("__RESULT__") :])["warned"]
                 self.assertEqual(warned, expect, f"warning mismatch for {name!r}")
+
+    def test_warning_is_silent_for_callers_that_do_not_opt_in(self) -> None:
+        """send/open read a tail for display; they must not emit the read warning.
+
+        The warning exists for callers that grep bubble text for a verdict. Emitting
+        it from send's 3-bubble tail would add unrelated stderr noise to a success
+        path and dilute the signal.
+        """
+        script = """
+const mod = await import(process.argv[1]);
+let warned = false;
+const write = process.stderr.write.bind(process.stderr);
+process.stderr.write = (s) => { warned = true; return true; };
+const page = {
+  locator: () => ({ count: async () => 0, evaluateAll: async () => {} }),
+  waitForTimeout: async () => {},
+  evaluate: async () => [{ meta: "[T] Peer: ", text: "tail\u2026 Read more", id: "A" }],
+};
+await mod.readMessages(page, 3);          // no opt-in, as send/open call it
+process.stderr.write = write;
+process.stdout.write("__RESULT__" + JSON.stringify({ warned }));
+"""
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", script, str(SCRIPT)],
+            capture_output=True,
+            text=True,
+            env=_clean_env(),
+            timeout=120,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        line = next(
+            (l for l in result.stdout.splitlines() if l.startswith("__RESULT__")), None
+        )
+        self.assertIsNotNone(line, result.stdout)
+        self.assertFalse(
+            json.loads(line[len("__RESULT__") :])["warned"],
+            "a non-opting caller emitted the truncation warning",
+        )
 
     def test_read_with_nothing_collapsed_skips_the_click(self) -> None:
         """No collapsed bubbles must mean no click, so short reads stay cheap."""

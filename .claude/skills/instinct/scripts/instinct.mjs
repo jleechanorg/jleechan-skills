@@ -603,7 +603,7 @@ function reduceBubbles(nodes) {
   return out;
 }
 
-async function readMessages(page, limit) {
+async function readMessages(page, limit, { warnIfTruncated = false } = {}) {
   // This WhatsApp build dropped .message-in/.message-out. Bubbles carry
   // [data-pre-plain-text] = "[<time>, <date>] <Sender>: ", which gives direction
   // and timestamp without depending on obfuscated class names.
@@ -661,10 +661,13 @@ async function readMessages(page, limit) {
   // A bubble that still ends in the marker means expansion did not take. Say so: silent
   // truncation is the exact failure this function exists to prevent, and a caller that
   // greps for a verdict would otherwise read an absent reply as "not answered yet".
-  // The rendered marker carries an ellipsis ("… Read more"). Requiring it keeps a
-  // message that legitimately ends with the words "read more" from raising a false
-  // warning on every read.
-  if (bubbles.some((m) => /(?:…|\.\.\.)\s*read more\s*$/i.test(m.text))) {
+  // The marker carries an ellipsis ("… Read more"); requiring it keeps a message that
+  // legitimately ends with the words "read more" from crying wolf.
+  //
+  // Only the read verb acts on bubble text. Warning from `send`'s 3-bubble tail or
+  // `open` would add unrelated stderr noise to those success paths and dilute the
+  // signal for the callers that actually need it.
+  if (warnIfTruncated && bubbles.some((m) => /(?:…|\.\.\.)\s*read more\s*$/i.test(m.text))) {
     process.stderr.write(
       'instinct: WARNING a bubble is still collapsed after expanding; its tail (and any ' +
         'verdict in it) may be missing. Re-read, or treat the tail as UNREAD.\n'
@@ -1000,7 +1003,7 @@ async function main() {
       // needs to see whether ANY bubble is ours, and a run of peer replies (the
       // normal reply-polling case) would otherwise contain none and be refused.
       const scan = wantTheirs ? Math.max(limit * 4, 40) : limit;
-      const allMsgs = await readMessages(page, scan);
+      const allMsgs = await readMessages(page, scan, { warnIfTruncated: true });
       const msgs = allMsgs.slice(-limit);
       // --theirs must filter the fallback transport too. Without this, a prompt that
       // asks for "VERDICT: PASS|FAIL|BLOCKED" matches its own outgoing text here and
