@@ -99,7 +99,10 @@ echo "=================================="
 GENESIS_SESSION="genesis-benchmark-p${PROJECT_NUM}-$(date +%Y%m%d-%H%M%S)"
 
 echo "📋 Genesis Command Generation:"
-python genesis/genesis.py --refine "$PROJECT_DESCRIPTION" 30  # run from the Genesis checkout; work dir: $GENESIS_DIR
+GENESIS_SCRIPT="$PWD/genesis/genesis.py"
+[[ -f "$GENESIS_SCRIPT" ]] || { echo "Run this step from the Genesis checkout." >&2; exit 1; }
+tmux new-session -d -s "$GENESIS_SESSION" -c "$GENESIS_DIR" \
+    python "$GENESIS_SCRIPT" --refine "$PROJECT_DESCRIPTION" 30 || exit 1
 
 echo ""
 echo "⏱️ Genesis execution initiated. Monitoring progress..."
