@@ -69,12 +69,7 @@ if [[ -z "$STATE_REPO" || ! -d "$STATE_REPO" ]]; then
   echo "state repo unavailable; snapshot history is incomplete" >&2
   exit 1
 fi
-MACHINE="$(sed -n 's/^hostname: //p' "$STATE_REPO/MACHINE" 2>/dev/null)"
 SNAP="$STATE_REPO/snapshots/disk_snapshot.json"
-if [[ ! -r "$SNAP" && -n "$MACHINE" ]]; then
-  LEGACY_SNAPSHOT="$STATE_REPO/backup/$MACHINE/disk_snapshot.json"
-  [[ ! -r "$LEGACY_SNAPSHOT" ]] || SNAP="$LEGACY_SNAPSHOT"
-fi
 git -C "$STATE_REPO" log --oneline -1 -- 'backup/*/disk_snapshot.json' snapshots/disk_snapshot.json 2>/dev/null
 if [[ -r "$SNAP" ]]; then
   python3 -c 'import json,sys; from pathlib import Path; d=json.loads(Path(sys.argv[1]).read_text()); print("schema_version:", d.get("schema_version"), "coverage:", d.get("snapshot_coverage_pct"))' "$SNAP"
@@ -87,15 +82,15 @@ If `schema_version != 2`, the snapshot is pre-v2 (coverage inflates by parent/ch
 
 ## Phase 1 — floor + deltas (snapshot history)
 
-The Git root is the state repository reported by `diskm state status`; do not assume it is `~/.disk_magician_backup`. Snapshot history may use both layouts: older commits store `backup/<host>/disk_snapshot.json`; current commits use `snapshots/disk_snapshot.json`. Search both paths when selecting floors with `git -C "$STATE_REPO" log --all -- 'backup/*/disk_snapshot.json' snapshots/disk_snapshot.json`, including commits recovered by the existing reflog procedure. Read the path present in each selected commit with `git -C "$STATE_REPO" show <sha>:<path>`; the current-layout path may be absent from older commits. If both files exist in one commit, compare their embedded timestamps and select the capture for the requested window without counting a duplicate twice.
+The Git root for current state is the repository reported by `diskm state status`. Use resolver-backed history commands for archived samples; do not assume frozen `backup/<host>/disk_snapshot.json` files live under the current state repo. A frozen archive may contribute only a historical sample whose embedded capture time is in the requested window and whose coverage is at least 70%. Never use an archived file as the current snapshot or count duplicate captures twice.
 
 Three deltas, always reported:
 
 | Window | Find | Compare to |
 |---|---|---|
-| **Last week** (7 d) | min `disk_used_gb` in window | live `df -k` |
-| **Last month** (30 d) | min `disk_used_gb` in window | live `df -k` |
-| **All time floor** | min `disk_used_gb` over all reachable + reflog-recovered commits | live `df -k` |
+| **Last week** (7 d) | Minimum `disk_used_gb` in window from snapshots with `snapshot_coverage_pct >= 70%` | live `df -k` |
+| **Last month** (30 d) | Minimum `disk_used_gb` in window from snapshots with `snapshot_coverage_pct >= 70%` | live `df -k` |
+| **All time floor** | Minimum covered `disk_used_gb` over reachable + reflog-recovered commits | live `df -k` |
 
 Pull both `disk_used_gb` (denominator, in GiB — verified to use `1024*1024` divisor in `disk_snapshot.sh:200-201`) and `disk_free_gb`. Compute:
 
@@ -106,7 +101,7 @@ delta_free = free_min − free_now
 
 Per-directory snapshot deltas locate growers but remain directory aggregates. They do not establish file-level age, full attribution, or reclaimability. For a current attribution or reclaim estimate, descend every directory at or above 100 MiB to file and small-directory leaves. For null keys under disk pressure (the `timeout_keys` field), continue bounded itemization or report the exact unfinished key; a live `du -sk` parent total is not a substitute.
 
-**Coverage caveat:** the `topdown_coverage` field (schema_version 2) embeds the frontier scanner's `~/.disk_magician_state/frontier_last.json` summary if <36h old — use `frontier_unfinished_count` and `residual_kb` to flag the unmapped tail and surface it honestly. Days where `snapshot_coverage_pct < 70%` get `WARNING: low_coverage`; treat those deltas as directional, not exact.
+**Coverage gate:** exclude snapshots with missing, null, or `snapshot_coverage_pct < 70%` from floor selection and exact per-directory delta comparisons; keep them as low-coverage context only. The `topdown_coverage` field embeds the frontier scanner's `~/.disk_magician_state/frontier_last.json` summary if <36h old; use `frontier_unfinished_count` and `residual_kb` to name unmeasured tails. If no qualifying snapshot remains, report the snapshot floor unavailable and use the df-only daily `host_disk.used_kb` history in the configured disk observer log and its rotations. Report observed days and earliest/latest dates; do not infer all-time floors or per-path deltas from that fallback.
 
 ## Phase 2 — parallel-subagent fan-out (when scope demands it)
 
