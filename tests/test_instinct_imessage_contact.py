@@ -323,25 +323,51 @@ class BubbleAttributionTest(unittest.TestCase):
         self.assertEqual(len(bubbles), 1, "continuation nodes must collapse")
         self.assertEqual(bubbles[0]["sender"], "Me")
 
-    def test_read_messages_does_not_truncate_before_dedup(self) -> None:
-        """The raw node list must be deduped before any limit is applied.
+    def test_read_messages_dedupes_before_applying_the_limit(self) -> None:
+        """The limit must be applied AFTER deduplication, not before.
 
-        Truncating inside the page evaluate kept only the tail continuation nodes,
-        whose sender label is garbage, so the real sender was lost and our own
-        outgoing text was attributed to the peer. This is the actual defect; the
-        reduceBubbles behaviour was always correct.
+        Truncating the raw node list kept only the tail continuation nodes, whose
+        sender label is garbage ("1."), so the real sender was lost and our own
+        outgoing text was attributed to the peer.
+
+        Driven behaviourally: with limit 1 the single returned bubble must still be
+        the one carrying the real sender label. Slicing the raw list first would
+        return the continuation node instead.
         """
-        source = SCRIPT.read_text(encoding="utf-8")
-        # The evaluate must not slice; the slice belongs after reduceBubbles.
-        self.assertNotIn(
-            "return out.slice(-lim)",
-            source,
-            "readMessages truncates the raw node list before deduplication",
+        script = (
+            "const mod = await import(process.argv[1]);"
+            "const nodes = ["
+            '  { meta: "[12:00, 11/10/2026] Me: ", text: "my outgoing VERDICT: PASS", id: "A" },'
+            '  { meta: "[12:00, 11/10/2026] 1. ", text: "continuation of my text", id: "A" }'
+            "];"
+            "const page = {"
+            "  locator: () => ({ count: async () => 0, evaluateAll: async () => {} }),"
+            "  waitForTimeout: async () => {},"
+            "  evaluate: async () => nodes,"
+            "};"
+            "const out = await mod.readMessages(page, 1);"
+            'process.stdout.write("__RESULT__" + JSON.stringify(out));'
         )
-        self.assertIn(
-            "reduceBubbles(raw).slice(-limit)",
-            source,
-            "the limit must be applied AFTER reduceBubbles",
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", script, str(SCRIPT)],
+            capture_output=True,
+            text=True,
+            env=_clean_env(),
+            timeout=120,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        line = next(
+            (l for l in result.stdout.splitlines() if l.startswith("__RESULT__")), None
+        )
+        self.assertIsNotNone(line, f"harness produced no result: {result.stdout!r}")
+        out = json.loads(line[len("__RESULT__") :])
+        self.assertEqual(len(out), 1, "limit 1 must return exactly one message")
+        self.assertEqual(
+            out[0]["sender"],
+            "Me",
+            "slicing before dedup keeps the tail continuation node (garbage label) "
+            "and attributes our own text to the peer",
         )
 
     def test_slicing_after_dedup_preserves_attribution(self) -> None:
@@ -378,60 +404,69 @@ class CollapsedBubbleExpansionTest(unittest.TestCase):
     innerText and textContent measure the same length, so the text is absent rather
     than merely clipped.
 
-    This drives the real readMessages() with a fake page, which is the failure the
-    user sees. Asserting on the script source would pass even if the click did
-    nothing, so it could not catch a regression in the behaviour.
+    This drives the real readMessages() with a fake page, because the user-visible
+    failure is the returned text, not the shape of the source. The fake models one
+    fact: until the expander runs, a long bubble reports truncated text.
     """
 
-    # Enough surrounding script for the module to import without side effects.
+    # The fake records the selector readMessages asked for, and yields truncated
+    # text unless a click already happened on that selector.
     HARNESS = """
 const mod = await import(process.argv[1]);
+const collapsedCount = Number(process.env.FAKE_COLLAPSED ?? "2");
 const clicks = [];
+const selectors = [];
 const nodes = [
-  { meta: "[12:00, 11/10/2026] Peer: ", text: "short", id: "A" },
+  { meta: "[12:00, 11/10/2026] Peer: ", text: "long reply ending in VERDICT: PASS", id: "A" },
 ];
+let expanded = false;
 const page = {
   locator(sel) {
+    selectors.push(sel);
     return {
-      count: async () => 2,
+      count: async () => (expanded ? 0 : collapsedCount),
       evaluateAll: async (fn) => {
-        fn([{ click: () => clicks.push("expanded") }, { click: () => clicks.push("expanded") }]);
+        fn(Array.from({ length: collapsedCount }, () => ({ click: () => { clicks.push(sel); expanded = true; } })));
       },
     };
   },
   async waitForTimeout() {},
   async evaluate() {
-    // A collapsed bubble yields TRUNCATED text unless the expander ran first.
-    const truncated = clicks.length === 0;
     return nodes.map((n) => ({
       ...n,
-      text: truncated ? n.text + " … Read more" : n.text,
+      text: expanded ? n.text : n.text + " … Read more",
     }));
   },
 };
 const out = await mod.readMessages(page, 5);
-process.stdout.write(JSON.stringify({ clicks: clicks.length, out }));
+process.stdout.write("__RESULT__" + JSON.stringify({ clicks: clicks.length, selectors, out }));
 """
 
-    def _run(self, **env: str) -> dict:
+    def _run(self, **overrides: str) -> dict:
         result = subprocess.run(
             ["node", "--input-type=module", "-e", self.HARNESS, str(SCRIPT)],
             capture_output=True,
             text=True,
-            env=_clean_env(**env),
+            env=_clean_env(**overrides),
             timeout=120,
             check=False,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        return json.loads(result.stdout.strip().splitlines()[-1])
+        marker = "__RESULT__"
+        line = next(
+            (l for l in result.stdout.splitlines() if l.startswith(marker)), None
+        )
+        self.assertIsNotNone(line, f"harness produced no result: {result.stdout!r}")
+        return json.loads(line[len(marker) :])
 
     def test_collapsed_bubbles_are_expanded_before_text_is_read(self) -> None:
         payload = self._run()
         self.assertEqual(
-            payload["clicks"],
-            2,
-            "every collapsed bubble must be clicked before the read",
+            payload["clicks"], 2, "every collapsed bubble must be clicked before the read"
         )
+        # Assert the content, not just the loop: an empty result would otherwise
+        # pass without checking anything.
+        self.assertEqual(len(payload["out"]), 1, "the read returned no bubbles")
         for bubble in payload["out"]:
             self.assertNotIn(
                 "Read more",
@@ -439,3 +474,32 @@ process.stdout.write(JSON.stringify({ clicks: clicks.length, out }));
                 "a truncated bubble was returned; the expansion did not run before "
                 "the scrape, so a reply ending in VERDICT reads as absent",
             )
+            self.assertIn("VERDICT: PASS", bubble["text"])
+
+    def test_expander_selects_the_read_more_caption_button(self) -> None:
+        """The click must target the real caption button, scoped to the open chat.
+
+        A typo'd testid matches nothing in WhatsApp, so the fix would silently do
+        nothing while every other test still passed. The selector is a literal token
+        the program hands to a browser API, so pinning it is mechanical, not prose.
+        """
+        payload = self._run()
+        self.assertTrue(payload["selectors"], "readMessages queried no selector")
+        for sel in payload["selectors"]:
+            self.assertIn(
+                'data-testid="caption-read-more-button"',
+                sel,
+                f"unexpected expander selector {sel!r}",
+            )
+            self.assertIn(
+                "#main",
+                sel,
+                f"expander selector {sel!r} is not scoped to the open conversation; a "
+                "page-wide match could click another chat's button",
+            )
+
+    def test_read_with_nothing_collapsed_skips_the_click(self) -> None:
+        """No collapsed bubbles must mean no click, so short reads stay cheap."""
+        payload = self._run(FAKE_COLLAPSED="0")
+        self.assertEqual(payload["clicks"], 0, "clicked with nothing collapsed")
+        self.assertEqual(len(payload["out"]), 1)

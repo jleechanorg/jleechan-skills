@@ -311,8 +311,12 @@ merge, destructive-action, credential, or spend authority — same rule as `/dot
 **Long messages are expanded before they are read.** WhatsApp renders a long message as a short
 prefix plus a "… Read more" caption button, and the hidden remainder is *not in the DOM* until that
 button is clicked — `innerText` and `textContent` measure the same length, so it is absent rather
-than merely clipped. `readMessages` clicks every `caption-read-more-button` (guarded by a count, so a
-read with nothing collapsed pays no round trip) and waits for the re-render before scraping.
+than merely clipped. `readMessages` clicks every `#main [data-testid="caption-read-more-button"]`,
+scoped to the open conversation so it can never click another chat's button, then **polls** until no
+collapsed button remains (bounded at 5 s) rather than sleeping a fixed interval — a slow render would
+otherwise hand back the truncated text again. If a bubble still ends in the marker after that, `read`
+writes an `UNREAD tail` warning to stderr instead of returning quiet truncation, so a caller that greps
+for a verdict is never told "no verdict yet" when the verdict was simply not on screen.
 
 This matters because truncation fails **silently**: the text is well-formed and simply stops early,
 so a reply whose `VERDICT:` line sits at the end reads as absent to a grepping watcher. Before the
