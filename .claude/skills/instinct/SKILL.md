@@ -18,8 +18,13 @@ S=~/.claude/skills/instinct/scripts/instinct.mjs   # resolved by the active skil
 node "$S" whoami                          # which transports, in what order
 node "$S" probe                           # signed in on ANY transport? exit 4 if none
 node "$S" read --theirs --limit 20        # last 20 messages FROM the peer
+node "$S" read --contact "Instinct WhatsApp" --theirs --limit 20  # read WhatsApp directly
 node "$S" send --file /tmp/msg.txt        # iMessage first, WhatsApp fallback
 ```
+
+These commands use the automatic iMessage-first, WhatsApp-second transport chain. To read the
+configured WhatsApp chat directly, pass its title with `--contact` as shown above; this does not
+require an iMessage contact handle. Use `--theirs` when you need only replies from Instinct.
 
 Nothing personal is hardcoded. Set the peer and stores through
 [the environment variables](#configuration) below; the skill fails closed with a clear message when a
