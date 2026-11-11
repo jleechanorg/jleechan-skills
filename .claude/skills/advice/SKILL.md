@@ -55,8 +55,8 @@ Use only capabilities actually available and authorized. Keep one machine-local 
 account/identity key, model, transport and command or profile reference, permitted scope/isolation row, disclosure
 authorization, availability and attempt receipt. Use existing ADVICE configuration and owning transport skills; this
 is an orchestration record, not a new runner, configuration parser or prompt framework. Do not put personal accounts,
-destinations, credentials or host paths in this repository. Preference for a different CLI/model does not make aliases
-of one account independent.
+destinations, credentials or host paths in this repository. Prefer a different CLI/model when one is available;
+sharing an account or model with another reviewer does not disqualify a seat (see Identity).
 
 | Tier | Available reviewers | Admission and counting |
 |---|---|---|
@@ -73,7 +73,7 @@ The author, orchestrator and /research do not vote. One competent blocking objec
 
 Record availability separately from verdicts: AVAILABLE; UNAVAILABLE with missing capability, unsupported scope
 or authorization reason; BUSY with an existing handle when known; QUOTA with a printed reset time when available;
-or DUPLICATE with the shared identity key. Busy, missing, quota-blocked and duplicate seats do not reserve votes
+or DUPLICATE when the same seat was already asked for this scope. Busy, missing, quota-blocked and duplicate seats do not reserve votes
 or justify indefinite waits. Do not duplicate an active request. Keep the existing deadline and explicit-wait
 rules for in-flight attempts. Delivery, acknowledgement and assignment are not approval.
 
@@ -177,14 +177,16 @@ and receipts. Spawn each native seat (for example Codex `spawn_agent`) with pack
 template, never a parent-history fork such as `fork_turns: "all"`. Admit them in tier 2 with an eligible Hermes
 instance when needed; §2's aggregate caps still apply (static reviewers collectively at most one vote, Hermes
 instances collectively at most one), and each counted verdict covers the whole scope. Eligible CLI pairs, CLI plus
-static, or eligible outside combinations may supply the quorum.
+static (including a static reviewer on the host's own account), or eligible outside combinations may supply the quorum.
 There is no generic remote minimum or remote-only prohibition; preserve any separately explicit outside-review
 obligation. Review votes never replace missing substantive evidence.
 
 ### Identity
 
-- One account is one vote, whatever its label, wrapper, alias or retry; seats reaching the same account count once,
-  including an outside reviewer whose coder used the account that hit quota.
+- A vote belongs to a separate cold review, not to an account or model. Two seats on the same account or the same
+  model each count when each ran as its own cold seat with full coverage; a retry, alias or wrapper of one seat for
+  the same scope still counts once, and the §2 class caps (one static vote, one Hermes vote, one Dot or Instinct
+  vote) still apply. Record each seat's account so shared accounts stay visible in the receipt.
 - A CLI seat needs its actual model from reliable CLI/runtime metadata, or it is `UNAVAILABLE`. Outside routes record
   exposed model/account fields as `attested.` values; never invent a hidden runtime SKU. A verified Dot account is its
   own CLI/model identity under the one-Dot cap. Missing public fields do not invalidate a privately verified session;
