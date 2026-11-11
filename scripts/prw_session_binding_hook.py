@@ -134,25 +134,6 @@ def _classify(seg):
     return None
 
 
-def _checkout_args(args):
-    """(first positional target, -R/--repo value) of `gh pr checkout` arguments."""
-    target = repo = None
-    i = 0
-    while i < len(args):
-        a = args[i]
-        if a in ("-R", "--repo", "-b", "--branch"):
-            if a in ("-R", "--repo") and i + 1 < len(args):
-                repo = args[i + 1]
-            i += 2
-            continue
-        if a.startswith("--repo="):
-            repo = a.split("=", 1)[1]
-        elif not a.startswith("-") and target is None:
-            target = a
-        i += 1
-    return target, repo
-
-
 def _clean_git(info):
     out = {}
     if not isinstance(info, dict):
@@ -217,6 +198,8 @@ def records_for(payload, runtime, git, now=None):
     if len(segs) != 1 or grouped or seps[0] not in ("", ";", "\0"):
         return []
     seg = segs[0]
+    if any(re.match(r"[0-9]*[<>]", a) for a in seg):
+        return []
     c = _classify(seg) if seg[0] in ("gh", "git") else None
     if not c:
         return []
@@ -225,15 +208,16 @@ def records_for(payload, runtime, git, now=None):
         if seg[1] != "pr" or any(a in ("-R", "--repo") or a.startswith("--repo=") for a in args):
             return []
         if verb == "create":
-            if ({"--dry-run", "--web", "-w"} & set(args)
-                    or any(re.match(r"[0-9]*[<>]", a) for a in args)):
+            if {"--dry-run", "--web", "-w", "--help", "-h"} & set(args):
                 return []
             urls = {f"{m[1]}/{m[2]}#{int(m[3])}" for m in PR_URL_RE.finditer(output)}
             if len(urls) != 1:
                 return []
             pr, source = urls.pop(), "gh_pr_create"
         elif verb == "checkout":
-            m = PR_URL_FULL_RE.fullmatch(_checkout_args(args)[0] or "")
+            # Exactly `gh pr checkout <URL>`: any flag (--help, --detach, -b) may
+            # mean no checkout or a detached one.
+            m = PR_URL_FULL_RE.fullmatch(args[0]) if len(args) == 1 else None
             if not m:
                 return []
             pr, source = f"{m[1]}/{m[2]}#{int(m[3])}", "gh_pr_checkout"

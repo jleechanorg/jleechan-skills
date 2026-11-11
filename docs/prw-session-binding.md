@@ -14,11 +14,11 @@ Specification: [docs/specs/prw-session-binding-spec.md](specs/prw-session-bindin
 |---|---|
 | Session start | `session_start` with repository, branch and commit |
 | `gh pr create` whose output has exactly one PR URL | `pr_binding` for that URL's PR |
-| `gh pr checkout <full PR URL>` that did not fail | `pr_binding` for that URL's PR |
+| Exactly `gh pr checkout <full PR URL>`, with no other argument or flag, that did not fail | `pr_binding` for that URL's PR |
 | `git push`, `git switch`, `git checkout`, `git worktree add`, optionally with a literal `git -C <dir>` | `branch` with the branch and commit afterwards |
 | Stop, subagent stop | `stop` |
 
-Coverage is a deliberate lower bound. Each row counts only as one simple command: literally `gh pr ...` or `git ...` with nothing else in the line apart from a trailing `;`, no condition, grouping, pipe, redirection, assignment, alias, executable path or `$(...)`/backtick substitution. A PR is bound only from a fully qualified `github.com/<owner>/<repo>/pull/<N>` URL. A bare number, `-R`/`--repo`, `gh repo set-default`, fork remotes, `gh pr create --dry-run`/`--web` and every other form record nothing, so the hook never guesses which repository gh resolved. Reading a PR (`gh pr view`, `list`, `checks`, `diff`, comments, reviews) records nothing.
+Coverage is a deliberate lower bound. Each row counts only as one simple command: literally `gh pr ...` or `git ...` with nothing else in the line apart from a trailing `;`, no condition, grouping, pipe, redirection, assignment, alias, executable path or `$(...)`/backtick substitution. A PR is bound only from a fully qualified `github.com/<owner>/<repo>/pull/<N>` URL. A bare number, `-R`/`--repo`, `gh repo set-default`, fork remotes, `gh pr checkout` with any flag (`--detach`, `--help`, `-b`), `gh pr create --dry-run`/`--web`/`--help` and every other form record nothing, so the hook never guesses which repository gh resolved. Reading a PR (`gh pr view`, `list`, `checks`, `diff`, comments, reviews) records nothing.
 
 The ledger holds only: schema version, timestamp, runtime, session id, kind, repository, branch, commit, PR and source. It never holds command text, prompts, tool output or paths. It names private repositories and branches, so it stays on the host.
 
@@ -64,9 +64,9 @@ The script path above assumes the sync workflow installs it under `~/.claude/scr
 |---|---|
 | Hook unit tests (Claude payload shape) | Pass |
 | Hook invoked directly with a Claude-shaped `SessionStart` payload in a scratch repository | Wrote a correct record |
-| Hook fired by a real Claude Code session | Pass at `efab4368`, an earlier hook revision, which bound the run's `gh pr checkout <number> -R <owner/repo>`; the narrowed hook's URL-only checkout binding has not been re-run in a real session (unverified). That run: a headless `claude -p --settings` session (Claude Code 2.1.310) running `gh pr view`, `gh pr checkout` and `git switch` wrote `session_start`, `pr_binding`, `branch` and `stop`, and nothing for `gh pr view`. Earlier attempts launched from inside another agent session wrote no records; this run first unset that session's `CLAUDECODE` and `CLAUDE_CODE_*` session variables. Which variable mattered was not isolated. |
-| Hook `session_id` equals the transcript's session id | Pass, same run |
-| Collector on that session's transcript with `--session-bindings` | Pass: the request issued while bound was credited to the PR; requests before the checkout and after the switch were not |
+| Hook fired by a real Claude Code session | Pass at `b478e0db` (the narrowed hook; the later exact-form change only rejects more checkout forms): a headless `claude -p --settings` session running `gh pr checkout 787`, a checkout of a nonexistent PR URL, `gh pr checkout <URL of 787>`, `cd . && git switch demo-e2e` and `git switch demo-e2e` wrote `session_start`, one `pr_binding` for the URL checkout only, one `branch` for the plain switch only, and `stop`. The bare number, the failed checkout and the compound switch wrote nothing. An earlier run at `efab4368` (before the narrowing) is superseded. Launch it with that session's `CLAUDECODE` and `CLAUDE_CODE_*` variables unset. |
+| Hook `session_id` equals the transcript's session id | Pass in both runs: every ledger line carries the session id of the transcript file |
+| Collector on that session's transcript with `--session-bindings` | Pass for the `efab4368` run only (not repeated for the narrowed hook; since then the collector is unchanged and the join changed only to count out-of-range timestamps as malformed): the request issued while bound was credited to the PR; requests before the checkout and after the switch were not |
 | Codex payload field names; Codex child threads | **Not verified.** No Codex session was run. |
 | Join and collector unit tests | See the test modules `tests/test_prw_session_bindings.py` and `tests/test_prw_session_binding_collector.py` |
 
