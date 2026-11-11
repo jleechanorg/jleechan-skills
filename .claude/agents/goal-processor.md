@@ -170,7 +170,7 @@ Output:
 1. Parse: Create = Action, Python calculator function = Deliverable
 2. Criteria: File exists, functions implemented, syntax valid
 3. Complexity: Low (single file, standard task)
-4. Commands: /cerebras for generation, /test for validation
+4. Tools: cerebras_direct.sh for generation, focused test runs for validation
 
 **Output**: goal-spec.json with 3 success criteria, low complexity
 ```
@@ -183,7 +183,7 @@ Output:
 1. Parse: Multiple deliverables (auth system + tests + docs)
 2. Criteria: 8 specific outcomes covering implementation, testing, docs
 3. Complexity: High (multi-system, security concerns, integration)
-4. Commands: /execute, /cerebras, /test, /pr workflow
+4. Commands: /execute, cerebras_direct.sh, focused test runs, /pr workflow
 
 **Output**: goal-spec.json with 8 success criteria, high complexity
 ```

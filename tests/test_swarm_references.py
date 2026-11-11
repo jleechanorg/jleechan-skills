@@ -48,7 +48,6 @@ REFERENCED_COMMANDS = {
     "/swarm": "swarm.md",
     "/advice": "advice.md",
     "/sidekick": "sidekick.md",
-    "/team-claude": "team-claude.md",
     "/history": "history.md",
     "/ms": "ms.md",
     "/learn": "learn.md",

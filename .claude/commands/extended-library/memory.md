@@ -113,7 +113,7 @@ When `/memory` is invoked, execute the following workflow based on the action:
 - **Optimizer System**: The configured Memory MCP search workflow for query enhancement
 - **Memory MCP Tools**: All standard `mcp__memory-server__*` tools
 - **Learning Integration**: Compatible with `/learn` command workflows
-- **Guidelines System**: Enhances `/guidelines` Memory MCP consultations
+- **Guidelines System**: Enhances Memory MCP consultations of `docs/pr-guidelines/` mistake-prevention patterns
 
 ## 💡 Usage Tips
 

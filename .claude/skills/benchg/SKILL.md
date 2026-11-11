@@ -99,7 +99,7 @@ echo "=================================="
 GENESIS_SESSION="genesis-benchmark-p${PROJECT_NUM}-$(date +%Y%m%d-%H%M%S)"
 
 echo "📋 Genesis Command Generation:"
-/gene "$PROJECT_DESCRIPTION" 30 "$GENESIS_DIR"
+python genesis/genesis.py --refine "$PROJECT_DESCRIPTION" 30  # run from the Genesis checkout; work dir: $GENESIS_DIR
 
 echo ""
 echo "⏱️ Genesis execution initiated. Monitoring progress..."
@@ -472,7 +472,7 @@ echo "✅ Benchmark completed successfully!"
 ## Integration Notes
 
 This command leverages:
-- **Genesis orchestration** via `/gene` command
+- **Genesis orchestration** via `genesis/genesis.py`
 - **Ralph orchestration** via `ai_orch --async`
 - **Consensus review** via `/cons` command
 - **tmux session management** for parallel execution

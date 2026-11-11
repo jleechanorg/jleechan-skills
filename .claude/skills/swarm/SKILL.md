@@ -50,7 +50,7 @@ specific review, required external gates and non-PR swarm work retain their rule
 | **Agent teams** | Interactive lanes needing mid-flight steering or shared task claims | Top-level session creates named teammates (`lane1-history`, `lane4-code` style); the sidekick fans out anonymous subagents only. TaskCreate/TaskUpdate claims + SendMessage; shutdown_request when a lane completes. |
 | **Sidekick** — ALWAYS ON | Durable state for ALL swarm work | See Sidekick durability layer. |
 
-"Ultracode" = the Workflow tool, never /team-claude teammates (user corrected this twice).
+"Ultracode" = the Workflow tool, never team-claude (Agent Teams) teammates (user corrected this twice).
 
 ## Stall watchdog — TUI swarms stall alive on quota modals
 

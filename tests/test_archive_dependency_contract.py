@@ -124,7 +124,9 @@ class ArchiveDependencyContractTest(unittest.TestCase):
 
         broken_commands = {}
         for name in sorted(archived):
-            slash_pattern = rf"(?<![A-Za-z0-9_.-])/(?:extended-library:)?{re.escape(name)}(?![A-Za-z0-9_-])"
+            # `}` is excluded before the slash so a templated output path such as
+            # `docs/pr-guidelines/{PR_NUMBER}/guidelines.md` is not read as `/guidelines`.
+            slash_pattern = rf"(?<![A-Za-z0-9_.}}-])/(?:extended-library:)?{re.escape(name)}(?![A-Za-z0-9_-])"
             md_link_pattern = rf"\([^)]*?\b{re.escape(name)}\.md\)"
             matches = len(re.findall(slash_pattern, active_text)) + len(re.findall(md_link_pattern, active_text))
             if matches > 0:

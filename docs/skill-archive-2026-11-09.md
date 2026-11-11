@@ -110,6 +110,7 @@ Left as is: `plugins/self-hosted-runners/skills/repo-and-infra-locations/SKILL.m
 ## Follow-up for the operator
 
 - 33 command files are held (table above). Each needs a decision on the active file that references it before it can be archived.
+  - Decided 2026-11-10: the operator does not use them. All 33 moved to `.claude/commands_archive/2026-11-10-held-commands/` with the references cleaned; see that folder's `README.md`.
 - Applying this to a host: run the usual install or sync from a checkout that contains this change. Nothing was installed or synced as part of this change.
 
 ## Classification table

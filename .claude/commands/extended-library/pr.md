@@ -22,8 +22,8 @@ destructive-action, credential or publication gate.
 ## Retired behaviour — do not reinstate
 
 `/pr` previously declared a mandatory five-phase pipeline: Think → Execute →
-Push → Copilot → Review, composing `/think`, `/execute`, `/push`, `/copilot`
-and `/review` and stating that a push plus automatic Copilot feedback handling
+Push → Copilot → Review, composing a thinking step, `/execute`, a push step,
+`/copilot` and `/review` and stating that a push plus automatic Copilot feedback handling
 was required before the task counted as done.
 
 That contract is retired because it contradicted the canonical lifecycle:
