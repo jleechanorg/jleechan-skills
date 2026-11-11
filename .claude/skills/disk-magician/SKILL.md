@@ -14,7 +14,7 @@ All Disk Magician measurements, reports, cleanup previews, and candidate scans f
 ## Skill Integration & Commands
 
 * **Which procedure**: a quick capacity check runs the zero-`du` triage in `../disk-audit/SKILL.md`. A reclaimable-amount estimate, root-cause investigation, or cleanup-target decision runs the full forensic procedure in `../disk-root-cause/SKILL.md`. Do not stop at a quick check when the request needs attribution. On the quick path, escalate when precomputed data is missing or its owner reports it stale or incomplete; follow the probe result rather than a fixed interval.
-* **Default forensic diagnosis (attribution only)**: For a root-cause, floor, growth, or reclaim-estimate request, run the full three-lane `diskm audit` after the quick probes. Use resolved portions, name unfinished paths, and do not claim full attribution or estimate reclaim from them. Incomplete coverage does not invalidate independently measured siblings.
+* **Default forensic diagnosis (attribution only)**: For a root-cause, floor, growth, or reclaim-estimate request, follow `../disk-root-cause/SKILL.md` after the quick probes. Run the full three-lane `diskm audit` unless a current report proves complete 100 MiB leaf coverage for every requested path and period; directory-aggregate snapshots do not prove this coverage. Use resolved portions, name unfinished paths, and do not estimate reclaim from incomplete paths.
 * **Cleanup previews**: Use the canonical preview interfaces before choosing a cleanup target:
   ```bash
   diskm clean --dry-run
