@@ -38,6 +38,14 @@ Use the agent automation browser or a separate isolated context.
   activation/quit. Do not bring a desktop browser to the foreground as
   recovery (Aside background mode is the only launch exception), change default-browser registration, or enable a continuous relaunch
   service.
+  A capability blocker offered to justify an exception to a default must be
+  falsified against every available variant of that capability before the
+  exception is taken. Name each arm by the thing that actually differs; a label
+  is not a variable when one arm resolves to a different implementation.
+  Playwright's ordinary `headless: true` launches the stripped headless-shell
+  build, while `headless: true, channel: "chromium"` launches full Chromium, so
+  probing only the former tests the build, not headless mode. A negative result
+  from one variant is not a platform limitation.
 - Close only exact tabs/contexts/processes created by the current task. Never use
   `closeAllTabs()`, `killall`, or broad `pkill` against shared browsers. Never remove
   profile locks while their holder is alive; Dot profiles remain exclusive to Dot.
