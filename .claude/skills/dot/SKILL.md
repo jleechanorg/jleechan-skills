@@ -310,11 +310,11 @@ fresh check is needed. It checks the session/composer without sending a message;
 quota or task completion. Do not send test pings to every Dot. Read-only probes may run concurrently only on
 distinct profiles within measured resources; serialize callers of the same Dot profile. Instinct uses its own profile.
 
-Independent authorized tasks may use different eligible accounts concurrently. For one task, use backups on
-verified failure or unavailability, preserving ownership and attempt deadlines. For advice, follow its
-[candidate checks and fallback](../advice/SKILL.md#candidate-checks-fan-out-and-fallback): all Dot accounts
-collectively supply at most one vote, and runtime dispatch limits still apply. The caller owns interactive
-routing and receipts; `dot-coordinator` remains a single-account scheduled reminder.
+Independent authorized tasks may use different eligible accounts concurrently with `DOT_ROTATE_ON_LIMIT=0`.
+After verified failure or unavailability, the caller selects and serializes an eligible backup before retrying,
+honoring target bindings, ownership and the original deadline. For advice, follow its
+[candidate checks and fallback](../advice/SKILL.md#candidate-checks-fan-out-and-fallback): all Dots supply at most one vote;
+runtime dispatch limits apply. The caller owns routing/receipts; `dot-coordinator` remains a single-account reminder.
 
 Before the required closing receipt or verdict, include every configured account's disclosure-safe alias, health evidence/time,
 actual send attempted (yes/no), outcome or concrete skip reason, receipt and next action. For example:
@@ -323,10 +323,10 @@ to B.” Delivery is not completion. Missing evidence means UNKNOWN or attempt U
 A skipped account needs a reason such as task already delivered, account policy, verified quota window, existing
 ownership, profile contention or deadline. Keep private account identifiers out of published receipts.
 
-`dot.sh` supports automatic rotation (`DOT_ROTATE_ON_LIMIT=1` by default), clearing `DOT_CHROME_USER_DATA`,
-`DOT_URL` and `DOT_PROFILE_DIRECTORY` so the next account resolves its own profile and target. Attribute every
-automatic attempt from transport output; if the visited accounts cannot be verified, report that gap rather
-than claiming the roster was exhausted. Advice and bound recovery callers retain `DOT_ROTATE_ON_LIMIT=0`.
+Set `DOT_ROTATE_ON_LIMIT=0` for advice, concurrent calls and every explicitly bound destination (`--account`,
+`--url` or caller binding), including recovery; a limit never authorizes changing that destination.
+Unbound, serialized calls may retain automatic rotation (default `1`), which clears `DOT_CHROME_USER_DATA`, `DOT_URL`
+and `DOT_PROFILE_DIRECTORY`. Attribute every attempt from output; unverified visits cannot prove roster exhaustion.
 
 ## Backend & Persistent Profiles
 
