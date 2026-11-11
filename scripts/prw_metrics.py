@@ -4386,10 +4386,10 @@ def aggregate_native_human_steering(
             if message_kind == "initial_task":
                 row["initial_requests"] += 1
             if role == "followup":
+                row["verified_followup_messages"] += 1
                 if not episode_id:
                     coverage["followups_without_episode_id"] += 1
                 else:
-                    row["verified_followup_messages"] += 1
                     row["_episode_labels"].setdefault(
                         str(episode_id), set()
                     ).add(quality_label)

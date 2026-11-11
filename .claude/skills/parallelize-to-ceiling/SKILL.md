@@ -179,7 +179,10 @@ commands: [`references/specialist-commands.md`](references/specialist-commands.m
 5. **Never fork a multi-minute CLI delegation (agy, codex, claude -p) as a
    foreground Bash call.** Always `run_in_background` + explicit timeout —
    a foreground fork pins the parent at the worst possible moment. Read the
-   output file on the task notification.
+   output file on the task notification. In Claude Code, background commands
+   owned by a foreground subagent end with that subagent's run; do not hand
+   off a long-lived job that way. Subagents run bounded foreground steps
+   that finish inside their own turn; the top-level session owns longer jobs.
 6. **Cap concurrent pytest lanes** in gRPC-loaded repos (macOS
    fork-unsafety: "multi-threaded process forked" SIGTRAP storms). 2-3
    lanes max per host unless measured safe; fill the current host's safe
@@ -187,6 +190,25 @@ commands: [`references/specialist-commands.md`](references/specialist-commands.m
    another measured constraint makes the current host ineligible.
 7. **Watch delegate RSS.** A CLI delegate above ~2-3GB RSS is itself a
    heavy item — one per machine, per the resource-bound table.
+
+### /prw endpoint lanes
+
+For Claude Code, start each `/prw` endpoint lane as a top-level session so it
+can hold the session goal and receive its own background-job results (waiting
+rules: [pr-workflow-manager](../pr-workflow-manager/SKILL.md#terminal-goal-and-entry-contract)).
+Its first prompt must be the coordinator's complete, authoritative task brief,
+including the intended `/prw <PR URL>` endpoint; a bare PR URL or command is
+not a sufficient handoff. The brief must preserve the requested endpoint and
+task scope, any stop point or no-merge hold, the pinned source/revision, the
+original authority and approval constraints, and the remaining deadline. Before
+starting `/prw` or taking other action, the lane must confirm that it accepts
+the scope and restate those constraints. If the brief is missing or conflicts
+with the coordinator's instructions, it must stop and return the discrepancy
+for resolution. The lane runs under the operator's existing permission
+settings. For another runtime, use its supported independent-session interface
+and provide the same complete brief and scope confirmation; if none is
+available, keep endpoint ownership in the coordinator and delegate only bounded
+steps.
 
 ## Isolation invariants (always, when parallelizing)
 

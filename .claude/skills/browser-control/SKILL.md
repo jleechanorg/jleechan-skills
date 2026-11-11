@@ -38,6 +38,19 @@ Use the agent automation browser or a separate isolated context.
   activation/quit. Do not bring a desktop browser to the foreground as
   recovery (Aside background mode is the only launch exception), change default-browser registration, or enable a continuous relaunch
   service.
+  Before claiming visible automation is technically necessary, reproduce the
+  specific failure in an isolated headless context and record the executable or
+  build, version, channel, launch arguments, and result. Check materially
+  relevant, supported headless alternatives that are already available and
+  authorized, using a bounded diagnostic plan. Do not weaken security, broaden
+  access, reuse another task's profile, or bypass an authorization or
+  access-control denial. Describe a failure as configuration-specific unless
+  broader evidence supports the broader claim.
+  Playwright's ordinary `headless: true` launches the stripped headless-shell
+  build while `headless: true, channel: "chromium"` launches full Chromium, so a
+  shell-only failure does not establish a limitation of headless mode generally.
+  Technical necessity does not authorize headed mode: the explicit current-thread
+  request and isolation requirements above still apply.
 - Close only exact tabs/contexts/processes created by the current task. Never use
   `closeAllTabs()`, `killall`, or broad `pkill` against shared browsers. Never remove
   profile locks while their holder is alive; Dot profiles remain exclusive to Dot.
