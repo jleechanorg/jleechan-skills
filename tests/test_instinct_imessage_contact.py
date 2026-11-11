@@ -498,6 +498,52 @@ process.stdout.write("__RESULT__" + JSON.stringify({ clicks: clicks.length, sele
                 "page-wide match could click another chat's button",
             )
 
+    def test_warning_fires_only_on_the_real_truncation_marker(self) -> None:
+        """A message that merely ends in the words "read more" must not warn.
+
+        The warning exists so silent truncation becomes loud. If it fired on
+        ordinary prose, callers would learn to ignore it - so the pattern must
+        require the ellipsis WhatsApp actually renders.
+        """
+        script = """
+const mod = await import(process.argv[1]);
+const text = process.env.FAKE_TEXT;
+let warned = false;
+const write = process.stderr.write.bind(process.stderr);
+process.stderr.write = (s) => { warned = true; return true; };
+const page = {
+  locator: () => ({ count: async () => 0, evaluateAll: async () => {} }),
+  waitForTimeout: async () => {},
+  evaluate: async () => [{ meta: "[T] Peer: ", text, id: "A" }],
+};
+await mod.readMessages(page, 5);
+process.stderr.write = write;
+process.stdout.write("__RESULT__" + JSON.stringify({ warned }));
+"""
+        cases = [
+            ("prose ending in the words", "I will read more", False),
+            ("real marker with ellipsis", "long reply\u2026 Read more", True),
+            ("prose mid-sentence", "please read more carefully next time", False),
+        ]
+        for name, text, expect in cases:
+            with self.subTest(name):
+                result = subprocess.run(
+                    ["node", "--input-type=module", "-e", script, str(SCRIPT)],
+                    capture_output=True,
+                    text=True,
+                    env=_clean_env(FAKE_TEXT=text),
+                    timeout=120,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                line = next(
+                    (l for l in result.stdout.splitlines() if l.startswith("__RESULT__")),
+                    None,
+                )
+                self.assertIsNotNone(line, result.stdout)
+                warned = json.loads(line[len("__RESULT__") :])["warned"]
+                self.assertEqual(warned, expect, f"warning mismatch for {name!r}")
+
     def test_read_with_nothing_collapsed_skips_the_click(self) -> None:
         """No collapsed bubbles must mean no click, so short reads stay cheap."""
         payload = self._run(FAKE_COLLAPSED="0")

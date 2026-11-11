@@ -661,7 +661,10 @@ async function readMessages(page, limit) {
   // A bubble that still ends in the marker means expansion did not take. Say so: silent
   // truncation is the exact failure this function exists to prevent, and a caller that
   // greps for a verdict would otherwise read an absent reply as "not answered yet".
-  if (bubbles.some((m) => /read more\s*$/i.test(m.text))) {
+  // The rendered marker carries an ellipsis ("… Read more"). Requiring it keeps a
+  // message that legitimately ends with the words "read more" from raising a false
+  // warning on every read.
+  if (bubbles.some((m) => /(?:…|\.\.\.)\s*read more\s*$/i.test(m.text))) {
     process.stderr.write(
       'instinct: WARNING a bubble is still collapsed after expanding; its tail (and any ' +
         'verdict in it) may be missing. Re-read, or treat the tail as UNREAD.\n'
