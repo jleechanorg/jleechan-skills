@@ -1,0 +1,22 @@
+{
+  "origin_sha256": "0ba05c170639a96aefd7d899e55126c138544ad3e6dac6d473f7ae793aab32f9",
+  "source_code_version": "8bc2ee705f83b9cdd0ba5e3c1ff498818652f39a",
+  "source_generated_at": "2026-11-10T03:48:52Z",
+  "data_through": "2026-11-09T21:25:21Z",
+  "source_rows": 1242,
+  "selected_rows": 219,
+  "selection": "repo equals jleechanorg/jleechan-skills; each selected PR row unchanged",
+  "cleared_sections": [
+    "cohorts",
+    "sources",
+    "gaps",
+    "usage_totals",
+    "query_coverage",
+    "repo_comparison",
+    "stage_dwell",
+    "handoffs",
+    "human_coverage",
+    "human_interventions"
+  ],
+  "cutoff_rule": "window_end taken from original windows.w2[1] when absent; no fresh collection"
+}

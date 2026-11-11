@@ -1,0 +1,216 @@
+{
+  "layer": "real cached public-repository records served by real local static HTTP app; not fresh collector execution",
+  "driver_sha256": "e128472472d59938da28e0a9ad080b4ff4a98e9112798357fc3dbf22ae4f3a18",
+  "captures": [
+    {
+      "side": "before",
+      "scenario": "real",
+      "width": 1440,
+      "captured_at": "2026-11-11T08:21:42.052Z",
+      "url": "http://127.0.0.1:49430/before/?data=real.json",
+      "tiles": [],
+      "dimensions": {
+        "scroll": 1440,
+        "viewport": 1440
+      },
+      "errors": [],
+      "received": [
+        {
+          "file": "before/index.html",
+          "sha256": "8d7ee1f36cceb1221bb1689e9144a1a08a48d9d656d560a711ea98ae67ec96ca",
+          "status": 200
+        },
+        {
+          "file": "before/styles.css",
+          "sha256": "47bde6e2ed4a2e1555f39eda64c5587d2fc812ad2ea1b8d16adede4ef3ab3867",
+          "status": 200
+        },
+        {
+          "file": "before/stats.js",
+          "sha256": "ef0ff8df39ed7bfcd01f5374865ae7517e75c81f7fc54bbac71946b43a733fe2",
+          "status": 200
+        },
+        {
+          "file": "before/app.js",
+          "sha256": "45832224f0e6935dae21168bebd1d7c0029a4e7ae7abbeca1d2d0f371a7db1f1",
+          "status": 200
+        },
+        {
+          "file": "before/real.json",
+          "sha256": "a627a09497ce6f5c73a6aadf4a79b762c76f450ae6059a110fb4e6f718c77de7",
+          "status": 200
+        }
+      ],
+      "screenshot": "before-real-1440.png",
+      "sha256": "613fcef624824a2d65cac60a626d68fa32727022a0cd16f1b41dc03a3eeb5216"
+    },
+    {
+      "side": "after",
+      "scenario": "real",
+      "width": 1440,
+      "captured_at": "2026-11-11T08:21:43.394Z",
+      "url": "http://127.0.0.1:49430/after/?data=real.json",
+      "tiles": [
+        {
+          "label": "One-shot rate (0 human steers)",
+          "value": "Not enough data",
+          "detail": "n = 2 reached final · unknown: 139 (needs 3+)"
+        },
+        {
+          "label": "Human steers per PR, median / p90",
+          "value": "Not enough data",
+          "detail": "n = 2 reached final · unknown: 139 (needs 3+)"
+        },
+        {
+          "label": "Start to final stage, median / p90",
+          "value": "38 min / 27.6 h",
+          "detail": "n = 135 reached final · unknown: 6"
+        },
+        {
+          "label": "Reached final stage vs started",
+          "value": "141 of 158",
+          "detail": "n = 158 started · unknown: 61"
+        }
+      ],
+      "dimensions": {
+        "scroll": 1440,
+        "viewport": 1440
+      },
+      "errors": [],
+      "received": [
+        {
+          "file": "after/index.html",
+          "sha256": "c87f2a47dbff43cc1fbcc9a9e60153a7e6638837154e15e556bfbe2d97c98f6b",
+          "status": 200
+        },
+        {
+          "file": "after/styles.css",
+          "sha256": "47bde6e2ed4a2e1555f39eda64c5587d2fc812ad2ea1b8d16adede4ef3ab3867",
+          "status": 200
+        },
+        {
+          "file": "after/stats.js",
+          "sha256": "880b0a5bc1d29eabc112c3b2acf3d9faac7e396eeac1c4ce909aa8c78a690b09",
+          "status": 200
+        },
+        {
+          "file": "after/app.js",
+          "sha256": "0c6c4bc53a9b459915bc58feff8bc71b1e26f4dc14acd12c9672da9f62c5e25e",
+          "status": 200
+        },
+        {
+          "file": "after/real.json",
+          "sha256": "a627a09497ce6f5c73a6aadf4a79b762c76f450ae6059a110fb4e6f718c77de7",
+          "status": 200
+        }
+      ],
+      "screenshot": "after-real-1440.png",
+      "sha256": "bcdd7260b7fb12ae97c83a6eb9bbfebb8122db7ce9221d12617e1fab57ad5b98"
+    },
+    {
+      "side": "before",
+      "scenario": "real",
+      "width": 375,
+      "captured_at": "2026-11-11T08:21:44.164Z",
+      "url": "http://127.0.0.1:49430/before/?data=real.json",
+      "tiles": [],
+      "dimensions": {
+        "scroll": 375,
+        "viewport": 375
+      },
+      "errors": [],
+      "received": [
+        {
+          "file": "before/index.html",
+          "sha256": "8d7ee1f36cceb1221bb1689e9144a1a08a48d9d656d560a711ea98ae67ec96ca",
+          "status": 200
+        },
+        {
+          "file": "before/styles.css",
+          "sha256": "47bde6e2ed4a2e1555f39eda64c5587d2fc812ad2ea1b8d16adede4ef3ab3867",
+          "status": 200
+        },
+        {
+          "file": "before/stats.js",
+          "sha256": "ef0ff8df39ed7bfcd01f5374865ae7517e75c81f7fc54bbac71946b43a733fe2",
+          "status": 200
+        },
+        {
+          "file": "before/app.js",
+          "sha256": "45832224f0e6935dae21168bebd1d7c0029a4e7ae7abbeca1d2d0f371a7db1f1",
+          "status": 200
+        },
+        {
+          "file": "before/real.json",
+          "sha256": "a627a09497ce6f5c73a6aadf4a79b762c76f450ae6059a110fb4e6f718c77de7",
+          "status": 200
+        }
+      ],
+      "screenshot": "before-real-375.png",
+      "sha256": "e0b59371891d9bdbe628d7c895e698744dd187e34dabe940aee8eda880ed3df1"
+    },
+    {
+      "side": "after",
+      "scenario": "real",
+      "width": 375,
+      "captured_at": "2026-11-11T08:21:44.919Z",
+      "url": "http://127.0.0.1:49430/after/?data=real.json",
+      "tiles": [
+        {
+          "label": "One-shot rate (0 human steers)",
+          "value": "Not enough data",
+          "detail": "n = 2 reached final · unknown: 139 (needs 3+)"
+        },
+        {
+          "label": "Human steers per PR, median / p90",
+          "value": "Not enough data",
+          "detail": "n = 2 reached final · unknown: 139 (needs 3+)"
+        },
+        {
+          "label": "Start to final stage, median / p90",
+          "value": "38 min / 27.6 h",
+          "detail": "n = 135 reached final · unknown: 6"
+        },
+        {
+          "label": "Reached final stage vs started",
+          "value": "141 of 158",
+          "detail": "n = 158 started · unknown: 61"
+        }
+      ],
+      "dimensions": {
+        "scroll": 375,
+        "viewport": 375
+      },
+      "errors": [],
+      "received": [
+        {
+          "file": "after/index.html",
+          "sha256": "c87f2a47dbff43cc1fbcc9a9e60153a7e6638837154e15e556bfbe2d97c98f6b",
+          "status": 200
+        },
+        {
+          "file": "after/styles.css",
+          "sha256": "47bde6e2ed4a2e1555f39eda64c5587d2fc812ad2ea1b8d16adede4ef3ab3867",
+          "status": 200
+        },
+        {
+          "file": "after/stats.js",
+          "sha256": "880b0a5bc1d29eabc112c3b2acf3d9faac7e396eeac1c4ce909aa8c78a690b09",
+          "status": 200
+        },
+        {
+          "file": "after/app.js",
+          "sha256": "0c6c4bc53a9b459915bc58feff8bc71b1e26f4dc14acd12c9672da9f62c5e25e",
+          "status": 200
+        },
+        {
+          "file": "after/real.json",
+          "sha256": "a627a09497ce6f5c73a6aadf4a79b762c76f450ae6059a110fb4e6f718c77de7",
+          "status": 200
+        }
+      ],
+      "screenshot": "after-real-375.png",
+      "sha256": "d91cae9cedae38b33f7183547009fb1cc964290dd0b2b69b60ddeccd73273452"
+    }
+  ]
+}

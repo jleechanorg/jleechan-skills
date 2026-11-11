@@ -1,0 +1,321 @@
+{
+  "layer": "synthetic-fixture supporting static UI proof, not real integration",
+  "driver_sha256": "58b243c2d5074faa6ff45acfa063d8966434883c48d34f0b085afe12addd95a4",
+  "captures": [
+    {
+      "side": "before",
+      "scenario": "good",
+      "width": 390,
+      "captured_at": "2026-11-11T07:55:26.598Z",
+      "url": "http://127.0.0.1:60472/before/?data=good.json",
+      "tiles": [],
+      "dimensions": {
+        "scroll": 390,
+        "viewport": 390
+      },
+      "errors": [],
+      "received": [
+        {
+          "file": "before/index.html",
+          "sha256": "8d7ee1f36cceb1221bb1689e9144a1a08a48d9d656d560a711ea98ae67ec96ca",
+          "status": 200
+        },
+        {
+          "file": "before/styles.css",
+          "sha256": "47bde6e2ed4a2e1555f39eda64c5587d2fc812ad2ea1b8d16adede4ef3ab3867",
+          "status": 200
+        },
+        {
+          "file": "before/stats.js",
+          "sha256": "ef0ff8df39ed7bfcd01f5374865ae7517e75c81f7fc54bbac71946b43a733fe2",
+          "status": 200
+        },
+        {
+          "file": "before/app.js",
+          "sha256": "45832224f0e6935dae21168bebd1d7c0029a4e7ae7abbeca1d2d0f371a7db1f1",
+          "status": 200
+        },
+        {
+          "file": "before/good.json",
+          "sha256": "c6144bbb119530aa9a590ff6e77cd234a531d613b026bacb647a7940e1104a41",
+          "status": 200
+        }
+      ],
+      "screenshot": "before-good-390x1400.png",
+      "sha256": "442fde674f498814b4c6cf8072886d915ee55e76df74f9fdc766abea74f7ebaa"
+    },
+    {
+      "side": "after",
+      "scenario": "good",
+      "width": 390,
+      "captured_at": "2026-11-11T07:55:27.262Z",
+      "url": "http://127.0.0.1:60472/after/?data=good.json",
+      "tiles": [
+        {
+          "label": "One-shot rate (0 human steers)",
+          "value": "2 of 5 · 40%",
+          "detail": "n = 5 reached final · unknown: 1"
+        },
+        {
+          "label": "Human steers per PR, median / p90",
+          "value": "1 / 5",
+          "detail": "n = 5 reached final · unknown: 1"
+        },
+        {
+          "label": "Start to final stage, median / p90",
+          "value": "60 min / 2.0 h",
+          "detail": "n = 5 reached final · unknown: 1"
+        },
+        {
+          "label": "Reached final stage vs started",
+          "value": "6 of 7",
+          "detail": "n = 7 started · unknown: 1"
+        }
+      ],
+      "dimensions": {
+        "scroll": 390,
+        "viewport": 390
+      },
+      "errors": [],
+      "received": [
+        {
+          "file": "after/index.html",
+          "sha256": "c87f2a47dbff43cc1fbcc9a9e60153a7e6638837154e15e556bfbe2d97c98f6b",
+          "status": 200
+        },
+        {
+          "file": "after/styles.css",
+          "sha256": "47bde6e2ed4a2e1555f39eda64c5587d2fc812ad2ea1b8d16adede4ef3ab3867",
+          "status": 200
+        },
+        {
+          "file": "after/stats.js",
+          "sha256": "880b0a5bc1d29eabc112c3b2acf3d9faac7e396eeac1c4ce909aa8c78a690b09",
+          "status": 200
+        },
+        {
+          "file": "after/app.js",
+          "sha256": "0c6c4bc53a9b459915bc58feff8bc71b1e26f4dc14acd12c9672da9f62c5e25e",
+          "status": 200
+        },
+        {
+          "file": "after/good.json",
+          "sha256": "c6144bbb119530aa9a590ff6e77cd234a531d613b026bacb647a7940e1104a41",
+          "status": 200
+        }
+      ],
+      "screenshot": "after-good-390x1400.png",
+      "sha256": "676d64f0f053b205799f960c776e64d5f4214d2e06042f64bf1d10dcc25a6e7b"
+    },
+    {
+      "side": "before",
+      "scenario": "small",
+      "width": 390,
+      "captured_at": "2026-11-11T07:55:27.933Z",
+      "url": "http://127.0.0.1:60472/before/?data=small.json",
+      "tiles": [],
+      "dimensions": {
+        "scroll": 390,
+        "viewport": 390
+      },
+      "errors": [],
+      "received": [
+        {
+          "file": "before/index.html",
+          "sha256": "8d7ee1f36cceb1221bb1689e9144a1a08a48d9d656d560a711ea98ae67ec96ca",
+          "status": 200
+        },
+        {
+          "file": "before/styles.css",
+          "sha256": "47bde6e2ed4a2e1555f39eda64c5587d2fc812ad2ea1b8d16adede4ef3ab3867",
+          "status": 200
+        },
+        {
+          "file": "before/stats.js",
+          "sha256": "ef0ff8df39ed7bfcd01f5374865ae7517e75c81f7fc54bbac71946b43a733fe2",
+          "status": 200
+        },
+        {
+          "file": "before/app.js",
+          "sha256": "45832224f0e6935dae21168bebd1d7c0029a4e7ae7abbeca1d2d0f371a7db1f1",
+          "status": 200
+        },
+        {
+          "file": "before/small.json",
+          "sha256": "920e511ea454e5d53f4718245c53b97267c2862e23f6f3dc22c190c537193c1f",
+          "status": 200
+        }
+      ],
+      "screenshot": "before-small-390x1400.png",
+      "sha256": "c69063081c70c3d890a648cb0746368f04776a240a004fa5ad22f6158c929807"
+    },
+    {
+      "side": "after",
+      "scenario": "small",
+      "width": 390,
+      "captured_at": "2026-11-11T07:55:28.596Z",
+      "url": "http://127.0.0.1:60472/after/?data=small.json",
+      "tiles": [
+        {
+          "label": "One-shot rate (0 human steers)",
+          "value": "Not enough data",
+          "detail": "n = 2 reached final · unknown: 0 (needs 3+)"
+        },
+        {
+          "label": "Human steers per PR, median / p90",
+          "value": "Not enough data",
+          "detail": "n = 2 reached final · unknown: 0 (needs 3+)"
+        },
+        {
+          "label": "Start to final stage, median / p90",
+          "value": "Not enough data",
+          "detail": "n = 2 reached final · unknown: 0 (needs 3+)"
+        },
+        {
+          "label": "Reached final stage vs started",
+          "value": "Not enough data",
+          "detail": "n = 2 started · unknown: 0 (needs 3+)"
+        }
+      ],
+      "dimensions": {
+        "scroll": 390,
+        "viewport": 390
+      },
+      "errors": [],
+      "received": [
+        {
+          "file": "after/index.html",
+          "sha256": "c87f2a47dbff43cc1fbcc9a9e60153a7e6638837154e15e556bfbe2d97c98f6b",
+          "status": 200
+        },
+        {
+          "file": "after/styles.css",
+          "sha256": "47bde6e2ed4a2e1555f39eda64c5587d2fc812ad2ea1b8d16adede4ef3ab3867",
+          "status": 200
+        },
+        {
+          "file": "after/stats.js",
+          "sha256": "880b0a5bc1d29eabc112c3b2acf3d9faac7e396eeac1c4ce909aa8c78a690b09",
+          "status": 200
+        },
+        {
+          "file": "after/app.js",
+          "sha256": "0c6c4bc53a9b459915bc58feff8bc71b1e26f4dc14acd12c9672da9f62c5e25e",
+          "status": 200
+        },
+        {
+          "file": "after/small.json",
+          "sha256": "920e511ea454e5d53f4718245c53b97267c2862e23f6f3dc22c190c537193c1f",
+          "status": 200
+        }
+      ],
+      "screenshot": "after-small-390x1400.png",
+      "sha256": "c695d36f7cd75fdb9427b0a42d233abd00143c290dcb479319d9c01c95a2b345"
+    },
+    {
+      "side": "before",
+      "scenario": "missing",
+      "width": 390,
+      "captured_at": "2026-11-11T07:55:29.258Z",
+      "url": "http://127.0.0.1:60472/before/?data=missing.json",
+      "tiles": [],
+      "dimensions": {
+        "scroll": 390,
+        "viewport": 390
+      },
+      "errors": [],
+      "received": [
+        {
+          "file": "before/index.html",
+          "sha256": "8d7ee1f36cceb1221bb1689e9144a1a08a48d9d656d560a711ea98ae67ec96ca",
+          "status": 200
+        },
+        {
+          "file": "before/styles.css",
+          "sha256": "47bde6e2ed4a2e1555f39eda64c5587d2fc812ad2ea1b8d16adede4ef3ab3867",
+          "status": 200
+        },
+        {
+          "file": "before/stats.js",
+          "sha256": "ef0ff8df39ed7bfcd01f5374865ae7517e75c81f7fc54bbac71946b43a733fe2",
+          "status": 200
+        },
+        {
+          "file": "before/app.js",
+          "sha256": "45832224f0e6935dae21168bebd1d7c0029a4e7ae7abbeca1d2d0f371a7db1f1",
+          "status": 200
+        },
+        {
+          "file": "before/missing.json",
+          "sha256": "f9303a440e396cc5633e5934a1e0a5dc8be18dc067627319a4e8c42a2ac9d242",
+          "status": 200
+        }
+      ],
+      "screenshot": "before-missing-390x1400.png",
+      "sha256": "6fc4e47e7d8cf1c1e0d95ac1e7028e18b1d4a1d7fb91446591e8f2d8b67ad76b"
+    },
+    {
+      "side": "after",
+      "scenario": "missing",
+      "width": 390,
+      "captured_at": "2026-11-11T07:55:29.920Z",
+      "url": "http://127.0.0.1:60472/after/?data=missing.json",
+      "tiles": [
+        {
+          "label": "One-shot rate (0 human steers)",
+          "value": "Not enough data",
+          "detail": "n = 0 reached final · unknown: 0 (needs 3+)"
+        },
+        {
+          "label": "Human steers per PR, median / p90",
+          "value": "Not enough data",
+          "detail": "n = 0 reached final · unknown: 0 (needs 3+)"
+        },
+        {
+          "label": "Start to final stage, median / p90",
+          "value": "Not enough data",
+          "detail": "n = 0 reached final · unknown: 0 (needs 3+)"
+        },
+        {
+          "label": "Reached final stage vs started",
+          "value": "Not enough data",
+          "detail": "n = 0 started · unknown: 8 (needs 3+)"
+        }
+      ],
+      "dimensions": {
+        "scroll": 390,
+        "viewport": 390
+      },
+      "errors": [],
+      "received": [
+        {
+          "file": "after/index.html",
+          "sha256": "c87f2a47dbff43cc1fbcc9a9e60153a7e6638837154e15e556bfbe2d97c98f6b",
+          "status": 200
+        },
+        {
+          "file": "after/styles.css",
+          "sha256": "47bde6e2ed4a2e1555f39eda64c5587d2fc812ad2ea1b8d16adede4ef3ab3867",
+          "status": 200
+        },
+        {
+          "file": "after/stats.js",
+          "sha256": "880b0a5bc1d29eabc112c3b2acf3d9faac7e396eeac1c4ce909aa8c78a690b09",
+          "status": 200
+        },
+        {
+          "file": "after/app.js",
+          "sha256": "0c6c4bc53a9b459915bc58feff8bc71b1e26f4dc14acd12c9672da9f62c5e25e",
+          "status": 200
+        },
+        {
+          "file": "after/missing.json",
+          "sha256": "f9303a440e396cc5633e5934a1e0a5dc8be18dc067627319a4e8c42a2ac9d242",
+          "status": 200
+        }
+      ],
+      "screenshot": "after-missing-390x1400.png",
+      "sha256": "0097b6f079f162c3319fa8a31451ee997fd63c7a04305c3c1cb10aa81c6efd0e"
+    }
+  ]
+}

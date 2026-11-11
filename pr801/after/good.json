@@ -1,0 +1,453 @@
+{
+  "code_version": "9ffb51e0c1e5e82808c9a00781ef8f00e4ac5bf5",
+  "cohorts": [],
+  "data_through": "2026-11-09T21:25:21Z",
+  "fixture": "PR801 deterministic good case; acme/app, artificial timestamps and counts.",
+  "gaps": [
+    {
+      "detail": "Usage is tied to a PR only where a session's source branch matches exactly one PR (low confidence) or a request names the PR directly. Unbound usage is not spread across PRs.",
+      "key": "usage",
+      "label": "Token usage per PR",
+      "observed_n": 0,
+      "total_n": 8
+    },
+    {
+      "detail": "Public-list-price scenario only, never invoiced spend. Rows with unpriced token buckets show a known-component subtotal, which is a lower bound.",
+      "key": "cost",
+      "label": "Cost per PR",
+      "observed_n": 0,
+      "total_n": 8
+    },
+    {
+      "detail": "Counts verified-human messages bound to one PR. Branch-only and ambiguous candidates are not counted.",
+      "key": "human",
+      "label": "Human steering per PR",
+      "observed_n": 6,
+      "total_n": 8
+    },
+    {
+      "detail": "Needs timed operation telemetry; elapsed minus active is a residual, not wasted time.",
+      "key": "active",
+      "label": "Observed active time",
+      "observed_n": 0,
+      "total_n": 8
+    },
+    {
+      "detail": "Needs an observed, authorized next action with no worker, hold or dependency.",
+      "key": "idle",
+      "label": "Eligible idle time",
+      "observed_n": 0,
+      "total_n": 8
+    },
+    {
+      "detail": "Needs both ends of a workflow transition recorded. Handoff delay is elapsed time between steps; it is not by itself avoidable waiting.",
+      "key": "handoffs",
+      "label": "Handoff timestamps",
+      "observed_n": 0,
+      "total_n": 8
+    },
+    {
+      "detail": "Episodes with a reviewed quality label. Unrated episodes stay unknown.",
+      "key": "episodes",
+      "label": "Steering episodes rated good, bad or mixed",
+      "observed_n": 0,
+      "total_n": 8
+    },
+    {
+      "detail": "Additions, deletions and changed files were not collected for these PRs.",
+      "key": "size",
+      "label": "PR size (lines and files)",
+      "observed_n": 0,
+      "total_n": 8
+    },
+    {
+      "detail": "Share of deduplicated usage events that carry a validated direct PR attribution.",
+      "key": "direct_attribution",
+      "label": "Usage events naming a PR directly",
+      "observed_n": 3,
+      "total_n": 1000
+    }
+  ],
+  "generated_at": "2026-11-09T21:25:21Z",
+  "handoff_transitions": [
+    {
+      "key": "evidence_to_review_request",
+      "label": "Evidence ready to review requested"
+    },
+    {
+      "key": "review_request_to_start",
+      "label": "Review requested to review started"
+    },
+    {
+      "key": "review_return_to_next_action",
+      "label": "Review returned to next action started"
+    },
+    {
+      "key": "authority_to_merge",
+      "label": "Merge authority ready to merged"
+    }
+  ],
+  "handoffs": null,
+  "human_coverage": null,
+  "human_interventions": null,
+  "prs": [
+    {
+      "active_s": null,
+      "agent_effort_s": null,
+      "branch": "feature/1",
+      "branch_usage_status": "UNKNOWN_NO_CANONICAL_BRANCH_USAGE_ATTRIBUTION",
+      "closed": "2026-11-01T18:00:00Z",
+      "cost": null,
+      "cost_status": "UNKNOWN_NO_DIRECT_USAGE",
+      "created": "2026-11-01T16:00:00Z",
+      "draft": null,
+      "elapsed_basis": "MERGED_AT",
+      "elapsed_s": 7200.0,
+      "eligible_idle_s": null,
+      "flow": {
+        "final_at": "2026-11-01T17:30:00Z",
+        "reached_final": true,
+        "started_at": "2026-11-01T17:00:00Z"
+      },
+      "handoffs": null,
+      "human": {
+        "branch_candidates": null,
+        "confidence": null,
+        "coverage_status": "OBSERVED_SCOPE_ONLY",
+        "episodes": {
+          "bad": null,
+          "good": null,
+          "mixed": null,
+          "unknown": null
+        },
+        "followup": 0,
+        "initial": 1,
+        "verified_messages": 1
+      },
+      "human_coverage_status": "OBSERVED_SCOPE_ONLY",
+      "id": "acme/app#1",
+      "merged": "2026-11-01T18:00:00Z",
+      "number": 1,
+      "repo": "acme/app",
+      "size": null,
+      "stage": null,
+      "state": "MERGED",
+      "title": "Synthetic PR 1",
+      "url": "https://github.com/acme/app/pull/1",
+      "usage": null,
+      "usage_status": "UNKNOWN_NO_DIRECT_USAGE"
+    },
+    {
+      "active_s": null,
+      "agent_effort_s": null,
+      "branch": "feature/2",
+      "branch_usage_status": "UNKNOWN_NO_CANONICAL_BRANCH_USAGE_ATTRIBUTION",
+      "closed": "2026-11-01T18:00:00Z",
+      "cost": null,
+      "cost_status": "UNKNOWN_NO_DIRECT_USAGE",
+      "created": "2026-11-01T16:00:00Z",
+      "draft": null,
+      "elapsed_basis": "MERGED_AT",
+      "elapsed_s": 7200.0,
+      "eligible_idle_s": null,
+      "flow": {
+        "final_at": "2026-11-01T18:00:00Z",
+        "reached_final": true,
+        "started_at": "2026-11-01T17:00:00Z"
+      },
+      "handoffs": null,
+      "human": {
+        "branch_candidates": null,
+        "confidence": null,
+        "coverage_status": "OBSERVED_SCOPE_ONLY",
+        "episodes": {
+          "bad": null,
+          "good": null,
+          "mixed": null,
+          "unknown": null
+        },
+        "followup": 0,
+        "initial": 1,
+        "verified_messages": 1
+      },
+      "human_coverage_status": "OBSERVED_SCOPE_ONLY",
+      "id": "acme/app#2",
+      "merged": "2026-11-01T18:00:00Z",
+      "number": 2,
+      "repo": "acme/app",
+      "size": null,
+      "stage": null,
+      "state": "MERGED",
+      "title": "Synthetic PR 2",
+      "url": "https://github.com/acme/app/pull/2",
+      "usage": null,
+      "usage_status": "UNKNOWN_NO_DIRECT_USAGE"
+    },
+    {
+      "active_s": null,
+      "agent_effort_s": null,
+      "branch": "feature/3",
+      "branch_usage_status": "UNKNOWN_NO_CANONICAL_BRANCH_USAGE_ATTRIBUTION",
+      "closed": "2026-11-01T18:00:00Z",
+      "cost": null,
+      "cost_status": "UNKNOWN_NO_DIRECT_USAGE",
+      "created": "2026-11-01T16:00:00Z",
+      "draft": null,
+      "elapsed_basis": "MERGED_AT",
+      "elapsed_s": 7200.0,
+      "eligible_idle_s": null,
+      "flow": {
+        "final_at": "2026-11-01T18:30:00Z",
+        "reached_final": true,
+        "started_at": "2026-11-01T17:00:00Z"
+      },
+      "handoffs": null,
+      "human": {
+        "branch_candidates": null,
+        "confidence": null,
+        "coverage_status": "OBSERVED_SCOPE_ONLY",
+        "episodes": {
+          "bad": null,
+          "good": null,
+          "mixed": null,
+          "unknown": null
+        },
+        "followup": 2,
+        "initial": 1,
+        "verified_messages": 3
+      },
+      "human_coverage_status": "OBSERVED_SCOPE_ONLY",
+      "id": "acme/app#3",
+      "merged": "2026-11-01T18:00:00Z",
+      "number": 3,
+      "repo": "acme/app",
+      "size": null,
+      "stage": null,
+      "state": "MERGED",
+      "title": "Synthetic PR 3",
+      "url": "https://github.com/acme/app/pull/3",
+      "usage": null,
+      "usage_status": "UNKNOWN_NO_DIRECT_USAGE"
+    },
+    {
+      "active_s": null,
+      "agent_effort_s": null,
+      "branch": "feature/4",
+      "branch_usage_status": "UNKNOWN_NO_CANONICAL_BRANCH_USAGE_ATTRIBUTION",
+      "closed": "2026-11-01T18:00:00Z",
+      "cost": null,
+      "cost_status": "UNKNOWN_NO_DIRECT_USAGE",
+      "created": "2026-11-01T16:00:00Z",
+      "draft": null,
+      "elapsed_basis": "MERGED_AT",
+      "elapsed_s": 7200.0,
+      "eligible_idle_s": null,
+      "flow": {
+        "final_at": "2026-11-01T19:00:00Z",
+        "reached_final": true,
+        "started_at": "2026-11-01T17:00:00Z"
+      },
+      "handoffs": null,
+      "human": {
+        "branch_candidates": null,
+        "confidence": null,
+        "coverage_status": "OBSERVED_SCOPE_ONLY",
+        "episodes": {
+          "bad": null,
+          "good": null,
+          "mixed": null,
+          "unknown": null
+        },
+        "followup": 5,
+        "initial": 1,
+        "verified_messages": 6
+      },
+      "human_coverage_status": "OBSERVED_SCOPE_ONLY",
+      "id": "acme/app#4",
+      "merged": "2026-11-01T18:00:00Z",
+      "number": 4,
+      "repo": "acme/app",
+      "size": null,
+      "stage": null,
+      "state": "MERGED",
+      "title": "Synthetic PR 4",
+      "url": "https://github.com/acme/app/pull/4",
+      "usage": null,
+      "usage_status": "UNKNOWN_NO_DIRECT_USAGE"
+    },
+    {
+      "active_s": null,
+      "agent_effort_s": null,
+      "branch": "feature/5",
+      "branch_usage_status": "UNKNOWN_NO_CANONICAL_BRANCH_USAGE_ATTRIBUTION",
+      "closed": "2026-11-01T18:00:00Z",
+      "cost": null,
+      "cost_status": "UNKNOWN_NO_DIRECT_USAGE",
+      "created": "2026-11-01T16:00:00Z",
+      "draft": null,
+      "elapsed_basis": "MERGED_AT",
+      "elapsed_s": 7200.0,
+      "eligible_idle_s": null,
+      "flow": {
+        "final_at": "2026-11-01T17:45:00Z",
+        "reached_final": true,
+        "started_at": "2026-11-01T17:00:00Z"
+      },
+      "handoffs": null,
+      "human": null,
+      "human_coverage_status": "UNKNOWN",
+      "id": "acme/app#5",
+      "merged": "2026-11-01T18:00:00Z",
+      "number": 5,
+      "repo": "acme/app",
+      "size": null,
+      "stage": null,
+      "state": "MERGED",
+      "title": "Synthetic PR 5",
+      "url": "https://github.com/acme/app/pull/5",
+      "usage": null,
+      "usage_status": "UNKNOWN_NO_DIRECT_USAGE"
+    },
+    {
+      "active_s": null,
+      "agent_effort_s": null,
+      "branch": "feature/6",
+      "branch_usage_status": "UNKNOWN_NO_CANONICAL_BRANCH_USAGE_ATTRIBUTION",
+      "closed": "2026-11-01T18:00:00Z",
+      "cost": null,
+      "cost_status": "UNKNOWN_NO_DIRECT_USAGE",
+      "created": "2026-11-01T16:00:00Z",
+      "draft": null,
+      "elapsed_basis": "MERGED_AT",
+      "elapsed_s": 7200.0,
+      "eligible_idle_s": null,
+      "flow": {
+        "final_at": null,
+        "reached_final": false,
+        "started_at": null
+      },
+      "handoffs": null,
+      "human": {
+        "branch_candidates": null,
+        "confidence": null,
+        "coverage_status": "OBSERVED_SCOPE_ONLY",
+        "episodes": {
+          "bad": null,
+          "good": null,
+          "mixed": null,
+          "unknown": null
+        },
+        "followup": 0,
+        "initial": 1,
+        "verified_messages": 1
+      },
+      "human_coverage_status": "OBSERVED_SCOPE_ONLY",
+      "id": "acme/app#6",
+      "merged": "2026-11-01T18:00:00Z",
+      "number": 6,
+      "repo": "acme/app",
+      "size": null,
+      "stage": "stage:1-coding",
+      "state": "MERGED",
+      "title": "Synthetic PR 6",
+      "url": "https://github.com/acme/app/pull/6",
+      "usage": null,
+      "usage_status": "UNKNOWN_NO_DIRECT_USAGE"
+    },
+    {
+      "active_s": null,
+      "agent_effort_s": null,
+      "branch": "feature/7",
+      "branch_usage_status": "UNKNOWN_NO_CANONICAL_BRANCH_USAGE_ATTRIBUTION",
+      "closed": "2026-11-01T18:00:00Z",
+      "cost": null,
+      "cost_status": "UNKNOWN_NO_DIRECT_USAGE",
+      "created": "2026-11-01T16:00:00Z",
+      "draft": null,
+      "elapsed_basis": "MERGED_AT",
+      "elapsed_s": 7200.0,
+      "eligible_idle_s": null,
+      "flow": {
+        "final_at": null,
+        "reached_final": true,
+        "started_at": null
+      },
+      "handoffs": null,
+      "human": {
+        "branch_candidates": null,
+        "confidence": null,
+        "coverage_status": "OBSERVED_SCOPE_ONLY",
+        "episodes": {
+          "bad": null,
+          "good": null,
+          "mixed": null,
+          "unknown": null
+        },
+        "followup": 1,
+        "initial": 1,
+        "verified_messages": 2
+      },
+      "human_coverage_status": "OBSERVED_SCOPE_ONLY",
+      "id": "acme/app#7",
+      "merged": "2026-11-01T18:00:00Z",
+      "number": 7,
+      "repo": "acme/app",
+      "size": null,
+      "stage": "stage:5-final-approval",
+      "state": "MERGED",
+      "title": "Synthetic PR 7",
+      "url": "https://github.com/acme/app/pull/7",
+      "usage": null,
+      "usage_status": "UNKNOWN_NO_DIRECT_USAGE"
+    },
+    {
+      "active_s": null,
+      "agent_effort_s": null,
+      "branch": "feature/8",
+      "branch_usage_status": "UNKNOWN_NO_CANONICAL_BRANCH_USAGE_ATTRIBUTION",
+      "closed": "2026-11-01T18:00:00Z",
+      "cost": null,
+      "cost_status": "UNKNOWN_NO_DIRECT_USAGE",
+      "created": "2026-11-01T16:00:00Z",
+      "draft": null,
+      "elapsed_basis": "MERGED_AT",
+      "elapsed_s": 7200.0,
+      "eligible_idle_s": null,
+      "flow": null,
+      "handoffs": null,
+      "human": null,
+      "human_coverage_status": "UNKNOWN",
+      "id": "acme/app#8",
+      "merged": "2026-11-01T18:00:00Z",
+      "number": 8,
+      "repo": "acme/app",
+      "size": null,
+      "stage": null,
+      "state": "MERGED",
+      "title": "Synthetic PR 8",
+      "url": "https://github.com/acme/app/pull/8",
+      "usage": null,
+      "usage_status": "UNKNOWN_NO_DIRECT_USAGE"
+    }
+  ],
+  "quantile_method": null,
+  "query_coverage": {
+    "canonical_event_n": 1000,
+    "validated_direct_attribution_event_n": 3
+  },
+  "repo_comparison": null,
+  "repositories": [
+    "acme/app"
+  ],
+  "schema_version": 1,
+  "sources": null,
+  "stage_dwell": null,
+  "status": "OK",
+  "usage_totals": {},
+  "window_end": "2026-11-09T21:25:21Z",
+  "window_start": "2026-10-26T21:25:21Z",
+  "windows": {
+    "w1": null,
+    "w2": null
+  }
+}
