@@ -25,10 +25,15 @@ gate.
 
 `/pr` previously defined a five-phase sequence (Think → Execute → Push →
 Copilot → Review) that ran `/think`, `/execute`, `/push`, `/copilot` and
-`/review` as one mandatory pipeline. That contract is retired: it contradicted
-the canonical lifecycle by treating a push as progress and by auto-running
-Copilot feedback handling as a required phase. Do not reconstruct or reinstate
-it from memory or from an older copy.
+`/review` as one mandatory pipeline. That contract is retired because its
+fixed five-phase endpoint was not the canonical, evidenced `FINAL_READY`
+endpoint, and because it made automatic Copilot feedback handling a required
+phase when reviewers are advisory. It did *not* claim that a push alone was
+completion — the old text required every phase to finish — so do not restate
+the retirement as a push-versus-completion contradiction.
+
+Do not reconstruct or reinstate the retired phases from memory or from an
+older copy.
 
 If the canonical chain (`prw` → `pr-workflow-manager` → `pr-lifecycle`) is
 unavailable, report the missing dependency rather than falling back to the

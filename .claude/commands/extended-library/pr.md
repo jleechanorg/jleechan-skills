@@ -28,9 +28,9 @@ was required before the task counted as done.
 
 That contract is retired because it contradicted the canonical lifecycle:
 
-- it treated pushing as progress: a task counted as done once the five phases
-  ran, where the lifecycle treats a push as an intermediate checkpoint and
-  reserves completion for the evidenced terminal goal;
+- its fixed five-phase endpoint was not the canonical, evidenced `FINAL_READY`
+  endpoint the lifecycle requires (the old text did require every phase to
+  finish, so this was never a push-versus-completion contradiction);
 - it made automatic reviewer-feedback handling a mandatory phase, while
   CodeRabbit and Bugbot are optional advisory reviewers, never gates;
 - it asserted a single mandated sequence instead of the lifecycle's
