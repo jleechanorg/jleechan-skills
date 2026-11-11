@@ -1,6 +1,6 @@
 ---
 name: disk-root-cause
-description: Use when a user asks why a disk is filling, what uses its capacity, or what grew over time. For a quick capacity check or a simple "what can I reclaim" question that needs no forensic attribution, use the zero-du triage in disk-audit instead.
+description: Use when a user asks why a disk is filling, what grew, or how much can be reclaimed. Reclaimable-amount estimates require leaf-level attribution; plain capacity checks use disk-audit.
 ---
 
 # disk-root-cause — forensic attribution skill
@@ -19,9 +19,9 @@ A real permission, identity, enumeration, or deadline failure is unfinished work
 
 Start with the ground-truth probes defined in `../disk-audit/SKILL.md`, including the fleet check, existing per-host ledger, and 7-day growth history. Read those results before drilling down.
 
-Run the full `diskm audit` when the existing ledger or snapshots are missing, stale according to their owner, or incomplete for the requested attribution. Never invoke it before these probes merely because the user asks why the disk is full.
+For root-cause, floor, growth, or reclaim-estimate requests, run the full `diskm audit` after these probes. A quick capacity-only request may stop after the triage if its answer is sufficient.
 
-This is the mandatory three-lane diagnostic. It launches in parallel:
+The audit is the three-lane diagnostic. Its top-down accounting must resolve the requested Data paths into file leaves and directories below 100 MiB. This instruction defines the required result; it does not change the scanner. Check the emitted report's actual resolution and unfinished paths. Until the installed runtime produces complete leaf itemization, treat its coarse or unfinished paths as incomplete and any reclaim estimate that depends on them as unknown. The audit launches in parallel:
 
 1. top-down whole-disk accounting from physical/APFS capacity through the Data volume to individual files and directories smaller than 100 MiB;
 2. coverage-validated snapshot deltas, so a coverage change cannot masquerade as physical growth; and
@@ -31,7 +31,7 @@ Read the whole report before drilling down. Keep permission/TCC denial, time bud
 
 The 900-second wall-clock cap is the infinite-process guard; live whole-volume runs on this host vary from about 6.5 minutes to more than 8 minutes under I/O load, so 480 seconds was empirically insufficient. Separately, the 100,000,000-record ceiling is a deliberately remote post-scan parser/ledger sanity guard (or a visited-path guard in the legacy fallback), not a normal coverage budget. GNU `du` stdout is spooled to a temporary file rather than retained in memory before that validation. The human-readable report must show the backend, records/paths processed, and this ceiling.
 
-The displayed Data equation must use one accepted leaf ledger: individually measured file leaves + measured directory leaves below 100 MiB + explicitly unfinished residual = Data used. A directory total, synthetic direct-allocation segment, or arbitrary size bucket is not a resolved leaf. List every file (including large files) and descend every directory at or above 100 MiB. Permission, identity, time, node, enumeration, or unscanned cross-device children stay on the named unfinished frontier and inside residual. Never reuse an earlier parent observation. A hidden measured-total equation does not validate the displayed leaves. Capture Data used before and after the namespace walk; when it changes, report the residual interval and mark the measurement non-atomic.
+The displayed Data equation must use one accepted leaf ledger: measured file leaves + measured directory leaves below 100 MiB + measured tail + purgeable estimate + unresolved residual = Data used. Report APFS container-free space and sibling-volume allocations in a separate container-level reconciliation so they are not mistaken for Data leaves or counted twice. A directory total, synthetic direct-allocation segment, or arbitrary size bucket is not a resolved leaf. Measure every file leaf and descend every directory at or above 100 MiB; name files at or above 100 MiB individually. Smaller file leaves may be compactly displayed as lossless count-and-size totals only after each file was measured and inode deduplication applied. Permission, identity, time, node, enumeration, or unscanned cross-device children stay on the named unfinished frontier and inside residual. Never reuse an earlier parent observation. A hidden measured-total equation does not validate the displayed leaves. Capture Data used before and after the namespace walk; when it changes, report the residual interval and mark the measurement non-atomic.
 
 The top-down scanner prefers one NUL-delimited, multi-root GNU `gdu` inventory process. Never sum independent per-shard `du` processes: hardlink deduplication is process-local. The one pass must traverse all measurable directories to the 100 MiB stop floor and preserve hardlink/inode deduplication. Do not replace file rows with synthetic direct-allocation chunks. Localized permission/TCC errors taint their subtree and every ancestor; unreadable or unfinished subtrees remain explicitly incomplete. Unknown diagnostics, malformed output, or timeout fail closed to the bounded frontier fallback (`gdu`, then `dua`, then macOS `du`) and preserve the resume point. Fast backends must not be wrapped in `taskpolicy -b`, which can starve them under host I/O pressure. Symlink leaves never pull their targets into the ledger.
 
@@ -45,7 +45,7 @@ Trigger when the user asks any of:
 - "Find the minimum disk used in the last month" (floor)
 - "Root cause the disk growth"
 - "Show me the delta between then and now"
-- "Which bucket is worth reclaiming, and why" — an attribution question. This skill is read-only forensics; safe-cleanup commands are below. A plain "how much can I free" with no attribution need goes to the zero-`du` triage in `../disk-audit/SKILL.md`.
+- "Which bucket is worth reclaiming, and why" or "how much can I free" — both require full leaf-level attribution. A quick available-space question with no reclaim estimate goes to `../disk-audit/SKILL.md`. This skill reports findings and typed recommendations; cleanup commands are separate.
 
 For a one-file size query, report that file's size directly. A directory below 100 MiB may be reported as one measured unit; for any directory at or above 100 MiB, descend into files and smaller directories before reporting age, attribution, or reclaimability.
 
@@ -62,13 +62,16 @@ For a one-file size query, report that file's size directly. A directory below 1
 ## Phase 0 — environment ground truth (always run)
 
 ```bash
-# The full diskm audit runs in the default first-use workflow above.
-# Use the resolver-backed full audit above to locate the current snapshot.
+# Resolve the snapshot from the machine-specific state repository reported by the CLI.
 df -h
 STATE_REPO="$(diskm state status | sed -n 's/^\[state_repo\] state repo: //p')"
-SNAP="<Source path from the completed full audit above>"
+SNAP="$STATE_REPO/snapshots/disk_snapshot.json"
 git -C "$STATE_REPO" log --oneline -1 -- 'backup/*/disk_snapshot.json' snapshots/disk_snapshot.json 2>/dev/null
-python3 -c 'import json,sys; from pathlib import Path; d=json.loads(Path(sys.argv[1]).expanduser().read_text()); print("schema_version:", d.get("schema_version"), "coverage:", d.get("snapshot_coverage_pct"))' "$SNAP"
+if [[ -r "$SNAP" ]]; then
+  python3 -c 'import json,sys; from pathlib import Path; d=json.loads(Path(sys.argv[1]).read_text()); print("schema_version:", d.get("schema_version"), "coverage:", d.get("snapshot_coverage_pct"))' "$SNAP"
+else
+  echo "snapshot unavailable at resolved state-repo path: $SNAP" >&2
+fi
 ```
 
 If `schema_version != 2`, the snapshot is pre-v2 (coverage inflates by parent/child double-count). Use `coverage_pct_raw_v1` from `snapshot_metadata` for trend continuity and note the inflation.
@@ -147,12 +150,12 @@ Fan-out rule: **single-writer per file**, `grep -n "agent(" <swarm-script>` cost
 
 ## Known traps (read this before answering)
 
-1. **Snapshot coverage collapses under disk pressure** — biggest dirs go `null` (timeout). Plug with live `du -sk`. Cite both. (bead `$USER-wsbk`.)
+1. **Snapshot coverage collapses under disk pressure** — directories can be `null` or unfinished after a timeout. A live parent `du -sk` total only locates the path; it does not restore file-leaf coverage. Continue itemization within the available budget or report the exact unfinished paths.
 2. **`discover` times out at 120s with zero output** — do not treat parent sizes as a completed inventory; use the bounded frontier and preserve every unfinished path.
 3. **`cleanup_tmp.sh` defaults to DRY-RUN despite header claiming otherwise** — header was fixed in v0.2.0 (commit `5341a6f`); callers still must pass `--clean`.
 4. **Colima wedges with I/O errors when host disk hits 100%** — fstrim can't run; **must** `colima stop && colima start` first. 49.6→6.8 GB recovery verified live.
 5. **Confirm the runner supervisor** — `launchctl list | grep -i runner` (macOS) or `systemctl --user list-units | grep -i runner` (Linux), plus `ps aux | grep -i runner`, before any VACATE-style directive.
-6. **Legacy snapshot path:** The installed resolver prefers `snapshots/disk_snapshot.json` and uses `backup/<host>/disk_snapshot.json` only as a fallback when the new-layout file is absent. Use `diskm state status` for the state repo root and both paths for historical commits.
+6. **Legacy snapshot path:** State and history commands resolve `snapshots/disk_snapshot.json` or legacy `backup/<host>/disk_snapshot.json` through the state-repo owner. Use `diskm state status` to identify the current per-host state repository; do not invent a different host path.
 
 ## Anti-patterns to flag in code review
 
@@ -173,7 +176,7 @@ A complete root-cause answer for this machine has:
 - [ ] Default `diskm audit` three-lane report completed or its named limits were reported
 - [ ] Every resolved directory leaf is below 100 MiB; every directory at or above 100 MiB was descended, and every file is individually itemized with hardlinks deduplicated and symlinks not followed
 - [ ] Every traversal failure is named as unfinished and excluded from complete leaf totals, floors, age decisions, and reclaim estimates
-- [ ] Displayed Data equation reconciles bounded buckets + indivisible files + measured tail + purgeable estimate + residual = Data used from one accepted leaf ledger
+- [ ] Displayed Data equation reconciles measured file leaves + measured directories below 100 MiB + measured tail + purgeable estimate + unresolved residual = Data used, with APFS siblings reported separately
 - [ ] Data-used before/after bracket is shown; any drift is marked non-atomic with a residual interval
 - [ ] Residual is explicitly not called backup or reclaimable without evidence
 - [ ] Phase 0 ground-truth probe done

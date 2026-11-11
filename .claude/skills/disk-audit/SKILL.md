@@ -1,6 +1,6 @@
 ---
 name: disk-audit
-description: Use when checking local disk capacity or estimating a reclaimable amount. Choosing or justifying a cleanup target is a root-cause question — route it to disk-root-cause.
+description: Use for a quick local disk-capacity check. Reclaimable-amount estimates and cleanup-target decisions require disk-root-cause leaf itemization.
 ---
 
 # Disk audit compatibility entrypoint
