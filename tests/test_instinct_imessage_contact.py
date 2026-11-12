@@ -100,14 +100,22 @@ class UndeclaredPeerTest(unittest.TestCase):
         self.assertEqual(result.returncode, 5, result.stderr)
         self.assertIn("INSTINCT_IMSG_CONTACT", result.stderr)
 
-    def test_compat_alias_alone_is_still_a_declaration(self) -> None:
-        """IMSG_CONTACT_HANDLE is an accepted alias, not a second default."""
+    def test_compat_alias_cannot_define_the_peer(self) -> None:
+        """``IMSG_CONTACT_HANDLE`` is kept for hand-installed copies, never as a peer source.
+
+        On 2026-11-09/10 the alias *did* define the peer, so "the configured peer"
+        and "the send target" were the same variable and every recipient check
+        compared the destination against itself. The alias alone must now leave
+        the peer unset, so a send through it fails closed instead of delivering.
+        """
         bridge_text = BRIDGE.read_text(encoding="utf-8")
         self.assertIn("IMSG_CONTACT_HANDLE", bridge_text)
-        # The alias must be an alternative *source*, never a fallback value.
-        self.assertRegex(
+        self.assertIn('PEER_HANDLE="${INSTINCT_IMSG_CONTACT:-}"', bridge_text)
+        # No assignment may derive the peer from the alias.
+        self.assertNotRegex(
             bridge_text,
-            r'CONTACT_HANDLE="\$\{INSTINCT_IMSG_CONTACT:-\$\{IMSG_CONTACT_HANDLE:-\}\}"',
+            r'PEER_HANDLE="[^"\n]*IMSG_CONTACT_HANDLE',
+            "the peer must never be derived from IMSG_CONTACT_HANDLE",
         )
 
 
@@ -116,20 +124,20 @@ class NoHardcodedPeerTest(unittest.TestCase):
 
     def test_bridge_has_no_default_handle(self) -> None:
         text = BRIDGE.read_text(encoding="utf-8")
-        # The alias form is legitimate: INSTINCT_IMSG_CONTACT first, then
-        # IMSG_CONTACT_HANDLE, then nothing. What must never appear is a literal
-        # handle in either slot, because a default is indistinguishable from a
-        # declaration and can point at anyone.
+        # The peer is declared in exactly one place with no fallback at all: a
+        # default is indistinguishable from a declaration and can point at anyone,
+        # and an alias fallback turns the guard into a comparison of the send
+        # target against itself.
         assignment = re.search(
-            r'CONTACT_HANDLE="\$\{INSTINCT_IMSG_CONTACT:-(.*?)\}"\s*$',
+            r'PEER_HANDLE="\$\{INSTINCT_IMSG_CONTACT:-(.*?)\}"\s*$',
             text,
             re.MULTILINE,
         )
-        self.assertIsNotNone(assignment, "CONTACT_HANDLE assignment not found")
+        self.assertIsNotNone(assignment, "PEER_HANDLE assignment not found")
         inner = assignment.group(1)
-        self.assertIn("${IMSG_CONTACT_HANDLE:-}", inner)
-        # No digits or @ in the whole assignment: that would be a literal handle.
-        self.assertNotRegex(inner, r"[0-9]|@")
+        self.assertEqual(
+            inner, "", f"PEER_HANDLE must have no fallback value, found {inner!r}"
+        )
 
     def test_skill_documents_no_default_peer(self) -> None:
         text = SKILL.read_text(encoding="utf-8")
@@ -138,6 +146,93 @@ class NoHardcodedPeerTest(unittest.TestCase):
             r"INSTINCT_IMSG_CONTACT[^\n|]*\|[^\n|]*\+?1?[0-9]{7,}",
             "SKILL.md must not document a default handle for INSTINCT_IMSG_CONTACT",
         )
+
+
+_OTHER = "+15555550199"  # NANP 555 block: never a real contact
+
+
+class PeerOnlySendTargetTest(unittest.TestCase):
+    """A send reaches the configured peer or nobody.
+
+    ``--contact-handle`` may restate the peer; it may not retarget. The parser
+    check runs before the macOS platform guard, so it is exercised on CI too.
+    """
+
+    def _run(
+        self, *argv: str, **overrides: str
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["/bin/bash", str(BRIDGE), *argv],
+            capture_output=True,
+            text=True,
+            env=_clean_env(**overrides),
+            timeout=60,
+            check=False,
+        )
+
+    def test_contact_handle_cannot_retarget_a_configured_peer(self) -> None:
+        result = self._run(
+            "probe", "--contact-handle", _OTHER, INSTINCT_IMSG_CONTACT=_PEER
+        )
+        self.assertEqual(result.returncode, 8, result.stderr)
+        self.assertIn("not the configured peer", result.stderr)
+
+    def test_contact_handle_restating_the_peer_is_accepted(self) -> None:
+        result = self._run(
+            "whoami", "--contact-handle", _PEER, INSTINCT_IMSG_CONTACT=_PEER
+        )
+        self.assertNotEqual(result.returncode, 8, result.stderr)
+
+    @_MACOS_ONLY
+    def test_send_without_a_configured_peer_refuses_the_flag_target(self) -> None:
+        """The parser check is skipped with no peer, so do_send must re-pin.
+
+        Without the re-pin, a ``--contact-handle`` call in an environment that
+        never set ``INSTINCT_IMSG_CONTACT`` reaches whoever it names.
+        """
+        with tempfile_message("probe") as path:
+            result = subprocess.run(
+                [
+                    "/bin/bash",
+                    str(BRIDGE),
+                    "send",
+                    "--file",
+                    str(path),
+                    "--contact-handle",
+                    _OTHER,
+                    "--dry-run",
+                ],
+                capture_output=True,
+                text=True,
+                env=_clean_env(),
+                timeout=60,
+                check=False,
+            )
+        self.assertEqual(result.returncode, 8, result.stderr)
+        self.assertIn("sends only to its configured peer", result.stderr)
+
+    @_MACOS_ONLY
+    def test_send_cannot_switch_peer_mid_invocation(self) -> None:
+        with tempfile_message("probe") as path:
+            result = subprocess.run(
+                [
+                    "/bin/bash",
+                    str(BRIDGE),
+                    "send",
+                    "--file",
+                    str(path),
+                    "--contact-handle",
+                    _OTHER,
+                    "--dry-run",
+                ],
+                capture_output=True,
+                text=True,
+                env=_clean_env(INSTINCT_IMSG_CONTACT=_PEER),
+                timeout=60,
+                check=False,
+            )
+        self.assertEqual(result.returncode, 8, result.stderr)
+        self.assertNotIn('"sent": true', result.stdout)
 
 
 class ProbeDistinguishesFallbackTest(unittest.TestCase):
