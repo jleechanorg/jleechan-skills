@@ -247,7 +247,8 @@ below by this order, don't pick whichever is more convenient):**
    dominated the critical path on changes that were a few lines each).
 3. **Bounded mechanical work that's too large for a handful of calls, but
    doesn't need adversarial review,** goes to the cheapest capable tier
-   (Codex: a `gpt-6-luna` subagent; Claude: haiku/mini) per Model-tier routing
+   (Codex: a `gpt-6-luna` subagent; Claude: haiku, or sonnet when the lane
+   needs judgment) per Model-tier routing
    below — not the AGY pair. For simple independent tasks, the Luna lane may
    also drive the task through its focused checks and deliver the result; keep
    the root session responsible for scope and integration.
@@ -393,6 +394,11 @@ there to a pointer 2026-09-06; this section is the full policy).
   - Claude: `haiku` subagent.
 - Simple task-driving, polling, and mechanical sweeps: the available Gemini 3.8 Flash (`Model: "flash"` / `--model gemini-3.8-flash-medium`), Luna, or
   haiku/mini tier.
+- Judgment-bearing bounded lanes (driving a PR through `/prw`, capturing and
+  adjudicating evidence, non-trivial fixes, first-pass code review): Claude
+  `sonnet` subagent; Codex `gpt-6.1-terra`; AGY `gemini-3.8-flash-high`. Use
+  haiku only when the lane is mechanical, and escalate past sonnet only under
+  the top-tier rule below.
 - Apply the same handoff discipline to bounded independent investigation,
   tests, monitoring, and mechanical follow-through when it costs less than
   keeping that work in the parent session. Give each lane an explicit output
