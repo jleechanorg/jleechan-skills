@@ -1,54 +1,26 @@
 #!/usr/bin/env bash
-# instinct-ping: every 20 min (launchd, ai.jleechan.instinct-ping), ask Instinct on
-# iMessage for a bounded verdict on the in-flight task and stop when it lands.
-#
-# Design:
-#  - Never guesses delivery. `imsg-bridge.sh send` re-reads chat.db and binds its
-#    confirmation to the exact text it sent; only that is exit 0.
-#  - Idempotent + non-spamming: one message per tick, attempt number in the body,
-#    and it stops as soon as a verdict reply or a DONE marker appears.
-#  - All transport goes through the /instinct SKILL's own CLI, so there is ONE
-#    transport policy for /instinct, launchd and a remote caller: iMessage first,
-#    WhatsApp fallback (see ~/.claude/skills/instinct/SKILL.md § Transport chain).
-#    WhatsApp Web never worked here — the device was never linked, so every tick
-#    logged "signed out" and delivered nothing. iMessage is already signed in as
-#    the user and needs no browser, profile lock, or QR.
-#
-# TCC REALITY: a launchd process has no Full Disk Access and cannot open
-# ~/Library/Messages/chat.db ("authorization denied"). `send` and `probe` are
-# unaffected because neither needs the DB; `read` does and is therefore not used
-# here — replies are collected from a GUI-session shell instead.
-#
-# Usage:
-#   instinct-ping.sh            # one tick (this is what launchd runs)
-#   instinct-ping.sh status     # print state, send nothing
-#   instinct-ping.sh done       # mark the task complete; future ticks exit immediately
-#   instinct-ping.sh reset      # clear DONE/state and start a new attempt sequence
-#   INSTINCT_PING_DRY_RUN=1 instinct-ping.sh   # render the message, send nothing
+# Ask Instinct for a bounded verdict on one explicitly configured task.
+# Every tick reads replies before sending and fails closed when reads are unavailable.
+# An uncertain send is held until the operator resolves it with done or reset.
 set -uo pipefail
 export PATH="$HOME/.local/bin:$HOME/.nvm/versions/node/v22.22.0/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 NODE="$HOME/.nvm/versions/node/v22.22.0/bin/node"
 CLI="$HOME/.claude/skills/instinct/scripts/instinct.mjs"
-# Resolved by HANDLE, never by name: two buddies are named "Instinct", so a name
-# lookup is ambiguous and could post to the dead SMS thread (+16506654254).
-CONTACT_HANDLE="${INSTINCT_IMSG_CONTACT:-+16282909722}"
+CONTACT_HANDLE="${INSTINCT_IMSG_CONTACT:-}"
 STATE_DIR="$HOME/.local/state/instinct-ping"
 STATE="$STATE_DIR/state.json"
 DONE="$STATE_DIR/DONE"
 DRY="${INSTINCT_PING_DRY_RUN:-0}"
-
-# The task under watch. Keep this the single source of truth: the ping body is
-# generated from here so a resumed task does not need a script edit per round.
-TASK_TITLE="${INSTINCT_PING_TASK:-P0 ordinary-XP omission (rev-1pwpa.2.6.18)}"
-TASK_REPO="${INSTINCT_PING_REPO:-jleechanorg/worldarchitect.ai}"
-TASK_PR="${INSTINCT_PING_PR:-11274}"
-TASK_ASK="${INSTINCT_PING_ASK:-independent source review of the P0 eligibility-floor prompt change plus a verdict on whether a positive-XP floor can regress the routine/unresolved/already-paid zero-award cases}"
+TASK_TITLE="${INSTINCT_PING_TASK:-}"
+TASK_REPO="${INSTINCT_PING_REPO:-}"
+TASK_PR="${INSTINCT_PING_PR:-}"
+TASK_ASK="${INSTINCT_PING_ASK:-}"
 
 mkdir -p "$STATE_DIR"
 exec 9>"$STATE_DIR/lock"
 if ! /usr/bin/flock -n 9 2>/dev/null; then
-  # flock is not present on stock macOS; fall back to a pidfile guard below.
+  # flock is unavailable on stock macOS; use a pidfile guard there.
   if [ -f "$STATE_DIR/pid" ] && kill -0 "$(cat "$STATE_DIR/pid" 2>/dev/null)" 2>/dev/null; then
     echo "instinct-ping: another tick is running (pid $(cat "$STATE_DIR/pid")); skipping"
     exit 0
@@ -60,7 +32,7 @@ trap 'rm -f "$STATE_DIR/pid"' EXIT
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 log() { printf '%s %s\n' "$(now)" "$*" >> "$STATE_DIR/events.log"; }
 
-state_get() {  # state_get <key> <default>
+state_get() {
   if [ -f "$STATE" ]; then
     /usr/bin/python3 -c 'import json,sys
 try: d=json.load(open(sys.argv[1]))
@@ -72,7 +44,7 @@ print(sys.argv[3] if v in (None,"") else v)' "$STATE" "$1" "${2:-}"
   fi
 }
 
-state_put() {  # state_put <key> <value>
+state_put() {
   /usr/bin/python3 -c 'import json,sys,os
 p,k,v=sys.argv[1:4]
 try: d=json.load(open(p))
@@ -93,16 +65,21 @@ case "${1:-tick}" in
   reset)
     rm -f "$DONE"
     state_put status reset
+    state_put request_id ""
+    state_put task_key ""
     state_put attempts 0
-    log "state reset"
-    echo "instinct-ping: state reset"
+    state_put uncertain_send ""
+    log "state reset; next tick creates a new request ID"
+    echo "instinct-ping: reset; next tick starts a new request"
     exit 0 ;;
   status)
     if [ -f "$DONE" ]; then echo "status: DONE"; else echo "status: $(state_get status unknown)"; fi
+    echo "request_id: $(state_get request_id none)"
     echo "attempts: $(state_get attempts 0)"
-    echo "last_probe: $(state_get last_probe never)"
+    echo "last_read: $(state_get last_read never)"
     echo "last_send: $(state_get last_send never)"
     echo "last_blocker: $(state_get last_blocker none)"
+    echo "uncertain_send: $(state_get uncertain_send none)"
     echo "state_file: $STATE"
     echo "--- last 5 events"
     tail -5 "$STATE_DIR/events.log" 2>/dev/null
@@ -115,111 +92,144 @@ if [ -f "$DONE" ]; then
   log "tick skipped: DONE marker present"
   exit 0
 fi
+if [ -n "$(state_get uncertain_send "")" ]; then
+  echo "instinct-ping: prior send outcome is uncertain; automatic sends held. Resolve with done or reset after checking the outcome."
+  exit 0
+fi
 if [ ! -x "$NODE" ] || [ ! -f "$CLI" ]; then
   state_put status blocked
   state_put last_blocker "node or instinct.mjs missing"
-  log "BLOCKED: node=$NODE cli=$CLI missing"
+  log "BLOCKED: node or instinct.mjs missing"
+  echo "instinct-ping: node or instinct.mjs missing; nothing sent"
   exit 0
 fi
 
-# ---- 1. Probe the transport chain (iMessage, then WhatsApp).
-PROBE_OUT=$(INSTINCT_IMSG_CONTACT="$CONTACT_HANDLE" timeout 180 "$NODE" "$CLI" probe 2>&1)
-PROBE_RC=$?
-state_put last_probe "$(now)"
-if [ "$PROBE_RC" -ne 0 ]; then
-  state_put status signed_out
-  state_put last_blocker "no_transport_available (probe rc=$PROBE_RC)"
-  # Only log the transition once per streak so the log stays readable.
-  prev=$(state_get last_blocker "")
-  case "$prev" in
-    no_transport_available*) log "still unavailable: $PROBE_OUT" ;;
-    *) log "BLOCKED no transport available (probe rc=$PROBE_RC): $PROBE_OUT" ;;
+if [ -z "$CONTACT_HANDLE" ] || [ -z "$TASK_TITLE" ] || [ -z "$TASK_REPO" ] || \
+   [ -z "$TASK_PR" ] || [ -z "$TASK_ASK" ] || [ ! -d "$TASK_REPO" ]; then
+  state_put status blocked
+  state_put last_blocker "configuration required: recipient, task, PR, and reachable repository path"
+  log "BLOCKED: task or recipient configuration missing, or repository path is unreachable"
+  echo "instinct-ping: configuration required (INSTINCT_IMSG_CONTACT, INSTINCT_PING_TASK, INSTINCT_PING_REPO as a reachable local repository path, INSTINCT_PING_PR, INSTINCT_PING_ASK); nothing sent"
+  exit 0
+fi
+
+TARGET_ROOT=$(git -C "$TASK_REPO" rev-parse --show-toplevel 2>/dev/null)
+TARGET_BRANCH=$(git -C "$TASK_REPO" branch --show-current 2>/dev/null)
+TARGET_COMMIT=$(git -C "$TASK_REPO" rev-parse HEAD 2>/dev/null)
+TARGET_REMOTE=$(git -C "$TASK_REPO" config --get remote.origin.url 2>/dev/null)
+if [ -z "$TARGET_ROOT" ] || [ -z "$TARGET_BRANCH" ] || [ -z "$TARGET_COMMIT" ]; then
+  state_put status blocked
+  state_put last_blocker "target repository branch or commit unavailable"
+  log "BLOCKED: target repository branch or commit unavailable"
+  echo "instinct-ping: target repository branch or commit unavailable; nothing sent"
+  exit 0
+fi
+if [ -z "$TARGET_REMOTE" ]; then TARGET_REMOTE="$TARGET_ROOT"; fi
+
+TASK_KEY=$(/usr/bin/python3 -c 'import hashlib,sys; print(hashlib.sha256("\0".join(sys.argv[1:]).encode()).hexdigest())' \
+  "$TASK_TITLE" "$TARGET_REMOTE" "$TARGET_BRANCH" "$TARGET_COMMIT" "$TASK_PR" "$TASK_ASK")
+REQUEST_ID=$(state_get request_id "")
+SAVED_TASK_KEY=$(state_get task_key "")
+if [ -n "$SAVED_TASK_KEY" ] && [ "$SAVED_TASK_KEY" != "$TASK_KEY" ]; then
+  REQUEST_ID=""
+fi
+if [ -z "$REQUEST_ID" ]; then
+  REQUEST_ID=$(/usr/bin/python3 -c 'import uuid; print(uuid.uuid4())')
+  state_put request_id "$REQUEST_ID"
+fi
+state_put task_key "$TASK_KEY"
+
+# Read replies before any send. --theirs is required so our own request cannot
+# satisfy the reply protocol.
+READ_OUT=$(INSTINCT_TRANSPORT=imessage INSTINCT_IMSG_CONTACT="$CONTACT_HANDLE" \
+  timeout 180 "$NODE" "$CLI" read --theirs --limit 15 2>&1)
+READ_RC=$?
+state_put last_read "$(now)"
+if [ "$READ_RC" -ne 0 ]; then
+  state_put status reply_read_blocked
+  state_put last_blocker "reply read unavailable (rc=$READ_RC)"
+  log "BLOCKED reply read (rc=$READ_RC): $(printf '%s' "$READ_OUT" | tail -3 | tr '\n' ' ')"
+  echo "instinct-ping: reply read unavailable (rc=$READ_RC); nothing sent"
+  printf '%s\n' "$READ_OUT" | tail -5
+  exit 0
+fi
+state_put last_blocker none
+
+# A verdict must share one line with the exact task token and one concrete value.
+# Quoted protocol instructions such as PASS|FAIL|BLOCKED do not match this form.
+verdict=""
+while IFS= read -r line; do
+  case "$line" in
+    *"REQUEST_ID: $REQUEST_ID"*)
+      if printf '%s\n' "$line" | grep -Eiq 'VERDICT: (PASS|FAIL|BLOCKED)([[:space:]]|$)'; then
+        verdict=$(printf '%s\n' "$line" | grep -oiE 'VERDICT: (PASS|FAIL|BLOCKED)([[:space:]]|$)' | tail -1)
+      fi
+      ;;
   esac
-  echo "instinct-ping: no usable transport; nothing sent. Check Messages.app / the WhatsApp link:"
-  echo "  INSTINCT_IMSG_CONTACT=$CONTACT_HANDLE $NODE $CLI probe"
+done <<EOF
+$READ_OUT
+EOF
+
+if [ -n "$verdict" ]; then
+  : > "$DONE"
+  state_put status verdict_received
+  state_put verdict "$verdict"
+  log "current request verdict received: $verdict — marking DONE"
+  echo "instinct-ping: current request $REQUEST_ID verdict received; marking DONE"
   exit 0
 fi
 
-# ---- 2. Compose the ping (attempt number makes repeats informative, not noise).
 ATTEMPTS=$(( $(state_get attempts 0) + 1 ))
 FIRST=$(state_get first_attempt "$(now)")
 BODY=$(cat <<TXT
+REQUEST_ID: $REQUEST_ID
 PING #$ATTEMPTS — $TASK_TITLE
 since: $FIRST
-repo: $TASK_REPO
+repo: $TARGET_REMOTE
+branch: $TARGET_BRANCH
+commit: $TARGET_COMMIT
+PR: #$TASK_PR
 
 ASK: $TASK_ASK
 
-Reply with: VERDICT: PASS|FAIL|BLOCKED, then the specific file:line or missing
-evidence behind it, then whether the positive-XP floor can regress routine,
-unresolved, or already-paid zero-award cases. If you cannot read the branch,
-say BLOCKED and name what access you need — do not guess.
-
-This is an automated reminder; reply in this chat and I will pick it up.
+Reply on one line with REQUEST_ID: $REQUEST_ID followed by one concrete verdict:
+VERDICT: PASS, VERDICT: FAIL, or VERDICT: BLOCKED, then file:line or missing evidence.
+If you cannot read this exact branch and commit, say BLOCKED and name the access needed.
 TXT
 )
 
 if [ "$DRY" = "1" ]; then
-  echo "instinct-ping DRY RUN — would send to iMessage $CONTACT_HANDLE:"
+  echo "instinct-ping DRY RUN — would send to the configured peer:"
   printf '%s\n' "$BODY"
   state_put attempts "$ATTEMPTS"
   state_put status dry_run
-  log "dry run composed attempt=$ATTEMPTS"
+  log "dry run composed attempt=$ATTEMPTS request=$REQUEST_ID"
   exit 0
 fi
 
 MSG_FILE=$(mktemp "${TMPDIR:-/tmp}/instinct_ping.XXXXXX")
 printf '%s\n' "$BODY" > "$MSG_FILE"
-
-# ---- 3. Send. `send` fails closed (exit 6) when delivery is not confirmed.
-SEND_OUT=$(INSTINCT_IMSG_CONTACT="$CONTACT_HANDLE" timeout 400 "$NODE" "$CLI" send --file "$MSG_FILE" 2>&1)
+SEND_OUT=$(INSTINCT_TRANSPORT=imessage INSTINCT_IMSG_CONTACT="$CONTACT_HANDLE" \
+  timeout 400 "$NODE" "$CLI" send --file "$MSG_FILE" 2>&1)
 SEND_RC=$?
 rm -f "$MSG_FILE"
 
 if [ "$SEND_RC" -ne 0 ]; then
-  state_put status send_failed
-  state_put last_blocker "send rc=$SEND_RC"
+  state_put status send_uncertain
+  state_put last_blocker "send outcome uncertain (rc=$SEND_RC)"
+  state_put uncertain_send "$REQUEST_ID"
   state_put attempts "$ATTEMPTS"
-  log "SEND FAILED rc=$SEND_RC: $(printf '%s' "$SEND_OUT" | tail -3 | tr '\n' ' ')"
-  echo "instinct-ping: send not confirmed (rc=$SEND_RC)"
+  log "SEND OUTCOME UNCERTAIN rc=$SEND_RC request=$REQUEST_ID: $(printf '%s' "$SEND_OUT" | tail -3 | tr '\n' ' ')"
+  echo "instinct-ping: send outcome uncertain (rc=$SEND_RC); automatic sends held. Resolve with done or reset after checking the outcome."
   printf '%s\n' "$SEND_OUT" | tail -5
   exit 0
 fi
 
 state_put attempts "$ATTEMPTS"
+state_put first_attempt "$FIRST"
 state_put last_send "$(now)"
 state_put last_blocker none
 state_put status sent
-log "sent attempt=$ATTEMPTS"
-
-# ---- 4. Look for a verdict in the reply and stop when one lands.
-# This step NEEDS chat.db, and a launchd process has no Full Disk Access, so the
-# read fails closed with exit 4 there. That is a known, logged limitation rather
-# than a silent no-op: replies are collected from a GUI-session shell with
-#   ~/.local/bin/imsg-bridge.sh read --theirs --limit 15
-#
-# --theirs is NOT optional. Our own ping body literally contains
-# "VERDICT: PASS|FAIL|BLOCKED", so a read including outgoing rows matches the
-# template we just sent and reports a verdict that does not exist. That bug fired
-# in testing: it marked this job DONE seconds after sending PING #3.
-READ_OUT=$(INSTINCT_IMSG_CONTACT="$CONTACT_HANDLE" timeout 180 "$NODE" "$CLI" read --theirs --limit 15 2>&1)
-READ_RC=$?
-if [ "$READ_RC" -eq 4 ]; then
-  log "NOTE verdict check skipped: chat.db unreadable from launchd (no FDA); read from a GUI shell"
-  echo "instinct-ping: ping #$ATTEMPTS sent; verdict check skipped here (launchd has no Full Disk Access)"
-  exit 0
-fi
-# Strip the template before matching: a reply that quotes our own instruction is
-# not a verdict. Then anchor on the token so prose mentioning the words is ignored.
-verdict=$(printf '%s' "$READ_OUT" | sed 's/PASS|FAIL|BLOCKED//g' \
-  | grep -oiE '(^|[[:space:]|])VERDICT:[[:space:]]*(PASS|FAIL|BLOCKED)' | tail -1)
-if [ -n "$verdict" ]; then
-  : > "$DONE"
-  state_put status verdict_received
-  state_put verdict "$verdict"
-  log "verdict received: $verdict — marking DONE"
-  echo "instinct-ping: $verdict received; marking DONE"
-else
-  echo "instinct-ping: ping #$ATTEMPTS sent; no verdict yet"
-fi
+log "sent attempt=$ATTEMPTS request=$REQUEST_ID"
+echo "instinct-ping: request $REQUEST_ID sent for $TASK_REPO branch $TARGET_BRANCH at $TARGET_COMMIT"
 exit 0
