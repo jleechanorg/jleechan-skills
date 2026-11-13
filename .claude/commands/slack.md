@@ -1,5 +1,5 @@
 ---
-description: /slack — apply Slack identity policy; send assignments or inline images/video/files
+description: Alias for slack-identity — apply Slack identity policy; send assignments or inline images/video/files
 type: skill
 execution_mode: immediate
 ---
