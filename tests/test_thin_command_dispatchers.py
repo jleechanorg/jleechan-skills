@@ -73,12 +73,16 @@ class ThinCommandDispatchersTest(unittest.TestCase):
             )
             (commands / "invalid.md").write_text(
                 "---\ndescription: invalid\n---\n"
-                "Read ~/.claude/skills/example/SKILL.md without forwarding arguments.\n",
+                "Read ~/.claude/skills/example/SKILL.md without forwarding "
+                "arguments.\n",
                 encoding="utf-8",
             )
             result = validate_commands(commands, root / "skills", top_level_only=True)
 
-        self.assertEqual((2, 1, 1), (result.command_count, result.dispatcher_count, len(result.errors)))
+        self.assertEqual(
+            (2, 1, 1),
+            (result.command_count, result.dispatcher_count, len(result.errors)),
+        )
 
     def test_top_level_aliases_have_native_command_files(self):
         for alias in ("smart-advisor", "webadvice", "sq", "ms", "p", "r", "abal"):
