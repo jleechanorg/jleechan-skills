@@ -64,4 +64,7 @@ authorized verification rather than presenting the workflow as finished.
 Report RED, CODE, GREEN, and remaining uncertainty with sanitized evidence paths. Do not
 invoke a fixed provider, branch, remote, or interpreter by name when the repository
 offers discovery. `/advice` or an integration-verification skill is an optional
-review dependency, not an automatic command or approval gate.
+source-review dependency, not an automatic command or approval gate. If used,
+its source verdict is separate from RED/GREEN execution receipts: source
+approval does not prove the test ran before the change, passed on the same
+scenario afterward, or covered related regressions.

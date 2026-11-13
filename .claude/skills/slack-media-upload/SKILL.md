@@ -1,6 +1,6 @@
 ---
 name: slack-media-upload
-description: Post real inline images/video/files into Slack (DM or channel) when the operator asks to "send", "DM", or "attach" evidence/media to Slack. No configured Slack MCP tool can upload files — this wraps Slack's own recommended files.getUploadURLExternal -> files.completeUploadExternal flow directly.
+description: Upload inline images/video/files to Slack when asked to send or attach them, or inspect an authorized Slack message attachment using its file ID and an existing files:read route. Reading attachments never uploads or posts files.
 type: automation
 ---
 
@@ -23,6 +23,10 @@ that MCP tool.
 The operator says something like "DM me the video/screenshots", "attach this
 to Slack", "post this evidence to #channel so I can see it", or any request
 where the deliverable is real, viewable media inside Slack — not a link.
+
+Use the attachment-reading procedure below when asked to inspect, read, or
+summarize a file already attached to an authorized Slack message. That route is
+read-only and does not run the upload script.
 
 ## How
 
