@@ -11,6 +11,9 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - ".github/workflows/tests.yml"
+      - "launchd/ai.jleechan.instinct-ping.plist"
+      - "scripts/install-instinct-ping-launchd.sh"
+      - "scripts/instinct-ping.sh"
       - "tests/**"
       - ".claude/skills/swarm/SKILL.md"
       - ".claude/commands/**"
@@ -21,6 +24,9 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/tests.yml"
+      - "launchd/ai.jleechan.instinct-ping.plist"
+      - "scripts/install-instinct-ping-launchd.sh"
+      - "scripts/instinct-ping.sh"
       - "tests/**"
       - ".claude/skills/swarm/SKILL.md"
       - ".claude/commands/**"
@@ -44,6 +50,11 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
+      - name: Validate Instinct ping launch files
+        if: hashFiles('scripts/instinct-ping.sh') != ''
+        run: |
+          bash -n scripts/instinct-ping.sh scripts/install-instinct-ping-launchd.sh
+          python3 -c 'import pathlib, plistlib; plistlib.loads(pathlib.Path("launchd/ai.jleechan.instinct-ping.plist").read_bytes())'
       - name: Install test dependencies
         run: python3 -m pip install --quiet pyyaml duckdb==1.5.0
       - name: Install br
