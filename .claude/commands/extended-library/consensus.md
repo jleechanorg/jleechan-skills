@@ -178,7 +178,7 @@ Streamlined workflow optimized for speed and simplicity:
        echo "No supported linter found - manual validation required"
      fi
      ```
-   - **Unit Tests**: Select a focused test command using the repository's `/test` and test-layer guidance; CI owns the unfiltered full suite.
+   - **Unit Tests**: Select a focused test command from the repository's test-layer guidance; CI owns the unfiltered full suite.
    - **Integration Tests**: If APIs/interfaces changed, use the repository's approved integration runner and real-service contract; do not guess a generic integration command.
    - **Manual Validation**: Use available tools for manual checks when automated tests are insufficient. Ask the user to participate only when a physical action or an essential intent choice cannot be resolved through available tools and source context.
 
@@ -196,7 +196,7 @@ Streamlined workflow optimized for speed and simplicity:
   - Stress-test mitigation plans and identify missing owners or follow-up actions
   - Confirm launch checklists or go/no-go criteria are satisfied
 
-**Test/Validation Selection (Code Review Mode)**: Use `/test` and the owning
+**Test/Validation Selection (Code Review Mode)**: Use the owning
 repository's test-layer guidance to choose focused checks. Never infer a test
 command from package presence or run an unfiltered local full suite.
 

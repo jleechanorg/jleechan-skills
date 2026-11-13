@@ -149,7 +149,7 @@ subsequent turn in the session.
 | Task shape | Subagent / tier | Rationale |
 |---|---|---|
 | Read-only Grep / Glob / Read / LS on a single file | **Haiku** | Pattern matching; 3x cheaper, comparable quality |
-| Multi-file read-only synthesis (e.g., `/ms`, `/perp`, /e sweeps) | **Haiku + JSON schema** | Schema-forcing makes Haiku output reliable for aggregation |
+| Multi-file read-only synthesis (e.g., `/ms`, multi-engine search, /e sweeps) | **Haiku + JSON schema** | Schema-forcing makes Haiku output reliable for aggregation |
 | Single targeted Edit / Write (the obvious fix) | **Sonnet** | Implementation needs moderate judgment |
 | Multi-file refactor, pair-coder, test writing | **Sonnet** | Pair-coder's full-context role |
 | Subagent that must reason about novel bugs or design | **Fable (escalate)** | Only escalate when Haiku/Sonnet demonstrably fail |

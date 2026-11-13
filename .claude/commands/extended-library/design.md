@@ -121,8 +121,8 @@ Each phase is complete when:
 
 **Action Steps:**
 1. **Architecture Assessment** (`/arch`): Technical approach and system design
-2. **Product Strategy Review** (`/principalproductmanager`): User experience and business value
-3. **Engineering Leadership** (`/principalengineer`): Technical excellence and scalability
+2. **Product Strategy Review** (principal product manager perspective): User experience and business value
+3. **Engineering Leadership** (principal engineer perspective): Technical excellence and scalability
 4. **Critical Thinking** (`/thinku`): Challenge assumptions and identify risks
 5. **Current Research** (`/research [current_date_search]`): 2025 industry standards and best practices
 
@@ -228,7 +228,7 @@ Before coding begins, verify:
 
 **Usage**: `/design [feature-name] [--type=feature|bugfix|migration|refactor]` - Creates product spec and engineering design docs in `roadmap/`
 
-**Default Composition**: `/requirements-start /execute /arch /principalproductmanager /principalengineer /tdd /thinku /research [current_date_search]`
+**Default Composition**: requirements gathering, then `/execute /arch /tdd /thinku /research [current_date_search]` with principal product manager and principal engineer review perspectives
 
 🚨 **MANDATORY CURRENT DATE RESEARCH**: Must include fresh internet searches using current date (**$(date +"%B %d, %Y")**) to validate against latest industry trends, frameworks, and best practices. Avoid using outdated research when evaluating modern solutions.
 **Parameters**:
@@ -256,7 +256,7 @@ Before coding begins, verify:
 
 ## 🎯 Command Objectives
 
-1. **Requirements First**: Start with `/requirements-start` to gather structured requirements through guided questions
+1. **Requirements First**: Start by gathering structured requirements through guided questions
 2. **Prevent Issues Like React V2**: Enforce proper planning before implementation
 3. **Feature Completeness**: Ensure all requirements are captured upfront
 4. **Technical Clarity**: Define implementation approach before coding
@@ -269,7 +269,7 @@ Before coding begins, verify:
 
 ## 📋 Requirements Gathering Integration
 
-The `/design` command now starts with `/requirements-start` to ensure comprehensive requirements are captured before creating design documents:
+The `/design` command starts with requirements gathering to ensure comprehensive requirements are captured before creating design documents:
 
 1. **Discovery Phase**: 5 yes/no questions to understand the problem space
 2. **Context Analysis**: Autonomous codebase analysis to identify technical constraints
@@ -1054,7 +1054,7 @@ Final: Add safety buffer for unforeseen issues (+60-100%): 44 × 1.6–2.0 = 70�
 ### Auto-Composition Commands
 
 ```
-/thinku /devilsadvocate /archreview [design-scope]
+/thinku /devilsadvocate /arch [design-scope]
 ```
 
 ### External Validation MCPs

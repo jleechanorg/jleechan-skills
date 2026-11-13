@@ -704,17 +704,61 @@ def _search_codex_store(
                 params = (max_chars, like_param, cwd_path, limit)
 
             rows = cur.execute(sql, params).fetchall()
+            hint_only_ids: set[Any] = set()
+            if query:
+                # Newer in-project rows must not crowd out genuine index matches. This runs
+                # after the primary query, so an interruption here cannot cost its rows.
+                # NULL updated_at sorts last under DESC; rank it by created_at here.
+                recent_expr = "COALESCE(updated_at, created_at)" if recent_col == "updated_at" else recent_col
+                match_sql = f"""
+                    SELECT title, substr(first_user_message, 1, ?), cwd, git_branch,
+                           {date_expr} as created, id{model_select},
+                           1 as query_match{rollout_select},
+                           {activity_date_expr} as activity_time
+                    FROM threads
+                    WHERE (title LIKE ? OR first_user_message LIKE ?)
+                      AND (archived = 0 OR archived IS NULL)
+                    ORDER BY (cwd = ?) DESC, {recent_expr} DESC
+                    LIMIT ?
+                """
+                seen_ids = {row[5] for row in rows}
+                try:
+                    match_rows = cur.execute(
+                        match_sql, (max_chars, like_param, like_param, cwd_path, candidate_limit)
+                    ).fetchall()
+                except sqlite3.OperationalError:
+                    # Step budget exhausted; keep the primary rows.
+                    errors += 1
+                    match_rows = []
+                match_rows = [row for row in match_rows if row[5] not in seen_ids]
+                # Hints only: their rollouts must not take scan slots from other candidates.
+                hint_only_ids = {row[5] for row in match_rows}
+                rows += match_rows
             if not rows and not query:
+                # Run the creation-time order first: a later interruption must not lose
+                # its rows.
                 sql_recent = f"""
                     SELECT title, substr(first_user_message, 1, ?), cwd, git_branch,
                            {date_expr} as created, id{model_select}, 1 as query_match{rollout_select},
                            {activity_date_expr} as activity_time
                     FROM threads
                     WHERE (archived = 0 OR archived IS NULL)
-                    ORDER BY created_at DESC
+                    ORDER BY {{order_col}} DESC
                     LIMIT ?
                 """
-                rows = cur.execute(sql_recent, (max_chars, limit)).fetchall()
+                rows = cur.execute(sql_recent.format(order_col="created_at"), (max_chars, limit)).fetchall()
+                if recent_col == "updated_at":
+                    try:
+                        rows += cur.execute(
+                            sql_recent.format(order_col="updated_at"), (max_chars, limit)
+                        ).fetchall()
+                    except sqlite3.OperationalError:
+                        errors += 1
+                    # Together the two orders hold the newest threads by last activity
+                    # (NULL updated_at counts as created_at), given updated_at >= created_at.
+                    newest = sorted({row[5]: row for row in rows}.values(),
+                                    key=lambda row: str(row[-1] or row[4] or ""), reverse=True)
+                    rows = newest[:limit]
 
             for row in rows:
                 title, first_msg, row_cwd, branch, created, thread_id = row[:6]
@@ -734,7 +778,7 @@ def _search_codex_store(
                     "thread_activity_source": recent_col,
                 }
                 rollout_path = row[-2]
-                if rollout_path and sess_dir is not None:
+                if rollout_path and sess_dir is not None and thread_id not in hint_only_ids:
                     # Reject out-of-scope pointers before stat/open; never follow
                     # index pointers into another profile or credential store.
                     root = sess_dir.absolute()

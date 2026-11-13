@@ -30,7 +30,7 @@ planning, handoff, and execution authorization boundaries.
 **Action Steps:**
 **Memory Integration**: Automatically consults Memory MCP for relevant patterns, corrections, and user preferences.
 
-**Guidelines Consultation**: Calls `/guidelines` for systematic mistake prevention and protocol compliance.
+**Guidelines Consultation**: Before planning, read `CLAUDE.md`, `docs/pr-guidelines/base-guidelines.md` and any `docs/pr-guidelines/{PR_NUMBER}/guidelines.md`, and apply the mistake-prevention patterns they list.
 
 **MANDATORY Skills Consultation** (before any implementation):
 1. **Code Centralization** (`.claude/skills/code-centralization/SKILL.md`):
@@ -205,8 +205,7 @@ User must respond with "APPROVED" or specific modifications before execution beg
 ## 🔗 UNIVERSAL COMPOSITION PRINCIPLES
 
 **Command Integration**: `/planexec` naturally composes with:
-- `/think` - Strategic analysis and problem solving
-- `/guidelines` - Mistake prevention and protocol compliance
+- `/thinku` - Strategic analysis and problem solving
 - `/context` - Continuous context monitoring
 - `/simplify` - **MANDATORY** final step: code reuse, quality, and efficiency review
 - Memory MCP - Pattern recognition and preference application

@@ -77,8 +77,9 @@ do not demand duplicate logs. Independently verify coverage and bytes, and
 reproduce each applicable documented check. Runtime claims require actual
 runtime/provider provenance. Missing claim-required proof is non-approving.
 Source-only Markdown changes do not trigger an artifact campaign; runtime or
-artifact claims retain named domain proof. Batch fixes before dispatch; use
-Phase 0 for later deltas rather than relabeling old evidence.
+artifact claims retain named domain proof. Batch fixes before dispatch
+([advice §5](../advice/SKILL.md#5-reconcile-and-report)); use Phase 0 for
+later deltas rather than relabeling old evidence.
 
 ## Verdict Rubric
 
@@ -210,6 +211,7 @@ Apply this check when inline or linked media backs a claim; it does not by itsel
 - Authorized private hosting is acceptable when the intended reviewer can open and play the media; record the access mode.
 - Never make evidence public, or change bucket access, merely to pass a link check.
 - A `github.com/.../releases/download/untagged-*` link is a red flag: the release is a draft and the asset is not reliably reachable.
+- Check the rendered PR body, not its source: screenshots appear as images and each video as an inline GIF linking its MP4 (evidence-standards § UI/media proof). Text-link-only visual evidence is **PARTIAL**.
 
 Media the intended reviewer cannot open or play is **INCONCLUSIVE** when it is
 the claim's decisive raw proof; it is **PARTIAL** only for a supplemental format

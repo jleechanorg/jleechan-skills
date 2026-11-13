@@ -8,7 +8,7 @@ execution_mode: immediate
 `/pushlite` was backed by a repository-local script that is not exported with
 this package. Do not attempt to invoke a package-local push-lite launcher.
 
-Use `/push` for the supported push workflow.
+To push, run `/review` on the changes, push the branch (`git push -u origin HEAD`), and create or update the PR with `gh pr create` / `gh pr edit`.
 
 <!-- Legacy details below are retained only for historical context. They are not executable instructions. -->
 
@@ -62,8 +62,8 @@ execution contract.
 - Suggests appropriate commit messages
 - Allows custom messages
 
-**Comparison with /push**:
-- **`/push`**: Quality gate workflow (linting BEFORE push, blocks on failures, full automation)
+**Comparison with the quality-gated push**:
+- **Quality-gated push**: linting BEFORE push, blocks on failures, full automation
 - **`/pushl`**: Fast iteration workflow (push FIRST, linting after, non-blocking)
 
 **Safety Features**:

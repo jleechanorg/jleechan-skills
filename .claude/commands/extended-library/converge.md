@@ -57,8 +57,8 @@ execution_mode: immediate
 ### Step 5: Execution Phase
 
 **Action Steps:**
-**Command**: `/cerebras` - Fast high-quality code generation using direct Cerebras API script (NOT Gemini MCP)
-1. **Script Location**: `cerebras/cerebras_direct.sh` (relative to cerebras.md location)
+**Code generation**: Fast high-quality code generation using the direct Cerebras API script (NOT Gemini MCP)
+1. **Script Location**: `cerebras/cerebras_direct.sh` in the commands directory
 2. **Note**: Uses Cerebras API directly, not mcp__gemini-cli-mcp tools
 3. Execute plan using optimal slash command selection
 4. Monitor progress and adapt execution as needed
@@ -146,9 +146,9 @@ execution_mode: immediate
 
 **Action Steps:**
 **Command Selection Protocol**: Choose appropriate slash command for each task type:
-1. **Code/Script Generation**: **Command**: `/cerebras` - Fast high-quality code generation via direct Cerebras API script (`cerebras/cerebras_direct.sh` relative to cerebras.md) - NOT Gemini MCP
+1. **Code/Script Generation**: run `cerebras/cerebras_direct.sh` in the commands directory - fast high-quality code generation via the direct Cerebras API - NOT Gemini MCP
 2. **PR Review Processing**: **Command**: `/copilot` - Complete PR comment processing
-3. **Test Suite Management**: **Command**: `/test` - Run and fix failing tests
+3. **Test Suite Management**: run the repository's focused test command and fix failing tests
 4. **Complex Multi-Step**: **Command**: `/orch` - Delegate to orchestration agents
 5. **Planning & Analysis**: **Command**: `/execute` - Break down complex goals
 
@@ -211,7 +211,7 @@ Until: Success criteria fully met
 
 #### Step 7: Learning & Documentation Update
 
-**Command**: `/guidelines` to update the documentation if mistakes/learnings were made
+**Action**: Record mistakes and learnings in `docs/pr-guidelines/base-guidelines.md` (or the PR-specific `docs/pr-guidelines/{PR_NUMBER}/guidelines.md`)
 - Capture mistakes, inefficiencies, and unexpected successes
 - Update project guidelines and best practices
 - Evolve meta-rules for future convergence cycles
@@ -254,7 +254,7 @@ Until: Success criteria fully met
 **System Architecture Patterns**:
 - **OODA Loop**: Observe → Orient (Plan/Review) → Decide (Approve) → Act (Execute/Validate) → Learn (Guidelines)
 - **Autopoietic Systems**: Self-maintaining and self-improving through recursive loops
-- **Multi-Agent Orchestration**: Delegates to specialized slash commands (/cerebras, /copilot, /orch)
+- **Multi-Agent Orchestration**: Delegates to specialized tools and slash commands (the Cerebras direct script, /copilot, /orch)
 - **Emergent Intelligence**: System intelligence emerges from iterative feedback loops
 - **Memory Persistence**: Memory MCP provides persistent learning and pattern evolution
 
@@ -414,9 +414,9 @@ Result: Builds feature incrementally with validation at each step
 ### Primary Command Arsenal
 
 - **`/execute`**: Planning, analysis, validation, and coordination
-- **`/cerebras`**: High-speed code/script/document generation via direct Cerebras API script (`cerebras/cerebras_direct.sh` relative to cerebras.md) - NOT Gemini MCP
+- **`cerebras_direct.sh`**: High-speed code/script/document generation via the direct Cerebras API script (`cerebras/cerebras_direct.sh` in the commands directory) - NOT Gemini MCP
 - **`/copilot`**: Complete PR review and comment processing
-- **`/test`**: Test execution and failure resolution
+- **Focused test runs**: Test execution and failure resolution
 - **`/orch`**: Complex multi-agent task orchestration
 - **`/pushl`**: Git operations and PR creation
 
@@ -424,9 +424,9 @@ Result: Builds feature incrementally with validation at each step
 
 ```
 Goal Type → Command Selection:
-- Code generation → /cerebras
+- Code generation → cerebras_direct.sh
 - PR processing → /copilot
-- Test management → /test
+- Test management → focused test run
 - Multi-step automation → /orch
 - Planning/validation → /execute
 ```
@@ -453,29 +453,29 @@ Goal Type → Command Selection:
 - Success criteria: Files exist, contain valid tests, all tests pass
 - Plan: Generate test files → Run tests → Fix any failures
 
-**Command**: `/cerebras` - Generate test_math.py with basic math function tests
+**Command**: `cerebras_direct.sh` - Generate test_math.py with basic math function tests
 - Prompt: "Create test_math.py with pytest tests for add, subtract, multiply functions"
 - Result: File created with 6 test functions
 - Validation: File exists ✅
 
-**Command**: `/cerebras` - Generate test_utils.py with utility function tests
+**Command**: `cerebras_direct.sh` - Generate test_utils.py with utility function tests
 - Prompt: "Create test_utils.py with pytest tests for string and list utilities"
 - Result: File created with 4 test functions
 - Validation: File exists ✅
 
-**Command**: `/test` - Run pytest and check results
+**Command**: `pytest` - Run pytest and check results
 - Result: 8/10 tests pass, 2 failures in test_math.py
 - Analysis: Missing math.py implementation file
 - Status: Converging 🔄 (files exist but tests fail)
 
 #### Iteration 2:
 
-**Command**: `/cerebras` - Generate missing math.py implementation
+**Command**: `cerebras_direct.sh` - Generate missing math.py implementation
 - Prompt: "Create math.py with add, subtract, multiply functions to make tests pass"
 - Result: Implementation file created
 - Validation: File exists ✅
 
-**Command**: `/test` - Re-run pytest
+**Command**: `pytest` - Re-run pytest
 - Result: 10/10 tests pass ✅
 - Validation: All success criteria met
 - Status: **CONVERGED** ✅
@@ -483,7 +483,7 @@ Goal Type → Command Selection:
 #### Convergence Report:
 
 - **Total iterations**: 2/10 (within default limit)
-- **Commands used**: /execute (2x), /cerebras (3x), /test (2x)
+- **Commands used**: /execute (2x), cerebras_direct.sh (3x), pytest (2x)
 - **Time**: 3 minutes
 - **Success criteria**: All met ✅
 - **Files created**: test_math.py, test_utils.py, math.py
@@ -504,7 +504,7 @@ Goal Type → Command Selection:
 - **Max Iterations**: 10 (prevents infinite loops)
 - **Convergence Threshold**: 100% success criteria met
 - **Timeout**: 2 hours maximum execution time
-- **Learning Mode**: Enabled (captures patterns for /guidelines)
+- **Learning Mode**: Enabled (captures patterns for `docs/pr-guidelines/`)
 
 ### Iteration Limit Implementation
 
@@ -601,6 +601,6 @@ Implement PR #1307 roadmap with 18 PR operations
 
 **Measurable Success**: Verifies completion objectively, not through assumption
 
-**Command Integration**: Uses appropriate specialist commands (/cerebras, /copilot, /test, /orch) based on goal type
+**Command Integration**: Uses appropriate specialist tools and commands (the Cerebras direct script, /copilot, focused test runs, /orch) based on goal type
 
 **Remember**: /converge achieves goals by orchestrating other slash commands intelligently, not by trying to do everything itself. It's a meta-command that coordinates specialized tools until convergence is achieved.

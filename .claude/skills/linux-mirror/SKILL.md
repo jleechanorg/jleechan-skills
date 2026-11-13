@@ -58,25 +58,86 @@ If `$CONTEXT` is empty, stop here before pushing or opening SSH. The remote laun
 
 Also resolve `$AGENT_CLI`: the CLI **that is calling this skill**, i.e. the operator's live runtime (pi → `pi`, Claude Code → `claude`, Codex → `codex`, Antigravity → `agy`). This skill deliberately has no default CLI. Launching a CLI the operator is not using hands the work to an agent with different tools, skills, model and quota — that is a substitution to state explicitly in the report, never a silent default. Only set a different `$AGENT_CLI` when the calling CLI is genuinely unusable on the target host (for example its seat is quota-walled), and say why.
 
+For Claude, preserve the selected profile without transferring credentials. Resolve `CLAUDE_LAUNCHER` before pushing: use `claudewa` when source `CLAUDE_CONFIG_DIR` explicitly ends in `.claude-wa`, and `claude` only when the profile is unset or selects the default `~/.claude`; stop for any other profile without a matching target wrapper. Keep `$AGENT_CLI=claude`. Before pushing, verify the selected target wrapper and intended profile/account; if unavailable or unverified, report the scoped blocker instead of falling back. Never copy credentials or silently switch profiles/accounts.
+
+```bash
+CLAUDE_LAUNCHER=""
+if [ "$AGENT_CLI" = claude ]; then
+  CLAUDE_LAUNCHER=claude
+  case "${CLAUDE_CONFIG_DIR:-}" in
+    */.claude-wa|.claude-wa) CLAUDE_LAUNCHER=claudewa ;;
+    ""|"$HOME/.claude"|~/.claude) ;;
+    *) echo "ERROR: explicitly selected Claude profile has no known matching target wrapper; refusing profile fallback" >&2; exit 75 ;;
+  esac
+fi
+case "$AGENT_CLI" in
+  pi|claude|codex|agy) ;;
+  *) echo "ERROR: unsupported AGENT_CLI '$AGENT_CLI' (pi|claude|codex|agy)" >&2; exit 75 ;;
+esac
+```
+
 If `$BRANCH` is empty (detached HEAD) or `$DIRTY` is non-empty, stop and tell the user — commit/name the branch first.
 
 If `$REMOTE_URL` is an HTTPS URL with an embedded credential (`https://<token>@host/...`), warn the user before continuing: that URL gets written verbatim into the remote clone's `.git/config` in step 4, so the credential ends up live on the target machine too. Prefer an SSH remote, or a credential helper that doesn't embed the token in the URL. (Step 4's base64 encoding is not a confidentiality measure for this value — it only prevents argv re-tokenization/injection. A trivially-decodable token is still visible in the remote host's `ps` output during the mirror.)
 
-### 2. Push the branch (make it visible to the Linux machine)
+### 2. Resolve the target and verify readiness
+
+First run the [cross-machine-ssh-tier](../cross-machine-ssh-tier/SKILL.md) Tier 1→2 ladder with the configured peer alias, key and user. Resolve `SSH_ARGS`/`SSH_TARGET` before running the probe below, then retain that exact connection for step 4. An empty target selects Tier 3; it does not authorize dispatch yet. Publish and verify the branch in step 3 before sending any gateway handoff.
+
+For a resolved SSH target, complete an authenticated command roundtrip and obtain a contemporaneous CPU sample. Failure stops the caller before publication or dispatch even when its shell does not use `set -e`:
 
 ```bash
-if [ -n "$CONTEXT" ]; then
-  git -C "$REPO_ROOT" push -u origin "$BRANCH"
-else
-  echo "ERROR: CONTEXT is required before pushing or opening SSH" >&2
-fi
+mirror_readiness() {
+  if [ -z "$SSH_TARGET" ]; then
+    # Tier 3 readiness is checked by the receiving operator before execution.
+    return 0
+  fi
+  if [ "$AGENT_CLI" = claude ]; then
+    ssh "${SSH_ARGS[@]}" "$SSH_TARGET" bash -l -s -- "$CLAUDE_LAUNCHER" <<'EOF'
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "ERROR: selected Claude wrapper is unavailable in the target login shell" >&2
+    exit 127
+  }
+  CPU_SAMPLE=$(top -bn2 -d1 | grep "%Cpu" | tail -1)
+  [ -n "$CPU_SAMPLE" ] || {
+    echo "ERROR: top returned no CPU sample" >&2
+    exit 75
+  }
+  printf "%s\n" "$CPU_SAMPLE"
+EOF
+  else
+    ssh "${SSH_ARGS[@]}" "$SSH_TARGET" 'CPU_SAMPLE=$(top -bn2 -d1 | grep "%Cpu" | tail -1); [ -n "$CPU_SAMPLE" ] || { echo "ERROR: top returned no CPU sample" >&2; exit 75; }; printf "%s\n" "$CPU_SAMPLE"'
+  fi
+}
+mirror_readiness || {
+  echo "ERROR: resolved target failed readiness; stopping before push or dispatch" >&2
+  exit 75
+}
 ```
 
-Confirm with the user before pushing if the branch has no upstream yet or diverges from origin (normal push-safety rules apply).
+Ping, TCP reachability, and dated CPU samples do not establish readiness. Apply the task's recorded admission criterion; keep host selection and thresholds out of this portable skill.
 
-### 3. Pick a connectivity tier — try in order, stop at first success. Carry the resolved connection forward into `SSH_ARGS`/`SSH_TARGET` for step 4 — don't just check reachability and then reconnect a different way.
+For either Claude launcher, the probe above establishes command presence only. Before step 3, inspect the selected launcher definition in the target login shell (`type claude` or `type claudewa`) to confirm its profile selection and any authentication-environment overrides. Then use the installed CLI's read-only `auth status` command in that same authentication context: for the default profile, `(unset CLAUDE_CONFIG_DIR; command claude auth status --text)`; for the `.claude-wa` profile, `CLAUDE_CONFIG_DIR="$HOME/.claude-wa" command claude auth status --text`. Run these on the target, so `$HOME` resolves there. Compare the reported signed-in account with the intended source account, and record only match/mismatch plus the profile, not credentials or full authentication output. These examples apply only if the inspected launcher has no other authentication overrides; otherwise resolve and inspect its actual context before proceeding. If the installed CLI lacks this read-only command, reports no account, or the account/context cannot be matched, stop before publication and report the blocker. Do not invoke login/logout, copy credentials, or execute a wrapper with account-switching side effects merely to inspect it. Tier 3 receivers must perform the same check before execution.
 
-See [cross-machine-ssh-tier](../cross-machine-ssh-tier/SKILL.md) for the Tier 1→2→3 connectivity ladder (LAN SSH → SSH over Tailscale → messaging-gateway fallback), its debugging caveats, and the key-naming convention. Run that skill's ladder block with `PEER_LAN_ALIAS="mylinux"` (and the matching `PEER_TS_PATTERN`/`PEER_KEY`/`PEER_USER`) to resolve `SSH_ARGS`/`SSH_TARGET` before continuing to step 4. If `$SSH_TARGET` comes back empty, both Tier 1 and Tier 2 failed — fall through to that skill's Tier 3 (messaging-gateway handoff): post the exact repo/branch/commit and the steps from §4 below, asking it to execute them locally and reply when the tmux session is ready.
+### 3. Push the branch (make it visible to the Linux machine)
+
+```bash
+[ -n "$CONTEXT" ] || { echo "ERROR: CONTEXT is required" >&2; exit 75; }
+CURRENT_SHA=$(git -C "$REPO_ROOT" rev-parse HEAD) || exit 75
+[ "$CURRENT_SHA" = "$INTENDED_SHA" ] || {
+  echo "ERROR: source changed since preflight; resolve the new candidate first" >&2
+  exit 75
+}
+git -C "$REPO_ROOT" push origin "$INTENDED_SHA:refs/heads/$BRANCH" || exit 75
+PUBLISHED_REF=$(git -C "$REPO_ROOT" ls-remote --exit-code origin "refs/heads/$BRANCH") || exit 75
+[ "${PUBLISHED_REF%%[[:space:]]*}" = "$INTENDED_SHA" ] || {
+  echo "ERROR: published branch does not match intended source; refusing dispatch" >&2
+  exit 75
+}
+git -C "$REPO_ROOT" branch --set-upstream-to="origin/$BRANCH" "$BRANCH" || exit 75
+```
+
+Follow existing push authority and branch ownership; a successful push alone is not the readback above. If the target is empty (Tier 3), only now send the authorized gateway handoff with the verified remote URL, branch, exact published SHA, caller/profile, context and step 4's remote payload. Require the receiver to verify its own readiness/profile and exact fetched SHA before starting work; report unavailable checks rather than implying SSH readiness. A failed push or mismatched ref stops both transports. Do not run the SSH block below for Tier 3.
 
 ### 4. Remote checkout + tmux (Tier 1/2 only — skip if `$SSH_TARGET` is empty, that means Tier 3 applies instead)
 
@@ -88,9 +149,12 @@ BRANCH_B64=$(printf '%s' "$BRANCH" | base64 | tr -d '\n')
 REMOTE_URL_B64=$(printf '%s' "$REMOTE_URL" | base64 | tr -d '\n')
 CONTEXT_B64=$(printf 'x%s' "$CONTEXT" | base64 | tr -d '\n')
 AGENT_CLI_B64=$(printf '%s' "$AGENT_CLI" | base64 | tr -d '\n')
+# Keep the launcher argv nonempty; SSH reconstructs its remote command as shell text.
+CLAUDE_LAUNCHER_ARG=${CLAUDE_LAUNCHER:-not-applicable}
+CLAUDE_LAUNCHER_B64=$(printf '%s' "$CLAUDE_LAUNCHER_ARG" | base64 | tr -d '\n')
 INTENDED_SHA_B64=$(printf '%s' "$INTENDED_SHA" | base64 | tr -d '\n')
 
-ssh "${SSH_ARGS[@]}" "$SSH_TARGET" bash -s -- "$REL_PATH_B64" "$BRANCH_B64" "$REMOTE_URL_B64" "$CONTEXT_B64" "$AGENT_CLI_B64" "$INTENDED_SHA_B64" << 'EOF'
+ssh "${SSH_ARGS[@]}" "$SSH_TARGET" bash -s -- "$REL_PATH_B64" "$BRANCH_B64" "$REMOTE_URL_B64" "$CONTEXT_B64" "$AGENT_CLI_B64" "$CLAUDE_LAUNCHER_B64" "$INTENDED_SHA_B64" << 'EOF'
 set -e
 REL_PATH=$(printf '%s' "$1" | base64 -d)
 BRANCH=$(printf '%s' "$2" | base64 -d)
@@ -102,7 +166,12 @@ case "$CONTEXT_PAYLOAD" in
   *) echo "FAILED:$TARGET — invalid CONTEXT payload" >&2; exit 1 ;;
 esac
 AGENT_CLI=$(printf '%s' "$5" | base64 -d)
-INTENDED_SHA=$(printf '%s' "$6" | base64 -d)
+CLAUDE_LAUNCHER=$(printf '%s' "$6" | base64 -d)
+INTENDED_SHA=$(printf '%s' "$7" | base64 -d)
+case "$AGENT_CLI:$CLAUDE_LAUNCHER" in
+  claude:claude|claude:claudewa|pi:not-applicable|codex:not-applicable|agy:not-applicable) ;;
+  *) echo "FAILED:$REL_PATH — invalid CLI/profile selection; refusing mirror reuse" >&2; exit 75 ;;
+esac
 if [[ ! "$INTENDED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
   echo "FAILED:$REL_PATH — invalid intended source SHA" >&2
   exit 75
@@ -208,6 +277,26 @@ if tmux has-session -t "=$SESSION" 2>/dev/null; then
     echo "FAILED:$SESSION — existing session branch mismatch" >&2
     exit 75
   }
+  SESSION_AGENT_CLI=$(tmux show-option -qv -t "=$SESSION" @mirror-agent-cli 2>/dev/null || true)
+  [ -n "$SESSION_AGENT_CLI" ] || {
+    echo "FAILED:$SESSION — existing session has no recorded CLI; refusing RESUMED" >&2
+    exit 75
+  }
+  [ "$SESSION_AGENT_CLI" = "$AGENT_CLI" ] || {
+    echo "FAILED:$SESSION — existing session CLI mismatch ($SESSION_AGENT_CLI != $AGENT_CLI); refusing RESUMED" >&2
+    exit 75
+  }
+  if [ "$AGENT_CLI" = "claude" ]; then
+    SESSION_CLAUDE_LAUNCHER=$(tmux show-option -qv -t "=$SESSION" @mirror-claude-launcher 2>/dev/null || true)
+    [ -n "$SESSION_CLAUDE_LAUNCHER" ] || {
+      echo "FAILED:$SESSION — existing session has no recorded Claude profile; refusing RESUMED" >&2
+      exit 75
+    }
+    [ "$SESSION_CLAUDE_LAUNCHER" = "$CLAUDE_LAUNCHER" ] || {
+      echo "FAILED:$SESSION — existing session Claude profile mismatch ($SESSION_CLAUDE_LAUNCHER != $CLAUDE_LAUNCHER); refusing RESUMED" >&2
+      exit 75
+    }
+  fi
   SESSION_HEAD=$(git -C "$TARGET" rev-parse HEAD 2>/dev/null || true)
   [ "$SESSION_HEAD" = "$INTENDED_SHA" ] || {
     echo "FAILED:$SESSION — active checkout SHA $SESSION_HEAD differs from intended source $INTENDED_SHA; preserving it" >&2
@@ -238,9 +327,27 @@ HOST_BASH_ENV=${BASH_ENV:-}
 # Keep the host's TMPDIR unchanged. Codex shell calls must use login:false:
 # login Bash reads ~/.bash_profile after/instead of BASH_ENV and resets output.
 LAUNCH_ENV=(env "DISKM_SCRATCH=$SCRATCH_ROOT" "CLAUDE_CODE_TMPDIR=$OUTPUT_ROOT" "PYTEST_DEBUG_TEMPROOT=$OUTPUT_ROOT" "BASH_ENV=$SCOPED_BASH_ENV")
+# Claude launchers can be shell functions supplied by the target login profile.
+# Keep the selected launcher and its arguments as argv; do not pass them through
+# `env` (which cannot invoke functions) or reparse them as shell source.
+# Clear an inherited alternate config only for the explicitly selected default
+# launcher; claudewa remains responsible for its own verified profile selection.
+CLAUDE_LOGIN=(bash -l -c
+  'export DISKM_SCRATCH="$1" CLAUDE_CODE_TMPDIR="$2" PYTEST_DEBUG_TEMPROOT="$2" BASH_ENV="$3"; cd -- "$4" || exit 75; shift 4; if [ "$1" = claude ]; then unset CLAUDE_CONFIG_DIR; fi; "$@"'
+  mirror-launch "$SCRATCH_ROOT" "$OUTPUT_ROOT" "$SCOPED_BASH_ENV" "$TARGET")
 case "$AGENT_CLI" in
   pi)     LAUNCH=("${LAUNCH_ENV[@]}" pi -- "Caller handoff context: $CONTEXT") ;;
-  claude) LAUNCH=("${LAUNCH_ENV[@]}" claude --dangerously-skip-permissions -- "$CONTEXT") ;;
+  claude)
+    case "$CLAUDE_LAUNCHER" in
+      claude) LAUNCH=("${CLAUDE_LOGIN[@]}" claude --dangerously-skip-permissions -- "$CONTEXT") ;;
+      claudewa)
+        if ! bash -lc 'command -v claudewa >/dev/null 2>&1'; then
+          echo "FAILED:$TARGET — source selected .claude-wa, but matching target wrapper claudewa is unavailable in the login shell; refusing profile fallback" >&2
+          exit 75
+        fi
+        LAUNCH=("${CLAUDE_LOGIN[@]}" claudewa --dangerously-skip-permissions -- "$CONTEXT") ;;
+      *) echo "FAILED:$TARGET — unsupported Claude profile launcher '$CLAUDE_LAUNCHER'; refusing profile fallback" >&2; exit 75 ;;
+    esac ;;
   codex)  LAUNCH=("${LAUNCH_ENV[@]}" codex
             -c "shell_environment_policy.set.DISKM_SCRATCH=$SCRATCH_ROOT"
             -c "shell_environment_policy.set.CLAUDE_CODE_TMPDIR=$OUTPUT_ROOT"
@@ -337,7 +444,11 @@ else
   # call) so a session that dies immediately — missing `claude` binary,
   # PATH not resolving it under a non-login tmux shell, a crash — leaves a
   # dead-but-inspectable pane instead of vanishing outright.
-tmux new-session -d -s "$SESSION" -c "$TARGET" "${LAUNCH[@]}" \; set-option -t "$SESSION" remain-on-exit on 9>&-
+if [ "$AGENT_CLI" = "claude" ]; then
+  tmux new-session -d -s "$SESSION" -c "$TARGET" "${LAUNCH[@]}" \; set-option -t "$SESSION" remain-on-exit on \; set-option -t "$SESSION" @mirror-agent-cli "$AGENT_CLI" \; set-option -t "$SESSION" @mirror-claude-launcher "$CLAUDE_LAUNCHER" 9>&-
+else
+  tmux new-session -d -s "$SESSION" -c "$TARGET" "${LAUNCH[@]}" \; set-option -t "$SESSION" remain-on-exit on \; set-option -t "$SESSION" @mirror-agent-cli "$AGENT_CLI" 9>&-
+fi
   # Poll for the trust dialog and accept it with fixed navigation keys
   # (Down, Enter) — never $CONTEXT — so this carries none of the
   # injection risk the original send-keys-typed-$CONTEXT bug had. This
@@ -467,7 +578,7 @@ If a PR is already open for `$BRANCH`, pushes update that PR's head automaticall
 - Tool-owned auth, transcripts, and tmux state remain in their normal HOME locations; generated agent output and disposable test files use the Scratch output path reported by `READY`/`RESUMED`.
 - Remote Git commands in the step 4 bootstrap run in transient user-systemd scopes under `agents.slice`, with per-command memory, swap, and task limits. The existing finite `agents.slice` `MemoryMax` bounds their aggregate use; bootstrap shell, SSH, tmux, and the launched agent remain outside this Git-only boundary.
 - Step 4 launches the calling CLI (`$AGENT_CLI`, resolved in step 1 — `pi`/`claude`/`codex`/`agy`) as the session's command with `$CONTEXT` passed as its argv (not typed via `send-keys`), but only on a freshly created session. Never assume a `RESUMED` session is idle just because this skill didn't launch anything into it.
-- A bare host alias is typically LAN-only; off-LAN (traveling), target the Tailscale IP + explicit `-i` per Tier 2 — and make sure step 4 actually uses the resolved `$SSH_ARGS`/`$SSH_TARGET` from step 3, not a re-hardcoded alias, or the whole point of the fallback is lost.
+- A bare host alias is typically LAN-only; off-LAN (traveling), target the Tailscale IP + explicit `-i` per Tier 2 — and make sure step 4 actually uses the resolved `$SSH_ARGS`/`$SSH_TARGET` from step 2, not a re-hardcoded alias, or the whole point of the fallback is lost.
 - Never pass unencoded user-controlled values (repo path, branch name, remote URL) as literal SSH command arguments — a branch name is attacker-controllable shell input the moment someone else can push to your fork, and SSH doesn't preserve argv separation across the wire. Base64-encode first (see step 4).
 - Tier 3 (messaging-gateway handoff) hands off to a *different* agent/process with no shared context — give it complete, explicit instructions, don't assume it can infer intent from this conversation. Also verify it's genuinely reactive before relying on it (see Tier 3 caveats above) — a live-looking connection isn't proof it's actually processing events, and a missing permission grant is a much likelier culprit than the connection itself.
 - If your remote origin URL embeds a credential (HTTPS + PAT), that credential gets written to the target machine's `.git/config` in cleartext the first time this clones there — prefer an SSH remote or an external credential helper.

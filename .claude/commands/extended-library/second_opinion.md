@@ -145,7 +145,7 @@ If MCP CLI is not available or fails, use the manual HTTP approach with authenti
 ```bash
 # Verify auth-cli.mjs is installed
 if [ ! -f "$HOME/.claude/scripts/auth-cli.mjs" ]; then
-  echo "❌ auth-cli.mjs not found. Run /localexportcommands to install"
+  echo "❌ auth-cli.mjs not found. Install it to $HOME/.claude/scripts/auth-cli.mjs"
   exit 1
 fi
 

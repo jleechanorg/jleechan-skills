@@ -22,13 +22,13 @@ execution_mode: immediate
                                      - Quick architectural and correctness validation
                                      - Early identification of critical issues
                                      - Continue through required fixes and re-review until acceptance or a verified blocker/deadline
-2. /guidelines                       # Centralized mistake prevention consultation
+2. Read CLAUDE.md, docs/pr-guidelines/base-guidelines.md and any PR guidelines  # Centralized mistake prevention consultation
 3. Evaluate consensus result:
    - If **CONSENSUS_REWORK**: Implement authorized fixes, then repeat affected review and evidence until PASS or a verified blocker/deadline; do not ask the operator to do routine fixes.
    - If **MIXED_SIGNALS**: Proceed to Stage 2 with targeted focus areas provided by consensus agents.
    - If **CONSENSUS_PASS**: Proceed to full Stage 2 execution.
 4. When Stage 2 runs, launch PARALLEL EXECUTION:
-   Track A (Technical - Fast):    /cerebras comprehensive technical analysis [target] (SOLO DEV FOCUS)
+   Track A (Technical - Fast):    fast code-review subagent: comprehensive technical analysis [target] (SOLO DEV FOCUS)
                                   - Security vulnerability scanning (real vulnerabilities only)
                                   - Trusted source detection (GitHub API, package managers)
                                   - Functional bugs and performance issues
@@ -65,7 +65,7 @@ execution_mode: immediate
 ```
 
 The `/execute` delegation ensures optimal execution with:
-8. **Always-Parallel Review Tracks**: Default simultaneous execution of technical (/cerebras), architectural (/arch), and AI research (Perplexity) analysis for significant speed improvement
+8. **Always-Parallel Review Tracks**: Default simultaneous execution of technical (fast code-review subagent), architectural (/arch), and AI research (Perplexity) analysis for significant speed improvement
 9. **Guidelines Generation**: Automatically creates `docs/pr-guidelines/{PR_NUMBER}/guidelines.md` with PR-specific mistake prevention patterns
 10. **Guidelines Integration**: Consults existing `docs/pr-guidelines/base-guidelines.md` (general patterns) and generates PR-specific guidelines
 11. **Anti-Pattern Application**: Analyzes review findings to document new mistake patterns and solutions
@@ -79,7 +79,7 @@ Each command is executed with the same target parameter passed to `/reviewdeep`.
 ### Phase 2: Multi-Perspective Analysis (Parallel Execution)
 
 **Action Steps:**
-1. **Technical Perspective**: From `/review` + `/cerebras` - code quality, security, performance analysis
+1. **Technical Perspective**: From `/review` + a fast code-review subagent - code quality, security, performance analysis
 2. **Design Perspective**: From `/arch` - structural and architectural concerns
 3. **Technical Synthesis**: From independent code-review subagent - scalability, maintainability, and technical integration
 4. **AI-Enhanced Analysis**: From Gemini MCP - multi-role expert perspectives
@@ -129,7 +129,7 @@ Each command is executed with the same target parameter passed to `/reviewdeep`.
 
 ## Command Composition
 
-**`/reviewdeep` = Parallel execution of Technical Track (`/cerebras` analysis) + Strategic Track (`/arch` + Claude synthesis) + `/reviewe` + MCP integrations.**
+**`/reviewdeep` = Parallel execution of Technical Track (fast code-review subagent analysis) + Strategic Track (`/arch` + Claude synthesis) + `/reviewe` + MCP integrations.**
 
 The command executes independent review tracks with evidence and repository security requirements. Do not dismiss a finding based on launch status, user count, or a rollback path.
 
@@ -155,7 +155,7 @@ The command executes independent review tracks with evidence and repository secu
 - Integration points and long-term maintainability
 - Structural soundness and design quality evaluation
 
-### 3. **Technical Track (Parallel)** - `/cerebras` Fast Analysis
+### 3. **Technical Track (Parallel)** - Fast Subagent Analysis
 
 - **Security Analysis**: Practical vulnerability scanning (solo dev focus), trusted source detection, real threat assessment, input validation
 - **Architecture Analysis**: Design patterns, scalability concerns, structural integrity
@@ -201,11 +201,11 @@ INPUT: PR/Code/Feature
     ├─ Auto-approves review tasks
     └─ Tracks progress via TodoWrite
     ↓
-EXECUTE: /guidelines
+EXECUTE: Read CLAUDE.md, docs/pr-guidelines/base-guidelines.md and any PR guidelines
     └─ Centralized mistake prevention consultation
     ↓
 PARALLEL EXECUTION (Speed Optimized):
-    ├─ Track A (Technical - Fast): /cerebras analysis
+    ├─ Track A (Technical - Fast): fast code-review subagent analysis
     │   ├─ Solo developer focus: Functional bugs, hangs, and real vulnerabilities only
     │   ├─ Architecture pattern analysis
     │   └─ Performance bottleneck identification
@@ -320,7 +320,7 @@ END
 
 ### Comprehensive Coverage (Speed Optimized)
 
-- **Technical Fast Track**: Security analysis, architecture patterns, performance optimization (/cerebras speed)
+- **Technical Fast Track**: Security analysis, architecture patterns, performance optimization (fast subagent)
 - **Technical Deep Track**: System design, scalability analysis, code quality assessment (Claude synthesis)
 - **Combined Analysis**: Merged technical findings with prioritized technical recommendations
 
@@ -332,10 +332,10 @@ END
 /execute Perform enhanced parallel review with comprehensive multi-perspective analysis:
 
 Step 1: Execute guidelines consultation
-/guidelines
+Read CLAUDE.md, docs/pr-guidelines/base-guidelines.md and any PR guidelines
 
 Step 2: PARALLEL EXECUTION (Speed Optimized):
-Track A (Technical - Fast): /cerebras comprehensive technical analysis [target]
+Track A (Technical - Fast): fast code-review subagent: comprehensive technical analysis [target]
   - Solo developer functional issue assessment
   - Architecture pattern evaluation
   - Performance bottleneck analysis
@@ -370,7 +370,7 @@ Create docs/pr-guidelines/{PR_NUMBER}/guidelines.md with documented patterns and
 
 /reviewdeep
 
-# This executes: /guidelines → PARALLEL(/cerebras technical + /arch deep) → /reviewe → synthesis + SOLO DEV FILTERING
+# This executes: guidelines consultation → PARALLEL(fast subagent technical + /arch deep) → /reviewe → synthesis + SOLO DEV FILTERING
 
 /reviewd
 
@@ -414,7 +414,7 @@ Create docs/pr-guidelines/{PR_NUMBER}/guidelines.md with documented patterns and
 - **`/review`**: Official built-in code review (basic)
 - **`/reviewe`**: Enhanced review (official + advanced analysis)
 - **`/arch`**: Architectural assessment only
-- **`/cerebras`**: Fast technical analysis (security, architecture, performance)
+- **Fast code-review subagent**: Fast technical analysis (security, architecture, performance)
 - **`/reviewdeep`**: Parallel execution of technical + strategic tracks for comprehensive analysis with significant speed improvement + SOLO DEVELOPER SECURITY FOCUS (filters enterprise paranoia)
 
 ## 🔄 **MANDATORY Agent Output Synthesis Protocol**
@@ -468,7 +468,7 @@ When `/reviewdeep` completes parallel execution, the final synthesis MUST includ
 ```
 
 This ensures that the valuable insights from external AI models are captured, synthesized, and presented as part of the comprehensive review output.
-- **Efficient**: Always leverages /cerebras's speed for technical analysis while maintaining independent code-review subagent's objective insights
+- **Efficient**: Always runs a fast technical-analysis track while maintaining independent code-review subagent's objective insights
 - **Flexible**: Individual commands can still be used separately when full analysis isn't needed, enterprise mode available when needed
 - **Maintainable**: Parallel execution improves performance without breaking existing functionality
 - **AI-Enhanced**: Mandatory MCP integration provides expert-level analysis beyond traditional code review
@@ -619,7 +619,7 @@ Generated guidelines file includes:
 
 **Technical Analysis Component**:
 - **Previous Sequential Technical**: 146 seconds (iterative technical analysis)
-- **New Parallel Technical**: 33 seconds (/cerebras fast technical analysis)
+- **New Parallel Technical**: 33 seconds (fast technical analysis track)
 - **Technical Track Speedup**: 4.4x faster for technical analysis component
 
 **Full Review Execution**:
@@ -631,7 +631,7 @@ Generated guidelines file includes:
 ### **Optimization Strategy**
 
 **Technical Track (Fast)**:
-- Uses `/cerebras` for rapid technical analysis
+- Uses a fast code-review subagent for rapid technical analysis
 - Solo developer focus: Functional bugs, hangs, real vulnerabilities, and security scanning
 - Architecture pattern evaluation
 - Performance bottleneck identification
@@ -648,7 +648,7 @@ Generated guidelines file includes:
 
 ### **Fallback Mechanism**
 
-If `/cerebras` is unavailable, the command gracefully falls back to parallel execution using independent code-review subagent for Track A while maintaining Track B. Sequential execution is only used as final fallback.
+Track A runs as an independent code-review subagent in parallel with Track B. Sequential execution is only used as final fallback.
 
 ### **Implementation Notes**
 

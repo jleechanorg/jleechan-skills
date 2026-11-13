@@ -75,7 +75,6 @@ The command uses multiple GitHub API endpoints for authoritative data:
 ## Integration Points
 
 Works naturally with:
-- `/header` - Branch and PR identification
 - `/fixpr` - Automated fix application  
 - `/copilot` - PR workflow orchestration
 - Testing commands - Verify status accuracy

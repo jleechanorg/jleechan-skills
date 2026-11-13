@@ -25,4 +25,4 @@ Run the following workflow in order, making sure to complete each command fully 
 2. `/extended-library:pushl`
 3. `/extended-library:reviewdeep`
 4. `/copilot`
-5. `/extended-library:guidelines`
+5. Guidelines update: record any mistakes or learnings from this run in `docs/pr-guidelines/base-guidelines.md` (or the PR's `docs/pr-guidelines/{PR_NUMBER}/guidelines.md`)

@@ -43,11 +43,12 @@ Engines mix. A common split is a Workflow for the bounded review fan-out, Agent 
 
 - **Check real outputs.** A lane's "done" is a claim. The verifier opens the diff, runs the test or command, reads the rendered artifact, or fetches the PR head. It does not grade the lane's summary of itself.
 - **Refute by default.** A finding that drives a decision faces three independent lenses (for example evidence, design, severity), each prompted to refute it, and survives on two of three. A cheap, reversible claim gets one check.
-- **A dead verifier is not a refutation.** `agent()` returns `null` when a subagent dies; re-run those. A stage that returns zero findings while most of its agents failed did not run. Read the run's `journal.jsonl` before recording an empty result.
+- **A dead verifier is not a refutation.** `agent()` returns `null` when a subagent dies; re-run those. A stage that returns zero findings while most agents fail did not run. Read the run journal before recording an empty result.
 - **Merge-readiness and bug-fixed claims on code** need one reviewer from a different model family that executes the code (`/advice`, or an installed second CLI). Reproduce its most concrete finding yourself before accepting the rest.
 - **Reuse valid coverage.** A review or test run that already covered the current head SHA counts. Re-verify only what changed since. Evidence is the command output, the diff and the PR; do not build ledgers or receipts for it.
 - **Published docsets** get one pass before publication for leaked local paths or credentials, numbers that disagree between documents, and present-tense claims that are stale at the current head.
 - Never report a review or verification that did not run.
+- "Ultracode" means the Workflow tool, not Agent Teams teammates.
 
 ## Status registry
 

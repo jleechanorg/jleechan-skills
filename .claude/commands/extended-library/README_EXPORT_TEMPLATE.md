@@ -53,9 +53,8 @@ See [INSTALL.md](INSTALL.md) for detailed setup, troubleshooting, and platform-s
 
 **195+ Commands** including powerful workflow orchestrators and cognitive tools:
 - **Workflow Orchestrators**: `/pr`, `/copilot`, `/execute`, `/orch` - Complete multi-step automation
-- **Cognitive Commands**: `/think`, `/arch`, `/debug`, `/learn` - Analysis and planning
-- **Infrastructure**: `/scaffold` - Repository setup and development environment
-- **Testing**: `/test`, `/tdd`, `/testuif` - Comprehensive testing workflows
+- **Cognitive Commands**: `/thinku`, `/arch`, `/debugp`, `/learn` - Analysis and planning
+- **Testing**: `/tdd`, `/testui` - Comprehensive testing workflows
 
 **43 Hooks** for Claude Code automation and workflow optimization
 
@@ -92,15 +91,6 @@ Targets current branch PR and autonomously handles analysis, fixes, testing, and
 # → Analyze → Fix → Test → Document → Reply → Verify
 ```
 
-### `/cerebras` - High-Speed Code Generation
-
-Hybrid workflow using Cerebras Inference API (up to 19.6x faster per Cerebras benchmarks) with Claude as architect and Cerebras as builder.
-
-```bash
-/cerebras "create React component for user dashboard with TypeScript"
-# → Example: ~500ms generation time vs 10s standard in benchmark scenarios
-```
-
 ### `/orch` - Multi-Agent Task Delegation
 
 Delegates tasks to autonomous agents working in parallel across different branches.
@@ -110,25 +100,16 @@ Delegates tasks to autonomous agents working in parallel across different branch
 # → Frontend, Backend, and Testing agents work in parallel
 ```
 
-### `/scaffold` - Repository Infrastructure Setup
-
-Rapidly scaffolds essential development infrastructure with intelligent technology stack adaptation.
-
-```bash
-/scaffold
-# → Copies 17 development scripts adapted to your tech stack
-```
-
 ## 💡 Command Composition Architecture
 
 Commands work through **simple .md files** that Claude Code reads as executable instructions. You can chain multiple commands in a single request:
 
 ```bash
 # Sequential execution
-"/think about authentication then /arch the solution then /execute it"
+"/thinku about authentication then /arch the solution then /execute it"
 
 # Conditional execution
-"/test the login flow and if it fails /fix it then /pr the changes"
+"/tdd the login flow and if it fails /fix it then /pr the changes"
 
 # Full workflow composition
 "/analyze the codebase /design a solution /execute with tests /pr with documentation"
@@ -152,7 +133,7 @@ Commands integrate seamlessly through:
 
 LLM-Native test patterns that work across any web application using AI to create, execute, and validate complex test scenarios.
 
-**Commands**: `/test`, `/tdd`, `/testuif`, `/testhttp`
+**Commands**: `/tdd`, `/testui`
 
 **Capabilities**:
 - Multi-domain test patterns (e-commerce, authentication, content management)

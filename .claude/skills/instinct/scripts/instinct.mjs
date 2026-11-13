@@ -17,6 +17,7 @@
  */
 
 import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
@@ -40,6 +41,109 @@ const CHROME =
   (process.platform === 'darwin'
     ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
     : '/usr/bin/google-chrome');
+
+// ----------------------------------------------------------------------------
+// Transport chain: iMessage FIRST, WhatsApp Web as the secondary fallback.
+//
+// iMessage is primary because it needs no linked device, no browser, no profile
+// lock, no desktop-UA workaround and no UI hydration race, it does not steal
+// focus, it works from a scheduler and over SSH, and it can confirm delivery
+// against the real message store. WhatsApp needs a device link that a human must
+// establish once with a QR scan, so a fresh machine has no working WhatsApp path
+// until someone does that.
+//
+// Selection is by capability, not preference:
+//   1. INSTINCT_TRANSPORT=imessage|whatsapp forces one transport (no fallback).
+//   2. Otherwise the chain is [imessage, whatsapp].
+//   3. A transport not installed on this host (no bridge, or not macOS for
+//      iMessage) is SKIPPED, never reported as an error.
+//   4. The first transport that succeeds wins; a real failure is recorded and the
+//      next one is tried.
+//   5. If all fail, exit with the LAST transport's code so callers keep the
+//      documented contract (4 not signed in, 5 no contact, 6 no confirmation).
+// Resolve the bridge relative to THIS file first: the installer symlinks the skill
+// package into the runtime, so a sibling script is always present on a fresh
+// machine. `~/.local/bin` is only a fallback for hand-installed copies.
+/**
+ * The real on-disk path of THIS module.
+ *
+ * import.meta.url only knows the path the module was LOADED from. When the skill
+ * is installed as a symlink, that path is the link (e.g. ~/.agents/skills/instinct),
+ * not the target. Two things break if we use it raw:
+ *   1. the sibling bridge lookup misses (`<link-dir>/imsg-bridge.sh` does not exist),
+ *      so an installed copy silently loses iMessage;
+ *   2. the `IS_MAIN` entry check fails, because it compares that link path against
+ *      argv[1]; the module then exports without running, and the CLI prints nothing
+ *      while still exiting 0 — a probe or send that looks successful and did nothing.
+ * realpath collapses the link so both comparisons use the same file.
+ */
+function thisModuleRealPath() {
+  const loaded = fileURLToPath(import.meta.url);
+  try {
+    return fs.realpathSync(loaded);
+  } catch {
+    return loaded; // unresolvable: fall back rather than crash the CLI
+  }
+}
+
+const IMSG_BRIDGE = (() => {
+  if (process.env.INSTINCT_IMSG_BRIDGE) return process.env.INSTINCT_IMSG_BRIDGE;
+  // fileURLToPath, not .pathname: a pathname keeps %20 escapes, so a checkout under
+  // a directory with a space would silently miss the sibling bridge.
+  const sibling = path.join(path.dirname(thisModuleRealPath()), 'imsg-bridge.sh');
+  if (fs.existsSync(sibling)) return sibling;
+  return path.join(os.homedir(), '.local', 'bin', 'imsg-bridge.sh');
+})();
+
+/** Is a transport even installed here? Absence is not an error. */
+function transportAvailable(name) {
+  if (name === 'imessage') {
+    return process.platform === 'darwin' && fs.existsSync(IMSG_BRIDGE);
+  }
+  return true; // whatsapp needs only Chrome, which withPage verifies itself
+}
+
+function transportChain() {
+  const forced = (process.env.INSTINCT_TRANSPORT || '').toLowerCase().trim();
+  if (forced === 'imessage' || forced === 'whatsapp') return [forced];
+  if (forced) die(`INSTINCT_TRANSPORT must be 'imessage' or 'whatsapp', got '${forced}'`, 2);
+  return ['imessage', 'whatsapp'];
+}
+
+/**
+ * Delegate to the iMessage bridge, which owns its own delivery confirmation
+ * (it re-reads the message store and binds the result to the exact text sent),
+ * so we forward its exit code rather than re-implementing the check.
+ */
+function imessageBridge(verb, { file = null, limit = null, theirs = false, contact = null, db = null, dryRun = false } = {}) {
+  if (!transportAvailable('imessage')) {
+    die('iMessage transport unavailable (not macOS, or the bridge script is missing)', 4);
+  }
+  const args = [IMSG_BRIDGE, verb];
+  if (dryRun) args.push('--dry-run');
+  if (file) args.push('--file', file);
+  if (limit) args.push('--limit', String(limit));
+  if (theirs) args.push('--theirs');
+  // An explicit --contact must reach the bridge. Silently ignoring it would turn a
+  // targeting option into a wrong-recipient send.
+  if (contact) args.push('--contact-handle', contact);
+  // Forward a caller-chosen snapshot so a scheduler can read a copied store.
+  if (db) args.push('--db', db);
+  try {
+    execFileSync(args[0], args.slice(1), { stdio: 'inherit' });
+    return 0;
+  } catch (e) {
+    return typeof e.status === 'number' ? e.status : 1;
+  }
+}
+
+// Fallback is an ALLOW-list, not a deny-list. Only these codes prove the message was
+// never submitted, so only these may fall through to the next transport:
+//   2 bad usage, 3 missing dependency, 4 not signed in, 5 contact not found,
+//   6 osascript itself reported failure *and* the store showed no new row.
+// Anything else — 9, an unexpected number, or a signal (mapped to 1) — means the
+// message may already be out, and falling back would send it twice.
+const SAFE_TO_FALL_BACK = new Set([2, 3, 4, 5, 6]);
 
 function die(msg, code = 2) {
   process.stderr.write(`instinct: ${msg}\n`);
@@ -331,6 +435,7 @@ const SEARCH = 'input[aria-label="Search or start a new chat"], input[placeholde
 const COMPOSER =
   '[data-testid="conversation-compose-box-input"], footer div[contenteditable="true"]';
 const SEND_BTN = 'footer button[aria-label="Send"], button[aria-label="Send"]';
+const READ_MORE = '[data-testid="caption-read-more-button"]';
 
 async function openContact(page, name) {
   await page.goto(WA, { waitUntil: 'domcontentloaded' });
@@ -467,29 +572,121 @@ async function openContact(page, name) {
   return true;
 }
 
-async function readMessages(page, limit) {
+// Reduce the raw [data-pre-plain-text] nodes to one entry per message.
+//
+// WhatsApp re-emits ONE message as several nodes: a long message's nested blocks
+// (lists, quoted replies) each carry their own copy, with a garbage sender label
+// like "1." instead of the real name. They share a data-id, so they are the same
+// message. Keeping them split a single reply into fragments and attributed a
+// continuation of OUR text to the peer — a false "reply" for a grep-based caller.
+//
+// Pure and exported so the reduction can be checked without a live browser.
+function reduceBubbles(nodes) {
+  const out = [];
+  const seen = new Set();
+  for (const n of nodes) {
+    const meta = n.meta || '';
+    const m = meta.match(/^\[(.+?)\]\s*([^:]*):/);
+    const when = m ? m[1] : '';
+    const sender = m ? m[2].trim() : '';
+    const text = (n.text || '').replace(/\s+/g, ' ').trim();
+    if (!text) continue;
+    const id = n.id || '';
+    // First occurrence wins: the outermost node carries the real sender label.
+    // Without a data-id a node cannot be proven a duplicate, so keep it.
+    if (id) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+    }
+    out.push({ when, sender, text, id });
+  }
+  return out;
+}
+
+async function readMessages(page, limit, { warnIfTruncated = false } = {}) {
   // This WhatsApp build dropped .message-in/.message-out. Bubbles carry
   // [data-pre-plain-text] = "[<time>, <date>] <Sender>: ", which gives direction
   // and timestamp without depending on obfuscated class names.
-  return page.evaluate((lim) => {
+  // A long message collapses behind "… Read more", and the remainder is ABSENT from the
+  // DOM until that button is clicked — not merely clipped. Expand before scraping, or a
+  // reply ending in "VERDICT" reads as absent to a grepping caller.
+  //
+  // Scoped to #main (the open conversation): a page-wide selector could click a button
+  // belonging to another chat after the header guard already passed, and the scrape
+  // would then report that chat's text as the peer's.
+  const expanders = page.locator(`#main ${READ_MORE}`);
+  const collapsed = await expanders.count().catch(() => 0);
+  if (collapsed > 0) {
+    await expanders.evaluateAll((els) => els.forEach((e) => e.click())).catch(() => {});
+    // Expansion is a client-side render. Poll rather than sleep a fixed interval: the
+    // file already records (probe) that guessing a duration reported a healthy session
+    // as broken, and a slow render here silently yields the truncated text again.
+    const deadline = Date.now() + 5000;
+    for (;;) {
+      const left = await page
+        .locator(`#main ${READ_MORE}`)
+        .count()
+        .catch(() => 0);
+      if (left === 0 || Date.now() > deadline) break;
+      await page.waitForTimeout(100);
+    }
+  }
+  const raw = await page.evaluate(() => {
     const nodes = [...document.querySelectorAll('[data-pre-plain-text]')];
     const out = [];
     for (const n of nodes) {
-      const meta = n.getAttribute('data-pre-plain-text') || '';
-      const m = meta.match(/^\[(.+?)\]\s*([^:]*):/);
-      const when = m ? m[1] : '';
-      const sender = m ? m[2].trim() : '';
-      const text = (n.innerText || '').replace(/\s+/g, ' ').trim();
-      if (!text) continue;
-      out.push({ when, sender, text });
+      // The enclosing message node is the nearest ancestor carrying data-id.
+      let id = '';
+      for (let el = n, i = 0; el && i < 25; i++, el = el.parentElement) {
+        const v = el.getAttribute('data-id');
+        if (v) {
+          id = v;
+          break;
+        }
+      }
+      out.push({
+        meta: n.getAttribute('data-pre-plain-text') || '',
+        text: n.innerText || '',
+        id,
+      });
     }
-    return out.slice(-lim);
-  }, limit);
+    // Return EVERY node. Truncating here would keep only the tail of the list, and a
+    // long message's continuation nodes sit at the tail carrying a garbage sender
+    // label ("1.") instead of the real one. reduceBubbles relies on the FIRST node
+    // per data-id for attribution, so slicing before dedup attributes our own outgoing
+    // text to the peer — including literal "VERDICT: PASS" strings that a watcher greps.
+    return out;
+  });
+  const bubbles = reduceBubbles(raw).slice(-limit);
+  // A bubble that still ends in the marker means expansion did not take. Say so: silent
+  // truncation is the exact failure this function exists to prevent, and a caller that
+  // greps for a verdict would otherwise read an absent reply as "not answered yet".
+  // The marker carries an ellipsis ("… Read more"); requiring it keeps a message that
+  // legitimately ends with the words "read more" from crying wolf.
+  //
+  // Only the read verb acts on bubble text. Warning from `send`'s 3-bubble tail or
+  // `open` would add unrelated stderr noise to those success paths and dilute the
+  // signal for the callers that actually need it.
+  if (warnIfTruncated && bubbles.some((m) => /(?:…|\.\.\.)\s*read more\s*$/i.test(m.text))) {
+    process.stderr.write(
+      'instinct: WARNING a bubble is still collapsed after expanding; its tail (and any ' +
+        'verdict in it) may be missing. Re-read, or treat the tail as UNREAD.\n'
+    );
+  }
+  return bubbles;
 }
 
+// Direction is only ever reported when it is actually known.
+// so a caller grepping for a reply matched its own outgoing text. An unknown
+// direction is printed as `?` WITH the sender label, which is still attributable.
 function formatMsg(m, selfName) {
-  const mine = selfName && m.sender && m.sender.toLowerCase() === selfName.toLowerCase();
-  return `${mine ? 'me  ' : 'them'}  [${m.when}] ${m.text}`;
+  const sender = m.sender || '';
+  if (!sender) return `...   [${m.when}] ${m.text}`;
+  if (selfName && sender.toLowerCase() === selfName.toLowerCase()) {
+    return `me    [${m.when}] ${m.text}`;
+  }
+  if (selfName) return `them  [${m.when}] ${m.text}`;
+  return `?     [${m.when}] ${sender}: ${m.text}`;
 }
 
 async function compose(page, text) {
@@ -547,7 +744,19 @@ async function compose(page, text) {
   return box;
 }
 
-(async () => {
+// Compare against the REAL module path, not the loaded one: a symlinked install must
+// still run the CLI instead of silently exporting and exiting 0.
+const IS_MAIN =
+  !!process.argv[1] &&
+  (() => {
+    try {
+      return fs.realpathSync(path.resolve(process.argv[1])) === thisModuleRealPath();
+    } catch {
+      return path.resolve(process.argv[1]) === thisModuleRealPath();
+    }
+  })();
+
+async function main() {
   const headed = process.env.INSTINCT_HEADED === '1';
 
   if (VERB === 'login') {
@@ -602,6 +811,11 @@ async function compose(page, text) {
     process.stdout.write(
       JSON.stringify(
         {
+          transport_order: transportChain(),
+          transport_available: Object.fromEntries(
+            transportChain().map((t) => [t, transportAvailable(t)])
+          ),
+          imessage_bridge: IMSG_BRIDGE,
           profile_dir: PROFILE_DIR,
           chrome: CHROME,
           contact: CONTACT,
@@ -617,6 +831,36 @@ async function compose(page, text) {
   }
 
   if (VERB === 'probe') {
+    // ---- transport chain: iMessage first, then WhatsApp -------------------
+    // A transport that is not installed here is skipped, not failed, so a Mac
+    // uses iMessage and a Linux host uses WhatsApp without either reporting the
+    // other's absence as an error.
+    const probeChain = transportChain();
+    let probeLast = 4;
+    if (probeChain.includes('imessage')) {
+      if (transportAvailable('imessage')) {
+        const probeContact = process.argv.includes('--contact') ? arg('contact', null) : null;
+        const rc = imessageBridge('probe', { contact: probeContact, db: arg('db', null) });
+        if (rc === 0) {
+          process.stderr.write('instinct: transport=imessage (primary)\n');
+          return;
+        }
+        probeLast = rc || 4;
+        process.stderr.write(
+          probeChain.length > 1
+            ? `instinct: imessage probe failed rc=${rc}; trying next transport\n`
+            : `instinct: imessage probe failed rc=${rc} (no fallback: transport forced)\n`
+        );
+      } else {
+        process.stderr.write('instinct: skipping imessage (not installed on this host)\n');
+      }
+    }
+    if (!probeChain.includes('whatsapp')) {
+      process.stdout.write(JSON.stringify({ signed_in: false, transport: null }) + '\n');
+      die(`all transports failed for probe (tried: ${probeChain.join(', ')})`, probeLast);
+    }
+    // ---- end chain; WhatsApp probe below is the fallback ------------------
+
     // Resolve a positive, finite timeout. A NaN/0/negative value would sample nothing and
     // report 'loading'; Infinity would remove the deadline. Reject both loudly.
     const timeout = Number(process.env.INSTINCT_PROBE_TIMEOUT_MS ?? 90_000);
@@ -679,6 +923,11 @@ async function compose(page, text) {
     process.stdout.write(
       JSON.stringify({
         signed_in: ok,
+        // Name the transport that actually answered. The iMessage branch returns
+        // before this point and its bridge already emits transport=imessage, so
+        // without this field a caller cannot tell an iMessage verification from a
+        // WhatsApp fallback that never checked the intended peer at all.
+        transport: 'whatsapp',
         state: result.state,
         saw_signed_out_transient: result.sawSignedOutTransient,
         consecutive_signed_out_samples: result.signedOutStreak,
@@ -714,21 +963,147 @@ async function compose(page, text) {
   if (VERB === 'read') {
     const name = arg('contact', CONTACT);
     const limit = Number(arg('limit', 20));
+    // Replies from the CONTACT are what callers act on, so outgoing rows are
+    // excluded on request. Reading our own text back is how a prompt that asks
+    // for "VERDICT: PASS" ends up matching itself.
+    const wantTheirs =
+      process.argv.includes('--theirs') || process.env.INSTINCT_READ_THEIRS === '1';
+
+    const readChain = transportChain();
+    let readLast = 4;
+    const explicitReadContact = process.argv.includes('--contact') ? name : null;
+    const readDbSnapshot = arg('db', null);
+    if (readChain.includes('imessage') && transportAvailable('imessage')) {
+      const rc = imessageBridge('read', {
+        limit,
+        theirs: wantTheirs,
+        contact: explicitReadContact,
+        db: readDbSnapshot,
+      });
+      if (rc === 0) {
+        process.stderr.write('instinct: read via imessage (primary)\n');
+        return;
+      }
+      readLast = rc || 4;
+      process.stderr.write(
+        readChain.length > 1
+          ? `instinct: imessage read failed rc=${rc}; falling back to whatsapp\n`
+          : `instinct: imessage read failed rc=${rc} (no fallback: transport forced)\n`
+      );
+    } else if (readChain.includes('imessage')) {
+      process.stderr.write('instinct: skipping imessage (not installed on this host)\n');
+    }
+    if (!readChain.includes('whatsapp')) {
+      die(`all transports failed for read (tried: ${readChain.join(', ')}); last code ${readLast}`, readLast);
+    }
+
     await withPage(async (page) => {
       await openContact(page, name);
-      const msgs = await readMessages(page, limit);
-      process.stdout.write(`chat: ${name} (last ${msgs.length})\n`);
-      msgs.forEach((m) => process.stdout.write(`  ${formatMsg(m, SELF_NAME)}\n`));
+      // Ask for a wider window than the caller wants: the direction check below
+      // needs to see whether ANY bubble is ours, and a run of peer replies (the
+      // normal reply-polling case) would otherwise contain none and be refused.
+      const scan = wantTheirs ? Math.max(limit * 4, 40) : limit;
+      const allMsgs = await readMessages(page, scan, { warnIfTruncated: true });
+      const msgs = allMsgs.slice(-limit);
+      // --theirs must filter the fallback transport too. Without this, a prompt that
+      // asks for "VERDICT: PASS|FAIL|BLOCKED" matches its own outgoing text here and
+      // reports a verdict that does not exist — the exact bug this flag prevents.
+      //
+      // Direction comes from each bubble's sender label. INSTINCT_SELF names OUR
+      // label; when it is unset, the OTHER party is named by the contact we opened
+      // (openContact has already verified the chat header, so exactly two senders
+      // exist). Refusing outright whenever INSTINCT_SELF was unset made reply
+      // polling unusable, while doing nothing leaked our own text into "theirs".
+      let shown = msgs;
+      if (wantTheirs) {
+        const labels = [...new Set(allMsgs.map((m) => (m.sender || '').toLowerCase()))].filter(
+          Boolean
+        );
+        // The peer's label is the one matching the chat we deliberately opened. It can
+        // differ from the chat title (saved contact name vs push name), so fall back to
+        // "the only label that is not ours" when that is unambiguous.
+        let theirsLower = name.toLowerCase();
+        if (!labels.includes(theirsLower) && SELF_NAME) {
+          const others = labels.filter((l) => l !== SELF_NAME.toLowerCase());
+          if (others.length === 1) theirsLower = others[0];
+        }
+        if (!labels.includes(theirsLower)) {
+          die(
+            `read --theirs could not identify the peer's bubbles on the WhatsApp transport ` +
+              `(labels seen: ${JSON.stringify(labels.slice(0, 10))}). Set INSTINCT_SELF to ` +
+              'your own display name so direction can be resolved.',
+            2
+          );
+        }
+        shown = msgs.filter((m) => (m.sender || '').toLowerCase() === theirsLower);
+      }
+
+      process.stdout.write(`chat: ${name} (last ${shown.length})\n`);
+      shown.forEach((m) => process.stdout.write(`  ${formatMsg(m, SELF_NAME)}\n`));
     }, { headed });
+    process.stderr.write('instinct: read via whatsapp (secondary)\n');
     return;
   }
 
   if (VERB === 'send') {
     const name = arg('contact', CONTACT);
     const file = arg('file', null);
+    const dryRun = process.argv.includes('--dry-run');
     if (!file) die('send requires --file <path> (write the message to a file first)', 2);
     if (!fs.existsSync(file)) die(`message file not found: ${file}`, 2);
     const text = fs.readFileSync(file, 'utf8').trim();
+
+    // A dry run proves the wire without delivering anything. It must NOT walk the
+    // transport chain's fallback logic: during a dry run a non-zero rc means the
+    // intent is broken, and "falling back" would attempt a second, real transport.
+    if (dryRun) {
+      if (!transportAvailable('imessage')) die('dry-run is only implemented for iMessage', 3);
+      const rc = imessageBridge('send', {
+        file,
+        contact: process.argv.includes('--contact') ? name : null,
+        db: arg('db', null),
+        dryRun: true,
+      });
+      if (rc !== 0) die(`imessage dry-run rc=${rc}: the intent is broken (nothing was sent)`, rc);
+      process.stderr.write('instinct: dry-run via imessage — nothing delivered\n');
+      return;
+    }
+
+    // ---- transport chain: iMessage first, then WhatsApp -------------------
+    const sendChain = transportChain();
+    let sendLast = 6;
+    // An explicit --contact is a target, not a hint: forward it so the bridge does
+    // not silently send to the configured peer instead.
+    const explicitContact = process.argv.includes('--contact') ? name : null;
+    const dbSnapshot = arg('db', null);
+    if (sendChain.includes('imessage') && transportAvailable('imessage')) {
+      const rc = imessageBridge('send', { file, contact: explicitContact, db: dbSnapshot });
+      if (rc === 0) {
+        // The bridge already bound its confirmation to this exact text.
+        process.stderr.write('instinct: sent via imessage (primary)\n');
+        return;
+      }
+      if (!SAFE_TO_FALL_BACK.has(rc)) {
+        // The message may already be out. Retrying over WhatsApp would duplicate it.
+        die(
+          `imessage send rc=${rc}: delivery unverified. NOT falling back, because that ` +
+            'would risk sending the same message twice.',
+          rc
+        );
+      }
+      sendLast = rc || 6;
+      process.stderr.write(
+        sendChain.length > 1
+          ? `instinct: imessage send failed rc=${rc}; falling back to whatsapp\n`
+          : `instinct: imessage send failed rc=${rc} (no fallback: transport forced)\n`
+      );
+    } else if (sendChain.includes('imessage')) {
+      process.stderr.write('instinct: skipping imessage (not installed on this host)\n');
+    }
+    if (!sendChain.includes('whatsapp')) {
+      die(`all transports failed for send (tried: ${sendChain.join(', ')}); last code ${sendLast}`, sendLast);
+    }
+    // ---- end chain; WhatsApp send below is the fallback -------------------
     if (!text) die('message file is empty', 2);
     if (text.length > 4000) die(`message is ${text.length} chars; keep it under 4000`, 2);
 
@@ -771,5 +1146,14 @@ async function compose(page, text) {
     return;
   }
 
+
   die(`unknown verb "${VERB}"; use login | probe | read | open | send | whoami`);
-})().catch((e) => die(e?.message || String(e), 1));
+}
+
+// Only run the CLI when executed directly, so a test can import reduceBubbles
+// without launching Chrome or touching the profile.
+if (IS_MAIN) main().catch((e) => die(e?.message || String(e), 1));
+
+// readMessages is exported so its expand-before-scrape behaviour can be driven
+// with a fake page; the click would otherwise be untestable off a live browser.
+export { reduceBubbles, formatMsg, readMessages };

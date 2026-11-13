@@ -13,8 +13,6 @@ Read `~/.claude/skills/end2end-testing/SKILL.md` and execute the full workflow (
 
 | Command | Purpose |
 |---------|---------|
-| `/teste` | Run E2E tests (mock mode) |
-| `/tester` | Run E2E tests (real mode) |
 | `/tdd` | TDD workflow with matrix testing |
 | `/4layer` | Four-layer TDD protocol |
 

@@ -6,7 +6,8 @@ description: Judge and propagate drift between this repo's .claude/.codex/hermes
 # Sync live config
 
 This repo is normally a downstream **export** of live agent config — usually
-`~/.claude/` is the source of truth and `/exportcommands` pushes it here. But
+`~/.claude/` is the source of truth and the export script
+(`~/.claude/commands/exportcommands.sh`) pushes it here. But
 that direction isn't guaranteed: a fix can land straight in this repo and
 never flow back, or the live side can move on independently after the last
 export. When both contain useful work, reconcile semantics in the canonical
@@ -107,12 +108,12 @@ has two subcommands:
 
 5. **`hermes/skills/` and `.claude/skills_archive/` are known inversion
    risks** (confirmed 2026-09-06: this repo's `hermes/skills/` snapshot
-   traced entirely to a single stale 2026-08-01 `/exportcommands` push,
+   traced entirely to a single stale 2026-08-01 `exportcommands.sh` push,
    while live `~/.hermes` — its own actively-committed repo — had moved on
    for 5+ weeks; a blind repo→live `--full` there would have resurrected
    already-renamed/deleted content). For any diff under these paths: check
    `live_repo_root`/`live_last_commit` first, and default to *recommending
-   a fresh `/exportcommands` run* (live→repo) over silently pushing the old
+   a fresh `exportcommands.sh` run* (live→repo) over silently pushing the old
    snapshot down, unless the evidence clearly says otherwise.
 
 6. **Re-pin and prepare before every write.** Refresh the source commit and
