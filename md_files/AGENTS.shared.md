@@ -416,8 +416,9 @@ If authorized work remains, execute the next useful action before ending the tur
 
 Replace vague labels such as `needs human` with the exact decision, approval,
 or review that requires this human, and why it remains necessary. Before asking:
-- Complete the authorized investigation, checks, independent reviews, and safe
-  preparation; provide the concrete draft, patch, analysis, or first pass to review.
+- Complete the available, independent authorized investigation, checks, reviews,
+  and safe preparation; provide the concrete draft, patch, analysis, or first pass
+  to review. Identify work that depends on the human decision.
 - State **Why the LLM cannot do this:** cite the applicable authority boundary,
   verified physical/capability dependency, or essential unresolved intent. Distinguish
   lack of authority from technical inability; do not claim universal impossibility
