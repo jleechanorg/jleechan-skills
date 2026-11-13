@@ -184,19 +184,29 @@ receipts there.
 
 ### Review and decision docs
 
-Applies to the board and to every roadmap doc that asks the user to review or
-decide (user directive, 2026-11-12).
+Applies to the board, to every roadmap doc that asks the user to review or
+decide, and to any report of open PRs with user-visible changes (user directive,
+2026-11-12). Use this layout:
 
-- Open PRs first, then other decisions, each highest priority first. Merged or
-  closed PRs go only in the final `Appendix — Merged work`, never in the body or
-  contents; move them when they merge.
-- Each open PR gives its linked number, title, head SHA, state and checks at that
-  head, one plain sentence on what the user sees change, what merging unblocks,
-  and the exact reply phrase.
-- Show each user-visible PR's before and after side by side, inline per
-  [evidence-standards § UI/media proof](../evidence-standards/SKILL.md#uimedia-proof),
-  with a caption saying what to look at.
-- End each PR with one specific feedback question.
+1. **Summary table**, open PRs only, highest priority first:
+   `| Pri | Reply | PR | Head | What changes |`. Each `What changes` cell links to
+   that PR's section below.
+2. **One section per open PR**, `### <n>. PR #<number>`, in table order:
+   - A bold plain-language name, the linked PR number and its title.
+   - One line: head SHA · mergeability · checks and visual review at that head ·
+     `+added/−deleted` · the exact reply phrase.
+   - `**What you will see:**` the before → after a user notices, per theme or
+     surface.
+   - `**What merging it unblocks:**`, then `**Not proven:**` when anything is.
+   - Per user-visible claim, a caption saying what to look at and a
+     `| Before | After |` table of inline media per
+     [evidence-standards § UI/media proof](../evidence-standards/SKILL.md#uimedia-proof)
+     (images, and a GIF linking each video). Show a side-by-side composite once.
+   - `> **Your feedback:**` with one specific question.
+3. **Other decisions**, highest priority first, each with its mocks inline and its
+   reply phrase.
+4. **`Appendix — Merged work`** last. Merged or closed PRs appear only here, never
+   in the body or contents; move them when they merge.
 
 ## Evidence rules
 
