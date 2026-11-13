@@ -15,13 +15,13 @@ Split a goal into independent lanes, run each on the engine that fits, verify wh
 |---|---|---|
 | **Local Workflow** | The fan-out shape is known before launch and results come back as data: mining, review, audit, triage, per-item transforms | Workflow tool script built from `agent()`, `parallel()`, `pipeline()` and `phase()`, with a JSON schema per structured output. Resume with `{scriptPath, resumeFromRunId}`. Requires the user's opt-in: the word "ultracode" or an explicit request for a workflow. |
 | **Local Agent lanes** | A few long-lived lanes need steering mid-flight, or each next step depends on what the last one found | Agent tool background subagents, steered with SendMessage. Each writing lane gets its own worktree and branch. |
-| **Remote tmux lanes** | The local host cannot admit the work (CPU, RAM, disk, a host-only tool), or the lane must outlive this session | [linux-mirror](../linux-mirror/SKILL.md) hands the committed branch to a configured remote host in a persistent tmux session; [linux-remote](../linux-remote/SKILL.md) owns transport and the response-proof contract. Unavailable when no remote host is configured: report that and use a local engine. |
+| **Remote tmux lanes** | The local host cannot admit the work (CPU, RAM, disk, a host-only tool), or the lane must outlive this session | [linux-mirror](../linux-mirror/SKILL.md) hands the committed branch to a configured remote host in a persistent tmux session; [linux-remote](../linux-remote/SKILL.md) owns transport and the response-proof contract. If local admission is refused and no viable authorized remote host is available, report the measured blocker and recheck condition; continue only independent work. |
 
 Decide in this order:
 
 1. Fewer than three independent units, or work one agent finishes in minutes: no swarm. Do it inline.
-2. The lane must survive the end of this session, or the local admission gate refuses it: remote tmux lane.
-3. The work-list and stages are known up front and no lane needs steering: Workflow. Scout the work-list inline first, then fan out over it.
+2. A lane that must survive this session uses remote tmux when available. A refused local admission uses remote only when that host is configured and admitted; otherwise keep the lane blocked, report the measured blocker and recheck condition, and continue independent work.
+3. The work-list and stages are known up front and no lane needs steering: use Workflow only with the user opt-in stated above; otherwise use Agent lanes.
 4. Otherwise: Agent lanes.
 
 Engines mix. A common split is a Workflow for the bounded review fan-out, Agent lanes for the fixes, and a remote lane for the long test run.
@@ -45,7 +45,7 @@ Engines mix. A common split is a Workflow for the bounded review fan-out, Agent 
 - **Refute by default.** A finding that drives a decision faces three independent lenses (for example evidence, design, severity), each prompted to refute it, and survives on two of three. A cheap, reversible claim gets one check.
 - **A dead verifier is not a refutation.** `agent()` returns `null` when a subagent dies; re-run those. A stage that returns zero findings while most agents fail did not run. Read the run journal before recording an empty result.
 - **Merge-readiness and bug-fixed claims on code** need one reviewer from a different model family that executes the code (`/advice`, or an installed second CLI). Reproduce its most concrete finding yourself before accepting the rest.
-- **Reuse valid coverage.** A review or test run that already covered the current head SHA counts. Re-verify only what changed since. Evidence is the command output, the diff and the PR; do not build ledgers or receipts for it.
+- **Reuse valid coverage.** A review or test run that already covered the current head SHA counts. Re-verify only what changed since. Use the target lifecycle required SHA, verdict, reviewer, coverage and receipt records; reuse applicable evidence and avoid duplicate bespoke ledgers.
 - **Published docsets** get one pass before publication for leaked local paths or credentials, numbers that disagree between documents, and present-tense claims that are stale at the current head.
 - Never report a review or verification that did not run.
 - "Ultracode" means the Workflow tool, not Agent Teams teammates.
