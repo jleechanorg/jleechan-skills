@@ -37,19 +37,23 @@ than duplicating its rules. The [`prw`](.claude/skills/prw/SKILL.md) and
 [`pr-workflow`](.claude/skills/pr-workflow/SKILL.md) aliases read PR Lifecycle
 first and name this entry point for discovery.
 
-For a Codex-driven `/prw`, automatic AI reviews default to zero. Codex still
-collects applicable evidence and self-reviews. To allow up to two automatic AI
-reviewer assignments for a Codex CLI session, start it with:
+For a Codex-driven `/prw`, applicable automatic AI reviews run by default for
+up to three rounds per PR, with the full required review quorum for each round.
+Codex still collects applicable evidence and self-reviews. To cap automatic AI
+reviewer assignments for a Codex CLI session, set `PRW_CODEX_AI_REVIEW_COUNT`.
+For example, to cap the PR at two assignments, start it with:
 
 ```bash
 PRW_CODEX_AI_REVIEW_COUNT=2 codex
 ```
 
-Then run `/prw` inside that session. Choose another non-negative integer for a
-different per-PR limit. Explicitly requested reviews and required repository
-gates still apply; Claude and agy retain their existing automatic review routes.
-See [Codex review dispatch](.claude/skills/pr-lifecycle/review-routing.md#codex-review-dispatch)
-for details and authorization limits.
+Then run `/prw` inside that session. Unset or empty means no assignment ceiling;
+`0` disables automatic AI review without waiving any required independent gate.
+Invalid values stop automatic dispatch. Any positive ceiling remains subject to
+the applicable authorization, spending, source-sharing and safety rules.
+Claude and agy retain their existing automatic review routes. See
+[Codex review dispatch](.claude/skills/pr-lifecycle/review-routing.md#codex-review-dispatch)
+for round, quorum, and authorization details.
 
 The manager links useful highlighted skills to the problems they help solve;
 they are not an extra mandatory checklist. Install the PR workflow together

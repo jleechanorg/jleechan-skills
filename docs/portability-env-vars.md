@@ -113,7 +113,7 @@ registry.
 
 | Variable | Meaning | Derived from | Default |
 |---|---|---|---|
-| `PRW_CODEX_AI_REVIEW_COUNT` | Maximum automatic independent AI reviewer assignments per PR for a Codex driver; see [review routing](../.claude/skills/pr-lifecycle/review-routing.md#codex-review-dispatch) | `0` | unset or empty: `0`; invalid: stop automatic dispatch |
+| `PRW_CODEX_AI_REVIEW_COUNT` | Optional maximum automatic independent AI reviewer assignments per PR for a Codex driver; see [review routing](../.claude/skills/pr-lifecycle/review-routing.md#codex-review-dispatch) | — | unset or empty: no assignment ceiling (three review rounds by default); `0`: disable automatic AI review without waiving required independent gates; invalid: stop automatic dispatch |
 | `PRW_METRICS_REPOS` | Comma-separated list of `owner/repo` repositories to monitor | — | unset: uses repositories from input directory or state |
 | `PRW_METRICS_ROADMAP_REPO` | Path to local clone of roadmap repository for dashboard publication | — | required where publication is enabled (fails closed if unset) |
 | `PRW_METRICS_STATE_DIR` | Directory for persistent metric state snapshots and locks | `${HOME}/.claude/skills/scratch-space/scripts/scratch-dir.sh prw-metrics` | `/tmp/prw-metrics` |
