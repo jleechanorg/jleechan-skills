@@ -182,6 +182,22 @@ records only in the final `Appendix — Merged work`, including when they answer
 current request; preserve their historical stage, head, deployment claim and
 receipts there.
 
+### Review and decision docs
+
+Applies to the board and to every roadmap doc that asks the user to review or
+decide (user directive, 2026-11-12).
+
+- Open PRs first, then other decisions, each highest priority first. Merged or
+  closed PRs go only in the final `Appendix — Merged work`, never in the body or
+  contents; move them when they merge.
+- Each open PR gives its linked number, title, head SHA, state and checks at that
+  head, one plain sentence on what the user sees change, what merging unblocks,
+  and the exact reply phrase.
+- Show each user-visible PR's before and after side by side, inline per
+  [evidence-standards § UI/media proof](../evidence-standards/SKILL.md#uimedia-proof),
+  with a caption saying what to look at.
+- End each PR with one specific feedback question.
+
 ## Evidence rules
 
 - Verify every open / active ledger row and every move to the merged appendix with
