@@ -211,6 +211,7 @@ Apply this check when inline or linked media backs a claim; it does not by itsel
 - Authorized private hosting is acceptable when the intended reviewer can open and play the media; record the access mode.
 - Never make evidence public, or change bucket access, merely to pass a link check.
 - A `github.com/.../releases/download/untagged-*` link is a red flag: the release is a draft and the asset is not reliably reachable.
+- Check the rendered PR body, not its source: screenshots appear as images and each video as an inline GIF linking its MP4 (evidence-standards § UI/media proof). Text-link-only visual evidence is **PARTIAL**.
 
 Media the intended reviewer cannot open or play is **INCONCLUSIVE** when it is
 the claim's decisive raw proof; it is **PARTIAL** only for a supplemental format

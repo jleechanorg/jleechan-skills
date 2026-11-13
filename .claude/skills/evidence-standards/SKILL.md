@@ -239,9 +239,11 @@ Published screenshots must render inline (not text-only links); use width `450`
 for desktop and `360` for mobile comparison tables (`800` for a side-by-side
 comparison slide). Video publications retain an inline GIF from the same run
 beside a playable MP4/H.264 link unless the authorized destination supplies an
-equivalent inline form. The element under test must change in the pixels, not only
-in a caption; below-fold or caption-only video does not prove the claim, and an
-independent reviewer must decode the relevant frames. Verify the intended
+equivalent inline form; GitHub does not, so PR bodies need the GIF. Text-link
+media cells in a findings table need inline copies. The element under test must
+change in the pixels, not only in a caption; below-fold or caption-only video
+does not prove the claim, and an independent reviewer must decode the relevant
+frames. Verify the intended
 reviewer's access, media content type and rendered PR-body URLs; use clickable
 authorized hosts rather than `gs://` or `storage.cloud.google.com/` links. The
 sanitized receipt lists the same media hashes and access mode. Never make private
