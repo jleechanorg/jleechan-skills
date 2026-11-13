@@ -93,9 +93,10 @@ class ThinCommandDispatchersTest(unittest.TestCase):
     def test_extended_library_commands_remain_intact_and_distinct(self):
         self.assertTrue(EXTENDED_LIBRARY.is_dir())
         extended_files = list(EXTENDED_LIBRARY.glob("*.md"))
-        self.assertGreater(len(extended_files), 100)
+        # 97 after the 2026-11-10 held-command archive; guards against mass loss.
+        self.assertGreater(len(extended_files), 90)
         # Check a sample of extended-library commands to ensure they remain intact
-        for sample in ("parallel.md", "secondo.md", "perp.md", "thinku.md"):
+        for sample in ("parallel.md", "secondo.md", "reviewdeep.md", "thinku.md"):
             with self.subTest(sample=sample):
                 sample_path = EXTENDED_LIBRARY / sample
                 self.assertTrue(sample_path.is_file(), f"missing extended command: {sample_path}")

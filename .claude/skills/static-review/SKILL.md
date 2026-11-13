@@ -21,28 +21,28 @@ Each source approver reads the complete pinned diff and every changed path at
 both revisions, or verifies absence. Include binary, mode, symlink, submodule
 and LFS payloads. Verify unchanged spans before reusing a fully read version;
 changed hunks with small context do not establish full-file coverage. Missing
-or unretrievable required content means WITHHELD; recover truncated tool outputs
-with narrower ranges within the fixed attempt deadline (600s for static-review §4;
-1800s for advice §3; no timer reset) before concluding. Never combine
-partial reviewers into one complete vote.
+or unretrievable required content means WITHHELD after bounded recovery with
+narrower ranges inside the fixed attempt deadline (600 seconds for static review;
+advice §3's deadline for other seats; no timer reset). Never combine partial
+reviewers into one complete vote.
 
 ## 1. Cold input and access mode
 
 Start a fresh reviewer context without parent history, findings, question,
-summary or framing. The orchestrator keeps the user's question and answers it
+summary or framing; §4's same-seat addendum alone adds that seat's own prior
+findings. The orchestrator keeps the user's question and answers it
 from the findings. Send exactly one channel preamble below plus one filled
-template. Fill only fields declared by advice §4 for that access mode.
-
-Prefer read-only GitHub/API or an existing checkout when it supplies complete
-pinned objects. Use an export, saved revision packet or isolated clone when
-needed for complete access or isolation; a review does not require a new copy
-merely because it is independent. Advice §4 is the sole mode/field table.
+template. Advice §4 is the sole access-mode and field table; fill only its
+declared fields. A review does not require a new copy merely because it is independent.
 
 A revision verdict binds the verified head, comparison base and declared scope.
 A document verdict binds only the named documents and bundle hash. A hash
 establishes integrity, not immutable storage or correct contents.
 An independent source/document verdict does not wait for prior approval or a
-completed review; report readiness, quorum and evidence gaps separately.
+completed review; report readiness, quorum and evidence gaps separately. Prefer
+read-only GitHub/API or an existing checkout when it supplies complete pinned
+objects. Use an export, saved revision packet or isolated clone only when needed
+for complete access or isolation; independence alone does not require a copy.
 
 ## 2. Templates
 
@@ -60,7 +60,8 @@ no timer reset). The model must directly read all content (fetching bytes into a
 script variable or reading only a required-content subset is not coverage). If required content is missing
 or cannot be retrieved completely by the deadline, report incomplete COVERAGE and
 withhold.
-Report P0/P1/P2 with file:line and MODEL: for the reviewer's actual
+Report every supported finding in this one pass with file:line, tagged P0
+(blocking) or P1/P2 (nonblocking), and MODEL: for the reviewer's actual
 runtime/model when exposed, or `unreported` when hidden. Never name the
 reviewed system or scope as the model. Add COVERAGE: naming all files and the diff read. Approve source only with
 no P0 and full coverage; P1/P2 are nonblocking. Report separate readiness/evidence
@@ -81,7 +82,8 @@ deadline (600s for static-review §4; 1800s for advice §3; no timer reset). The
 model must directly read all content (fetching bytes into a script variable or
 reading only a required-content subset is not coverage). If required content is missing, unreadable or
 cannot be retrieved completely by the deadline, report incomplete COVERAGE and
-withhold. Report P0/P1/P2 with file:line and MODEL: for the reviewer's actual
+withhold. Report every supported finding in this one pass with file:line, tagged P0
+(blocking) or P1/P2 (nonblocking), and MODEL: for the reviewer's actual
 runtime/model when exposed, or `unreported` when hidden. Never name the
 reviewed system or scope as the model. Add COVERAGE: naming every file and diff actually read. Approve source only with
 no P0 and full coverage; P1/P2 are nonblocking. Keep readiness, quorum and merge
@@ -107,11 +109,11 @@ deadline (600s for static-review §4; 1800s for advice §3; no timer reset). The
 model must directly read all content (fetching bytes into a script variable or
 reading only a required-content subset is not coverage). If required content is missing or cannot be
 retrieved completely by the deadline, report incomplete COVERAGE and WITHHELD.
-Report P0/P1/P2 with file:line and MODEL: for the reviewer's actual
+Report every supported finding in this one pass with file:line, tagged P0
+(blocking) or P1/P2 (nonblocking), and MODEL: for the reviewer's actual
 runtime/model when exposed, or `unreported` when hidden. Never name the reviewed
 system or scope as the model. Add COVERAGE: naming the files and diff actually read.
-Approve only with no P0 and full coverage;
-P1/P2 are nonblocking. Bind revision approval only to verified revision metadata;
+Approve only with no P0 and full coverage; P1/P2 are nonblocking. Bind revision approval only to verified revision metadata;
 otherwise approve only the named documents, never code or HEAD. End with exactly one line:
 VERDICT: APPROVED|NOT APPROVED|WITHHELD at <REVIEW TARGET> (WITHHELD with a reason).
 ```
@@ -194,23 +196,30 @@ Set `<SUBJECT>` to the revision SHA or `DOCUMENTS sha256:<BUNDLE HASH>`.
 
 ## 4. Identity and deadlines
 
-Advice owns required count and reviewer-class caps. Native static subagents
-collectively supply at most one advice vote, even when their models differ.
-Identity eligibility never creates an extra vote or combines partial coverage.
-
-Report the actual model from reliable runtime metadata when exposed. A CLI seat
-without a verified actual model is unavailable. Outside interfaces may leave the
-underlying runtime model unreported; never invent a SKU. The orchestrator still
-verifies the configured account/session and independence privately. Missing
-public fields are not evidence of an unverified account. Dot is its own
-CLI/model identity under the at-most-one-Dot cap; aliases of one account remain
-one account. Static identity is its type, harness and actual model; preserve
-any stronger user/repository requirement.
+Advice owns required count, reviewer-class caps and identity verification
+(§2 Identity). Native static subagents collectively supply at most one advice
+vote, even when their models differ. Identity eligibility never creates an extra
+vote or combines partial coverage. Report the actual model from reliable runtime
+metadata when exposed; a CLI seat without a verified actual model is unavailable.
+Outside interfaces may omit the underlying runtime model; never invent a SKU.
+The orchestrator verifies configured account/session and independence privately;
+missing public fields alone do not make the account unverified. Static identity
+is its type, harness and actual model; preserve any stronger user/repository
+requirement.
 
 Static attempts have a 600-second end-to-end deadline; other advice attempts
 use advice §3. The orchestrator records queue/return and cleanup, not the model.
-Reuse completed coverage only under pr-lifecycle's claim/delta/phase rule;
-reaffirmation is not another vote. Preserve WITHHELD, failed and partial
+Reuse completed coverage only under pr-lifecycle's claim/delta/phase rule
+([review-routing](../pr-lifecycle/review-routing.md#sha-binding-rule-critical--applies-to-every-gate-in-this-chain));
+reaffirmation is not another vote. When that record is partially applicable
+with named gaps, the affected review may be a same-seat addendum: a new attempt
+by the same identity whose input is its channel preamble, new head/base, the
+pinned delta from its reviewed SHA, the named gaps and its own prior findings
+verbatim, with no author response or summary. It reads the complete delta and
+affected content, rechecks each prior finding and reports in its template's
+format at the new SHA, counting only with its applicable prior full coverage.
+Invalidated or uncertain applicability, or an unavailable seat, gets a complete
+cold review. Preserve WITHHELD, failed and partial
 attempts rather than relabeling them.
 
 ## 5. Receipt and publication
@@ -219,23 +228,21 @@ Keep the exact prompt/hash, scope and revision/bundle, actual identity,
 queue/return, native exit/completion, coverage, verdict and the advice §4
 mode-specific checks. The orchestrator captures the exact dispatched prompt and its
 SHA256 before queueing and records managed completion/return at the moment the
-attempt finishes (within the attempt deadline), never timing later PR/gist
-publication against the attempt budget. A managed native completion replaces a CLI exit; never
+attempt finishes within the attempt deadline. A managed native completion replaces a CLI exit; never
 demand a clone path or process cleanup for a mode that created neither.
-Original checkouts, refs, local config and hooks must remain unchanged.
+Keep the original checkout, refs, local configuration and hooks unchanged.
 
 Capture the private technical receipt and required cleanup within the attempt
 deadline. Later sanitized publication is a separate lifecycle step, preserving
-original times and hashes; never replace actual completion clocks with later
-publication timestamps. Publish final review and technical receipts; exclude
+original times and hashes; never time later publication against the attempt
+budget or replace actual completion clocks with publication timestamps. Publish final review and technical receipts; exclude
 private reasoning, secrets and credentials. If a filled prompt contains private
 paths/hosts, publish only its hash and template name outside the authorized
 workspace; retain the exact original privately.
 
 Check actual input byte-for-byte against the selected preamble and filled
-template. Encrypted or protected rollout/archive representations are not source input:
-never attempt to decrypt them, never compare encrypted archive blobs against plaintext
-prompts to reject a valid receipt, and never replace actual completion clocks with
-later publication timestamps. Added code framing or summaries invalidate the cold vote. Evidence-only
+template, or §4's addendum. Encrypted or protected rollout/archive representations are not source input:
+never attempt to decrypt them or compare encrypted archive blobs against plaintext
+prompts to reject a valid receipt. Added code framing or summaries invalidate the cold vote. Evidence-only
 /er retains its own claim/artifact dispatch contract and never supplies an
 unseen-code approval.

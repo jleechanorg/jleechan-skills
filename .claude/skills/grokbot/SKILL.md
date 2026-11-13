@@ -20,7 +20,23 @@ create a replacement bot, guess a route from a title, reuse another service's
 login, or switch accounts to get around a limit. Missing mapping is a precise
 blocker; continue unrelated authorized work.
 
-Use the runtime's directly supported browser-control interface. Honor its
+Transport: `scripts/grok_chrome.mjs` (nvm Node 22) drives a dedicated Chrome
+profile at `~/.config/grokbot-chrome`, never a Dot or personal profile. `login`
+opens a visible window once for the user to sign in; `list` prints the signed-in
+account's `/bot/<id>` links and titles (use it to resolve routes when no config
+mapping exists); `read <bot-url>` prints the conversation tail; `send <bot-url>
+<file>` types the file body, verifies the full text in the composer, submits once,
+and prints `GROKBOT_SENT_VERIFIED` or `GROKBOT_SENT_UNVERIFIED`. `read` and `list`
+are read-only. An empty `list` means the profile is signed out: ask the user to
+run `login`.
+
+The send path is mechanical only. It refuses to overwrite an existing draft
+(`GROKBOT_DRAFT_PRESENT`, exit 3) unless `GROKBOT_CLEAR_DRAFT=1`, verifies the
+whole normalised body before submitting, and never re-sends. `GROKBOT_DRY_RUN=1`
+checks the composer without sending. Exit 4 means unverified or an unloaded bot
+page; exit 6 means the composer or send control could not be confirmed.
+
+Otherwise use the runtime's directly supported browser-control interface. Honor its
 instructions and the user's browser preference. On a host with an installed
 browser-default workflow, follow it; do not substitute browser-side inference,
 shell HTTP, internal APIs or unsupported DOM/browser hooks. In an app with

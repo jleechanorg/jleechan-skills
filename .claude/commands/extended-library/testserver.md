@@ -46,7 +46,7 @@ execution_mode: immediate
 - Cleanup of stale processes
 
 **Integration**:
-- `/push` automatically starts server for current branch
+- Start the server for the current branch after pushing it (`/testserver start`)
 - `/integrate` automatically stops server for current branch
 - Servers persist across development sessions
 - Logs stored in `/tmp/$PROJECT_NAME_logs/[branch].log`

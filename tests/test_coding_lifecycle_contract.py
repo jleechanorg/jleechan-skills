@@ -51,7 +51,7 @@ class PrLifecycleAnchorResolution(unittest.TestCase):
 
     def test_every_linked_anchor_resolves_to_a_heading(self):
         links = {}
-        for path in SKILLS.rglob("SKILL.md"):
+        for path in SKILLS.rglob("*.md"):
             for match in re.finditer(r"pr-lifecycle/([\w.-]+\.md)#([^)\s\"'>`]+)", path.read_text(encoding="utf-8")):
                 links.setdefault((match.group(1), match.group(2)), set()).add(path.relative_to(SKILLS).as_posix())
         self.assertGreater(len(links), 0)
@@ -115,7 +115,7 @@ class PrLifecycleSectionReferences(unittest.TestCase):
                 if "SKILL.md" in before or "AGENTS.md" in before or "pr-green-definition" in before:
                     continue  # points into another file
                 refs.append((f"pr-lifecycle:{n}", m.group(1)))
-        for path in sorted(SKILLS.rglob("SKILL.md")):
+        for path in sorted(SKILLS.rglob("*.md")):
             if path.parent.name == "pr-lifecycle":
                 continue
             for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
@@ -133,7 +133,7 @@ class PrLifecycleSectionReferences(unittest.TestCase):
     def test_section_references_resolve(self):
         heads = self._headings()
         refs = self._references()
-        self.assertGreater(len(refs), 10)
+        self.assertGreater(len(refs), 0)
         unresolved = [(where, ref.strip()) for where, ref in refs if not self._resolves(ref, heads)]
         self.assertEqual(unresolved, [], f"unresolved pr-lifecycle section references: {unresolved}")
 

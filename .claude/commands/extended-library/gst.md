@@ -1,5 +1,5 @@
 ---
-description: Alias for /gstatus command
+description: Show PR status by running gstatus.py
 type: git
 execution_mode: immediate
 allowed-tools: Bash

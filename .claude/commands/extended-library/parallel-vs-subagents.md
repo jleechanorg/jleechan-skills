@@ -154,7 +154,6 @@ This guide is referenced by:
 - `/planexec` — Planning execution strategy
 - `/execute` - Choosing execution method
 - `/arch` - Architectural task distribution
-- `/test` - Test execution strategy
 - CLAUDE.md - Core operating guidelines
 
 ---

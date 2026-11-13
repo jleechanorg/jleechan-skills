@@ -169,7 +169,7 @@ Based on Memory MCP best practices research (via Perplexity API integration from
 
 Commands enhanced with these patterns:
 - `/learn` - Captures structured technical learning
-- `/debug` - Records issue resolution with full context
+- `/debugp` - Records issue resolution with full context
 - `/fix` - Documents fixes with implementation details
 - `/pr` - Preserves PR review insights and workflow lessons
 - `/execute` - Tracks implementation patterns and outcomes

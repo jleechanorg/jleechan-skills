@@ -8,7 +8,7 @@ execution_mode: immediate
 
 **When /copilot is invoked, YOU (Claude) must execute ALL steps below directly.**
 
-**Script policy:** Do not introduce new orchestration wrappers. Use `/extended-library:pair` in Step 5c when its trigger criteria are met.
+**Script policy:** Do not introduce new orchestration wrappers. Use the pair workflow (a coder subagent plus an independent verifier subagent) in Step 5c when its trigger criteria are met.
 
 **Usage:** `/copilot [PR_NUMBER]`
 
@@ -60,7 +60,7 @@ This count is MANDATORY and must be displayed before proceeding. This prevents s
 
 ### Step 3: Check CI Status
 
-Run `/extended-library:gstatus` to check CI status, merge state, and identify failing checks.
+Run `gh pr checks <PR>` and `gh pr view <PR> --json mergeable,mergeStateStatus` to check CI status, merge state, and identify failing checks.
 
 ### Step 4: Categorize Every Comment (REV-g9fbp + REV-3sc0t fix)
 
@@ -106,7 +106,7 @@ NOT_DONE (invalid): P comments
 
 ### Step 5: Fix Comments That Need Code Changes
 
-**Step 5a: Decide /extended-library:pair vs inline fixing (MANDATORY LOG)**
+**Step 5a: Decide pair workflow vs inline fixing (MANDATORY LOG)**
 
 Count the total in-scope CRITICAL + BLOCKING comments and log:
 ```
@@ -114,12 +114,12 @@ PAIR DECISION: X CRITICAL + Y BLOCKING = Z total
 ```
 
 Enforcement rules:
-- **Z >= 6**: You MUST use `/extended-library:pair` (Step 5b-5c). STOP — do not proceed to inline fixing.
+- **Z >= 6**: You MUST use the pair workflow (Step 5b-5c). STOP — do not proceed to inline fixing.
 - **Z <= 5**: Fix inline directly (skip to Step 5d).
-- **Z >= 6 AND `/extended-library:pair` is unavailable**: Log `PAIR UNAVAILABLE: falling back to inline for Z comments`. Fix inline but add `[PAIR_FALLBACK]` tag to each response in responses.json so the tracking table shows these were not dual-verified.
-- **If you skip /extended-library:pair when Z >= 6 without logging PAIR UNAVAILABLE, the run is invalid.**
+- **Z >= 6 AND subagents are unavailable**: Log `PAIR UNAVAILABLE: falling back to inline for Z comments`. Fix inline but add `[PAIR_FALLBACK]` tag to each response in responses.json so the tracking table shows these were not dual-verified.
+- **If you skip the pair workflow when Z >= 6 without logging PAIR UNAVAILABLE, the run is invalid.**
 
-**Step 5b: Collect CRITICAL/BLOCKING comments for /extended-library:pair** (only if 6+ comments)
+**Step 5b: Collect CRITICAL/BLOCKING comments for the pair workflow** (only if 6+ comments)
 
 Gather all CRITICAL and BLOCKING comments into a single task spec:
 
@@ -143,14 +143,15 @@ Branch: <branch_name>
 - Do NOT defer - these are CRITICAL/BLOCKING and must be fixed
 ```
 
-**Step 5c: Launch /extended-library:pair with the task spec**
+**Step 5c: Run the pair workflow with the task spec**
 
-Run `/extended-library:pair` with the task spec from Step 5b. It uses the
-platform's native coder and independent-verifier workflow.
+Give the task spec from Step 5b to a coder subagent. When it finishes, give the
+same spec and the resulting diff to an independent verifier subagent that checks
+each fix against its comment, and write `responses.json` to the session directory.
 
-**Step 5d: Fix inline** (default path, or fallback if /extended-library:pair fails)
+**Step 5d: Fix inline** (default path, or fallback if the pair workflow fails)
 
-If 5 or fewer CRITICAL/BLOCKING comments, or `/extended-library:pair` errors out, times out, or is unavailable:
+If 5 or fewer CRITICAL/BLOCKING comments, or the pair workflow errors out, times out, or is unavailable:
 1. Read the file referenced in the comment
 2. Understand the issue
 3. Implement the fix using Edit/MultiEdit tools
@@ -173,11 +174,11 @@ For STYLE comments: fix up to 5 quick wins (straightforward per above). ACKNOWLE
 - ACKNOWLEDGED = comment is valid feedback, but intentionally not fixing (style preference, out of scope, low priority)
 - NOT_DONE = comment is factually wrong, already handled, or based on misunderstanding. Include evidence.
 
-These do NOT go through `/extended-library:pair` - fix them directly.
+These do NOT go through the pair workflow - fix them directly.
 
-**Step 5f: Post summary after /extended-library:pair completes (CRITICAL - REV-j6i3d fix)**
+**Step 5f: Post summary after the pair workflow completes (CRITICAL - REV-j6i3d fix)**
 
-After `/extended-library:pair` completes (success OR failure), you MUST still post a summary comment:
+After the pair workflow completes (success OR failure), you MUST still post a summary comment:
 
 1. Check session directory for responses.json:
    - `/tmp/<repo>/<branch>/pair-<session_id>/responses.json`
@@ -191,9 +192,9 @@ After `/extended-library:pair` completes (success OR failure), you MUST still po
      - **UNVERIFIED**: Fixes applied but verification timed out
 
 3. If responses.json does NOT exist:
-   - `/extended-library:pair` failed to generate responses - handle as failure
+   - The pair workflow failed to generate responses - handle as failure
 
-**This step is MANDATORY regardless of `/extended-library:pair` outcome.** The PR must always have a summary comment posted.
+**This step is MANDATORY regardless of the pair workflow outcome.** The PR must always have a summary comment posted.
 
 ### Step 6: Generate ACTION_ACCOUNTABILITY responses.json
 

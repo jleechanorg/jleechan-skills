@@ -503,7 +503,7 @@ class DocumentedShellExamplesTest(unittest.TestCase):
             'TASK_WITH_RESOLVED="$TASK_DESCRIPTION"', 1
         )[1].split("# General AO-dispatch directive", 1)[0]
         definition = (
-            REPO_ROOT / ".claude/skills/orchconverge/SKILL.md"
+            REPO_ROOT / ".claude/skills_archive/2026-11-09-no-usage-evidence/orchconverge/SKILL.md"
         ).read_text()
         repo = self.tmp_path / "dispatch repo"
         owner = repo / ".claude/skills/orchconverge/SKILL.md"
