@@ -25,7 +25,9 @@ For every review type that runs, including `/es`, `/er`, `/advice`, `/wa`, `/cs`
 Track the active execution state in the PR description or task context. Every unfinished obligation (`OPEN` or `PENDING`) maps directly to an active execution record exposing `owner`, `next_action`, and the actual resumption handle (`job_handle` + `wake_condition`), retaining candidate/claim applicability:
 
 ```text
+accepted_at: <UTC time the /prw task was accepted, captured at start; UNKNOWN if not observed (null in run.stats.json); kept on resume; never PR creation time>
 endpoint: FINAL_READY
+merge_authorization: <authorized (quoted source: operator statement, standing approval or size tier; timestamp) | not authorized | not asked; set at preflight, updated on new authority or changed conditions, populated if absent and revalidated at the exact head before merge>
 candidate: <head-SHA>
 next_action: <specific unmet obligation>
 owner: <driver or delegated lane>

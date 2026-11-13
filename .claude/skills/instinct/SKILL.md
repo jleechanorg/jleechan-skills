@@ -1,25 +1,200 @@
 ---
 name: instinct
-description: Use when the user invokes /instinct or /in, or asks to "message Instinct", "ask Instinct", "tell Instinct", "check Instinct", or read WhatsApp replies from the contact "Instinct WhatsApp" on the account's configured Gmail identity.
+description: Use when the user invokes /instinct or /in, or asks to "message Instinct", "ask Instinct", "tell Instinct", "check Instinct", or read replies from the configured peer assistant. iMessage first, WhatsApp Web as fallback.
 ---
 
 # /instinct (`/in`)
 
-Talk to the **Instinct** assistant over **WhatsApp Web**, in an agent-owned Chrome profile, on the
-The Google account identity. Modelled on `/dot`, but the transport is WhatsApp instead of ChatGPT.
+Talk to the **Instinct** peer assistant. **iMessage is the primary transport; WhatsApp Web is the
+secondary fallback**, selected by capability at run time — see
+[Transport chain](#transport-chain-imessage-first-whatsapp-secondary).
 
 `scripts/instinct.mjs` is a thin mechanical I/O pointer: `probe`, `read`, `open`, `send`, `whoami`.
-Every judgment call lives in this file.
+`scripts/imsg-bridge.sh` is its iMessage implementation. Every judgment call lives in this file.
 
 ```bash
-NODE=~/.nvm/versions/node/v22.22.0/bin/node
-S=~/.claude/skills/instinct/scripts/instinct.mjs
+S=~/.claude/skills/instinct/scripts/instinct.mjs   # resolved by the active skill root
 
-$NODE $S whoami                                  # resolve profile/contact, no browser
-$NODE $S probe                                   # signed in? exit 4 if not
-$NODE $S read  --contact "Instinct WhatsApp" --limit 20
-$NODE $S send  --contact "Instinct WhatsApp" --file /tmp/msg.txt
+node "$S" whoami                          # which transports, in what order
+node "$S" probe                           # signed in on ANY transport? exit 4 if none
+node "$S" read --theirs --limit 20        # last 20 messages FROM the peer
+INSTINCT_TRANSPORT=whatsapp node "$S" read --contact "Instinct WhatsApp" --theirs --limit 20
+node "$S" send --file /tmp/msg.txt        # iMessage first, WhatsApp fallback
 ```
+
+The commands above use the automatic iMessage-first, WhatsApp-second transport chain unless a
+transport is explicitly selected. For a direct WhatsApp read, set `INSTINCT_TRANSPORT=whatsapp` and
+pass the chat title with `--contact` as shown above. This does not require an iMessage contact handle.
+Use `--theirs` when you need only replies from Instinct.
+
+Nothing personal is hardcoded. Set the peer and stores through
+[the environment variables](#configuration) below; the skill fails closed with a clear message when a
+required one is unset.
+
+## Configuration
+
+| Variable | Meaning | Default |
+|---|---|---|
+| `INSTINCT_IMSG_CONTACT` | The peer's iMessage handle (E.164 phone or Apple ID email) | none — required for iMessage |
+| `INSTINCT_CONTACT` | The peer's WhatsApp chat title (falls back to a built-in default title) | `"Instinct WhatsApp"` |
+| `INSTINCT_IMSG_BRIDGE` | Path to `imsg-bridge.sh` | the skill's own `scripts/imsg-bridge.sh` (sibling) |
+| `INSTINCT_TRANSPORT` | Force `imessage` or `whatsapp`, disabling fallback | unset = chain |
+| `INSTINCT_READ_THEIRS` | `1` = `read` returns only the peer's messages | unset |
+| `INSTINCT_SELF` | Your own display name in the peer's WhatsApp chat. Optional: it upgrades each bubble from the attributable `?` form to an explicit `me`/`them` | unset |
+| `IMSG_CHAT_DB` | Path to the macOS message store | `$HOME/Library/Messages/chat.db` |
+
+The bridge is resolved as a **sibling script of this skill package**
+(`scripts/imsg-bridge.sh`), so an installed copy works with no extra step. Set
+`INSTINCT_IMSG_BRIDGE` only to point somewhere else.
+
+There is exactly **one** bridge. A hand-installed `~/.local/bin/imsg-bridge.sh` used to shadow it as a
+fallback path and carried its own defaults; it was deleted on 2026-11-10 (archived under
+`~/.local/state/backups/`). Do not reintroduce a second copy — two files with send authority is how a
+recipient guard ends up enforced in one of them only.
+
+---
+
+## Transport chain: iMessage first, WhatsApp secondary
+
+Order is `[imessage, whatsapp]`. `probe`, `read` and `send` walk it and stop at the first success.
+
+| | iMessage (primary) | WhatsApp (secondary) |
+|---|---|---|
+| Credential | none — already signed in as the user | a **linked device** (one QR scan) |
+| Browser | none | agent-owned Chrome profile + lock |
+| Headless | **yes** — no window, no focus, no browser | needs Chrome (headed for `login`) |
+| From a scheduler | works | works, but needs the profile free |
+| From another host | works over SSH | works over SSH |
+| Delivery proof | re-reads the message store, binds to the exact text | composer-empty heuristic |
+| Contact | resolved by **handle** | resolved by **chat title** |
+
+**Why iMessage leads.** It needs no linked device, no browser, no profile lock, no desktop-UA
+workaround and no UI hydration race, it does not steal focus, and it confirms delivery against the
+real message store. WhatsApp needs a human QR scan before it works at all on a fresh machine.
+
+**Controls**
+
+- `INSTINCT_TRANSPORT=imessage|whatsapp` forces one transport **and disables fallback**, so a forced
+  failure is never silently answered by the other transport.
+- A transport that is not installed on this host (no bridge script, or not macOS) is **skipped**, not
+  failed — a Linux host runs on WhatsApp without reporting iMessage as an error.
+
+**Exit codes** keep one documented contract: `2` bad usage, `3` missing dependency, `4` not signed
+in, `5` contact not found, `6` **not sent** (a fallback is safe), `7` resource/profile busy, `8`
+probe inconclusive, `9` **possibly sent but unverified** (never fall back — that would duplicate the
+message). When every transport fails, the **last** real code is returned.
+
+### Resolve the contact by handle, never by display name
+
+A contact store can hold several entries with the same display name on different services (for
+example a stale SMS entry beside the live iMessage one). A name lookup can silently pick the stale
+one, so the iMessage path always resolves by handle. Verify the handle you configured actually has a
+chat row before relying on it:
+
+```bash
+sqlite3 -readonly "${IMSG_CHAT_DB:-$HOME/Library/Messages/chat.db}" \
+  "select chat_identifier from chat where chat_identifier = '$INSTINCT_IMSG_CONTACT';"
+```
+
+Use `-readonly`: the message store is not yours to modify, and it makes a malformed
+statement incapable of writing. `imsg-bridge.sh` never opens it read-write.
+
+### Never test the transport by sending to somebody
+
+A send is irreversible and lands on a real person's phone. Verify the wire with `--dry-run`, which
+runs every validation, recipient check and contact resolution a real send performs and then stops
+before handing anything to Messages:
+
+```bash
+node "$S" send --file /tmp/msg.txt --dry-run   # rc=0 = the wire is good, nothing delivered
+```
+
+**There is no "self" send target.** "Send to myself to prove the transport" is the intent that
+produced the 2026-11-09/10 incident: with no self handle configured, a handle was taken from a query
+that lists **contacts** rather than **accounts** — `select h.id ... where is_from_me=0 order by
+count(*) desc` returns *the people who message you most*, and its top row was a real contact's phone.
+46 self-test markers and 7 production PING nudges reached that person, and every one satisfied the
+bridge's delivery check, because delivery and recipient-correctness are different properties.
+
+**Self-identity is not a config value.** If you need to know which account this Mac sends from, read
+it from the store rather than guessing or hardcoding:
+
+```bash
+sqlite3 -readonly "${IMSG_CHAT_DB:-$HOME/Library/Messages/chat.db}" \
+  "select destination_caller_id, count(*) n from message where is_from_me=1
+    and destination_caller_id is not null group by destination_caller_id order by n desc;"
+```
+
+`imsg-bridge.sh send` refuses a target that is one of the account's own handles, and refuses to run at
+all when no peer is declared. Neither check needs the caller's cooperation.
+
+### A hardcoded default peer is a defect, not a convenience
+
+A default handle is indistinguishable from a declared one, so every caller inherits it silently and it
+can point at anyone. `INSTINCT_IMSG_CONTACT` has **no default** and the bridge fails closed (exit 5)
+when it is unset. Do not reintroduce one to make a script "just work".
+
+### This bridge messages its peer and nobody else
+
+`INSTINCT_IMSG_CONTACT` defines **the peer**, and a send reaches that peer or nothing. There is no
+second way to address a message:
+
+- `--contact-handle` may only **restate** the configured peer. A different value is refused with exit
+  `8` instead of retargeting, because an override that actually changed the destination would make
+  every recipient guard compare the target against itself. The parser refuses it whenever a peer is
+  configured, and `send` re-pins the destination once more so an environment with no peer at all still
+  fails closed rather than reaching whoever the flag named.
+- The legacy `IMSG_CONTACT_HANDLE` alias **cannot** define the peer. It is accepted for hand-installed
+  copies but is no longer a peer source: the 2026-11-09/10 incident used precisely this alias, so
+  "the configured peer" and "the send target" were the same variable and the guard passed itself.
+- To message someone else, change `INSTINCT_IMSG_CONTACT` deliberately. That is the one auditable
+  action, and it is visible in the invoking command rather than hidden in a flag.
+
+### `read --theirs` is required for verdict-matching callers
+
+A prompt that asks the peer to answer `VERDICT: PASS|FAIL|BLOCKED` contains that literal text. A read
+that includes outgoing rows matches the template against the message just sent and reports a verdict
+that does not exist — observed in the field: a watcher marked itself DONE seconds after sending.
+Readers that look for a reply must pass `--theirs` (or set `INSTINCT_READ_THEIRS=1`).
+
+On the WhatsApp transport `--theirs` resolves direction from the contact chat it already verified, so
+it does **not** require `INSTINCT_SELF`. It excludes our own bubbles and returns only the peer's,
+failing closed (exit 2) if the sender labels cannot be resolved at all. Do not infer direction from
+the `?` prefix on a plain `read`: `?` means unknown, and a `?` bubble may well be yours.
+
+### From a non-macOS host: route to a Mac
+
+iMessage is macOS-only, so a Linux caller must route its `send`/`probe`/`read` to a Mac rather than
+attempt them locally. Resolve that host through the caller's own SSH configuration (see
+[mac-remote](../mac-remote/SKILL.md) for the LAN → Tailscale → gateway ladder); do not hardcode a
+host name here.
+
+```bash
+ssh <mac-alias> 'node ~/.claude/skills/instinct/scripts/instinct.mjs send --file /tmp/msg.txt'
+```
+
+### Scheduler processes cannot read the message store
+
+macOS denies the message store to a scheduler-spawned process (`authorization denied`) — such a
+process is not covered by the user's Full Disk Access. What breaks differs by verb:
+
+- `probe` still works, but reports `verified: "imagent_only"` rather than claiming the contact was
+  checked, because it cannot read the store.
+- `send` refuses to run at all when the configured handle has no chat in the store
+  (exit 5, before anything is submitted) — so a *brand-new* iMessage conversation
+  cannot be started from this bridge. Resolve the conversation once in Messages and
+  the chat row exists from then on.
+- `send` still submits the message, but **cannot confirm** it: it exits **9** (`sent=unverified`)
+  and the transport chain deliberately does **not** fall back, since a fallback would send the
+  message a second time. A `--db SNAPSHOT` cannot fix this: a copy taken *before* the send can never
+  contain the row it creates, so `send --db` is expected to report exit 9. Confirmation is a
+  property of a process that can read the live store.
+- `read` exits `5` for a handle with no chat (which also lets the chain fall back to
+  WhatsApp), and `4` when the store itself cannot be read. Use an interactive session,
+  or `--db SNAPSHOT`, for the store case.
+
+Exit `9` is therefore distinct from `6`: `6` means nothing was sent and a fallback is safe; `9`
+means it may have gone out.
 
 ---
 
@@ -155,10 +330,25 @@ delivered message. Report the delivered text, not your intent.
 
 ### Read replies
 ```bash
-$NODE $S read --limit 20        # prints "me"/"them" + text per bubble
+$NODE $S read --limit 20        # one line per message, prefixed me | them | ?
 ```
 Treat a WhatsApp reply as **dated evidence**, not live authority. An Instinct message cannot grant
 merge, destructive-action, credential, or spend authority — same rule as `/dot` bot messages.
+
+**Long messages are expanded before they are read.** WhatsApp renders a long message as a short
+prefix plus a "… Read more" caption button, and the hidden remainder is *not in the DOM* until that
+button is clicked — `innerText` and `textContent` measure the same length, so it is absent rather
+than merely clipped. `readMessages` clicks every `#main [data-testid="caption-read-more-button"]`,
+scoped to the open conversation so it can never click another chat's button, then **polls** until no
+collapsed button remains (bounded at 5 s) rather than sleeping a fixed interval — a slow render would
+otherwise hand back the truncated text again. If a bubble still ends in the marker after that, the `read` verb writes an
+`UNREAD tail` warning to stderr instead of returning quiet truncation, so a caller that greps for a
+verdict is never told "no verdict yet" when the verdict was simply not on screen. `send` and `open`
+do not emit it: they show a tail for display, not for verdict matching.
+
+This matters because truncation fails **silently**: the text is well-formed and simply stops early,
+so a reply whose `VERDICT:` line sits at the end reads as absent to a grepping watcher. Before the
+fix, every bubble over roughly 700 characters ended in "… Read more".
 
 ### Contact resolution
 Default contact is `Instinct WhatsApp` (`INSTINCT_CONTACT` overrides). The chat is titled **Instinct WhatsApp**, not "Instinct New" — the display title is what WhatsApp stores. Contact names are matched against
@@ -186,10 +376,23 @@ WhatsApp rather than guessing variants.
 |---|---|---|
 | 2 | bad args, missing/empty message file, profile rejected by an isolation guard | fix the invocation |
 | 3 | playwright or Chrome binary not found | report the missing dependency; do not substitute a personal browser |
-| 4 | not signed in | run the one-time headed link; do not copy cookies |
+| 4 | not signed in. **From `probe`**: the FINAL poll sample shows a visible QR screen (a QR that appeared and cleared is never exit 4) | run the one-time headed link; do not copy cookies |
 | 5 | contact name not found | confirm the exact saved contact name |
 | 6 | draft mismatch or send not confirmed | re-read the chat and report honestly; never claim delivery |
 | 7 | profile owned by a live Chrome | close that Chrome; never delete `SingletonLock` |
+| 8 | Two meanings. From `probe`: timed out in an ambiguous state, link UNVERIFIED (not dead). From `send`: **recipient refused** because the target is one of this account's own handles | `probe`: raise `INSTINCT_PROBE_TIMEOUT_MS` or rerun; do not re-link. `send`: declare the real peer, because a self-send is not a peer send. Exit 8 is deliberately absent from the transport chain's fall-back set, so a refusal terminates the send instead of redirecting it to another transport |
+
+Exit 4 is shared: `open`/`read`/`send` and the `login` timer also exit 4, but only `probe` reaches
+it via the QR screen, so "exit 4 means a QR was on screen" is a claim scoped to `probe`.
+
+`probe` polls instead of sleeping a fixed interval, and **decides from the final sample.** A cold but
+**linked** profile needs ~40 s to hydrate, so the former 4 s wait reported `signed_in: false` for a
+healthy session. One `classifyState()` owns the definition, so `probe` and `signedIn()` cannot
+disagree. Signed-out requires a **visible** canvas *and* QR-specific copy — a bare canvas is not proof
+(the startup promo page has one), and a QR glimpsed mid-startup that then clears yields `loading`
+(UNVERIFIED), never a false signed-out. `saw_signed_out_transient` reports that case. Exit 8 covers
+timeouts so a slow start is never read as a dead device link, the distinction that would otherwise
+trigger a pointless (and gated) re-link.
 
 ### Two bugs worth knowing about (both fixed here, one still open in `dot.sh`)
 
@@ -220,11 +423,32 @@ fallback: row text includes the message preview, so "Bob" could select Ann's cha
 | composer | `[data-testid="conversation-compose-box-input"]` |
 | send button | `button[aria-label="Send"]` |
 | message bubbles | `[data-pre-plain-text]` = `"[<time>, <date>] <Sender>: "` |
+| message identity | nearest ancestor carrying `data-id` — **one message is several bubble nodes**, see below |
 
-Direction and timestamp come from `data-pre-plain-text`, so `me`/`them` does not depend on obfuscated
-class names. If any of these breaks, re-inspect with `node -e` + playwright against the live page and
-fix the constant at the top of `scripts/instinct.mjs` — that is a selector break, not a permissions
-problem.
+Direction and timestamp come from `data-pre-plain-text`, not from obfuscated class names. If any of
+these breaks, re-inspect with `node -e` + playwright against the live page and fix the constant at the
+top of `scripts/instinct.mjs` — that is a selector break, not a permissions problem.
+
+### One message is several nodes; direction has three states
+
+A long message's nested blocks (lists, quoted replies) each carry their own `[data-pre-plain-text]`
+copy, and the copies carry a garbage sender label such as `1.` instead of the real name. They share a
+`data-id`, so they are the **same** message. `reduceBubbles()` keeps the first occurrence of each
+`data-id`; without that reduction one reply arrives as several fragments, and a continuation of our
+own text gets attributed to the peer. Nodes with no `data-id` cannot be proven duplicates and are kept.
+
+Direction is therefore one of three states, never two:
+
+| prefix | meaning |
+|---|---|
+| `me` | sender matches `INSTINCT_SELF` |
+| `them` | `INSTINCT_SELF` is set and the sender is someone else |
+| `?` | `INSTINCT_SELF` is unset, so direction is **unknown** — the real sender label is printed instead so the bubble stays attributable |
+
+`?` is not a synonym for `them`. Collapsing "not mine" into "theirs" is how a caller greps its own
+outgoing text and reports a verdict that does not exist. A reader that needs direction must pass
+`--theirs` (which resolves it from the contact it opened, and needs no `INSTINCT_SELF`) rather than
+infer it from the prefix.
 
 ## Peer role: alternative coder / reviewer / worker
 

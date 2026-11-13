@@ -1,17 +1,3 @@
----
-description: Claude Skills & Commands - Modular Agent Skills Library for Claude Code, Antigravity, Codex, and Cursor
-type: llm-orchestration
-execution_mode: immediate
----
-
-# 🧠 Agent Skills
-
-Portable `SKILL.md` packages for debugging, evidence, research, reviews, and
-agent workflows. Skills are the source of truth; slash commands are optional
-shortcuts.
-
----
-
 ## Executive Summary
 
 Six highlighted skills form a portable quality loop around implementation.
@@ -390,7 +376,7 @@ Commands and skills compose naturally in a single prompt:
 "/smoke and if any test fails /repro the failure then /execute the fix"
 
 # Full feature lifecycle
-"/think about user notifications /design the schema /execute with tests /green"
+"/thinku about user notifications /design the schema /execute with tests /green"
 ```
 
 ---

@@ -92,6 +92,8 @@ The small deterministic row and qualifying one-vote UI rows use the direct stati
 
 Initial gate applicability follows the rules above. For a later delta, read the full change and identify which claims, contracts, assertions or drivers it can invalidate before choosing full re-review or focused reaffirmation. Use `../4layer/SKILL.md` (`/4layer`), `../testing-layers/SKILL.md` and the repository testing-layers overlay to select the lowest sufficient layer. Evidence classification (`/es`) does not by itself require a paid model call or browser run.
 
+When a fix round returns findings, compare them with the prior review and intervening fix: distinguish newly exposed findings from regressions introduced by that fix. For self-introduced churn, prefer removing or simplifying the cause over adding compensating logic. Keep fixing and re-verifying material blockers and affected claims; this distinction does not cap review rounds or reduce required proof.
+
 | Actual change or claim | Proof and review depth |
 |---|---|
 | Unrelated prose delta | Read the delta, run relevant checks, and reaffirm unchanged claims; no automatic expensive replay. |

@@ -6,7 +6,9 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-COMMANDS_DIR = REPO_ROOT / ".claude" / "commands" / "extended-library"
+# The /teste, /tester and /testerc command docs were archived on 2026-11-10;
+# their wrapper scripts under .claude/scripts/ stay installed.
+COMMANDS_DIR = REPO_ROOT / ".claude" / "commands_archive" / "2026-11-10-held-commands"
 SCRIPTS_DIR = REPO_ROOT / ".claude" / "scripts"
 LEGACY_DIR = REPO_ROOT / "claude_command_scripts"
 
