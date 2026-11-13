@@ -8,7 +8,9 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
+import scripts.prw_metrics as prw_metrics
 from scripts.native_usage_collector import collect_native_history, load_normalized_history, write_normalized_history
 
 REPO = Path(__file__).resolve().parents[1]
@@ -79,6 +81,38 @@ class SessionBindingCollectorBase(unittest.TestCase):
 
 
 class SessionBindingCollectorTests(SessionBindingCollectorBase):
+    def test_prw_metrics_cli_joins_ledger_into_normalized_export(self):
+        exported = Path(self.tmp.name) / "cli-export.jsonl"
+        report = Path(self.tmp.name) / "cli-dashboard.md"
+        argv = [
+            "prw_metrics.py", "--repos", "acme/app", "--offline",
+            "--history-root", str(self.root),
+            "--session-bindings", str(self.ledger),
+            "--cutoff", "2026-11-09T12:00:00Z", "--days", "14",
+            "--history-export", str(exported), "--output", str(report),
+        ]
+        with (
+            patch("sys.argv", argv),
+            patch.object(prw_metrics.Collector, "collect_all", return_value={
+                "prs": [], "timeline": [], "sources": [],
+            }),
+        ):
+            prw_metrics.main()
+
+        rows = [
+            json.loads(line)
+            for line in exported.read_text(encoding="utf-8").splitlines()
+        ]
+        bound = next(
+            row for row in rows
+            if row.get("record_type") == "usage" and row.get("request_id") == "r2"
+        )
+        self.assertEqual(
+            bound["attributions"],
+            [dict(expected("sess-claude"), rationale="retained")],
+        )
+        self.assertTrue(report.is_file())
+
     def test_claude_and_codex_sessions_bound_after_binding_only(self):
         data = self.collect(session_bindings=[self.ledger])
         attrs = self.attrs(data)
