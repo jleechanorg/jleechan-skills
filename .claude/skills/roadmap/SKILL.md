@@ -105,23 +105,25 @@ Required structure, in this order:
      when installed and verified; otherwise follow that entry point directly. Stage rules stay owned by
      `~/.claude/skills/pr-lifecycle/SKILL.md` § Stage, title and labels — e.g.
      `2 evidence generation`, plus any `hold:*` label. In a repository that opts into
-     the six-stage workflow, read the stage label, title suffix and `## PR Stage`
-     block; if they disagree, report the earliest unmet stage and write
-     `MISMATCH (label X / title Y / block Z)` instead of picking one. A PR with no stage
+     the six-stage workflow, separate operational `[status][short detail]` title presentation from stage label/body
+     consistency: compare the `stage:*` label with the `## PR Stage` body block (and with the legacy title suffix
+     for non-migrated or historical PRs); if they disagree, report the earliest unmet stage and record
+     `MISMATCH (label X / block Y)` (or `MISMATCH (label X / title Y / block Z)` for legacy stage titles) instead of picking one.
+     Compare the operational title `[status][short detail]` with the execution record (active owner, running job, recorded wait, or hold),
+     never title detail with stage name. Preserve legacy stage-title interpretation for non-migrated or historical PRs. A PR with no stage
      marker is `unstaged`; never infer a stage from draft status or CI colour. For
      PRs this session owns, before running the resolved `/prw` workflow entry point,
      read and retain the pre-sync values of the stage label, title and
      `## PR Stage` block, including any missing marker. If they disagree, record the
      earliest unmet stage and exact pre-sync mismatch
-     (`MISMATCH (label X / title Y / block Z)`) for the final report.
+     (`MISMATCH (label X / block Y)` or legacy `MISMATCH (label X / title Y / block Z)`) for the final report.
      Then follow the resolved workflow entry point so the board reads synchronized markers, and preserve
      and report every recorded pre-sync mismatch even when that workflow resolves it. This is mandatory
      for every `/roadmap` invocation, including status-only and concise-report modes, and
      it must happen before the stage table is produced. When another owner controls a
      PR, run the resolved workflow in its status/read-only mode, preserve that owner's
      markers, and do not advance the stage without live workflow proof. If markers
-     disagree, report the earliest unmet stage and the exact mismatch
-     (`MISMATCH (label X / title Y / block Z)`); do not select a stage from draft
+     disagree, report the earliest unmet stage and the exact mismatch; do not select a stage from draft
      status, CI colour, or prose.
    - `State` = OPEN/draft/ready + MERGEABLE|BLOCKED|UNKNOWN at the measured head.
    - `Head` = first 8 chars of the head SHA.
@@ -179,6 +181,32 @@ open / active PR, say so and omit an empty ledger. Put all merged/completed PR
 records only in the final `Appendix — Merged work`, including when they answer the
 current request; preserve their historical stage, head, deployment claim and
 receipts there.
+
+### Review and decision docs
+
+Applies to the board, to every roadmap doc that asks the user to review or
+decide, and to any report of open PRs with user-visible changes (user directive,
+2026-11-12). Use this layout:
+
+1. **Summary table**, open PRs only, highest priority first:
+   `| Pri | Reply | PR | Head | What changes |`. Each `What changes` cell links to
+   that PR's section below.
+2. **One section per open PR**, `### <n>. PR #<number>`, in table order:
+   - A bold plain-language name, the linked PR number and its title.
+   - One line: head SHA · mergeability · checks and visual review at that head ·
+     `+added/−deleted` · the exact reply phrase.
+   - `**What you will see:**` the before → after a user notices, per theme or
+     surface.
+   - `**What merging it unblocks:**`, then `**Not proven:**` when anything is.
+   - Per user-visible claim, a caption saying what to look at and a
+     `| Before | After |` table of inline media per
+     [evidence-standards § UI/media proof](../evidence-standards/SKILL.md#uimedia-proof)
+     (images, and a GIF linking each video). Show a side-by-side composite once.
+   - `> **Your feedback:**` with one specific question.
+3. **Other decisions**, highest priority first, each with its mocks inline and its
+   reply phrase.
+4. **`Appendix — Merged work`** last. Merged or closed PRs appear only here, never
+   in the body or contents; move them when they merge.
 
 ## Evidence rules
 

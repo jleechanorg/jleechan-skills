@@ -46,7 +46,7 @@ description: Test Server Command
 - Cleanup of stale processes
 
 **Integration**:
-- `/push` automatically starts server for current branch
+- Start the server for the current branch after pushing it (`/testserver start`)
 - `/integrate` automatically stops server for current branch
 - Servers persist across development sessions
 - Logs stored in `"$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh "<repo-name>/<branch-name>")/[branch].log"` (referencing `~/.claude/skills/scratch-space/SKILL.md`)

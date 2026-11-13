@@ -64,7 +64,7 @@ Enhanced Capture:
 }
 ```
 
-### /debug Command Enhancement
+### /debugp Command Enhancement
 
 **Memory Pattern**: Capture complete debugging journey
 

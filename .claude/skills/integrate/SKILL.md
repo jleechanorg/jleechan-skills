@@ -74,6 +74,6 @@ and report it as skipped; otherwise, follow the canonical learn skill for all
 persistence targets and report each result. Honor higher-priority storage
 restrictions, report any blocked target, and never claim learning was saved
 when persistence is blocked.
-Use `/push` when the new branch needs its test server started. Do not claim
+Run `/testserver start` when the new branch needs its test server started. Do not claim
 server cleanup or branch integration until the script output and exit status
 establish it, or learning capture until its persistence results are verified.

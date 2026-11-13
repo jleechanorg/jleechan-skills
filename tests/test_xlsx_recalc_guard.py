@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class RecalcGuardTests(unittest.TestCase):
     def module(self):
-        path = Path(os.environ.get('RECALC_TEST_SCRIPT', ROOT / '.claude/skills/xlsx/scripts/recalc.py'))
+        path = Path(os.environ.get('RECALC_TEST_SCRIPT', ROOT / '.claude/skills_archive/2026-11-09-no-usage-evidence/xlsx/scripts/recalc.py'))
         dependencies = {
             'openpyxl': types.SimpleNamespace(load_workbook=Mock()),
             'office.soffice': types.SimpleNamespace(get_soffice_env=Mock(return_value={})),

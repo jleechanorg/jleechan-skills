@@ -347,6 +347,9 @@ add_archive_migration_plan() {
 
     for index in "${!MIGRATION_ACTIVE_PATHS[@]}"; do
         if [ "${MIGRATION_ACTIVE_PATHS[$index]}" = "$active_path" ]; then
+            if [ "${MIGRATION_ARCHIVE_PATHS[$index]}" = "$archive_path" ]; then
+                return 0
+            fi
             log_error "Ambiguous archive migration for active path: $active_path"
             log_error "First archive target: ${MIGRATION_ARCHIVE_PATHS[$index]}"
             log_error "Second archive target: $archive_path"
@@ -361,7 +364,7 @@ add_archive_migration_plan() {
 
 prepare_archive_migration_on_merge() {
     local archive_group archive_name package_path relative_package package_name
-    local command_path active_path archive_path index
+    local command_path relative_command active_relative active_parent active_path archive_path index
     [ "$INSTALL_MODE" = "merge" ] || return 0
     if [ "$MIGRATE_ARCHIVES" != true ]; then
         for archive_group in "$PLUGIN_SRC_DIR/.claude/skills_archive"/*; do
@@ -430,6 +433,26 @@ prepare_archive_migration_on_merge() {
                 add_archive_migration_plan "$active_path" "$archive_path" || return 1
             fi
         done
+        # Nested command archives retain their original command-relative path;
+        # top-level/ is the existing archive marker for the commands root.
+        while IFS= read -r -d '' command_path; do
+            [ "${command_path##*/}" = "README.md" ] && continue
+            relative_command="${command_path#"$archive_group"/}"
+            active_relative="${relative_command#top-level/}"
+            is_protected_entry commands "$active_relative" && continue
+            path_exists "$SRC_COMMANDS_DIR/$active_relative" && continue
+            active_path="$CLAUDE_HOME/commands/$active_relative"
+            path_exists "$active_path" || continue
+            archive_path="$CLAUDE_HOME/commands_archive/$archive_name/$relative_command"
+            active_parent="commands"
+            [[ "$active_relative" != */* ]] || active_parent="commands/${active_relative%/*}"
+            if find_linked_parent "$CLAUDE_HOME" "$active_parent" ||
+               find_linked_parent "$CLAUDE_HOME" "commands_archive/$archive_name/${relative_command%/*}"; then
+                log_error "Refusing archive migration through linked parent: $active_path -> $archive_path"
+                return 1
+            fi
+            add_archive_migration_plan "$active_path" "$archive_path" || return 1
+        done < <(find "$archive_group" -mindepth 2 -type f -name '*.md' -print0)
     done
 
     for index in "${!MIGRATION_ACTIVE_PATHS[@]}"; do

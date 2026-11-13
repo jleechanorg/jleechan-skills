@@ -140,9 +140,9 @@ Cross-reference: read the original PR comment (from collected evidence) and veri
 
 ---
 
-### Check 5: /pair Compliance Audit
+### Check 5: Pair-Workflow Compliance Audit
 
-**What**: If 6+ CRITICAL+BLOCKING comments existed, /pair must have been used.
+**What**: If 6+ CRITICAL+BLOCKING comments existed, the pair workflow (coder subagent + independent verifier subagent) must have been used.
 
 **Procedure**:
 1. Count CRITICAL + BLOCKING entries in responses.json (exclude carried_forward)

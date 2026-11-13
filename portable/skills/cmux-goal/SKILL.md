@@ -25,8 +25,21 @@ workflow named them. This package is self-contained for goal formulation.
 Query active goal state using the runtime's supported read API first. Keep an
 existing matching goal. Do not clear or replace an existing different goal
 unless the user explicitly requested that change. If no read API exists, use
-only a documented compatible session command; `/goal active` is a retained
-Claude Code source convention, not a universal goal API.
+only a command verified as read-only on the active runtime. A revision pin
+does not establish command semantics: for example, Claude Code versions where
+`/goal <condition>` sets a goal will mutate state when given `/goal active`,
+even if an older source revision presents that form as a query. Do not probe
+an uncertain command against the user's session. If no compatible read-only
+query is verified, leave goal state unverified and do not attempt activation.
+
+For an explicitly authorized replacement, record the prior objective and actual
+unfinished status in the existing task record, formulate the new condition,
+then use a supported clear/cancel operation in this session and verify cleared
+state before setting it. Never fabricate completion, edit runtime state files,
+or invent a clear API. An unavailable clear route blocks replacement, not
+independent authorized work. A fresh explicit request to resume a matching
+paused goal permits a supported resume operation; verify active readback.
+Never substitute an unverified focused composer for the caller's own session.
 
 ## Formulate verifiable exit criteria
 

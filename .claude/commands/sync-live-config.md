@@ -1,5 +1,5 @@
 ---
-description: Propagate repo .claude/.codex/hermes fixes to live config on this machine and optional remote hosts. Default scope is the top-6 highlighted skills; pass --full for everything.
+description: Compare and reconcile repository skills with live copies, then propagate reviewed paths. Default scope follows the highlighted-skills table; pass --full for everything.
 type: skill
 execution_mode: immediate
 ---

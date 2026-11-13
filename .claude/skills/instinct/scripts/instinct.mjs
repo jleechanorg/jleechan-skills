@@ -1,0 +1,1159 @@
+#!/usr/bin/env node
+/**
+ * instinct.mjs — WhatsApp Web transport for /instinct.
+ *
+ * Mechanical I/O only: open web.whatsapp.com in an agent-owned persistent Chrome
+ * profile, find a named contact, read recent messages, or type + submit a message.
+ * Every judgment call lives in ../SKILL.md.
+ *
+ * Verbs:
+ *   probe                 verify the profile is signed in to WhatsApp Web
+ *   read [--limit N]      print the last N messages of the open chat
+ *   open --contact NAME   open the chat for NAME (no send)
+ *   send --contact NAME --file PATH
+ *   whoami                print resolved profile + browser + contact
+ *
+ * Read-only by construction: `probe`, `read`, `open` and `whoami` never click Send.
+ */
+
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
+import os from 'node:os';
+import path from 'node:path';
+
+const VERB = process.argv[2] || 'whoami';
+let SELF_NAME = process.env.INSTINCT_SELF || '';
+
+function arg(name, dflt) {
+  const i = process.argv.indexOf(`--${name}`);
+  return i > -1 && process.argv[i + 1] ? process.argv[i + 1] : dflt;
+}
+
+const PROFILE_DIR = (
+  process.env.INSTINCT_PROFILE_DIR ||
+  path.join(os.homedir(), '.config', 'instinct-chrome-profile')
+).replace(/^~/, os.homedir());
+
+const CONTACT = process.env.INSTINCT_CONTACT || 'Instinct WhatsApp';
+const CHROME =
+  process.env.INSTINCT_CHROME_BIN ||
+  (process.platform === 'darwin'
+    ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+    : '/usr/bin/google-chrome');
+
+// ----------------------------------------------------------------------------
+// Transport chain: iMessage FIRST, WhatsApp Web as the secondary fallback.
+//
+// iMessage is primary because it needs no linked device, no browser, no profile
+// lock, no desktop-UA workaround and no UI hydration race, it does not steal
+// focus, it works from a scheduler and over SSH, and it can confirm delivery
+// against the real message store. WhatsApp needs a device link that a human must
+// establish once with a QR scan, so a fresh machine has no working WhatsApp path
+// until someone does that.
+//
+// Selection is by capability, not preference:
+//   1. INSTINCT_TRANSPORT=imessage|whatsapp forces one transport (no fallback).
+//   2. Otherwise the chain is [imessage, whatsapp].
+//   3. A transport not installed on this host (no bridge, or not macOS for
+//      iMessage) is SKIPPED, never reported as an error.
+//   4. The first transport that succeeds wins; a real failure is recorded and the
+//      next one is tried.
+//   5. If all fail, exit with the LAST transport's code so callers keep the
+//      documented contract (4 not signed in, 5 no contact, 6 no confirmation).
+// Resolve the bridge relative to THIS file first: the installer symlinks the skill
+// package into the runtime, so a sibling script is always present on a fresh
+// machine. `~/.local/bin` is only a fallback for hand-installed copies.
+/**
+ * The real on-disk path of THIS module.
+ *
+ * import.meta.url only knows the path the module was LOADED from. When the skill
+ * is installed as a symlink, that path is the link (e.g. ~/.agents/skills/instinct),
+ * not the target. Two things break if we use it raw:
+ *   1. the sibling bridge lookup misses (`<link-dir>/imsg-bridge.sh` does not exist),
+ *      so an installed copy silently loses iMessage;
+ *   2. the `IS_MAIN` entry check fails, because it compares that link path against
+ *      argv[1]; the module then exports without running, and the CLI prints nothing
+ *      while still exiting 0 — a probe or send that looks successful and did nothing.
+ * realpath collapses the link so both comparisons use the same file.
+ */
+function thisModuleRealPath() {
+  const loaded = fileURLToPath(import.meta.url);
+  try {
+    return fs.realpathSync(loaded);
+  } catch {
+    return loaded; // unresolvable: fall back rather than crash the CLI
+  }
+}
+
+const IMSG_BRIDGE = (() => {
+  if (process.env.INSTINCT_IMSG_BRIDGE) return process.env.INSTINCT_IMSG_BRIDGE;
+  // fileURLToPath, not .pathname: a pathname keeps %20 escapes, so a checkout under
+  // a directory with a space would silently miss the sibling bridge.
+  const sibling = path.join(path.dirname(thisModuleRealPath()), 'imsg-bridge.sh');
+  if (fs.existsSync(sibling)) return sibling;
+  return path.join(os.homedir(), '.local', 'bin', 'imsg-bridge.sh');
+})();
+
+/** Is a transport even installed here? Absence is not an error. */
+function transportAvailable(name) {
+  if (name === 'imessage') {
+    return process.platform === 'darwin' && fs.existsSync(IMSG_BRIDGE);
+  }
+  return true; // whatsapp needs only Chrome, which withPage verifies itself
+}
+
+function transportChain() {
+  const forced = (process.env.INSTINCT_TRANSPORT || '').toLowerCase().trim();
+  if (forced === 'imessage' || forced === 'whatsapp') return [forced];
+  if (forced) die(`INSTINCT_TRANSPORT must be 'imessage' or 'whatsapp', got '${forced}'`, 2);
+  return ['imessage', 'whatsapp'];
+}
+
+/**
+ * Delegate to the iMessage bridge, which owns its own delivery confirmation
+ * (it re-reads the message store and binds the result to the exact text sent),
+ * so we forward its exit code rather than re-implementing the check.
+ */
+function imessageBridge(verb, { file = null, limit = null, theirs = false, contact = null, db = null, dryRun = false } = {}) {
+  if (!transportAvailable('imessage')) {
+    die('iMessage transport unavailable (not macOS, or the bridge script is missing)', 4);
+  }
+  const args = [IMSG_BRIDGE, verb];
+  if (dryRun) args.push('--dry-run');
+  if (file) args.push('--file', file);
+  if (limit) args.push('--limit', String(limit));
+  if (theirs) args.push('--theirs');
+  // An explicit --contact must reach the bridge. Silently ignoring it would turn a
+  // targeting option into a wrong-recipient send.
+  if (contact) args.push('--contact-handle', contact);
+  // Forward a caller-chosen snapshot so a scheduler can read a copied store.
+  if (db) args.push('--db', db);
+  try {
+    execFileSync(args[0], args.slice(1), { stdio: 'inherit' });
+    return 0;
+  } catch (e) {
+    return typeof e.status === 'number' ? e.status : 1;
+  }
+}
+
+// Fallback is an ALLOW-list, not a deny-list. Only these codes prove the message was
+// never submitted, so only these may fall through to the next transport:
+//   2 bad usage, 3 missing dependency, 4 not signed in, 5 contact not found,
+//   6 osascript itself reported failure *and* the store showed no new row.
+// Anything else — 9, an unexpected number, or a signal (mapped to 1) — means the
+// message may already be out, and falling back would send it twice.
+const SAFE_TO_FALL_BACK = new Set([2, 3, 4, 5, 6]);
+
+function die(msg, code = 2) {
+  process.stderr.write(`instinct: ${msg}\n`);
+  process.exit(code);
+}
+
+/** Fail closed: the profile must be a real directory we own, never a symlink or the system Chrome dir. */
+function validateProfileDir(dir) {
+  const resolved = path.resolve(dir);
+  const home = os.homedir();
+  if (!resolved.startsWith(home + path.sep)) {
+    die(`profile dir ${resolved} is outside $HOME; refusing`);
+  }
+  const systemChrome = path.join(home, 'Library', 'Application Support', 'Google', 'Chrome');
+  if (resolved === systemChrome || resolved.startsWith(systemChrome + path.sep)) {
+    die('profile dir is the personal Chrome profile; refusing (browser-control isolation)');
+  }
+  if (fs.existsSync(resolved) && fs.lstatSync(resolved).isSymbolicLink()) {
+    die(`profile dir ${resolved} is a symlink; refusing`);
+  }
+  if (!fs.existsSync(resolved)) fs.mkdirSync(resolved, { recursive: true, mode: 0o700 });
+  return resolved;
+}
+
+const isMac = process.platform === 'darwin';
+const isLinux = process.platform === 'linux';
+
+/**
+ * Chrome launch flags. The password-store pin is NOT optional:
+ * Playwright's default args include --use-mock-keychain / --password-store=basic,
+ * which opens the encrypted cookie store with an incompatible backend and damages
+ * it (documented in ~/.claude/skills/dot/SKILL.md:253,256 — a realized incident on
+ * 2026-10-11 wiped a profile this way). Mirror dot_chrome.mjs:187-205 exactly.
+ */
+function chromeLaunchOptions(headed) {
+  const args = [
+    '--no-first-run',
+    '--no-default-browser-check',
+    '--disable-blink-features=AutomationControlled',
+  ];
+  const ignoreDefaultArgs = [];
+  if (isLinux) {
+    args.push('--no-sandbox', '--disable-setuid-sandbox');
+    // Always pin a real credential backend, even headless. Skipping the pin left
+    // Playwright's default --use-mock-keychain/--password-store=basic active, which
+    // reopens the exact cookie-damage vector this pin exists to close.
+    args.push('--password-store=gnome-libsecret');
+    ignoreDefaultArgs.push('--password-store=basic', '--use-mock-keychain');
+  } else if (isMac) {
+    args.push('--password-store=keychain', '--disable-features=MacAppCodeSignClone');
+    ignoreDefaultArgs.push('--use-mock-keychain', '--password-store=basic');
+  }
+  return {
+    executablePath: CHROME,
+    headless: isLinux ? !headed && !process.env.DISPLAY : !headed,
+    viewport: { width: 1280, height: 900 },
+    args,
+    ignoreDefaultArgs,
+  };
+}
+
+/**
+ * Refuse to launch over a live holder. Dot's verdict: sharing a profile is sound only
+ * with "serialized ownership plus clean shutdown", so this yields rather than colliding.
+ *
+ * Two traps, both real:
+ *  - Chrome's SingletonLock is a DANGLING symlink to "<hostname>-<pid>"; existsSync()
+ *    follows the link and always reports false. lstat the link itself.
+ *  - process.kill(pid,0) throws EPERM for a root-owned LIVE process. EPERM means alive;
+ *    only ESRCH means gone. Treating EPERM as dead would delete a live lock.
+ */
+function pidAlive(pid) {
+  if (!Number.isFinite(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return e.code === 'EPERM';
+  }
+}
+
+function liveHolderPid(dir) {
+  const lock = path.join(dir, 'SingletonLock');
+  let target = null;
+  try {
+    if (fs.lstatSync(lock).isSymbolicLink()) target = fs.readlinkSync(lock).toString();
+  } catch {
+    target = null;
+  }
+  if (target !== null) {
+    const pid = Number(String(target).split('-').pop());
+    if (pidAlive(pid)) return pid;
+  }
+  // Independent check: a Chrome actually holding the dir, even with an odd lock.
+  try {
+    const out = execFileSync('pgrep', ['-f', `user-data-dir=${dir}`], { encoding: 'utf8' }).trim();
+    if (out) return Number(out.split('\n')[0]);
+  } catch {
+    // pgrep exits 1 when nothing matches — the healthy case.
+  }
+  return null;
+}
+
+/**
+ * Yield to a busy profile instead of colliding with it.
+ *
+ * Dot's verdict was "serialized ownership plus clean shutdown". This lock serializes
+ * instinct's OWN runs and makes instinct WAIT on a profile Chrome already holds; it is
+ * one-sided because dot.sh takes no lock, so it does not by itself exclude Dot. Chromium's
+ * ProcessSingleton REJECTS a simultaneous second launch (it does not queue it), and there is a
+ * check-to-launch window here, so operator serialization remains necessary.
+ * The lockfile lives outside the profile dir so it never collides with Chrome's
+ * Singleton namespace, and it is released on exit AND on signals so a crash cannot
+ * wedge the next run.
+ */
+async function acquireLock(dir) {
+  const lockFile = path.join(os.homedir(), '.config', 'instinct-profile.lock');
+  const lockWait = Number(process.env.INSTINCT_LOCK_WAIT_MS || 300_000);
+  const profileWait = Number(process.env.INSTINCT_PROFILE_WAIT_MS || 300_000);
+  const deadline = Date.now() + Math.max(lockWait, profileWait);
+
+  // Phase 1: take the advisory lockfile (steal only from a provably dead runner).
+  for (;;) {
+    try {
+      const fd = fs.openSync(lockFile, 'wx', 0o600);
+      fs.writeSync(fd, String(process.pid));
+      fs.closeSync(fd);
+      break;
+    } catch (e) {
+      if (e.code !== 'EEXIST') die(`cannot create ${lockFile}: ${e.code}`, 7);
+      let holder = null;
+      try {
+        holder = Number(fs.readFileSync(lockFile, 'utf8').trim());
+      } catch {}
+      if (holder && !pidAlive(holder)) {
+        try {
+          fs.unlinkSync(lockFile);
+        } catch {}
+        continue;
+      }
+      if (Date.now() > deadline) {
+        die(
+          `another instinct run (pid ${holder || '?'}) holds ${lockFile} past the ` +
+            `${lockWait}ms wait. Not stealing it.`,
+          7
+        );
+      }
+      await new Promise((r) => setTimeout(r, 200));
+    }
+  }
+
+  const release = () => {
+    try {
+      const held = Number(fs.readFileSync(lockFile, 'utf8').trim());
+      if (held === process.pid) fs.unlinkSync(lockFile);
+    } catch {}
+  };
+  // A crash or Ctrl-C must not wedge the next run.
+  process.once('exit', release);
+  for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+    process.once(sig, () => {
+      release();
+      process.exit(130);
+    });
+  }
+
+  // Phase 2: wait for any live Chrome (dot.sh, a straggler helper) to finish.
+  let announced = false;
+  for (;;) {
+    const pid = liveHolderPid(dir);
+    if (!pid) return release;
+    if (Date.now() > deadline) {
+      die(
+        `profile ${dir} still owned by Chrome pid ${pid} after the wait window. ` +
+          'Close it first — never delete SingletonLock.',
+        7
+      );
+    }
+    if (!announced) {
+      process.stderr.write(`instinct: profile busy (pid ${pid}); waiting for it to finish...\n`);
+      announced = true;
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+}
+
+/**
+ * Resolve playwright the way dot.sh does: NODE_PATH, then the nvm/npm global
+ * node_modules next to the running node binary. A bare `import('playwright')`
+ * fails on a host where playwright is a GLOBAL package (Linux/jeff-ubuntu).
+ */
+async function loadChromium() {
+  const candidates = [];
+  if (process.env.NODE_PATH) candidates.push(...process.env.NODE_PATH.split(':').filter(Boolean));
+  candidates.push(path.join(path.dirname(process.execPath), '..', 'lib', 'node_modules'));
+  candidates.push(path.join(os.homedir(), '.npm-global', 'lib', 'node_modules'));
+  candidates.push(path.join(os.homedir(), 'node_modules'));
+
+  try {
+    const pw = await import('playwright');
+    return pw.chromium;
+  } catch {}
+
+  for (const base of candidates) {
+    for (const entry of ['playwright/index.mjs', 'playwright/index.js', 'playwright-core/index.mjs']) {
+      const p = path.join(base, entry);
+      if (!fs.existsSync(p)) continue;
+      try {
+        const m = await import(`file://${p}`);
+        const c = m.chromium || (m.default && m.default.chromium);
+        if (c) return c;
+      } catch {}
+    }
+  }
+  die(
+    'playwright is not resolvable. Install it globally or set NODE_PATH to the directory ' +
+      `containing it (searched: ${candidates.join(', ')}).`,
+    3
+  );
+}
+
+async function withPage(fn, { headed = false } = {}) {
+  const chromium = await loadChromium();
+  if (!fs.existsSync(CHROME)) die(`Chrome binary not found at ${CHROME}`, 3);
+
+  const dir = validateProfileDir(PROFILE_DIR);
+  const release = await acquireLock(dir);
+  const ctx = await chromium.launchPersistentContext(dir, chromeLaunchOptions(headed));
+  try {
+    const page = ctx.pages()[0] || (await ctx.newPage());
+    return await fn(page, ctx);
+  } finally {
+    // Clean shutdown: close the context, then wait for the OS to actually release
+    // ProcessSingleton before the next consumer (dot.sh) launches. Dot's own teardown
+    // does the same (dot_chrome.mjs:812, await ctx?.close() then sleep(300)).
+    await ctx.close().catch(() => {});
+    const gone = Date.now() + 10_000;
+    while (Date.now() < gone && liveHolderPid(dir)) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    await new Promise((r) => setTimeout(r, 300));
+    release();
+  }
+}
+
+const WA = 'https://web.whatsapp.com/';
+
+/**
+ * One authoritative auth classifier. EVERY caller uses this, so `probe` and `signedIn()` can never
+ * disagree about what the session is. Derived from a single DOM sample.
+ *
+ * linked     - the chat list is actually visible
+ * signed_out - a VISIBLE <canvas> plus the QR screen's own copy. A bare canvas is not proof: the
+ *              startup promo page ("Download WhatsApp for Mac") also has one, which is exactly why
+ *              this is not a canvas count.
+ * loading    - anything else (splash, mid-transition, ambiguous)
+ */
+const QR_COPY = /scan (the )?qr|link with phone number|log in with phone number|keep me signed in/i;
+
+async function classifyState(page) {
+  return page
+    .evaluate((qrCopySrc) => {
+      const qrCopy = new RegExp(qrCopySrc, 'i');
+      const visible = (el) => {
+        if (!el) return false;
+        const r = el.getBoundingClientRect();
+        const st = getComputedStyle(el);
+        return r.width > 0 && r.height > 0 && st.visibility !== 'hidden' && st.display !== 'none';
+      };
+      const list = document.querySelector('#pane-side');
+      if (visible(list)) return 'linked';
+      // Check EVERY canvas: a hidden first one must not mask a visible QR canvas.
+      const anyVisibleCanvas = [...document.querySelectorAll('canvas')].some(visible);
+      const bodyText = document.body ? document.body.innerText || '' : '';
+      if (anyVisibleCanvas && qrCopy.test(bodyText)) return 'signed_out';
+      return 'loading';
+    }, QR_COPY.source)
+    .catch(() => 'loading');
+}
+
+/** Signed in iff the single classifier says linked. No second, divergent definition. */
+async function signedIn(page) {
+  return (await classifyState(page)) === 'linked';
+}
+
+
+/** This WhatsApp build uses a real <input> for search, not a contenteditable div. */
+const SEARCH = 'input[aria-label="Search or start a new chat"], input[placeholder="Search or start a new chat"]';
+const COMPOSER =
+  '[data-testid="conversation-compose-box-input"], footer div[contenteditable="true"]';
+const SEND_BTN = 'footer button[aria-label="Send"], button[aria-label="Send"]';
+const READ_MORE = '[data-testid="caption-read-more-button"]';
+
+async function openContact(page, name) {
+  await page.goto(WA, { waitUntil: 'domcontentloaded' });
+  // The chat list can take a while to hydrate on a cold profile.
+  await page.locator('#pane-side').waitFor({ timeout: 90_000 }).catch(() => {});
+  if (!(await signedIn(page))) {
+    die(
+      'not signed in to WhatsApp Web. Link the device once, interactively:\n' +
+        `  node ${process.argv[1]} login\n` +
+        'then scan the QR from WhatsApp on the phone.',
+      4
+    );
+  }
+  const search = page.locator(SEARCH).first();
+  await search.waitFor({ timeout: 30_000 });
+  await search.click();
+  await search.fill('');
+  await search.type(name, { delay: 40 });
+  await page.waitForTimeout(2500);
+
+  // Titles must be judged on the TITLE node only. A whole-row hasText fallback is unsafe:
+  // a row's text includes its message preview, so searching "Bob" could select Ann's chat
+  // merely because Ann's last message mentioned Bob — and .first() would silently send there.
+  const titleNodes = page.locator('#pane-side span[title]');
+  const titles = await titleNodes
+    .evaluateAll((els) => els.map((e) => e.getAttribute('title')).filter(Boolean))
+    .catch(() => []);
+
+  const exactTitles = titles.filter((t) => t === name);
+  if (exactTitles.length === 0) {
+    die(
+      `contact "${name}" not found by exact title (no message-preview matching, to avoid ` +
+        `mis-sending). Visible chats: ${JSON.stringify(titles.slice(0, 20))}`,
+      5
+    );
+  }
+  if (exactTitles.length > 1) {
+    // Ambiguous: never guess with .first().
+    die(
+      `${exactTitles.length} chats are titled exactly "${name}"; refusing to guess. ` +
+        `Rename one, or pass a unique name. Visible chats: ${JSON.stringify(titles.slice(0, 20))}`,
+      5
+    );
+  }
+
+  // Selection: one page.evaluate pass finds the title nodes, requires exactly one whose
+  // title === name, and marks THAT node by reference. Playwright then clicks the marked
+  // element. This removes the earlier index/filter mismatch (a filtered list's index applied
+  // to a differently-filtered locator). It does NOT make selection and click atomic: the
+  // marker is a DOM attribute read a tick later, so the node could in principle be replaced
+  // or duplicated in between. Duplicates are therefore rejected before clicking, and the
+  // header guard below is the authoritative check before any typing.
+  const clicked = await page.evaluate((wanted) => {
+    const nodes = [...document.querySelectorAll('#pane-side span[title]')];
+    const hits = nodes.filter((n) => n.getAttribute('title') === wanted);
+    if (hits.length !== 1) {
+      return { ok: false, reason: hits.length === 0 ? 'no exact title match' : `${hits.length} exact title matches`, count: hits.length };
+    }
+    // Mark the exact node so Playwright clicks THIS element (a synthetic .click() does not
+    // reliably open the chat in this build). The marker is removed right after.
+    hits[0].setAttribute('data-instinct-target', '1');
+    return { ok: true, title: hits[0].getAttribute('title') };
+  }, name);
+
+  if (!clicked.ok) {
+    die(
+      `could not select "${name}": ${clicked.reason}; refusing to guess`,
+      5
+    );
+  }
+  const marked = page.locator('[data-instinct-target="1"]');
+  let markerCount = 0;
+  try {
+    markerCount = await marked.count();
+  } catch {}
+  if (markerCount !== 1) {
+    await page
+      .evaluate(() =>
+        document
+          .querySelectorAll('[data-instinct-target]')
+          .forEach((el) => el.removeAttribute('data-instinct-target'))
+      )
+      .catch(() => {});
+    die(
+      `expected exactly 1 marked chat node, found ${markerCount}; refusing to click`,
+      5
+    );
+  }
+  try {
+    await marked.click({ timeout: 20_000 });
+  } finally {
+    // Always clear every marker, including on a click failure.
+    await page
+      .evaluate(() =>
+        document
+          .querySelectorAll('[data-instinct-target]')
+          .forEach((el) => el.removeAttribute('data-instinct-target'))
+      )
+      .catch(() => {});
+  }
+  // Wait for the header to show THIS contact, not merely "a header is visible" — a visible
+  // previous header would satisfy a presence check without navigation having happened.
+  await page
+    .locator('[data-testid="conversation-info-header"]')
+    .filter({ hasText: name })
+    .first()
+    .waitFor({ state: 'visible', timeout: 30_000 })
+    .catch(() => {});
+
+  // Verify the OPEN chat is the requested contact before anyone types into it.
+  // NOTE: `header span[title]` is NOT the chat title here — it matches the "Business Account"
+  // badge inside the header (verified live 2026-11-09). The conversation title lives in
+  // [data-testid="conversation-info-header"].
+  // Strictly test-id based. No generic-header fallback: a loose fallback could read a badge
+  // or another pane's header and pass the guard for the wrong chat.
+  const infoHeader = page.locator('[data-testid="conversation-info-header"]').first();
+  let openTitle = '';
+  try {
+    openTitle = (await infoHeader.innerText({ timeout: 10_000 })).split('\n')[0].trim();
+  } catch {
+    die(
+      'could not read [data-testid="conversation-info-header"]; refusing to send without ' +
+        'confirming the open chat',
+      5
+    );
+  }
+  if (openTitle !== name) {
+    die(
+      `opened chat header is ${JSON.stringify(openTitle)}, expected ${JSON.stringify(name)}; ` +
+        'refusing to send into the wrong chat',
+      5
+    );
+  }
+  return true;
+}
+
+// Reduce the raw [data-pre-plain-text] nodes to one entry per message.
+//
+// WhatsApp re-emits ONE message as several nodes: a long message's nested blocks
+// (lists, quoted replies) each carry their own copy, with a garbage sender label
+// like "1." instead of the real name. They share a data-id, so they are the same
+// message. Keeping them split a single reply into fragments and attributed a
+// continuation of OUR text to the peer — a false "reply" for a grep-based caller.
+//
+// Pure and exported so the reduction can be checked without a live browser.
+function reduceBubbles(nodes) {
+  const out = [];
+  const seen = new Set();
+  for (const n of nodes) {
+    const meta = n.meta || '';
+    const m = meta.match(/^\[(.+?)\]\s*([^:]*):/);
+    const when = m ? m[1] : '';
+    const sender = m ? m[2].trim() : '';
+    const text = (n.text || '').replace(/\s+/g, ' ').trim();
+    if (!text) continue;
+    const id = n.id || '';
+    // First occurrence wins: the outermost node carries the real sender label.
+    // Without a data-id a node cannot be proven a duplicate, so keep it.
+    if (id) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+    }
+    out.push({ when, sender, text, id });
+  }
+  return out;
+}
+
+async function readMessages(page, limit, { warnIfTruncated = false } = {}) {
+  // This WhatsApp build dropped .message-in/.message-out. Bubbles carry
+  // [data-pre-plain-text] = "[<time>, <date>] <Sender>: ", which gives direction
+  // and timestamp without depending on obfuscated class names.
+  // A long message collapses behind "… Read more", and the remainder is ABSENT from the
+  // DOM until that button is clicked — not merely clipped. Expand before scraping, or a
+  // reply ending in "VERDICT" reads as absent to a grepping caller.
+  //
+  // Scoped to #main (the open conversation): a page-wide selector could click a button
+  // belonging to another chat after the header guard already passed, and the scrape
+  // would then report that chat's text as the peer's.
+  const expanders = page.locator(`#main ${READ_MORE}`);
+  const collapsed = await expanders.count().catch(() => 0);
+  if (collapsed > 0) {
+    await expanders.evaluateAll((els) => els.forEach((e) => e.click())).catch(() => {});
+    // Expansion is a client-side render. Poll rather than sleep a fixed interval: the
+    // file already records (probe) that guessing a duration reported a healthy session
+    // as broken, and a slow render here silently yields the truncated text again.
+    const deadline = Date.now() + 5000;
+    for (;;) {
+      const left = await page
+        .locator(`#main ${READ_MORE}`)
+        .count()
+        .catch(() => 0);
+      if (left === 0 || Date.now() > deadline) break;
+      await page.waitForTimeout(100);
+    }
+  }
+  const raw = await page.evaluate(() => {
+    const nodes = [...document.querySelectorAll('[data-pre-plain-text]')];
+    const out = [];
+    for (const n of nodes) {
+      // The enclosing message node is the nearest ancestor carrying data-id.
+      let id = '';
+      for (let el = n, i = 0; el && i < 25; i++, el = el.parentElement) {
+        const v = el.getAttribute('data-id');
+        if (v) {
+          id = v;
+          break;
+        }
+      }
+      out.push({
+        meta: n.getAttribute('data-pre-plain-text') || '',
+        text: n.innerText || '',
+        id,
+      });
+    }
+    // Return EVERY node. Truncating here would keep only the tail of the list, and a
+    // long message's continuation nodes sit at the tail carrying a garbage sender
+    // label ("1.") instead of the real one. reduceBubbles relies on the FIRST node
+    // per data-id for attribution, so slicing before dedup attributes our own outgoing
+    // text to the peer — including literal "VERDICT: PASS" strings that a watcher greps.
+    return out;
+  });
+  const bubbles = reduceBubbles(raw).slice(-limit);
+  // A bubble that still ends in the marker means expansion did not take. Say so: silent
+  // truncation is the exact failure this function exists to prevent, and a caller that
+  // greps for a verdict would otherwise read an absent reply as "not answered yet".
+  // The marker carries an ellipsis ("… Read more"); requiring it keeps a message that
+  // legitimately ends with the words "read more" from crying wolf.
+  //
+  // Only the read verb acts on bubble text. Warning from `send`'s 3-bubble tail or
+  // `open` would add unrelated stderr noise to those success paths and dilute the
+  // signal for the callers that actually need it.
+  if (warnIfTruncated && bubbles.some((m) => /(?:…|\.\.\.)\s*read more\s*$/i.test(m.text))) {
+    process.stderr.write(
+      'instinct: WARNING a bubble is still collapsed after expanding; its tail (and any ' +
+        'verdict in it) may be missing. Re-read, or treat the tail as UNREAD.\n'
+    );
+  }
+  return bubbles;
+}
+
+// Direction is only ever reported when it is actually known.
+// so a caller grepping for a reply matched its own outgoing text. An unknown
+// direction is printed as `?` WITH the sender label, which is still attributable.
+function formatMsg(m, selfName) {
+  const sender = m.sender || '';
+  if (!sender) return `...   [${m.when}] ${m.text}`;
+  if (selfName && sender.toLowerCase() === selfName.toLowerCase()) {
+    return `me    [${m.when}] ${m.text}`;
+  }
+  if (selfName) return `them  [${m.when}] ${m.text}`;
+  return `?     [${m.when}] ${sender}: ${m.text}`;
+}
+
+async function compose(page, text) {
+  const box = page.locator(COMPOSER).last();
+  await box.waitFor({ timeout: 30_000 });
+  await box.click();
+  // Clear any draft first: a leftover draft would be prepended to our text and sent
+  // (observed during transport bring-up). Select-all + delete, then confirm empty.
+  for (const combo of [['Control', 'a'], ['Meta', 'a']]) {
+    await page.keyboard.down(combo[0]);
+    await page.keyboard.press('a');
+    await page.keyboard.up(combo[0]);
+  }
+  await page.keyboard.press('Backspace');
+  await page.waitForTimeout(300);
+  const leftover = (await box.innerText().catch(() => '')).replace(/\s+/g, ' ').trim();
+  if (leftover.length > 0) {
+    die(
+      `composer had an un-clearable draft (${JSON.stringify(leftover.slice(0, 60))}); ` +
+        'refusing to send, because it would be prepended to the message',
+      6
+    );
+  }
+  // Keystrokes, not fill(): WhatsApp's composer needs real input events.
+  // NEVER page.keyboard.type() a multi-line body: every embedded newline fires Enter and
+  // submits a fragment (observed live 2026-11-09 — a 24-line review request was split into
+  // 5 separate WhatsApp messages). Insert the whole body as one paste instead, so newlines
+  // stay inside the draft. Newlines are still preserved as typed text.
+  await page.evaluate((body) => {
+    const el = document.querySelector(
+      '[data-testid="conversation-compose-box-input"]'
+    ) || document.querySelector('footer div[contenteditable="true"]');
+    if (!el) throw new Error('composer not found for paste');
+    el.focus();
+    const dt = new DataTransfer();
+    dt.setData('text/plain', body);
+    el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+  }, text);
+  await page.waitForTimeout(900);
+  const typed = (await box.innerText().catch(() => '')).replace(/\s+/g, ' ').trim();
+  // Compare the WHOLE normalised body, not a 40-char prefix: a truncated paste would pass a
+  // prefix check and be reported as sent (raised by Dot review as a non-P0).
+  const norm = (v) => v.replace(/\s+/g, ' ').trim();
+  const wantAll = norm(text);
+  // Compare normalised content, but tolerate reflow: equal length with a differing string
+  // means whitespace was redistributed, not that content was lost.
+  const sameContent = typed === wantAll || (typed.length === wantAll.length && norm(typed).length === wantAll.length);
+  if (!sameContent) {
+    die(
+      `composer content does not match the full message (want ${wantAll.length} chars, ` +
+        `got ${typed.length}); nothing was sent`,
+      6
+    );
+  }
+  return box;
+}
+
+// Compare against the REAL module path, not the loaded one: a symlinked install must
+// still run the CLI instead of silently exporting and exiting 0.
+const IS_MAIN =
+  !!process.argv[1] &&
+  (() => {
+    try {
+      return fs.realpathSync(path.resolve(process.argv[1])) === thisModuleRealPath();
+    } catch {
+      return path.resolve(process.argv[1]) === thisModuleRealPath();
+    }
+  })();
+
+async function main() {
+  const headed = process.env.INSTINCT_HEADED === '1';
+
+  if (VERB === 'login') {
+    // Interactive one-time device link. Deliberately HEADED and long-lived: the operator
+    // must scan the QR from their phone. The advisory lock is held for the whole session so
+    // a competing instinct run waits; it does not block dot.sh, which takes no lock.
+    if (!fs.existsSync(CHROME)) die(`Chrome binary not found at ${CHROME}`, 3);
+    const chromium = await loadChromium();
+    const dir = validateProfileDir(PROFILE_DIR);
+    const release = await acquireLock(dir);
+    process.stderr.write(
+      `instinct: opening a visible Chrome on ${dir}\n` +
+        'Scan the QR: WhatsApp on your phone -> Settings -> Linked devices -> Link a device\n' +
+        `This window stays open until ${CONTACT} appears or the ${Math.round(
+          Number(process.env.INSTINCT_LOGIN_WAIT_MS || 600_000) / 1000
+        )}s timer expires. Do not close it early.\n`
+    );
+    const ctx = await chromium.launchPersistentContext(dir, chromeLaunchOptions(true));
+    try {
+      const page = ctx.pages()[0] || (await ctx.newPage());
+      await page.goto(WA, { waitUntil: 'domcontentloaded' });
+      const deadline = Date.now() + Number(process.env.INSTINCT_LOGIN_WAIT_MS || 600_000);
+      let ok = false;
+      while (Date.now() < deadline) {
+        if (await signedIn(page)) {
+          ok = true;
+          break;
+        }
+        await page.waitForTimeout(2000);
+      }
+      if (!ok) {
+        die('login window expired without a link; nothing was changed', 4);
+      }
+      // Let the chat list hydrate and persist the device link to disk before closing.
+      await page.waitForTimeout(6000);
+      const msgs = await readMessages(page, 5).catch(() => []);
+      process.stdout.write(`LINKED: ${PROFILE_DIR}\n`);
+      if (msgs.length) msgs.forEach((m) => process.stdout.write(`  ${formatMsg(m, SELF_NAME)}\n`));
+    } finally {
+      await ctx.close().catch(() => {});
+      const gone = Date.now() + 10_000;
+      while (Date.now() < gone && liveHolderPid(dir)) {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      await new Promise((r) => setTimeout(r, 300));
+      release();
+    }
+    return;
+  }
+
+  if (VERB === 'whoami') {
+    process.stdout.write(
+      JSON.stringify(
+        {
+          transport_order: transportChain(),
+          transport_available: Object.fromEntries(
+            transportChain().map((t) => [t, transportAvailable(t)])
+          ),
+          imessage_bridge: IMSG_BRIDGE,
+          profile_dir: PROFILE_DIR,
+          chrome: CHROME,
+          contact: CONTACT,
+          contact_source: process.env.INSTINCT_CONTACT ? 'env' : 'default',
+          browser: 'Google Chrome (playwright persistent context)',
+          rejects: ['personal ~/Library/.../Google/Chrome', 'symlinked profile dir'],
+        },
+        null,
+        2
+      ) + '\n'
+    );
+    return;
+  }
+
+  if (VERB === 'probe') {
+    // ---- transport chain: iMessage first, then WhatsApp -------------------
+    // A transport that is not installed here is skipped, not failed, so a Mac
+    // uses iMessage and a Linux host uses WhatsApp without either reporting the
+    // other's absence as an error.
+    const probeChain = transportChain();
+    let probeLast = 4;
+    if (probeChain.includes('imessage')) {
+      if (transportAvailable('imessage')) {
+        const probeContact = process.argv.includes('--contact') ? arg('contact', null) : null;
+        const rc = imessageBridge('probe', { contact: probeContact, db: arg('db', null) });
+        if (rc === 0) {
+          process.stderr.write('instinct: transport=imessage (primary)\n');
+          return;
+        }
+        probeLast = rc || 4;
+        process.stderr.write(
+          probeChain.length > 1
+            ? `instinct: imessage probe failed rc=${rc}; trying next transport\n`
+            : `instinct: imessage probe failed rc=${rc} (no fallback: transport forced)\n`
+        );
+      } else {
+        process.stderr.write('instinct: skipping imessage (not installed on this host)\n');
+      }
+    }
+    if (!probeChain.includes('whatsapp')) {
+      process.stdout.write(JSON.stringify({ signed_in: false, transport: null }) + '\n');
+      die(`all transports failed for probe (tried: ${probeChain.join(', ')})`, probeLast);
+    }
+    // ---- end chain; WhatsApp probe below is the fallback ------------------
+
+    // Resolve a positive, finite timeout. A NaN/0/negative value would sample nothing and
+    // report 'loading'; Infinity would remove the deadline. Reject both loudly.
+    const timeout = Number(process.env.INSTINCT_PROBE_TIMEOUT_MS ?? 90_000);
+    if (!Number.isFinite(timeout) || timeout <= 0) {
+      die(`INSTINCT_PROBE_TIMEOUT_MS must be a positive finite number of ms; got ${JSON.stringify(process.env.INSTINCT_PROBE_TIMEOUT_MS)}`, 2);
+    }
+
+    const started = Date.now();
+    const deadline = started + timeout;
+
+    // Never call process.exit() inside withPage: that skips its finally block, which closes the
+    // context and waits for ProcessSingleton release. Exiting from here would leave Chrome
+    // holding the profile and wedge the next run. Return a verdict and act on it after cleanup.
+    const result = await withPage(async (page) => {
+      await page.goto(WA, { waitUntil: 'domcontentloaded' });
+      // WhatsApp pads startup with a splash, and a cold but LINKED profile can need ~40s before
+      // the chat list hydrates. A fixed 4s wait therefore reported signed_in:false for a
+      // perfectly good session (observed 2026-11-10: pane-side=0 at 4s; pane-side=1 with title
+      // "(2) WhatsApp" at 45s). Poll instead of guessing a duration.
+      //
+      // Polling continues to the deadline even after a signed_out observation. Breaking on the
+      // FIRST QR sighting would let a transient startup QR win, so persistence is established by
+      // the final sample rather than by one early glimpse.
+      let sawSignedOut = false;
+      let signedOutStreak = 0;
+      let state = 'loading';
+      for (;;) {
+        state = await classifyState(page);
+        if (state === 'linked') break;
+        if (state === 'signed_out') {
+          sawSignedOut = true;
+          signedOutStreak += 1;
+        } else {
+          signedOutStreak = 0;
+        }
+
+        const remaining = deadline - Date.now();
+        // No budget left: take one last sample so a chat list that appeared during the final
+        // sleep is still seen, then decide.
+        if (remaining <= 0) {
+          state = await classifyState(page);
+          break;
+        }
+        await page.waitForTimeout(Math.min(1000, remaining));
+      }
+      // `state` is the FINAL sample, so a QR that appeared and then cleared leaves us at
+      // 'loading' (UNVERIFIED) rather than a false signed_out. `sawSignedOut` is reported so an
+      // operator can tell "never rendered anything" from "showed a QR that went away".
+      // A QR only counts as the outcome when the FINAL sample says so; signed_outStreak reports
+      // how long it had been on screen. A QR seen mid-poll that cleared is a transient.
+      return {
+        state,
+        signedOutStreak,
+        sawSignedOutTransient: sawSignedOut && state !== 'signed_out',
+        waited_ms: Date.now() - started,
+      };
+    }, { headed });
+
+    const ok = result.state === 'linked';
+    process.stdout.write(
+      JSON.stringify({
+        signed_in: ok,
+        // Name the transport that actually answered. The iMessage branch returns
+        // before this point and its bridge already emits transport=imessage, so
+        // without this field a caller cannot tell an iMessage verification from a
+        // WhatsApp fallback that never checked the intended peer at all.
+        transport: 'whatsapp',
+        state: result.state,
+        saw_signed_out_transient: result.sawSignedOutTransient,
+        consecutive_signed_out_samples: result.signedOutStreak,
+        waited_ms: result.waited_ms,
+        profile_dir: PROFILE_DIR,
+      }) + '\n'
+    );
+    if (ok) return;
+    if (result.state === 'loading') {
+      die(
+        `WhatsApp Web rendered neither a linked chat list nor a QR screen within ${timeout}ms. ` +
+          'The link state is UNVERIFIED, which is not proof the device link is dead. Raise ' +
+          'INSTINCT_PROBE_TIMEOUT_MS or rerun before treating it as signed out.',
+        8
+      );
+    }
+    // Genuine signed-out: a visible QR screen persisted to the end of the poll.
+    process.exitCode = 4;
+    return;
+  }
+
+  if (VERB === 'open') {
+    const name = arg('contact', CONTACT);
+    await withPage(async (page) => {
+      await openContact(page, name);
+      const msgs = await readMessages(page, Number(arg('limit', 10)));
+      process.stdout.write(`opened: ${name}\n`);
+      msgs.forEach((m) => process.stdout.write(`  ${formatMsg(m, SELF_NAME)}\n`));
+    }, { headed });
+    return;
+  }
+
+  if (VERB === 'read') {
+    const name = arg('contact', CONTACT);
+    const limit = Number(arg('limit', 20));
+    // Replies from the CONTACT are what callers act on, so outgoing rows are
+    // excluded on request. Reading our own text back is how a prompt that asks
+    // for "VERDICT: PASS" ends up matching itself.
+    const wantTheirs =
+      process.argv.includes('--theirs') || process.env.INSTINCT_READ_THEIRS === '1';
+
+    const readChain = transportChain();
+    let readLast = 4;
+    const explicitReadContact = process.argv.includes('--contact') ? name : null;
+    const readDbSnapshot = arg('db', null);
+    if (readChain.includes('imessage') && transportAvailable('imessage')) {
+      const rc = imessageBridge('read', {
+        limit,
+        theirs: wantTheirs,
+        contact: explicitReadContact,
+        db: readDbSnapshot,
+      });
+      if (rc === 0) {
+        process.stderr.write('instinct: read via imessage (primary)\n');
+        return;
+      }
+      readLast = rc || 4;
+      process.stderr.write(
+        readChain.length > 1
+          ? `instinct: imessage read failed rc=${rc}; falling back to whatsapp\n`
+          : `instinct: imessage read failed rc=${rc} (no fallback: transport forced)\n`
+      );
+    } else if (readChain.includes('imessage')) {
+      process.stderr.write('instinct: skipping imessage (not installed on this host)\n');
+    }
+    if (!readChain.includes('whatsapp')) {
+      die(`all transports failed for read (tried: ${readChain.join(', ')}); last code ${readLast}`, readLast);
+    }
+
+    await withPage(async (page) => {
+      await openContact(page, name);
+      // Ask for a wider window than the caller wants: the direction check below
+      // needs to see whether ANY bubble is ours, and a run of peer replies (the
+      // normal reply-polling case) would otherwise contain none and be refused.
+      const scan = wantTheirs ? Math.max(limit * 4, 40) : limit;
+      const allMsgs = await readMessages(page, scan, { warnIfTruncated: true });
+      const msgs = allMsgs.slice(-limit);
+      // --theirs must filter the fallback transport too. Without this, a prompt that
+      // asks for "VERDICT: PASS|FAIL|BLOCKED" matches its own outgoing text here and
+      // reports a verdict that does not exist — the exact bug this flag prevents.
+      //
+      // Direction comes from each bubble's sender label. INSTINCT_SELF names OUR
+      // label; when it is unset, the OTHER party is named by the contact we opened
+      // (openContact has already verified the chat header, so exactly two senders
+      // exist). Refusing outright whenever INSTINCT_SELF was unset made reply
+      // polling unusable, while doing nothing leaked our own text into "theirs".
+      let shown = msgs;
+      if (wantTheirs) {
+        const labels = [...new Set(allMsgs.map((m) => (m.sender || '').toLowerCase()))].filter(
+          Boolean
+        );
+        // The peer's label is the one matching the chat we deliberately opened. It can
+        // differ from the chat title (saved contact name vs push name), so fall back to
+        // "the only label that is not ours" when that is unambiguous.
+        let theirsLower = name.toLowerCase();
+        if (!labels.includes(theirsLower) && SELF_NAME) {
+          const others = labels.filter((l) => l !== SELF_NAME.toLowerCase());
+          if (others.length === 1) theirsLower = others[0];
+        }
+        if (!labels.includes(theirsLower)) {
+          die(
+            `read --theirs could not identify the peer's bubbles on the WhatsApp transport ` +
+              `(labels seen: ${JSON.stringify(labels.slice(0, 10))}). Set INSTINCT_SELF to ` +
+              'your own display name so direction can be resolved.',
+            2
+          );
+        }
+        shown = msgs.filter((m) => (m.sender || '').toLowerCase() === theirsLower);
+      }
+
+      process.stdout.write(`chat: ${name} (last ${shown.length})\n`);
+      shown.forEach((m) => process.stdout.write(`  ${formatMsg(m, SELF_NAME)}\n`));
+    }, { headed });
+    process.stderr.write('instinct: read via whatsapp (secondary)\n');
+    return;
+  }
+
+  if (VERB === 'send') {
+    const name = arg('contact', CONTACT);
+    const file = arg('file', null);
+    const dryRun = process.argv.includes('--dry-run');
+    if (!file) die('send requires --file <path> (write the message to a file first)', 2);
+    if (!fs.existsSync(file)) die(`message file not found: ${file}`, 2);
+    const text = fs.readFileSync(file, 'utf8').trim();
+
+    // A dry run proves the wire without delivering anything. It must NOT walk the
+    // transport chain's fallback logic: during a dry run a non-zero rc means the
+    // intent is broken, and "falling back" would attempt a second, real transport.
+    if (dryRun) {
+      if (!transportAvailable('imessage')) die('dry-run is only implemented for iMessage', 3);
+      const rc = imessageBridge('send', {
+        file,
+        contact: process.argv.includes('--contact') ? name : null,
+        db: arg('db', null),
+        dryRun: true,
+      });
+      if (rc !== 0) die(`imessage dry-run rc=${rc}: the intent is broken (nothing was sent)`, rc);
+      process.stderr.write('instinct: dry-run via imessage — nothing delivered\n');
+      return;
+    }
+
+    // ---- transport chain: iMessage first, then WhatsApp -------------------
+    const sendChain = transportChain();
+    let sendLast = 6;
+    // An explicit --contact is a target, not a hint: forward it so the bridge does
+    // not silently send to the configured peer instead.
+    const explicitContact = process.argv.includes('--contact') ? name : null;
+    const dbSnapshot = arg('db', null);
+    if (sendChain.includes('imessage') && transportAvailable('imessage')) {
+      const rc = imessageBridge('send', { file, contact: explicitContact, db: dbSnapshot });
+      if (rc === 0) {
+        // The bridge already bound its confirmation to this exact text.
+        process.stderr.write('instinct: sent via imessage (primary)\n');
+        return;
+      }
+      if (!SAFE_TO_FALL_BACK.has(rc)) {
+        // The message may already be out. Retrying over WhatsApp would duplicate it.
+        die(
+          `imessage send rc=${rc}: delivery unverified. NOT falling back, because that ` +
+            'would risk sending the same message twice.',
+          rc
+        );
+      }
+      sendLast = rc || 6;
+      process.stderr.write(
+        sendChain.length > 1
+          ? `instinct: imessage send failed rc=${rc}; falling back to whatsapp\n`
+          : `instinct: imessage send failed rc=${rc} (no fallback: transport forced)\n`
+      );
+    } else if (sendChain.includes('imessage')) {
+      process.stderr.write('instinct: skipping imessage (not installed on this host)\n');
+    }
+    if (!sendChain.includes('whatsapp')) {
+      die(`all transports failed for send (tried: ${sendChain.join(', ')}); last code ${sendLast}`, sendLast);
+    }
+    // ---- end chain; WhatsApp send below is the fallback -------------------
+    if (!text) die('message file is empty', 2);
+    if (text.length > 4000) die(`message is ${text.length} chars; keep it under 4000`, 2);
+
+    await withPage(async (page) => {
+      await openContact(page, name);
+      await compose(page, text);
+      const send = page.locator(SEND_BTN).last();
+      if ((await send.count()) === 0) die('send button not found; text left in the composer unsent', 6);
+      await send.click();
+      await page.waitForTimeout(1500);
+      const still = (await page.locator(COMPOSER).last().innerText())
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (still.length > 0) {
+        die('composer still holds text after clicking send; delivery NOT confirmed', 6);
+      }
+      // Delivery check: the composer must be empty (proves submit happened) and the message
+      // must be findable in the recent outgoing bubbles. WhatsApp reflows interior whitespace,
+      // so match on a normalised prefix rather than demanding byte equality.
+      const wantAll = text.replace(/\s+/g, ' ').trim();
+      const head = wantAll.slice(0, 48);
+      const delivered = await page.evaluate((h) => {
+        const nodes = [...document.querySelectorAll('[data-pre-plain-text]')];
+        return nodes
+          .slice(-8)
+          .some((n) => (n.innerText || '').replace(/\s+/g, ' ').trim().startsWith(h));
+      }, head);
+      if (!delivered) {
+        process.stderr.write(
+          'instinct: WARNING message not matched in recent bubbles; composer is empty so it was ' +
+            'submitted, but delivery is UNCONFIRMED. Re-read the chat to verify.\n'
+        );
+      }
+      const msgs = await readMessages(page, 3);
+      process.stdout.write(`sent to ${name}\n`);
+      process.stdout.write(`chars: ${text.length}\n`);
+      process.stdout.write(`tail:\n`);
+      msgs.forEach((m) => process.stdout.write(`  ${formatMsg(m, SELF_NAME)}\n`));
+    }, { headed });
+    return;
+  }
+
+
+  die(`unknown verb "${VERB}"; use login | probe | read | open | send | whoami`);
+}
+
+// Only run the CLI when executed directly, so a test can import reduceBubbles
+// without launching Chrome or touching the profile.
+if (IS_MAIN) main().catch((e) => die(e?.message || String(e), 1));
+
+// readMessages is exported so its expand-before-scrape behaviour can be driven
+// with a fake page; the click would otherwise be untestable off a live browser.
+export { reduceBubbles, formatMsg, readMessages };

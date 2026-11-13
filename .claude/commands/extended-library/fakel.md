@@ -25,9 +25,9 @@ execution_mode: immediate
 
 ## 🚨 COMMAND COMPOSITION
 
-This command combines: `/arch /think /devilsadvocate /diligent`
+This command combines: `/arch`, a light sequential-thinking pass, `/devilsadvocate` and `/diligent`
 
-**Key Difference**: Uses `/think` (4 thoughts) instead of `/thinku` (10+ thoughts) for faster analysis.
+**Key Difference**: Uses a light sequential-thinking pass (about 4 thoughts) instead of `/thinku` (10+ thoughts) for faster analysis.
 
 ## 📋 COMPLETE DOCUMENTATION
 

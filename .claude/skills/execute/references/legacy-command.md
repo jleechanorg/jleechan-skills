@@ -14,7 +14,7 @@ execution_mode: immediate
 
 **Action Steps:**
 **Executes `/extended-library:planexec` command**: Follows the complete planning protocol documented in [`planexec.md`](../../../commands/extended-library/planexec.md)
-1. **Guidelines Consultation**: `/extended-library:planexec` calls `/extended-library:guidelines` directly for comprehensive consultation
+1. **Guidelines Consultation**: `/extended-library:planexec` reads `CLAUDE.md`, `docs/pr-guidelines/base-guidelines.md` and any PR/branch-specific guidelines for comprehensive consultation
 2. **Comprehensive Context**: CLAUDE.md reading + base guidelines + PR/branch-specific guidelines via direct command composition
 3. Creates TodoWrite checklist with specific steps including guidelines validation
 4. Presents execution plan using the [Standard Plan Display Format](../../../commands/extended-library/planexec.md#📋-standard-plan-display-format)
@@ -81,7 +81,7 @@ Context Status: 65% remaining → Low context pressure
 
 Phase 1 - Planning (/extended-library:planexec):
 ✅ CLAUDE.md read: Current rules, constraints, and protocols understood
-✅ Guidelines consultation: `/extended-library:guidelines` command completed - mistake prevention patterns applied
+✅ Guidelines consultation: base and PR guidelines read - mistake prevention patterns applied
 ✅ Anti-patterns avoided: Using Edit tool for existing files, no _v2 or _backup files
 Creating implementation plan with TodoWrite...
 [Creates checklist: Check styles, Update CSS, Test changes, Commit]
