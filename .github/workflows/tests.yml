@@ -12,6 +12,7 @@ on:
     paths:
       - ".github/workflows/tests.yml"
       - "tests/**"
+      - ".codex/hooks/**"
       - ".claude/skills/swarm/SKILL.md"
       - ".claude/commands/**"
       - ".claude/skills/**"
@@ -22,6 +23,7 @@ on:
     paths:
       - ".github/workflows/tests.yml"
       - "tests/**"
+      - ".codex/hooks/**"
       - ".claude/skills/swarm/SKILL.md"
       - ".claude/commands/**"
       - ".claude/skills/**"
