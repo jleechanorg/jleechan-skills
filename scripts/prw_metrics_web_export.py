@@ -412,6 +412,13 @@ def _finite(value):
 
 def build_snapshot(summary_data, query_summary, prs, *, generated_at=None, code_version=None, timeline=None):
     """Build the dashboard payload. All three inputs are optional; absent means unknown."""
+    annotation_freshness = (
+        summary_data.get("annotation_freshness")
+        if isinstance(summary_data, dict)
+        else None
+    )
+    if not isinstance(annotation_freshness, dict):
+        annotation_freshness = {"status": "UNKNOWN"}
     # The retained-summary schema projection: only listed fields, at every depth.
     summary_data = _project_summary(summary_data)
     query_summary = query_summary if isinstance(query_summary, dict) else {}
@@ -437,7 +444,7 @@ def build_snapshot(summary_data, query_summary, prs, *, generated_at=None, code_
         "window_start": to_utc_iso(query_summary.get("window_start_utc")),
         "window_end": to_utc_iso(query_summary.get("snapshot_at_utc")),
         "status": summary_data.get("status"),
-        "annotation_freshness": {"status": "UNKNOWN"},
+        "annotation_freshness": annotation_freshness,
         "code_version": code_version,
         "windows": {"w1": summary_data.get("w1_bounds"), "w2": summary_data.get("w2_bounds")},
         "quantile_method": methods[0] if len(methods) == 1 else methods or None,
