@@ -179,7 +179,7 @@ pointers and are intentionally not the documentation target.
 | `/history` | [`conversation-history-sparse`](.claude/skills/conversation-history-sparse/SKILL.md) | Use for fast orientation on what the current repo or branch has been doing. Ask a focused question; it samples high-signal Claude, Codex, Hermes, agy, Cursor, and Pi history without loading full transcripts; add `--deep` only when the sparse pass is insufficient. |
 | `/sidekick` | [`sidekick`](.claude/skills/sidekick/SKILL.md) | Use for one long-running mission that must survive a session crash. Give a named outcome and success criteria; it assigns a persistent teammate and checkpoints durable state plus a resumption Bead. |
 | `/prw` (`/pr-workflow`) | [`pr-workflow-manager`](.claude/skills/pr-workflow-manager/SKILL.md) → [`pr-lifecycle`](.claude/skills/pr-lifecycle/SKILL.md) | Use to open and drive a PR. It finds the canonical skills, publishes a draft, and moves the PR through Draft → evidence → review → CI → ready with SHA-bound gates; human merge approval stays separate. |
-| `/swarm` | [`swarm`](.claude/skills/swarm/SKILL.md) | Use when a goal decomposes into independent, adversarially reviewable lanes. State the goal and optional shape/engine; it sizes the fan-out, assigns explicit models and disjoint outputs, and requires multi-lens verification before synthesis. |
+| `/swarm` | [`swarm`](.claude/skills/swarm/SKILL.md) | Use when a goal decomposes into independent, adversarially reviewable lanes. State the goal and optional shape/engine; it picks a local Workflow, local Agent lanes or remote tmux lanes, gives each writer its own branch, and verifies lane outputs before integrating them. |
 
 ---
 
@@ -339,7 +339,7 @@ Spawns a single named, in-session Claude Agent-Team teammate — visible in the 
 
 ### [`swarm`](.claude/skills/swarm/SKILL.md) — `/swarm`
 
-Orchestrates a multi-agent swarm — either a deterministic Workflow-tool fan-out or named Agent-team lanes — with adversarial verification baked in (3-lens refute-by-default, ≥2/3 must survive). Always runs inside a sidekick for durability, regardless of engine. Every spawned agent must set its model tier explicitly; an unset model silently inheriting the session model is treated as a policy violation.
+Runs a goal as parallel lanes on the engine that fits: a Workflow-tool fan-out, Agent-tool background lanes, or tmux lanes on a configured remote host. One writer per branch; verifiers check real outputs and refute by default (three lenses, two of three to survive, for findings that drive a decision). A sidekick wraps only runs that must outlast the session.
 
 ```bash
 /swarm "audit code quality across the whole payments module" --shape review

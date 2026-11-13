@@ -116,7 +116,7 @@ For a point size query on an individual file, report that file's size. A parent 
 | **lane-frontier** | Configure `disk_frontier_scan.py --granularity-gib 0.09765625 --output-default` after the scanner passes the inclusive-boundary and file-leaf checks | Do not claim complete leaves from this flag alone; verify that equality descends and that no synthetic chunks or skipped children remain. Record unfinished paths. |
 | **lane-critic** | Adversarial reality-check on top claims | "Try to refute each finding by recomputing from raw data. Cite file:line." |
 
-Fan-out rule: **single-writer per file**, `grep -n "agent(" <swarm-script>` cost-routed (haiku for mechanical, sonnet for analysis), staggered starts (rule 4 in `/swarm`), explicit `--model:` on every call. Adversarial verify ≥3 lenses before any actionable claim.
+Fan-out rule: **single-writer per file**, `grep -n "agent(" <swarm-script>` cost-routed (haiku for mechanical, sonnet for analysis), staggered starts (`/swarm`, "Long runs"), explicit `--model:` on every call. Adversarial verify ≥3 lenses before any actionable claim.
 
 ## Phase 3 — readout format (always)
 
