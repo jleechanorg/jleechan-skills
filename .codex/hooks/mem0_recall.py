@@ -86,14 +86,16 @@ def main() -> None:
         print(FALLBACK)
         sys.exit(0)
 
-    # Extract query — try common fields
-    query = (
-        data.get("task")
-        or data.get("prompt")
-        or data.get("message")
-        or data.get("userMessage")
-        or ""
-    ).strip()
+    if not isinstance(data, dict):
+        print(FALLBACK)
+        sys.exit(0)
+
+    # Extract the first nonempty string from common query fields.
+    query = next(
+        (value.strip() for key in ("task", "prompt", "message", "userMessage")
+         if isinstance(value := data.get(key), str) and value.strip()),
+        "",
+    )
 
     # Skip short queries and slash commands (fast path — no Qdrant/Ollama cost)
     if not query or len(query) < 20:
