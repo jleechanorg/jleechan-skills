@@ -19,6 +19,13 @@ UID_NUM="$(/usr/bin/id -u)"
 [[ -f "$TEMPLATE" ]] || { echo "ERROR: template missing at $TEMPLATE" >&2; exit 1; }
 [[ -f "$WRAPPER_SRC" ]] || { echo "ERROR: wrapper missing at $WRAPPER_SRC" >&2; exit 1; }
 
+# Refuse installation before creating or replacing any launchd files unless the
+# scheduled job has a complete machine-local task and recipient configuration.
+"$WRAPPER_SRC" validate-config || {
+  echo "ERROR: configure $HOME/.config/instinct-ping/config.json before installation" >&2
+  exit 1
+}
+
 mkdir -p "$LAUNCH_AGENTS_DIR" "$HOME/.local/bin" "$HOME/.local/state/instinct-ping"
 
 # The wrapper is sourced from this repo and copied into place, so the installed

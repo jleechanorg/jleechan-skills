@@ -12,6 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "instinct-ping.sh"
+INSTALLER = ROOT / "scripts" / "install-instinct-ping-launchd.sh"
 
 
 class InstinctPingTest(unittest.TestCase):
@@ -28,15 +29,18 @@ class InstinctPingTest(unittest.TestCase):
         self.node.write_text(
             "#!/bin/sh\n"
             "echo $* >> $FAKE_CALLS\n"
+            'echo "$INSTINCT_IMSG_CONTACT" >> "$FAKE_CONTACTS"\n'
             "case $* in\n"
             '  *read*) echo "$FAKE_READ_OUTPUT"; exit "$FAKE_READ_RC" ;;\n'
-            '  *send*) exit "$FAKE_SEND_RC" ;;\n'
+            '  *send*) cat "$4" > "$FAKE_BODY"; exit "$FAKE_SEND_RC" ;;\n'
             '  *) echo "unexpected fake CLI invocation: $*" >&2; exit 99 ;;\n'
             "esac\n",
             encoding="utf-8",
         )
         self.node.chmod(0o755)
         self.calls = Path(self.temp.name) / "calls"
+        self.contacts = Path(self.temp.name) / "contacts"
+        self.body = Path(self.temp.name) / "sent-body"
         self.repo = Path(self.temp.name) / "target"
         self.repo.mkdir()
         subprocess.run(["git", "init", "-q", str(self.repo)], check=True)
@@ -73,6 +77,8 @@ class InstinctPingTest(unittest.TestCase):
             {
                 "HOME": str(self.home),
                 "FAKE_CALLS": str(self.calls),
+                "FAKE_CONTACTS": str(self.contacts),
+                "FAKE_BODY": str(self.body),
                 "FAKE_READ_OUTPUT": "",
                 "FAKE_READ_RC": "0",
                 "FAKE_SEND_RC": "0",
@@ -131,7 +137,9 @@ class InstinctPingTest(unittest.TestCase):
         request_id = self.request_id()
         self.calls.write_text("", encoding="utf-8")
         result = self.run_tick(
-            FAKE_READ_OUTPUT=f"REQUEST_ID: {request_id} VERDICT: PASS\n"
+            FAKE_READ_OUTPUT=(
+                f"REQUEST_ID: {request_id} VERDICT: PASS, evidence: review passed.\n"
+            )
         )
         self.assertEqual(len(self.call_lines()), 1)
         self.assertIn("verdict received", result.stdout.lower())
@@ -156,7 +164,7 @@ class InstinctPingTest(unittest.TestCase):
             ["git", "-C", str(self.repo), "rev-parse", "HEAD"], text=True
         ).strip()
         result = self.run_tick(INSTINCT_PING_DRY_RUN="1")
-        self.assertIn(f"repo: {self.repo}", result.stdout)
+        self.assertIn(f"repo: {self.repo.resolve()}", result.stdout)
         self.assertIn("branch: review/topic", result.stdout)
         self.assertIn(f"commit: {commit}", result.stdout)
         self.assertIn("PR: #781", result.stdout)
@@ -187,6 +195,74 @@ class InstinctPingTest(unittest.TestCase):
         )
         self.assertEqual(self.call_lines(), [])
         self.assertIn("configuration required", result.stdout.lower())
+
+    def write_config(self, contents: object) -> None:
+        config = self.home / ".config/instinct-ping/config.json"
+        config.parent.mkdir(parents=True, exist_ok=True)
+        config.write_text(json.dumps(contents), encoding="utf-8")
+
+    def test_config_only_tick_uses_persisted_values_without_inherited_task_env(
+        self,
+    ) -> None:
+        self.write_config(
+            {
+                "contact": "+15555550199",
+                "task": "configured review",
+                "repo": str(self.repo),
+                "pr": "781",
+                "ask": "inspect the configured change",
+            }
+        )
+        result = subprocess.run(
+            [str(SCRIPT), "tick"],
+            cwd=self.repo,
+            env={
+                "HOME": str(self.home),
+                "PATH": os.environ.get("PATH", ""),
+                "FAKE_CALLS": str(self.calls),
+                "FAKE_CONTACTS": str(self.contacts),
+                "FAKE_BODY": str(self.body),
+                "FAKE_READ_OUTPUT": "",
+                "FAKE_READ_RC": "0",
+                "FAKE_SEND_RC": "0",
+            },
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        body = self.body.read_text(encoding="utf-8")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("configured review", body)
+        self.assertIn("inspect the configured change", body)
+        self.assertIn("PR: #781", body)
+        self.assertEqual(
+            self.contacts.read_text(encoding="utf-8").splitlines(),
+            ["+15555550199", "+15555550199"],
+        )
+        self.assertTrue(any("read" in line for line in self.call_lines()))
+        self.assertTrue(any("send" in line for line in self.call_lines()))
+
+    def test_installer_rejects_missing_or_invalid_config_before_install_writes(
+        self,
+    ) -> None:
+        wrapper_dest = self.home / ".local/bin/instinct-ping.sh"
+        plist_dest = self.home / "Library/LaunchAgents/ai.jleechan.instinct-ping.plist"
+        for config in (None, {"contact": 123}):
+            if config is not None:
+                self.write_config(config)
+            result = subprocess.run(
+                ["/bin/bash", str(INSTALLER)],
+                cwd=ROOT,
+                env={"HOME": str(self.home), "PATH": os.environ.get("PATH", "")},
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(wrapper_dest.exists())
+            self.assertFalse(plist_dest.exists())
 
 
 if __name__ == "__main__":

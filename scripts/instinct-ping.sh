@@ -7,15 +7,63 @@ export PATH="$HOME/.local/bin:$HOME/.nvm/versions/node/v22.22.0/bin:/opt/homebre
 
 NODE="$HOME/.nvm/versions/node/v22.22.0/bin/node"
 CLI="$HOME/.claude/skills/instinct/scripts/instinct.mjs"
-CONTACT_HANDLE="${INSTINCT_IMSG_CONTACT:-}"
+CONFIG_FILE="$HOME/.config/instinct-ping/config.json"
+
+config_validate() {
+  /usr/bin/python3 -c 'import json,sys
+fields=("contact","task","repo","pr","ask")
+try:
+    with open(sys.argv[1], encoding="utf-8") as f: config=json.load(f)
+    if not isinstance(config, dict): raise ValueError("top level must be an object")
+    for field in fields:
+        value=config.get(field)
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(field + " must be a non-empty string")
+except (OSError, ValueError, json.JSONDecodeError) as exc:
+    print("invalid instinct-ping config: " + str(exc), file=sys.stderr)
+    sys.exit(1)' "$CONFIG_FILE"
+}
+
+config_get() {
+  /usr/bin/python3 -c 'import json,sys
+with open(sys.argv[1], encoding="utf-8") as f: config=json.load(f)
+print(config[sys.argv[2]], end="")' "$CONFIG_FILE" "$1"
+}
+
+CONFIG_CONTACT=""
+CONFIG_TASK=""
+CONFIG_REPO=""
+CONFIG_PR=""
+CONFIG_ASK=""
+if [ -f "$CONFIG_FILE" ]; then
+  if ! config_validate; then exit 2; fi
+  CONFIG_CONTACT=$(config_get contact)
+  CONFIG_TASK=$(config_get task)
+  CONFIG_REPO=$(config_get repo)
+  CONFIG_PR=$(config_get pr)
+  CONFIG_ASK=$(config_get ask)
+fi
+
+case "${1:-tick}" in
+  validate-config)
+    if [ ! -f "$CONFIG_FILE" ]; then
+      echo "instinct-ping: persistent config is missing: $CONFIG_FILE" >&2
+      exit 2
+    fi
+    config_validate || exit 2
+    echo "instinct-ping: persistent config is valid"
+    exit 0 ;;
+esac
+
+CONTACT_HANDLE="${INSTINCT_IMSG_CONTACT:-$CONFIG_CONTACT}"
 STATE_DIR="$HOME/.local/state/instinct-ping"
 STATE="$STATE_DIR/state.json"
 DONE="$STATE_DIR/DONE"
 DRY="${INSTINCT_PING_DRY_RUN:-0}"
-TASK_TITLE="${INSTINCT_PING_TASK:-}"
-TASK_REPO="${INSTINCT_PING_REPO:-}"
-TASK_PR="${INSTINCT_PING_PR:-}"
-TASK_ASK="${INSTINCT_PING_ASK:-}"
+TASK_TITLE="${INSTINCT_PING_TASK:-$CONFIG_TASK}"
+TASK_REPO="${INSTINCT_PING_REPO:-$CONFIG_REPO}"
+TASK_PR="${INSTINCT_PING_PR:-$CONFIG_PR}"
+TASK_ASK="${INSTINCT_PING_ASK:-$CONFIG_ASK}"
 
 mkdir -p "$STATE_DIR"
 exec 9>"$STATE_DIR/lock"
@@ -161,8 +209,8 @@ verdict=""
 while IFS= read -r line; do
   case "$line" in
     *"REQUEST_ID: $REQUEST_ID"*)
-      if printf '%s\n' "$line" | grep -Eiq 'VERDICT: (PASS|FAIL|BLOCKED)([[:space:]]|$)'; then
-        verdict=$(printf '%s\n' "$line" | grep -oiE 'VERDICT: (PASS|FAIL|BLOCKED)([[:space:]]|$)' | tail -1)
+      if printf '%s\n' "$line" | grep -Eiq 'VERDICT: (PASS|FAIL|BLOCKED)([[:space:],.;:!?)]|$)'; then
+        verdict=$(printf '%s\n' "$line" | grep -oiE 'VERDICT: (PASS|FAIL|BLOCKED)([[:space:],.;:!?)]|$)' | tail -1)
       fi
       ;;
   esac
