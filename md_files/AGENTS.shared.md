@@ -422,6 +422,9 @@ or review that requires this human, and why it remains necessary. Before asking:
   verified physical/capability dependency, or essential unresolved intent. Distinguish
   lack of authority from technical inability; do not claim universal impossibility
   from a limitation of the current session.
+- For capability failures, try the supported alternatives and report their evidence
+  and the concrete unblock; one failed tool or expired worker does not prove that
+  no authorized route exists.
 - Show **Work completed and proof:** link the first pass and relevant commands,
   results, artifacts, and supported alternatives actually attempted. Explain what
   remains unproven; an assertion that the LLM tried its best is not evidence.
