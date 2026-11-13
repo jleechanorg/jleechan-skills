@@ -9,6 +9,13 @@ description: Orchestrate multi-agent swarms (ultracode Workflow fan-outs + Agent
 
 Run a goal as a **swarm**: a deterministic Workflow-tool fan-out (ultracode) or a named Agent-team of interactive lanes, with adversarial verification baked in.
 
+For automatic review of a Codex-origin PR, the PR driver's shared review-dispatch
+budget governs reviewer, verifier and advice fan-out in this workflow, including
+delegated runtimes. Start only assignments reserved by the driver; if the budget
+or authority is unclear, stop automatic reviewer dispatch and ask the driver.
+Do not claim an independent review that did not run. Direct user requests for a
+specific review, required external gates and non-PR swarm work retain their rules.
+
 - **Parallel ceiling (load first):** `/parallel` → `~/.claude/skills/parallelize-to-ceiling/SKILL.md` sizes shards/workers/lanes to the workload's real resource bound before fan-out. Rule 14 adds utilization/orchestration on top; it does not replace the ceiling skill.
 - **The sidekick wrap is mandatory regardless of `--engine`.** `--engine` only picks the fan-out mechanism (Workflow tool vs agent-team lanes), never a way to skip the sidekick; `--sidekick [model]` only overrides its model.
 
@@ -43,7 +50,7 @@ Run a goal as a **swarm**: a deterministic Workflow-tool fan-out (ultracode) or 
 | **Agent teams** | Interactive lanes needing mid-flight steering or shared task claims | Top-level session creates named teammates (`lane1-history`, `lane4-code` style); the sidekick fans out anonymous subagents only. TaskCreate/TaskUpdate claims + SendMessage; shutdown_request when a lane completes. |
 | **Sidekick** — ALWAYS ON | Durable state for ALL swarm work | See Sidekick durability layer. |
 
-"Ultracode" = the Workflow tool, never /team-claude teammates (user corrected this twice).
+"Ultracode" = the Workflow tool, never team-claude (Agent Teams) teammates (user corrected this twice).
 
 ## Stall watchdog — TUI swarms stall alive on quota modals
 

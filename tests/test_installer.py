@@ -27,6 +27,9 @@ class InstallerIntegrationTest(unittest.TestCase):
             "commands/newbranch.py": "#!/usr/bin/env python3\nprint('newbranch v2')\n",
             "commands/nested/helper.sh": "#!/bin/sh\n",
             "commands_archive/2026-retired/retired-command.md": "archived command\n",
+            "commands_archive/2026-retired/top-level/retired-command.md": (
+                "archived command\n"
+            ),
             "scripts/nested/tool.py": "print('tool')\n",
             "skills/example/SKILL.md": "# Skill\n",
             "skills/example/scripts/helper.sh": "#!/bin/sh\n",
@@ -834,6 +837,77 @@ class InstallerIntegrationTest(unittest.TestCase):
                 ).is_file()
             )
 
+    def test_cerebras_agent_snippets_prefer_installed_script_then_repository_copy(self):
+        agent_files = (
+            REPO_ROOT / ".claude/agents/cerebras-coder.md",
+            REPO_ROOT / ".claude/agents/cerebras-consultant.md",
+        )
+        snippets = []
+        for agent_file in agent_files:
+            markdown = agent_file.read_text(encoding="utf-8")
+            snippets.extend(
+                block
+                for block in re.findall(r"```bash\n(.*?)\n```", markdown, re.DOTALL)
+                if 'CEREBRAS_SCRIPT="${CLAUDE_HOME:-$HOME/.claude}' in block
+                and 'bash "$CEREBRAS_SCRIPT"' in block
+            )
+        self.assertEqual(len(snippets), 2)
+
+        for snippet in snippets:
+            scenarios = ((True, "installed"), (False, "repository"))
+            for installed_available, expected in scenarios:
+                with tempfile.TemporaryDirectory() as directory:
+                    temp_dir = Path(directory)
+                    home = temp_dir / "home"
+                    claude_home = temp_dir / "claude-home"
+                    repo_script = (
+                        temp_dir / ".claude/commands/cerebras/cerebras_direct.sh"
+                    )
+                    marker = temp_dir / "invoked-script"
+                    repo_script.parent.mkdir(parents=True)
+                    repo_script.write_text(
+                        '#!/bin/bash\n'
+                        'printf "%s\\n" repository > "$CEREBRAS_RUN_MARKER"\n'
+                        'printf "🚀🚀🚀 CEREBRAS GENERATED IN 1ms 🚀🚀🚀\\n"\n',
+                        encoding="utf-8",
+                    )
+                    repo_script.chmod(0o755)
+                    installed_script = (
+                        claude_home / "commands/cerebras/cerebras_direct.sh"
+                    )
+                    if installed_available:
+                        installed_script.parent.mkdir(parents=True)
+                        installed_script.write_text(
+                            '#!/bin/bash\n'
+                            'printf "%s\\n" installed > "$CEREBRAS_RUN_MARKER"\n'
+                            'printf "🚀🚀🚀 CEREBRAS GENERATED IN 1ms 🚀🚀🚀\\n"\n',
+                            encoding="utf-8",
+                        )
+                        installed_script.chmod(0o755)
+                    environment = os.environ | {
+                        "HOME": str(home),
+                        "CLAUDE_HOME": str(claude_home),
+                        "CEREBRAS_API_KEY": "test-key",
+                        "CEREBRAS_RUN_MARKER": str(marker),
+                        "DETAILED_PROMPT": "test prompt",
+                    }
+                    result = subprocess.run(
+                        ["bash", "-c", snippet],
+                        cwd=temp_dir,
+                        env=environment,
+                        text=True,
+                        capture_output=True,
+                        check=False,
+                        timeout=10,
+                    )
+
+                    self.assertEqual(
+                        result.returncode, 0, result.stderr + result.stdout
+                    )
+                    self.assertEqual(
+                        marker.read_text(encoding="utf-8").strip(), expected
+                    )
+
     def test_failed_merge_does_not_migrate_retired_packages(self):
         with tempfile.TemporaryDirectory() as directory:
             temp_dir = Path(directory)
@@ -958,6 +1032,67 @@ class InstallerIntegrationTest(unittest.TestCase):
             self.assertEqual(
                 archived.read_text(encoding="utf-8"), "active legacy skill\n"
             )
+
+    def test_merge_migrates_nested_command_paths_and_preserves_other_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fixture = self.make_fixture(root)
+            target = root / "claude-home"
+            mappings = {
+                "backup-old/team.md": "backup-old/team.md",
+                "top-level/root-command.md": "root-command.md",
+                "protected-folder/team.md": "protected-folder/team.md",
+            }
+            for archived, active in mappings.items():
+                source = fixture / ".claude/commands_archive/2026-retired" / archived
+                source.parent.mkdir(parents=True, exist_ok=True)
+                source.write_text("exported snapshot\n", encoding="utf-8")
+                live = target / "commands" / active
+                live.parent.mkdir(parents=True, exist_ok=True)
+                live.write_text("local " + active + "\n", encoding="utf-8")
+            sentinel = target / "commands/backup-old/unrelated.txt"
+            sentinel.write_text("keep me\n", encoding="utf-8")
+            (target / ".jleechan-skills-protected").write_text("protected-folder\n", encoding="utf-8")
+
+            result = self.run_installer(fixture, target, "--merge", "--migrate-archives")
+
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            for archived, active in mappings.items():
+                live = target / "commands" / active
+                saved = target / "commands_archive/2026-retired" / archived
+                if active.startswith("protected-folder/"):
+                    self.assertEqual(live.read_text(), "local " + active + "\n")
+                    self.assertFalse(saved.exists())
+                else:
+                    self.assertFalse(live.exists())
+                    self.assertEqual(saved.read_text(), "local " + active + "\n")
+            self.assertEqual(sentinel.read_text(), "keep me\n")
+
+    def test_nested_command_migration_refuses_linked_parents(self):
+        for side in ("commands", "commands_archive/2026-retired"):
+            with self.subTest(side=side), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                fixture = self.make_fixture(root)
+                source = fixture / ".claude/commands_archive/2026-retired/backup-old/team.md"
+                source.parent.mkdir(parents=True)
+                source.write_text("snapshot\n", encoding="utf-8")
+                target = root / "claude-home"
+                outside = root / "outside"
+                outside.mkdir()
+                linked = target / side / "backup-old"
+                linked.parent.mkdir(parents=True)
+                linked.symlink_to(outside, target_is_directory=True)
+                live = target / "commands/backup-old/team.md"
+                live.parent.mkdir(parents=True, exist_ok=True)
+                live.write_text("local data\n", encoding="utf-8")
+
+                result = self.run_installer(fixture, target, "--merge", "--migrate-archives")
+
+                self.assertNotEqual(result.returncode, 0, result.stderr + result.stdout)
+                self.assertTrue(linked.is_symlink())
+                self.assertEqual(live.read_text(), "local data\n")
+                self.assertEqual(sorted(p.name for p in outside.iterdir()),
+                                 ["team.md"] if side == "commands" else [])
 
     def test_merge_migrate_archives_without_collisions_installs_under_bash32(self):
         bash32 = Path("/bin/bash")

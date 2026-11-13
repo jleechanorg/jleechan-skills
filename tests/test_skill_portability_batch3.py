@@ -10,7 +10,6 @@ if str(REPO_ROOT) not in sys.path:
 BATCH3 = (
     "no-second-llm-calls",
     "org-runner-audit",
-    "pr-description-format",
     "pr-efficiency-audit",
     "pre-cr-checklist",
     "repo-and-infra-locations",

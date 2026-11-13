@@ -20,7 +20,6 @@ BATCH2 = (
     "field-ownership-contracts",
     "game-evidence-reviewer",
     "harness-guardrails",
-    "hermes-models",
     "llm-testing",
 )
 

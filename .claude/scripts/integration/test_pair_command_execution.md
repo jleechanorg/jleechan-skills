@@ -1,7 +1,6 @@
 # Test: Pair Command Execution
 
-> **Execution Command:** `/testllm` - LLM-Driven Test Execution Command
-> **Protocol Notice:** This is an executable test that must be run via the `/testllm` workflow with full agent orchestration.
+> **Execution:** An agent runs the steps below in order with full tool access and records RED/GREEN in the Status section.
 
 ## Test ID
 test-pair-command-execution

@@ -412,7 +412,29 @@ If authorized work remains, execute the next useful action before ending the tur
 
 **An executable next step is work to perform, not a handoff to the human.** Do not end with “next: run evidence review,” “ready for /advice,” “needs testing,” or an offer to continue while that action is authorized and available. Run the applicable evidence generation, /er, /advice, checks, fixes and required publication; collect the result and continue through remaining dependencies. A job that is still running remains owned: use its asynchronous handle, do independent work, and resume on completion. A status answer does not cancel the underlying task.
 
-**Prove why the agent cannot take the next step before escalating.** For every unfinished action that requires the user, state the exact action and **Why the LLM cannot do this:** cite the applicable authority boundary, the verified physical/capability dependency, or the essential unresolved decision. For capability failures, name the supported alternatives actually attempted, their evidence and the concrete unblock; one failed tool or expired worker is not proof that no authorized route exists. Lack of authority is different from technical inability. Never claim universal impossibility from a limitation of the current session.
+### Human decisions and review require a completed first pass
+
+Replace vague labels such as `needs human` with the exact decision, approval,
+or review that requires this human, and why it remains necessary. Before asking:
+- Complete the available, independent authorized investigation, checks, reviews,
+  and safe preparation; provide the concrete draft, patch, analysis, or first pass
+  to review. Identify work that depends on the human decision.
+- State **Why the LLM cannot do this:** cite the applicable authority boundary,
+  verified physical/capability dependency, or essential unresolved intent. Distinguish
+  lack of authority from technical inability; do not claim universal impossibility
+  from a limitation of the current session.
+- For capability failures, try the supported alternatives and report their evidence
+  and the concrete unblock; one failed tool or expired worker does not prove that
+  no authorized route exists.
+- Show **Work completed and proof:** link the first pass and relevant commands,
+  results, artifacts, and supported alternatives actually attempted. Explain what
+  remains unproven; an assertion that the LLM tried its best is not evidence.
+- Present viable options with their tradeoffs and a recommended choice with reasons.
+  If only one viable route exists, explain why; never invent alternatives or perform
+  a gated action merely to supply a first pass.
+- Ask for the smallest exact human decision or action and state how work resumes.
+  Continue independent authorized work. If no human-only boundary remains, proceed
+  and report the result; do not manufacture a review or approval gate.
 
 “Human needed,” “manual verification,” “next steps,” uncertainty, review effort, and optional taste feedback are not stopping reasons. Resolve tool-verifiable facts and reversible implementation choices yourself using the user's established intent; do not manufacture a preference question. Complete all independent authorized work before presenting the one remaining human-only boundary. Preserve planning-only requests, explicit user stops, the autonomy deadline and separate approval gates; this rule does not authorize unrelated work.
 

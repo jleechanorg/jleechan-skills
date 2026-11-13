@@ -45,7 +45,7 @@ jobs:
         with:
           node-version: "22"
       - name: Install test dependencies
-        run: python3 -m pip install --quiet pyyaml
+        run: python3 -m pip install --quiet pyyaml duckdb==1.5.0
       - name: Install br
         shell: bash
         run: |

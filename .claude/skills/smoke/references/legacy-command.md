@@ -229,9 +229,6 @@ When user requests `/smoke`:
 - Test logs: `tmp/your-project.com/test/mcp-*.log`
 
 ## Related Commands
-- `/extended-library:testhttp` - Run HTTP integration tests (mock mode)
-- `/extended-library:testhttpf` - Run HTTP integration tests (full/real mode)
-- `/extended-library:test` - Run full test suite
 - `/extended-library:deploy` - Deploy to production/staging
 
 ## Notes

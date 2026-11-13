@@ -14,6 +14,8 @@ response proof.
 
 If you're already running locally on the target Mac, there's nothing to mirror — say so and stop.
 
+Follow the [lightweight caller contract](../linux-remote/SKILL.md#lightweight-caller-remote-execution-owner): the caller drives transport and verifies receipts; the target agent owns execution.
+
 ## Setup (once, per pair of machines)
 
 This skill assumes you've already got:

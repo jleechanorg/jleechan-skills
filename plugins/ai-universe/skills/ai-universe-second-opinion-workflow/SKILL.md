@@ -32,7 +32,7 @@ Use this same verified `AUTH_NODE` executable for every command below.
 
 1. **Verify auth-cli.mjs installation**:
    ```bash
-   test -f ${CLAUDE_HOME:-$HOME/.claude}/scripts/auth-cli.mjs && echo "✅ Installed" || echo "❌ Not found - run /localexportcommands"
+   test -f ${CLAUDE_HOME:-$HOME/.claude}/scripts/auth-cli.mjs && echo "✅ Installed" || echo "❌ Not found - install auth-cli.mjs into ${CLAUDE_HOME:-$HOME/.claude}/scripts/"
    ```
 2. **Check authentication status**:
    ```bash

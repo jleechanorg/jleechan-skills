@@ -59,6 +59,7 @@ host aliases, names and paths at `${XDG_CONFIG_HOME:-$HOME/.config}/jleechan-ski
 
 | Variable | Meaning | Derived from | Default |
 |---|---|---|---|
+| `CLAUDE_CODE_GOAL_CHECKIN_MINUTES` | Claude Code goal check-in base interval in minutes; `0` disables check-ins and automatic retries | runtime configuration | `30` (later intervals back off) |
 | `HERMES_HOME` | Hermes agent home | — | `$HOME/.hermes` if it exists; otherwise skip Hermes steps |
 | `AO_CONFIG_PATH` | Agent Orchestrator config file | — | `${HERMES_HOME:-$HOME/.hermes}/agent-orchestrator.yaml` when it exists, else required |
 | `AO_REPO_ROOT` | Local Agent Orchestrator checkout | — | required where used |
@@ -112,6 +113,7 @@ registry.
 
 | Variable | Meaning | Derived from | Default |
 |---|---|---|---|
+| `PRW_CODEX_AI_REVIEW_COUNT` | Maximum automatic independent AI reviewer assignments per PR for a Codex driver; see [review routing](../.claude/skills/pr-lifecycle/review-routing.md#codex-review-dispatch) | `0` | unset or empty: `0`; invalid: stop automatic dispatch |
 | `PRW_METRICS_REPOS` | Comma-separated list of `owner/repo` repositories to monitor | — | unset: uses repositories from input directory or state |
 | `PRW_METRICS_ROADMAP_REPO` | Path to local clone of roadmap repository for dashboard publication | — | required where publication is enabled (fails closed if unset) |
 | `PRW_METRICS_STATE_DIR` | Directory for persistent metric state snapshots and locks | `${HOME}/.claude/skills/scratch-space/scripts/scratch-dir.sh prw-metrics` | `/tmp/prw-metrics` |
@@ -120,12 +122,21 @@ registry.
 | `PRW_METRICS_MIN_INTERVAL_SEC` | Minimum seconds between scheduled collection runs (sleep catch-up deduplication) | — | `900` |
 | `PRW_METRICS_FORCE_RUN` | Force execution, bypassing the interval check (`1` or `true`) | — | `0` |
 | `PRW_METRICS_COLLECTOR_CMD` | Collector command executed by `run_prw_metrics.sh` | — | `python3 $REPO_ROOT/scripts/prw_metrics.py --roadmap-repo $PRW_METRICS_ROADMAP_REPO --state-dir $STATE_DIR` |
+| `PRW_BINDING_LEDGER` | Session-to-PR binding ledger the binding hook appends to; see [session binding](prw-session-binding.md) | — | `$HOME/.local/share/prw-metrics/bindings/session-bindings.jsonl` |
 | `PRW_METRICS_INPUT_DIR` | Path to cached scratch dataset directory | — | unset |
 | `PRW_METRICS_TELEMETRY_DIR` | Path to retained telemetry store directory | — | unset (checks `${PRW_METRICS_ROADMAP_REPO}/dashboards/prw/telemetry`) |
 | `PRW_METRICS_RECEIPTS_DIR` | Path to directory containing task receipts (`run.stats.json`, `start_*.json`, `completion_*.json`) | — | unset |
 | `PRW_METRICS_OFFLINE` | Offline mode: skip live GitHub API and use cached data (`1` or `true`) | — | `0` |
 | `PRW_METRICS_PUBLISH` | Publish dashboard to roadmap repo (`1` or `true`) | — | `0` |
 | `PRW_METRICS_STALE_HOURS` | Threshold hours after which source cutoffs are marked STALE | — | `4.5` |
+| `INSTINCT_IMSG_CONTACT` | The peer assistant's iMessage handle (E.164 phone or Apple ID email) for the `/instinct` iMessage transport. `IMSG_CONTACT_HANDLE` is accepted as a compatibility alias for direct bridge use | — | unset (required for iMessage; the skill stops with a clear message) |
+| `INSTINCT_CONTACT` | The peer's WhatsApp chat title, used by the `/instinct` fallback transport | — | unset (required for WhatsApp) |
+| `INSTINCT_IMSG_BRIDGE` | Path to the `/instinct` iMessage bridge (`imsg-bridge.sh`) | sibling `scripts/imsg-bridge.sh` of the skill package | `$HOME/.local/bin/imsg-bridge.sh` |
+| `INSTINCT_TRANSPORT` | Force one `/instinct` transport (`imessage` or `whatsapp`), disabling fallback | — | unset (chain: iMessage then WhatsApp) |
+| `INSTINCT_READ_THEIRS` | `1` = `/instinct read` returns only the peer's messages, excluding outgoing rows | — | unset |
+| `INSTINCT_SELF` | This account's own display name in the peer's WhatsApp chat. Required for `read --theirs` on the WhatsApp transport, which needs it to tell your bubbles from the peer's | — | unset (the WhatsApp `--theirs` read fails closed without it) |
+| `IMSG_CHAT_DB` | Path to the macOS Messages store read by `imsg-bridge.sh` | — | `$HOME/Library/Messages/chat.db` |
+| `INSTINCT_SEND_CONFIRM_SECS` | How long `imsg-bridge.sh send` polls for `is_delivered=1` before reporting exit 9 | — | `60` |
 
 ## Values that are deleted, not parameterized
 

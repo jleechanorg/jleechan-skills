@@ -397,7 +397,7 @@ await new Promise(r => setTimeout(r, 500));
 
 **Gotcha — TrustedHTML errors:** Don't use `el.innerHTML = ...`; Gemini's textbox uses Trusted Types. Use the composer’s supported `fill()` or typing operation, then verify the complete text as required in Step 2b; typing can silently truncate.
 
-**Gotcha — ChatGPT send:** ChatGPT requires clicking the send button, NOT pressing Enter. Its accessible name has changed over time (`Send prompt`, `Send message`, and as of 2026-10 plain `Send`); locate it with `button[aria-label*="Send"], button[data-testid="send-button"]` and click the LAST match (the composer's), then confirm the URL changed to `/c/<id>` or the message echo appears.
+**Gotcha — ChatGPT send:** ChatGPT requires clicking the send button, NOT pressing Enter. Its accessible name has changed over time (`Send prompt`, `Send message`, and as of 2026-10 plain `Send`); locate it with `button[aria-label*="Send"], button[data-testid="send-button"]` and click the LAST match (the composer's), then confirm the URL changed to `chatgpt.com/c/<id>` or the message echo appears.
 
 **Perplexity (proven working pattern):**
 
@@ -465,7 +465,7 @@ Web chat LLM review sessions are stateful and interactive, not single-turn scrip
 > **Mandatory Receipt & Verbatim Conversation Snippet Invariant (Strict Hard-Fail Rule)**:
 > Every `/web-advice` run MUST output:
 > 1. **File Upload Confirmation**: Confirm that full files, diff patches, or real video/image assets were uploaded via file chooser (`setInputFiles`) into composer chips (zero ungrounded diff-only inlining for code reviews).
-> 2. **Conversation receipts and authorized links**: Record the exact observed conversation URL and retain a private local response receipt. Creating public share links requires separate authorization under Step 6 and the portable sharing boundary; otherwise report `not published (not authorized)` without invalidating a grounded verdict. A private `/c/...` conversation URL is not a public share. Never create or test a public share merely to satisfy this receipt gate.
+> 2. **Conversation receipts and authorized links**: Record the exact observed conversation URL and retain a private local response receipt. Creating public share links requires separate authorization under Step 6 and the portable sharing boundary; otherwise report `not published (not authorized)` without invalidating a grounded verdict. A private `chatgpt.com/c/...` conversation URL is not a public share. Never create or test a public share merely to satisfy this receipt gate.
 > 3. **Verbatim Conversation Snippets per PR / Subject**: Exact blockquotes of the model's verdict and analysis per reviewed PR or artifact to provide undeniable proof of review execution.
 
 ```markdown

@@ -48,7 +48,7 @@ Task({
 - **Focus**: Independent post-run verification of `/copilot` work against KPIs (REV-962a7)
 - **Independence**: Zero execution context from copilot - only artifacts and git history
 - **Tools**: Read-only (Read, Glob, Grep, Bash for git/gh, WebFetch) - cannot modify files
-- **Checks**: 7 verification checks: closure rate, scope discipline, tracking_reason quality, status truthfulness, /pair compliance, STYLE budget, reply consistency
+- **Checks**: 7 verification checks: closure rate, scope discipline, tracking_reason quality, status truthfulness, pair-workflow compliance, STYLE budget, reply consistency
 - **Output**: `verification_report.json` with PASS/FAIL/PARTIAL verdict per check
 - **Model**: Sonnet recommended (judgment checks 3/4), haiku acceptable for mechanical-only checks (1/2/5/6/7)
 - **When to Use**: After `/copilot` Step 9 (push) as a blocking gate before tracking table update

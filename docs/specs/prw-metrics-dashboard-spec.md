@@ -34,6 +34,10 @@ A lightweight, automated metrics collector and renderer that publishes a single,
 - **Backlog Partitioning**: Partitions PRs merged within each window into:
   - *Comparable Recent Merges* ($\le 7$ days from `createdAt` to `mergedAt`).
   - *Historical Backlog Merges* ($> 7$ days old at merge), preventing long-parked draft branches from skewing recent turnaround statistics.
+- **Full-Horizon Distribution**: In addition to W1 and W2 comparisons, report
+  creation-to-merge p50/p90/p99 for the complete 14-day merged cohort, split into
+  all merges, merges within 7 days, and backlog merges over 7 days. Show each
+  cohort's sample size.
 - **Private Telemetry Retention**: Sanitized event/episode records, collected PR records, timeline events, handoff receipts and per-source cutoffs (fixed fields only; PR bodies, raw message text, transcripts, excerpts and error strings are never retained) are stored under `dashboards/prw/telemetry/<window_slug>/` in `<org>/roadmap`, ensuring deterministic audit studies and dashboard rebuilds even after local host Scratch is cleared.
 
 ### 3.2 Time Semantics & Active Work Model
@@ -46,7 +50,19 @@ A lightweight, automated metrics collector and renderer that publishes a single,
   - `Agent effort`: Sum ($\sum (t_{\text{end}} - t_{\text{start}})$) of per-agent evidenced active intervals across parallel agents. Can exceed active wall time and PR elapsed; never summed together with active wall time.
   - `Waiting time`: Observed CI/provider/dependency/human-hold intervals; report category breakdown and interval union.
   - `Avoidable unattended time`: Disjoint evidenced intervals with an executable authorized action, no executing owner/job, and no legitimate hold; requires positive eligibility and continuity evidence, otherwise `UNKNOWN`.
-- **Empty Duration Cohorts**: When a duration distribution has `n = 0`, report its median and p75 as `UNKNOWN`; preserve observed zero-duration events as numeric zero.
+- **Empty Duration Cohorts**: When a duration distribution has `n = 0`, report its
+  median and p50/p75/p90/p99 as `UNKNOWN`; preserve observed zero-duration events
+  as numeric zero. Apply the same nearest-rank percentiles to creation-to-merge,
+  stage-dwell, and observed handoff duration samples, and retain their sample counts.
+- **Percentile Compatibility**: Percentiles use nearest rank
+  `k = ceil((p / 100) * n)` and the value at sorted index `k - 1`. Thus p50 is the
+  lower middle item for an even sample; existing `median` fields retain their
+  conventional arithmetic-average meaning for even samples.
+- **Observed PR Cost Distribution**: Show per-PR cost percentiles only across
+  PRs with at least one explicitly attributed, fully priced usage event, and show
+  that cohort's `n`. Label this as an observed attributed sample; do not imply
+  complete PR cost or lifecycle population coverage. Exclude partial or unknown
+  per-PR cost records.
 - **Residual Rule**: Residual duration (`PR elapsed - observed_active_wall_time`) is NOT wasted time. It contains observed waiting times, human reflection, and unobserved periods.
 - **Honest Missing Data**: If owner, job, or hold observation is absent during an open interval, `eligible_unattended_interval` evaluates strictly to `UNKNOWN`, never `0s`.
 
@@ -228,3 +244,151 @@ See [User Story: PRW Metrics Dashboard](../user-stories/prw-metrics-dashboard.md
 | **Telemetry Loss Across Host Rotations** | Medium | Sanitized event logs (fixed scalar fields) and receipts are committed under `dashboards/prw/telemetry/` in `<org>/roadmap`, guaranteeing reproducible audit studies and deterministic rebuilds even when local Scratch is rotated. |
 | **Subjective Human Intervention Scoring** | Medium | Grounded in four strict semantic categories authored by model/human evaluation with cited evidence rationales, origin metadata checks (excluding bots), cross-annotator calibration, and explicit preservation of `unassigned` task episodes. |
 | **Host Sleep / Network Interruption** | Low | If the host is asleep or offline during a scheduled slot, the job runs on next wake; the previous dashboard remains intact and is explicitly stamped with its prior cutoff and `STALE` status. |
+
+## Usage Feed Slice
+
+The existing `scripts/prw_metrics.py` command accepts `--usage-events <jsonl>` and
+`--usage-rates <json>`. The JSONL feed contains native request usage wrappers with
+`request_id`, `message_id`, `timestamp`, `model`, `raw_usage`,
+and optional `usage_conflict` and `attributions`. Rates may be supplied as dated
+records or as a provider rate card keyed by exact model SKU.
+
+Supported native Anthropic usage fields include uncached input, cache reads, separate
+5 minute and 1 hour cache writes, and output. Reasoning is reported as a diagnostic
+subset included in output. Unknown SKUs, unsupported records, missing prices, and
+conflicts remain unknown. No per-PR share is inferred: only supported explicit
+attribution with evidence references and a rationale produces a PR subtotal; any
+remainder stays unallocated.
+
+The retention snapshot keeps sanitized token/cost totals and rate provenance and
+excludes prompts, responses, request paths, and rationale text. The rate card provides
+a public model-list equivalent, not actual invoice amounts. For deterministic native
+history collection, repeat --history-root <path> for every configured Claude or Codex
+root. The collector scans every JSONL file under those roots and selects records by the
+half-open UTC interval [cutoff - days, cutoff). --cutoff is the same UTC-aware cutoff
+used by the dashboard; --days defaults to 14. File modification times do not limit the
+history scan.
+
+Claude usage comes from assistant request records and retains request/message IDs,
+timestamp, model, token buckets, and service metadata when present. Codex usage comes
+from each token_usage_record response and its payload.usage; response IDs are
+deduplicated by the existing aggregator, and model identity comes from the matching
+turn_id context. Codex cached input is subtracted from total input only when both
+counts are known and consistent. Reasoning output is a diagnostic subset of output.
+Generic cache-write counts without TTL remain unpriced. Missing model, rate, or billing
+scope metadata stays unknown; API/subscription spend is not inferred from token counts.
+
+Human metadata collection retains structured user-event IDs, timestamps, turn/session
+identifiers, and source fingerprints only. Claude human verification uses explicit
+native origin metadata. Codex user-role records remain candidates until a reviewed
+annotation verifies their origin. Initial/follow-up episode roles, quality labels, and
+scores are never inferred from message order or text. Exact-ID annotations are read
+from --history-annotations <jsonl>; an explicit provider/request-ID binding can supply
+a PR attribution with the existing evidence fields. Incidental PR mentions do not bind
+usage.
+
+For per-PR human steering, --pr-lookup-cache <json> supplies a cached PR snapshot
+with validated repository, branch, and lifecycle timestamps. --repository-map <json>
+uses exact recorded-CWD mappings under cwdToRepo; only entries with
+native_origin_validated status are passed to the collector, and no CWD paths are
+exported. The dashboard joins human events first by an exact reviewed PR binding,
+then by exact repository, branch, and event-time overlap. If no PR lifecycle interval
+overlaps but the exact repository + branch identifies one PR across the full snapshot,
+that snapshot association is retained at low confidence; it is not event-time proof.
+When repository context is unavailable, a branch-only join is allowed only when the
+branch is unique across the configured PR snapshot and is labeled low confidence.
+Ambiguous branches remain unassigned. Direct, repository/branch, and branch-only
+message counts stay separate. Reviewed actor_kind=automated_watch excludes a row even
+when the native role says user. Reviewed context decisions (confirm, override, or unassigned) take
+precedence over best-effort branch association; reviewed multi-PR/global unassignment
+stays unassigned, while the original branch association remains audit metadata.
+Nudge messages and episodes require the explicit message_kind, human_nudge_eligible,
+and episode ID fields. Initial task, new requirement, status request, and follow-through
+categories come only from reviewed annotations. Per-PR rows with no attributed event
+show UNKNOWN coverage, not zero steering.
+
+The retained and rendered human_summary.per_pr rows expose direct reviewed PR
+bindings separately from branch-context associations. Exact reviewed bindings are
+explicit evidence; exact repository + branch + event-time matches are best-effort.
+When repository context is unavailable, a globally unique branch may be shown as a
+separate low-confidence association. Ambiguous branches remain unassigned. Each row
+shows verified messages, candidate messages, explicit initial requests, and only
+follow-up episode labels from retained annotations. No first-message rule, keyword
+classification, or absence-as-zero steering verdict is used.
+
+--history-export <jsonl> writes a deterministic combined JSONL of normalized usage
+and human metadata, with no raw prompt/response text or source paths; this file can be
+fed back through --usage-events. The dashboard records root/file coverage, window
+exclusions, parse/read errors, duplicate usage rows, explicit PR bindings, and human
+candidate/verified/unannotated counts. Status is scoped to the supplied roots. Only the
+Claude and Codex JSONL sources are collected; other runtimes and unconfigured roots are
+not claimed as covered. A complete scan is still not a fleet or PR population total.
+
+The cache-write TTL buckets remain separate and never
+use a generic cache-write price. The card's `standard_global_public_list_price` basis
+prices only events with explicit `standard` service tier, `global` inference geography,
+and `standard` speed. Missing or different metadata stays unpriced. Events are limited
+to the existing dashboard interval `[cutoff - 14 days, cutoff)`; outside-window and
+undated records are reported separately.
+
+### Bounded retained usage publication
+
+Retained usage must preserve every sanitized record while keeping each JSONL Git
+blob at or below 32 MiB. Small and empty snapshots retain the legacy
+`usage_events.jsonl` format; larger snapshots use numbered JSONL parts with an
+ordered byte-count, row-count and SHA256 manifest. A record is never split,
+truncated or sampled. An individually oversized record fails publication visibly.
+
+Retained loading accepts legacy windows and verifies complete shard families,
+including files transported by published-ref export. Missing, corrupt, unexpected or ambiguous usage
+files fail visibly rather than become complete coverage. Republishing a window
+atomically replaces its usage family, including shrinking or empty snapshots;
+other windows, unrelated repository paths and local worktree changes remain intact.
+The privacy projection, unknown values, duplicate/conflict semantics and existing
+retention policy do not change. Focused acceptance uses tiny byte limits and real
+local Git publication/readback; it does not require another native-history scan.
+
+Retained collection indexes full decoded JSON records with the prior Python
+equality semantics, retaining first-seen order and distinct/conflicting records.
+Request IDs alone never determine equality; dictionary key order is immaterial,
+array order and string/number distinctions remain significant, and equivalent
+boolean/integer/float values retain their previous equality behavior.
+
+Complete privacy-projected summary snapshots also obey the 32 MiB per-blob bound.
+Small snapshots keep summary_snapshot.json. Larger snapshots use a verified
+manifest and numbered JSONL transport parts containing base64 fragments of the
+complete UTF-8 JSON document. This preserves every projected summary event and
+field without truncation; fragments may cross UTF-8 boundaries and are decoded
+only after byte-integrity verification and reassembly. Published-ref export carries
+both formats, and retained loading exposes reconstructed summary_snapshots.
+Caller-supplied summary parts are reconstructed and privacy-projected before
+publication. Same-window replacement removes stale summary parts as well as usage
+parts; small, empty, shrinking, corrupt and repeated snapshots have focused proof.
+
+The final publisher validates every telemetry blob, including manifests and other
+metadata, against the 32 MiB hard limit before any Git write. If metadata itself
+exceeds that limit, publication fails explicitly without dropping records or
+committing a partial dashboard. Test-only part budgets are separate from this
+hard limit; production defaults bind both to 32 MiB.
+
+### Reviewed human-metadata retractions
+
+Exact-event annotations may retract prior unsupported metadata. Explicit
+actor_kind=unknown or human_origin=unknown/unverified_candidate marks the record
+as an unverified candidate, never an automated message. Explicit null clears
+optional episode/quality/review, message-kind/nudge, score and direct-PR-binding
+fields; omitted keys preserve prior values. Explicit context unassignment remains
+necessary to prevent branch fallback when no single PR is supported. Original
+source evidence and previous annotations remain in their immutable audit records.
+
+Fresh acquisition and normalized replay use one application function, before
+provider/event-ID deduplication. Every copy receives the correction; unrelated
+IDs and usage records are unchanged. Candidate counts are observations, not proof
+of human origin. UNKNOWN per-PR verified-message/episode totals must remain NULL
+in query results rather than become an asserted actual-human zero. Synthetic
+fresh/replay, duplicate, alias, omitted-field and query fixtures prove this boundary;
+no correction implies all other annotation rows are false.
+
+Risk: an incorrect reviewed correction can retract valid evidence, so only explicit
+fields on exact selected event IDs change; keep the previous feed and correction
+provenance. No new user interface is introduced, so visual mocks are not applicable.

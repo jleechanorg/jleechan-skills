@@ -16,7 +16,31 @@ runtime or artifact proof. Source-only skill guidance follows the lifecycle
 an evidence campaign. This scope clarification does not waive named domain proof
 or grant approval or merge authority.
 
-Compact proof keeps primary artifacts, source provenance and hashes; mark irrelevant server/PID/provider fields N/A with reasons instead of inventing runtime metadata. Source hashes alone do not prove execution.
+For every evidence claim, `/es` must deliver the complete claim-scoped raw data
+needed to assess it, including failed and incomplete attempts, through an
+authorized, retrievable access path. Keep summaries separate as navigation and
+interpretation; a summary, manifest, checksum list, or another reviewer's report
+does not replace the underlying records and content. This completeness boundary
+covers only data relevant to the claims and applicable owner requirements; it
+does not require unrelated repository dumps or new evidence classes.
+
+Protect secrets and sensitive data. Preserve raw originals in their authorized
+store and provide reviewers safe, redacted content that retains all substantive
+claim-relevant bytes. Where redaction is necessary, preserve integrity and
+provenance, and have the reviewer independently run a nondisclosing comparison
+against protected originals using the preserved body bytes. Producer-only
+attestation is not enough. Keep credentials and protected originals out of
+reviewer/model output; if a safe independent comparison cannot be made, report
+the affected raw portion unavailable. Credential-only redaction does not justify
+replacing substantive raw content with a summary. Do not expose secrets, read
+`.env` files, or place unredacted credentials in reviewer or model output.
+Identify each claim-scoped raw item as available or unavailable; missing portions
+and the reason must be explicit.
+
+Compact proof still retains the entire claim-scoped raw evidence set, along
+with primary artifacts, source provenance and hashes; mark irrelevant
+server/PID/provider fields N/A with reasons instead of inventing runtime
+metadata. Source hashes alone do not prove execution.
 
 ## Summary
 
@@ -36,10 +60,10 @@ Check the producer and publisher, not only the output container: trace the artif
 
 Before the first expensive call (real-LLM batch, browser run, replay sweep), write one sentence:
 
-> "This campaign will explain **<the reported symptom>**, and if it comes back
+> "This campaign will explain **<the reported symptom or requested acceptance claim>**, and if it comes back
 > <expected result>, the explanation is <X>."
 
-If you cannot name a reported symptom (a user complaint, a production rate, a failing turn), **you are not gathering evidence, you are decorating a claim.** Stop and re-aim.
+For a new feature with no reported failure, name the requested acceptance claim and the observable result that will satisfy it. If neither a reported symptom nor an acceptance claim can be stated, **you are not gathering evidence, you are decorating a claim.** Stop and re-aim.
 
 Hard rules:
 
@@ -119,7 +143,7 @@ Reachability is **computed, never a hardcoded list** (a frozen "X is unreachable
 
 ## Evidence Sequencing — expensive evidence runs LAST, once
 
-Before a behavior fix, obtain fresh evidence of the reported failure at the lowest sufficient layer and preserve the baseline revision, inputs and output. Source/trace inspection and authorized diagnostic instrumentation may be needed to build that reproducer. A missing reproducer blocks an unproven fix claim, not continued diagnosis. Real-service failures still need the real boundary; a fast unit test cannot substitute for a cross-service reproduction.
+Before a behavior fix, use the existing smallest suitable harness to reproduce the reported failure against the exact pre-change revision, then run the same scenario against the candidate and preserve both revisions, inputs and outputs. Source/trace inspection and authorized diagnostic instrumentation may be needed to build that reproducer. A missing reproducer blocks an unproven fix claim, not continued diagnosis. Real-service failures still need the real boundary; a fast unit test cannot substitute for a cross-service reproduction.
 
 Cheap gates (unit/focused tests, lint, compile) iterate freely per commit. Review scheduling follows `pr-lifecycle/SKILL.md`'s canonical lifecycle; keep enforcing the required correctness and evidence checks. Final expensive evidence (real-server + real-LLM runs, packaged RED/GREEN comparisons, browser/video capture, bundle assembly) runs ONCE, at the END, after code is complete: all review findings resolved or explicitly deferred, focused tests green, no known remaining code work. Freeze the HEAD, then run the expensive stack against it. Mid-iteration runs are voided by the next fix (PR #9604/#9640, 2026-09-01: ~40 of 50 commits were evidence churn, and the RED/GREEN pair and bundle still needed a full rerun). The final comparison may replay the preserved baseline beside the completed candidate; scheduling that package last does not defer the initial failure reproduction past the fix.
 
@@ -215,9 +239,11 @@ Published screenshots must render inline (not text-only links); use width `450`
 for desktop and `360` for mobile comparison tables (`800` for a side-by-side
 comparison slide). Video publications retain an inline GIF from the same run
 beside a playable MP4/H.264 link unless the authorized destination supplies an
-equivalent inline form. The element under test must change in the pixels, not only
-in a caption; below-fold or caption-only video does not prove the claim, and an
-independent reviewer must decode the relevant frames. Verify the intended
+equivalent inline form; GitHub does not, so PR bodies need the GIF. Text-link
+media cells in a findings table need inline copies. The element under test must
+change in the pixels, not only in a caption; below-fold or caption-only video
+does not prove the claim, and an independent reviewer must decode the relevant
+frames. Verify the intended
 reviewer's access, media content type and rendered PR-body URLs; use clickable
 authorized hosts rather than `gs://` or `storage.cloud.google.com/` links. The
 sanitized receipt lists the same media hashes and access mode. Never make private
