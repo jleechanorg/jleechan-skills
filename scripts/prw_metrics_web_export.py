@@ -437,6 +437,7 @@ def build_snapshot(summary_data, query_summary, prs, *, generated_at=None, code_
         "window_start": to_utc_iso(query_summary.get("window_start_utc")),
         "window_end": to_utc_iso(query_summary.get("snapshot_at_utc")),
         "status": summary_data.get("status"),
+        "annotation_freshness": {"status": "UNKNOWN"},
         "code_version": code_version,
         "windows": {"w1": summary_data.get("w1_bounds"), "w2": summary_data.get("w2_bounds")},
         "quantile_method": methods[0] if len(methods) == 1 else methods or None,

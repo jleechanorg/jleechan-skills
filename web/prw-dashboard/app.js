@@ -132,6 +132,8 @@
     var names = Object.keys(sources), complete = names.filter(function (n) { return sources[n] && sources[n].status === "COMPLETE"; }).length;
     ribbon.appendChild(h("span", { class: "chip " + (names.length && complete === names.length ? "good" : "warn") },
       [h("i"), "Sources " + complete + "/" + names.length + " complete"]));
+    var annotation = data.annotation_freshness || {};
+    ribbon.appendChild(h("span", null, ["Annotation freshness ", h("b", { text: annotation.status || "UNKNOWN" })]));
     $("scope-line").textContent = data.prs.length.toLocaleString("en-US") + " pull requests in this snapshot across " + data.repositories.length +
       " repositories, " + fmtTime(data.window_start, false) + " to " + fmtTime(data.window_end || data.data_through, false) + ".";
     var banner = $("banner");
