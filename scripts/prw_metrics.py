@@ -4944,6 +4944,13 @@ def main():
             "repeat to combine exports"
         ),
     )
+    parser.add_argument(
+        "--session-bindings", action="append",
+        help=(
+            "Session-to-PR binding ledger for native history roots; "
+            "repeat per ledger"
+        ),
+    )
     parser.add_argument("--history-annotations", help="Reviewed human metadata and PR bindings JSONL sidecar")
     parser.add_argument("--history-export", help="Write deterministic normalized usage and human metadata JSONL")
     parser.add_argument("--state-db", help="Optional read-only Codex thread snapshot database for native roots")
@@ -4989,6 +4996,8 @@ def main():
     history_data = None
     repository_map = None
     pr_lookup_cache = None
+    if args.session_bindings and not history_roots:
+        parser.error("--session-bindings requires --history-root")
     if history_roots and args.history_replay:
         parser.error("choose either --history-root or --history-replay")
     if args.history_replay and (args.history_export or args.repository_map):
@@ -5082,6 +5091,7 @@ def main():
                 annotation_path=args.history_annotations,
                 repository_map=repository_map,
                 state_db=args.state_db,
+                session_bindings=args.session_bindings,
             )
         if repository_map is not None:
             history_data["stats"]["repository_map_entries"] = len(repository_map)
