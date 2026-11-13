@@ -53,14 +53,14 @@ commands and evidence as you go.
    environment. Distinguish passed, failed, skipped, unsupported, and not-run
    checks; do not claim broader coverage than the evidence supports.
 
-## CONSENSUS — mandatory Phase 4
+## ADVICE — mandatory Phase 4
 
-After GREEN, run `/consensus` for every invocation. It checks that RED was a
+After GREEN, run `/advice` for every invocation. It checks that RED was a
 fresh run before changes, CODE addressed the root cause with a minimal change,
 GREEN reran the same test with relevant regressions, and the recorded evidence
-supports the complete flow. Record the consensus result and any findings before
+supports the complete flow. Record the advice result and any findings before
 declaring the fix complete. Follow the active
-[consensus](../consensus/SKILL.md) skill for its review procedure.
+[advice](../advice/SKILL.md) skill for its review procedure.
 
 ## Review and naming
 

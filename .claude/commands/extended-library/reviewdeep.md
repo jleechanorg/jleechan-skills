@@ -16,9 +16,8 @@ execution_mode: immediate
 **The command delegates to `/execute` for intelligent orchestration of components:**
 
 ```markdown
-/execute Perform enhanced consensus + comprehensive review:
-1. /consensus [target]               # Fast consensus building (2-5 minutes)
-                                     - Multi-agent agreement using 4 parallel agents
+/execute Perform enhanced advice + comprehensive review:
+1. /advice [target]                  # Independent multi-model advice review
                                      - Quick architectural and correctness validation
                                      - Early identification of critical issues
                                      - Continue through required fixes and re-review until acceptance or a verified blocker/deadline
@@ -61,7 +60,7 @@ execution_mode: immediate
    - For CLAUDE.md-flagged issues: scoring agent MUST verify CLAUDE.md actually calls out that specific issue
    - False positives to filter: pre-existing issues, nitpicks a senior engineer would ignore, linter/type-checker catches, general quality issues unless in CLAUDE.md, issues on unmodified lines **except when a clear causal link from modified code to the unchanged code path exists** (in that case: the reviewer must (1) explain the causal link and reference the modifying symbol(s), (2) provide minimal repro steps or stack trace showing the regression, and (3) mark the issue as "exception" so it surfaces despite the unmodified-line filter)
 6. /reviewe [target]                 # Enhanced code review with security analysis
-7. Synthesis & PR guidelines         # Combine consensus + all three tracks + generate docs/pr-guidelines/{PR_NUMBER}/guidelines.md
+7. Synthesis & PR guidelines         # Combine advice + all three tracks + generate docs/pr-guidelines/{PR_NUMBER}/guidelines.md
 ```
 
 The `/execute` delegation ensures optimal execution with:
