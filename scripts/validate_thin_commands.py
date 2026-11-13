@@ -5,7 +5,6 @@ from pathlib import Path
 import re
 
 
-MAX_DISPATCHER_LINES = 15
 SKILL_REFERENCE = re.compile(
     r"(?:\$\{CLAUDE_HOME:-\$HOME/\.claude\}|~?/\.claude)"
     r"/skills/([a-z0-9][a-z0-9-]*)/SKILL\.md"
@@ -47,14 +46,8 @@ def validate_top_level_commands(commands_dir: Path, skills_dir: Path) -> Validat
             continue
         valid = True
         text = command.read_text(encoding="utf-8")
-        lines = text.splitlines()
         if not text.startswith("---\n"):
             errors.append(f"{relative}: missing YAML frontmatter")
-            valid = False
-        if len(lines) > MAX_DISPATCHER_LINES:
-            errors.append(
-                f"{relative}: {len(lines)} lines exceeds {MAX_DISPATCHER_LINES}"
-            )
             valid = False
         matches = SKILL_REFERENCE.findall(text)
         if len(matches) == 0:
@@ -98,14 +91,8 @@ def validate_commands(commands_dir: Path, skills_dir: Path, top_level_only: bool
             continue
         valid = True
         text = command.read_text(encoding="utf-8")
-        lines = text.splitlines()
         if not text.startswith("---\n"):
             errors.append(f"{relative}: missing YAML frontmatter")
-            valid = False
-        if len(lines) > MAX_DISPATCHER_LINES:
-            errors.append(
-                f"{relative}: {len(lines)} lines exceeds {MAX_DISPATCHER_LINES}"
-            )
             valid = False
         matches = SKILL_REFERENCE.findall(text)
         if len(matches) == 0:

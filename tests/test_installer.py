@@ -2369,6 +2369,21 @@ class InstallerRealProfileTest(unittest.TestCase):
             self.assertTrue((target / "skills/grokb/SKILL.md").is_file())
             self.assertTrue((target / "commands/grokb.md").is_file())
 
+    def test_with_slack_identity_installs_slack_command(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "home"
+            self.install(target, "--with", "slack-identity")
+            self.assertTrue((target / "skills/slack-identity/SKILL.md").is_file())
+            self.assertTrue((target / "commands/slack.md").is_file())
+
+    def test_with_slack_skills_installs_both_referenced_skills(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "home"
+            self.install(target, "--with", "slack-identity", "--with", "slack-media-upload")
+            for skill in ("slack-identity", "slack-media-upload"):
+                self.assertTrue((target / f"skills/{skill}/SKILL.md").is_file())
+            self.assertTrue((target / "commands/slack.md").is_file())
+
     def test_installed_skill_links_resolve_except_closure_excluded(self):
         excluded = set(self.data.get("closure_excluded", []))
         for profile in self.data["profiles"]:

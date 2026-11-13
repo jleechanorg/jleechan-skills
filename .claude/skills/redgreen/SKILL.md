@@ -55,11 +55,13 @@ commands and evidence as you go.
 
 ## ADVICE — mandatory Phase 4
 
-After GREEN, run `/advice` for every invocation. It checks that RED was a
-fresh run before changes, CODE addressed the root cause with a minimal change,
-GREEN reran the same test with relevant regressions, and the recorded evidence
-supports the complete flow. Record the advice result and any findings before
-declaring the fix complete. Follow the active
+After GREEN, run `/advice` for every invocation. It provides source review at
+the exact target and records its target-bound verdict and findings. Keep that
+source approval separate from the execution receipts: an `APPROVED` verdict
+does not prove that RED ran before the change, that the same test passed after
+it, or that relevant regressions passed. Those claims require their own
+recorded commands, results, and tested revisions from the RED/GREEN workflow.
+Record the advice result separately before declaring the fix complete. Follow the active
 [advice](../advice/SKILL.md) skill for its review procedure.
 
 ## Review and naming

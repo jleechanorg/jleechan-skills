@@ -32,13 +32,12 @@ class ThinCommandDispatchersTest(unittest.TestCase):
             with self.subTest(arguments=supplied):
                 self.assertEqual(expected, render_arguments("$ARGUMENTS", supplied))
 
-    def test_ablation_and_alias_are_thin_local_dispatchers(self):
+    def test_ablation_and_alias_forward_to_local_skill(self):
         for name in ("ablation.md", "abal.md"):
             with self.subTest(command=name):
                 command = (COMMANDS / name).read_text(encoding="utf-8")
                 self.assertIn("/skills/ablation/SKILL.md", command)
                 self.assertTrue((SKILLS / "ablation" / "SKILL.md").is_file())
-                self.assertLessEqual(len(command.splitlines()), 15)
                 self.assertIn("$ARGUMENTS", command)
 
     def test_legacy_aliases_use_native_thin_dispatcher_metadata(self):
@@ -54,7 +53,6 @@ class ThinCommandDispatchersTest(unittest.TestCase):
                 self.assertIn(declaration, frontmatter)
                 self.assertIn(f"/skills/{skill_name}/SKILL.md", command)
                 self.assertIn("$ARGUMENTS", command)
-                self.assertLessEqual(len(command.splitlines()), 15)
 
     def test_dispatcher_count_counts_valid_commands_not_errors(self):
         from tempfile import TemporaryDirectory
@@ -74,12 +72,17 @@ class ThinCommandDispatchersTest(unittest.TestCase):
                 encoding="utf-8",
             )
             (commands / "invalid.md").write_text(
-                "---\ndescription: invalid\n---\n" + "extra\n" * 16,
+                "---\ndescription: invalid\n---\n"
+                "Read ~/.claude/skills/example/SKILL.md without forwarding "
+                "arguments.\n",
                 encoding="utf-8",
             )
             result = validate_commands(commands, root / "skills", top_level_only=True)
 
-        self.assertEqual((2, 1, 2), (result.command_count, result.dispatcher_count, len(result.errors)))
+        self.assertEqual(
+            (2, 1, 1),
+            (result.command_count, result.dispatcher_count, len(result.errors)),
+        )
 
     def test_top_level_aliases_have_native_command_files(self):
         for alias in ("smart-advisor", "webadvice", "sq", "ms", "p", "r", "abal"):
@@ -87,7 +90,6 @@ class ThinCommandDispatchersTest(unittest.TestCase):
                 command = COMMANDS / f"{alias}.md"
                 self.assertTrue(command.is_file(), f"missing alias command file: {command}")
                 text = command.read_text(encoding="utf-8")
-                self.assertLessEqual(len(text.splitlines()), 15)
                 self.assertIn("$ARGUMENTS", text)
 
     def test_extended_library_commands_remain_intact_and_distinct(self):

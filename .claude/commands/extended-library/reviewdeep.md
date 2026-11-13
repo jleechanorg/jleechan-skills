@@ -22,10 +22,10 @@ execution_mode: immediate
                                      - Early identification of critical issues
                                      - Continue through required fixes and re-review until acceptance or a verified blocker/deadline
 2. Read CLAUDE.md, docs/pr-guidelines/base-guidelines.md and any PR guidelines  # Centralized mistake prevention consultation
-3. Evaluate consensus result:
-   - If **CONSENSUS_REWORK**: Implement authorized fixes, then repeat affected review and evidence until PASS or a verified blocker/deadline; do not ask the operator to do routine fixes.
-   - If **MIXED_SIGNALS**: Proceed to Stage 2 with targeted focus areas provided by consensus agents.
-   - If **CONSENSUS_PASS**: Proceed to full Stage 2 execution.
+3. Evaluate the exact target-bound `/advice` verdict:
+   - If **APPROVED**: Proceed to full Stage 2 execution. The verdict records source approval at that target; it does not replace execution evidence or a receipt-based RED/GREEN result.
+   - If **NOT APPROVED**: Implement authorized fixes for blocking findings, rerun affected checks, then obtain affected review and evidence again before proceeding. Handle nonblocking findings by fixing or recording a disposition.
+   - If **WITHHELD**: Do not infer approval or treat the result as a blocking objection. Identify missing quorum or uncountable coverage, complete any remaining authorized eligible review attempts, and proceed only when the required verdict is available; otherwise report the specific blocker.
 4. When Stage 2 runs, launch PARALLEL EXECUTION:
    Track A (Technical - Fast):    fast code-review subagent: comprehensive technical analysis [target] (SOLO DEV FOCUS)
                                   - Security vulnerability scanning (real vulnerabilities only)
