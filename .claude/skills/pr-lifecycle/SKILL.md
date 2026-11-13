@@ -11,7 +11,7 @@ This is the self-contained generic lifecycle contract. [PR Workflow Manager](../
 
 ## Codex review dispatch
 
-Before selecting a review route, apply [the Codex review dispatch policy](review-routing.md#codex-review-dispatch) when the originating PR driver is Codex, including its delegated runtimes. It takes precedence over shared-default AI review and approval seats throughout this lifecycle and its linked references; it limits automatic AI review dispatch, not evidence collection, self-review, explicit requests, or independent gates imposed by higher-priority instructions or the target repository. Claude and agy keep the existing routes.
+Before selecting a review route, apply [the Codex review dispatch policy](review-routing.md#codex-review-dispatch) when the originating PR driver is Codex, including its delegated runtimes. Codex defaults to at most three review rounds per PR; each round must account for its applicable seats across stages, and its explicit assignment ceiling does not waive a required independent gate. The policy limits automatic dispatch, not evidence collection or self-review, and does not replace the shared-default or repository rules for each seat's scope, quorum, evidence, or qualifications. Claude and agy keep the existing routes.
 
 ## Terminal goal and first-screen contract
 
