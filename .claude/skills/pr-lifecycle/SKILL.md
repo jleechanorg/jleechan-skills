@@ -112,9 +112,20 @@ Drive every PR through `/prw` by default. UI and user-facing changes always use 
 
 Explore → outcome spec → TDD (failing test first) → unit/integration tests → correctness review → targeted fixes. Collect expensive evidence only after code stabilizes.
 
+## User-visible timers, expiries, and magic numbers
+
+Agent-invented expiries that never reach the user as decisions are a recurring defect class: an invented 5-minute client expiry caused the old-UI flash on resume in worldai_frontend #690 and tests pinned it as correct.
+
+- Do not add a timer, expiry, timeout, retry, fallback, default, or magic number that changes user-visible behavior unless the request or specification calls for it. A genuinely needed one is flagged to the user as an explicit decision before shipping, never buried in review-hardening notes.
+- User-visible appearance or gating changes only on an authoritative server answer or an explicit user choice, never on a wall-clock timer; while revalidating, hold the last good frame or state.
+- Every behavior-changing timer, expiry, timeout, retry, fallback, or magic number is declared in the PR summary as a user-facing decision ("what the user sees after N minutes idle") and in the specification's user-facing section. Mention only in code or review notes does not count; an undeclared one is a Stage 0 specification gap.
+- Appearance and gating changes carry a lifecycle evidence matrix as applicable proof: cold start, resume before expiry, resume after expiry (fake timers or a controlled clock), offline, and kill switch off. Unchecked cells are unproven claims.
+- Tests must not pin a wall-clock user-visible change as expected behavior without citing the specification line that authorizes it; a test pinning an undeclared expiry is a defect.
+- Production-code PRs (nonzero production line delta) merge only with the user's explicit per-PR `MERGE APPROVED`. This requirement sits above route tiers and standing or batch approvals, which never cover production code and never transfer between PRs.
+
 ## Merge authorization
 
-Merge authorization follows the shared size-tiered rule in `~/.codex/AGENTS.md` § Merge safety and explicit target-repository policy. This skill neither requires nor waives a human `MERGE APPROVED` phrase where the governing rule does not; explicit local approval requirements stay in force. The [execution record](review-records.md#execution-record)'s `merge_authorization` records which of these sources applies, with its quote; it adds no requirement beyond them. Earlier-SHA review applicability for readiness does not satisfy a stricter exact-head condition on a separately authorized automatic-merge route; keep that merge condition unless the human explicitly changes it. Readiness or this refactor grants no new permission.
+Merge authorization follows the shared size-tiered rule in `~/.codex/AGENTS.md` § Merge safety and explicit target-repository policy. For production-code PRs, the per-PR `MERGE APPROVED` requirement in § User-visible timers, expiries, and magic numbers takes precedence over those tiers. This skill neither requires nor waives a human `MERGE APPROVED` phrase where the governing rule does not; explicit local approval requirements stay in force. The [execution record](review-records.md#execution-record)'s `merge_authorization` records which of these sources applies, with its quote; it adds no requirement beyond them. Earlier-SHA review applicability for readiness does not satisfy a stricter exact-head condition on a separately authorized automatic-merge route; keep that merge condition unless the human explicitly changes it. Readiness or this refactor grants no new permission.
 
 ## Review obligations by changed claim and risk
 
