@@ -52,7 +52,7 @@ Sonnet-only model policy, the regression-contract test pattern, and the
    ```bash
    claude --model sonnet --teammate-mode tmux
    ```
-2. **Sonnet-only by default.** Do not spawn haiku/fable/opus scout lanes even
+2. **Sonnet-only by default.** Do not spawn haiku/opus/non-Sonnet scout lanes even
    if a slash command's docs nominally support them. The user has the final
    word on the model. No `--fallback-model` without explicit user approval.
 3. **No pseudo-primitives.** No `Agent(subagent_type=...)`,

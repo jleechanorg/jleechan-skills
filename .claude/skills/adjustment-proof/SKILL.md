@@ -87,8 +87,12 @@ Create a deterministic proof plan for one adjustment:
 
 Create both independent worktrees with `diskm worktree-new` under
 `~/.worktrees/<repo>/<name>`; the generated proof plan must point to those
-approved Git worktree paths, never to `/tmp`. Keep evidence and captures in a
-unique `/tmp/<repo>/evidence/<run-dir>/` directory. In the red worktree, disable
+approved Git worktree paths, never to `/tmp` or raw scratch paths. Keep evidence
+and captures in a unique scratch evidence directory allocated via
+`diskm scratch-new <repo-path> <purpose> --kind evidence` or
+`${CLAUDE_HOME:-$HOME/.claude}/skills/scratch-space/scripts/scratch-dir.sh`
+(which resolves the host Scratch volume and falls back to `/tmp` only when
+unconfigured). In the red worktree, disable
 only the named adjustment. Prefer the narrowest possible edit:
 remove or bypass the exact correction/suppression branch that implements the
 registry entry. Do not change prompts, test harnesses, unrelated adjusters, or
@@ -97,16 +101,18 @@ scenario inputs in the red worktree.
 After both runs finish, collect and validate:
 
 ```bash
+EVIDENCE_DIR="$(${CLAUDE_HOME:-$HOME/.claude}/skills/scratch-space/scripts/scratch-dir.sh <repo>/evidence/<unique-run-dir>)"
+
 ./scripts/adjustment_proof_matrix.py collect \
   --adjustment-id level_up_atomicity.suppress_unpaired_rewards_box \
   --green-worktree ~/.worktrees/<repo>/<green-worktree> \
   --red-worktree ~/.worktrees/<repo>/<red-worktree> \
-  --green-evidence /tmp/<repo>/evidence/<unique-run-dir>/green \
-  --red-evidence /tmp/<repo>/evidence/<unique-run-dir>/red \
+  --green-evidence "$EVIDENCE_DIR/green" \
+  --red-evidence "$EVIDENCE_DIR/red" \
   --test-command '<real testing_mcp invocation from the target repository owner>'
 
 ./scripts/adjustment_proof_matrix.py validate \
-  /tmp/<repo>/evidence/<unique-run-dir>/proof_manifest.json
+  "$EVIDENCE_DIR/proof_manifest.json"
 ```
 
 The validator emits one of the allowed verdicts. Use that verdict in the PR body
