@@ -276,7 +276,7 @@ Execute the concurrency check defined in [Rule 1: File-exclusive ownership](#rul
 ---
 
 ## See Also
-- a product plugin's `zfc-leveling-roadmap` skill, if installed — domain-specific instance
+- the active repository’s applicable ZFC companion, when documented
 - `.claude/skills/deletion-milestone/SKILL.md` — net-LOC discipline for deletion PRs
 - a product plugin's `repro-twin-clone-evidence` skill, if installed — evidence capture
 - `.claude/commands/4layer.md` — minimal-repro ladder
