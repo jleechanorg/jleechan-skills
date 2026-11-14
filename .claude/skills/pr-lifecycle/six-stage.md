@@ -22,11 +22,13 @@ Before reporting work as uncommitted, unpublished, missing a PR or otherwise blo
 
 On creation, after each push, and when scope or status changes, refresh the descriptive title to match the implemented behavior and remaining work, then read back the published title. Use the earliest unmet stage; a title change never completes or advances a gate.
 
-#### Canonical stage title presentation
+#### Canonical operational title presentation
 
-Use one two-letter stage prefix and one recognized trailing stage suffix, naming the same stage, for example `[er] Improve campaign loading [evidence review]`. Preserve the substantive title, unrelated bracketed text, and required author/tool provenance tags immediately before the suffix. On transition, remove only recognized stage markers at the title boundaries before adding the current pair; never invent an author or model identity. Suffix-only titles gain their matching prefix on synchronization.
+Use `[status][short detail] substantive title [cli][model]`, where `status` is one of six operational states: `working`, `waiting`, `blocked`, `queued`, `ready`, or `unknown` (for example `[working][fixing review] Improve campaign loading [claude][sonnet]`, `[waiting][ci + /advice] Improve campaign loading [gemini][gemini-4-hydrogen]`, or `[blocked][needs MERGE APPROVED] Improve campaign loading [codex][gpt-5.6-sol]`). Preserve the substantive title, unrelated bracketed text, and required `[cli][model]` provenance tags. On transition, update only the leading `[status][short detail]` markers (and strip any legacy stage markers at title boundaries); never invent an author or model identity. `ready` reports that gates are satisfied and does **not** grant merge authority.
 
-Keep existing `stage:*` labels (`stage:0-spec` through `stage:5-final-approval`) and PR-body stage/obligation records (`## PR Stage`) for historical reporting and gate verification. The label, title and body record must identify the same earliest unmet stage. On migration, preserve unrelated labels, holds and all stage history.
+When `status` transitions to `blocked` on a human-only gate (such as `MERGE APPROVED`, `DELETE APPROVED`, credentials, or a product decision), post one concise Slack/channel ping naming the PR link, exact blocker, and required action/phrase so the operator does not need to poll for status.
+
+Keep existing `stage:*` labels (`stage:0-spec` through `stage:5-final-approval`) and PR-body stage/obligation records (`## PR Stage`) for historical reporting and gate verification. The label and body record must identify the same earliest unmet stage, while the title `[status][short detail]` reports live operational state. On migration, preserve unrelated labels, holds and all stage history.
 
 | Stage | Title prefix | Title suffix | Label | Work and exit proof |
 |---|---|---|---|---|
