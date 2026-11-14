@@ -4172,6 +4172,8 @@ def aggregate_native_human_steering(
     message_kinds = {
         "initial_task", "new_requirement/domain_judgment",
         "status_request", "continuation/followthrough_nudge",
+        "teammate_message", "cold_reviewer_dispatch",
+        "compaction", "merge_approval",
     }
     context_unassigned = {
         "unassigned_global_scope": "global_scope_unassigned_messages",

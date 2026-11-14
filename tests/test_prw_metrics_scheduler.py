@@ -614,6 +614,26 @@ PY
         self.assertEqual(args[0], expected_path)
         self.assertNotIn("@REPO_ROOT@", args[0])
 
+    def test_run_prw_metrics_wires_history_roots_and_session_bindings(self):
+        """Verifies run_prw_metrics.sh forwards --history-root and --session-bindings when configured."""
+        history_root = self.scratch_dir / "claude-projects"
+        history_root.mkdir(parents=True, exist_ok=True)
+        bindings = self.scratch_dir / "session-bindings.jsonl"
+        bindings.write_text('{"session_id":"s1","pr":"org/repo#1"}\n', encoding="utf-8")
+
+        env = self._base_env(
+            PRW_METRICS_HISTORY_ROOTS=f"{history_root}:{self.scratch_dir / 'missing'}",
+            PRW_METRICS_SESSION_BINDINGS=str(bindings),
+            PRW_METRICS_PUBLISH="0",
+            PRW_METRICS_FORCE_RUN="1",
+        )
+        result = subprocess.run(
+            ["bash", str(RUN_SCRIPT), "--force-run"],
+            env=env, text=True, capture_output=True, check=False, timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("roots_requested=1, roots_available=1", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

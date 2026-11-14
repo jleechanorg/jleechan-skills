@@ -135,10 +135,26 @@ else
   if [[ -d "$PRW_METRICS_TELEMETRY_DIR" ]]; then
     telem_args+=(--telemetry-dir "$PRW_METRICS_TELEMETRY_DIR")
   fi
+  history_args=()
+  if [[ -n "${PRW_METRICS_HISTORY_ROOTS:-}" ]]; then
+    IFS=':' read -r -a _history_roots <<< "$PRW_METRICS_HISTORY_ROOTS"
+    for _root in "${_history_roots[@]}"; do
+      if [[ -n "$_root" && -d "$_root" ]]; then
+        history_args+=(--history-root "$_root")
+      fi
+    done
+  fi
+  if (( ${#history_args[@]} > 0 )); then
+    _bindings_ledger="${PRW_METRICS_SESSION_BINDINGS:-$HOME/.local/share/prw-metrics/bindings/session-bindings.jsonl}"
+    if [[ -f "$_bindings_ledger" ]]; then
+      history_args+=(--session-bindings "$_bindings_ledger")
+    fi
+  fi
   python3 "$REPO_DIR/scripts/prw_metrics.py" \
     --roadmap-repo "$PRW_METRICS_ROADMAP_REPO" \
     --state-dir "$PRW_METRICS_STATE_DIR" \
-    ${telem_args[@]+"${telem_args[@]}"}
+    ${telem_args[@]+"${telem_args[@]}"} \
+    ${history_args[@]+"${history_args[@]}"}
 fi
 STATUS=$?
 set -e
