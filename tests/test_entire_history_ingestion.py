@@ -70,6 +70,55 @@ class EntireHistoryIngestionTests(unittest.TestCase):
         assert next(row for row in result["human_records"] if row.get("native_event_id") == "unknown-1")["actor_kind"] == "unknown"
         assert result["stats"]["automated_excluded_messages"] == 1
 
+    def test_entire_verified_native_record_without_review_is_unannotated(self):
+        source = self.tmp_path / "verified.jsonl"
+        source.write_text(json.dumps({
+            "type": "user", "sessionId": "verified-session", "uuid": "verified-event",
+            "timestamp": "2026-11-13T11:59:00Z", "origin": {"kind": "human"},
+            "message": {"role": "user", "content": "continue"},
+        }) + "\n")
+        self.patch(collector, "run_entire_parser", lambda *_args: [{
+            "v": 1, "type": "user", "id": "verified-event",
+            "ts": "2026-11-13T11:59:00Z", "content": "continue",
+        }])
+
+        result = collector.collect_native_history(
+            [str(source)], cutoff=NOW, days=1,
+            entire_parser="entire-parser", entire_agent="claude-code",
+        )
+
+        self.assertEqual(result["human_records"][0]["native_origin_status"], "verified_human")
+        self.assertEqual(result["stats"]["human_unannotated"], 1)
+
+    def test_reviewed_entire_unknown_record_is_not_unannotated(self):
+        source = self.tmp_path / "unknown.jsonl"
+        source.write_text(json.dumps({
+            "type": "user", "sessionId": "unknown-session", "uuid": "unknown-event",
+            "timestamp": "2026-11-13T11:59:00Z",
+            "message": {"role": "user", "content": "status?"},
+        }) + "\n")
+        self.patch(collector, "run_entire_parser", lambda *_args: [{
+            "v": 1, "type": "user", "id": "unknown-event",
+            "ts": "2026-11-13T11:59:00Z", "content": "status?",
+        }])
+        baseline = collector.collect_native_history(
+            [str(source)], cutoff=NOW, days=1,
+            entire_parser="entire-parser", entire_agent="claude-code",
+        )
+        annotation_path = self.tmp_path / "unknown-review.jsonl"
+        annotation_path.write_text(json.dumps({
+            "event_id": baseline["human_records"][0]["event_id"],
+            "actor_kind": "unknown",
+        }) + "\n")
+
+        result = collector.collect_native_history(
+            [str(source)], cutoff=NOW, days=1, annotation_path=str(annotation_path),
+            entire_parser="entire-parser", entire_agent="claude-code",
+        )
+
+        self.assertEqual(result["human_records"][0]["actor_kind"], "unknown")
+        self.assertEqual(result["stats"]["human_unannotated"], 0)
+
 
     def test_successful_conversion_does_not_claim_native_source_completeness(self):
         source = _history(self.tmp_path)

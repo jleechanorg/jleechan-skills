@@ -10,6 +10,7 @@ from unittest import mock
 from scripts import human_nudge_adjudication as adjudication
 
 from scripts.native_usage_collector import _apply_replay_annotation
+from scripts.prw_metrics import aggregate_native_human_steering
 
 
 REPO = Path(__file__).resolve().parents[1]
@@ -60,7 +61,6 @@ class HumanNudgeAdjudicationTests(unittest.TestCase):
     def test_one_call_transports_private_context_and_writes_replay_annotations(self):
         response = {"annotations": [{
             "event_id": "event-1", "actor_kind": "human",
-            "human_origin": "verified_human",
             "message_kind": "continuation/followthrough_nudge",
             "human_nudge_eligible": True,
         }]}
@@ -97,20 +97,20 @@ class HumanNudgeAdjudicationTests(unittest.TestCase):
 
     def test_unknown_and_native_origin_are_preserved_without_role_promotion(self):
         response = {"annotations": [{
-            "event_id": "event-1", "actor_kind": "unknown", "human_origin": "unknown",
+            "event_id": "event-1", "actor_kind": "unknown",
             "message_kind": None, "human_nudge_eligible": None,
         }]}
         self.assertEqual(self.run_judge(response).returncode, 0)
         annotation = json.loads(self.output.read_text(encoding="utf-8"))
         self.assertEqual(annotation["actor_kind"], "unknown")
-        self.assertEqual(annotation["human_origin"], "unknown")
+        self.assertNotIn("human_origin", annotation)
         self.assertNotIn("text", annotation)
         self.assertNotIn("native_origin_status", annotation)
 
     def test_foreign_or_duplicate_ids_fail_without_source_leak(self):
         valid = {
-            "actor_kind": "unknown", "human_origin": "unknown",
-            "message_kind": None, "human_nudge_eligible": None,
+            "actor_kind": "unknown", "message_kind": None,
+            "human_nudge_eligible": None,
         }
         for response in (
             {"annotations": [{**valid, "event_id": self.secret}]},
@@ -143,15 +143,14 @@ class HumanNudgeAdjudicationTests(unittest.TestCase):
     def test_unsupported_judgment_labels_fail_protocol_validation(self):
         invalid_labels = (
             ("actor_kind", "probable_human"),
-            ("human_origin", "maybe_human"),
+            ("human_origin", "verified_human"),
             ("message_kind", "kind-of-nudge"),
         )
         for field, value in invalid_labels:
             with self.subTest(field=field):
                 annotation = {
                     "event_id": "event-1", "actor_kind": "unknown",
-                    "human_origin": "unknown", "message_kind": None,
-                    "human_nudge_eligible": None,
+                    "message_kind": None, "human_nudge_eligible": None,
                 }
                 annotation[field] = value
                 result = self.run_judge({"annotations": [annotation]})
@@ -165,8 +164,7 @@ class HumanNudgeAdjudicationTests(unittest.TestCase):
         )
         annotation = schema["properties"]["annotations"]["items"]
         expected_fields = {
-            "event_id", "actor_kind", "human_origin", "message_kind",
-            "human_nudge_eligible",
+            "event_id", "actor_kind", "message_kind", "human_nudge_eligible",
         }
         self.assertIs(schema["additionalProperties"], False)
         self.assertEqual(set(schema["required"]), {"annotations"})
@@ -199,7 +197,6 @@ class HumanNudgeAdjudicationTests(unittest.TestCase):
         self.packet.write_text(json.dumps(packet), encoding="utf-8")
         response = {"annotations": [{
             "event_id": "event-1", "actor_kind": "human",
-            "human_origin": "verified_human",
             "message_kind": "continuation/followthrough_nudge",
             "human_nudge_eligible": True,
         }]}
@@ -214,6 +211,30 @@ class HumanNudgeAdjudicationTests(unittest.TestCase):
         self.assertNotIn("context", annotation)
         self.assertNotIn("unrelated_source_metadata", annotation)
         self.assertNotIn(self.secret, json.dumps(annotation))
+
+    def test_automated_actor_cannot_become_human_nudge_after_annotation(self):
+        response = {"annotations": [{
+            "event_id": "event-1", "actor_kind": "automated_watch",
+            "message_kind": "continuation/followthrough_nudge",
+            "human_nudge_eligible": True,
+        }]}
+        result = self.run_judge(response)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        annotation = json.loads(self.output.read_text(encoding="utf-8"))
+        record = {
+            "event_id": "event-1", "provider": "codex",
+            "timestamp": "2026-11-12T12:00:00Z", "actor_kind": "unknown",
+            "native_origin_status": "unverified_candidate",
+        }
+        _apply_replay_annotation(record, annotation)
+        summary = aggregate_native_human_steering(
+            [record], [], window_start="2026-11-12T00:00:00Z",
+            window_end="2026-11-13T00:00:00Z",
+        )
+        self.assertEqual(record["actor_kind"], "automated_watch")
+        self.assertEqual(record["native_origin_status"], "unverified_candidate")
+        self.assertEqual(summary["coverage"]["human_nudge_messages"], 0)
+        self.assertEqual(summary["coverage"]["automated_excluded_messages"], 1)
 
 
 if __name__ == "__main__":

@@ -829,7 +829,8 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                             stats["automated_excluded_messages"] += bool(automated)
                             stats["human_candidates"] += not automated
                             stats["human_verified"] += record.get("origin_status") == "verified_human"
-                            stats["human_unannotated"] += not automated and record.get("origin_status") != "verified_human"
+                            annotation = annotations.get(record["event_id"])
+                            stats["human_unannotated"] += not automated and annotation is None
                     stats["entire_candidate_records"] += len(parsed)
             except (OSError, UnicodeError):
                 stats["read_errors"] += 1
