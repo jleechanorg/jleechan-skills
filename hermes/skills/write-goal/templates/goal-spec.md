@@ -44,7 +44,7 @@ Run all of these at completion (from /goal_harness):
 - **/er** — Evidence Review (adversarial, independent reviewer)
 - **/code_standards** — 3 parallel lanes:
   - ZFC (zero-framework cognition) — no keyword routing, no regex intent detection, no hand-tuned scoring
-  - ZFC-leveling — no level-up fields leaking into non-leveled surfaces
+  - Repository-local ZFC specialization — follow the companion declared by the active repository when it applies; otherwise mark not applicable
   - root-cause-first — prompt/schema fixes tried before backend protection; document why if backend enforcement is added
 - **Independent Agent Review** — full-diff code review by an isolated subagent
 - 4/4 PASS = DONE. Any FAIL = fix & loop. Same score 2 iterations = STALLED → escalate to human.

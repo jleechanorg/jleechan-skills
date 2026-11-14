@@ -181,7 +181,7 @@ When a slash command exists in BOTH `~/.claude/commands/<name>.md` (user-scope, 
 
 **User-scope contract (lives in `~/.claude/commands/<name>.md`):**
 1. Stays **project-agnostic** — no hardcoded paths to a specific product repo.
-2. Documents that any repo-local `.claude/commands/<name>.md` MAY override specific lanes (e.g. add `/thermo` lane) but MUST inherit the 4 user-scope lanes (ponytail, ZFC, ZFC leveling, root-cause-first).
+2. Documents that any repo-local `.claude/commands/<name>.md` MAY override specific lanes (e.g. add `/thermo` lane) but MUST inherit the 4 user-scope lanes (ponytail, ZFC, the applicable repository-local ZFC specialization, root-cause-first).
 3. **Reciprocal pointer** — explicit "If a repo-local file exists at `<repo>/.claude/commands/<name>.md`, that file MUST also be loaded; load both."
 
 **Repo-local contract (lives in `<product-repo>/.claude/commands/<name>.md`):**

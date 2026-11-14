@@ -124,7 +124,7 @@ Save the inventory to `/tmp/<prompt>_anchor_inventory.md` for reference during t
 
 Walk the prompt section by section. For each section, classify:
 
-- **Section content = anchors only.** No prose headroom. Skip. Example: the XP threshold table (every row is anchored).
+- **Section content = anchors only.** No prose headroom. Skip. Example: a lookup table (every row is anchored).
 - **Section content = anchors + dense prose.** High headroom. Example: §V3.20 worked examples (kept both examples, required labels, but compressed the narrative).
 - **Section content = anchors + redundant prose.** Highest headroom. Example: a paragraph that restates the same rule from two paragraphs earlier.
 - **Section content = mostly prose, no anchors.** Free to rewrite or condense.

@@ -43,7 +43,7 @@ Select the applicable checks from the repository instructions and user request:
 - **/er** — Evidence Review (adversarial, independent reviewer)
 - **code-standards**, when required by this repository:
   - ZFC (zero-framework cognition) — no keyword routing, no regex intent detection, no hand-tuned scoring
-  - ZFC-leveling — no level-up fields leaking into non-leveled surfaces
+  - Repository-local ZFC specialization — follow the companion declared by the active repository when it applies; otherwise mark not applicable
   - root-cause-first — prompt/schema fixes tried before backend protection; document why if backend enforcement is added
 - **Independent review**, when required or warranted, using an authorized reviewer.
 - Record each applicable gate and result; unresolved failures remain incomplete.

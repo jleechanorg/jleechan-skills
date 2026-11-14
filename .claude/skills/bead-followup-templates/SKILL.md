@@ -71,7 +71,7 @@ For each finding, record:
 - Verified problem: one concrete paragraph describing the bug, gap, or standards violation.
 - Ownership boundary: the module that should own the decision or invariant.
 - Safe path: the smallest standards-compliant change that achieves the goal.
-- Forbidden path: patterns to avoid, such as private helper calls, prompt prose in Python, keyword/regex semantic routing, or level/XP inference in the wrong layer.
+- Forbidden path: patterns to avoid, such as private helper calls, prompt prose in Python, keyword/regex semantic routing, or domain inference outside its declared owner.
 - Verification: exact `rg`, test, lint, or evidence command expected to prove the fix.
 - Staleness note: signatures and file lines were verified at a specific SHA and must be re-read before implementation.
 
@@ -83,7 +83,7 @@ For each finding, record:
 - Include at least one call-site example.
 - For removals or replacements, include the exact `rg` check proving old usage is gone.
 - For `/code-standards` work, name the violated rule and the compliant alternative.
-- For level-up work, respect the ZFC level-up file boundaries and avoid deriving primary level-up availability from XP thresholds.
+- When the repository declares a domain-specific ZFC companion, cite its applicable ownership boundaries and checks. Do not import a policy from another repository by default.
 
 ## Acceptance Criteria Rules
 

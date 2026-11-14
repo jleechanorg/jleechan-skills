@@ -6,9 +6,10 @@ session: slash-command audit + bidirectional split for /code-standards
 
 # `/code-standards` Bidirectional Contract — Reference Implementation
 
-Canonical example of a layered slash-command pair (user-scope
-project-agnostic + repo-local worldai-specialized). Use as a template for
-other commands that want the same split.
+Historical example of a layered slash-command pair (user-scope generic and
+repository-local specialized). Reuse the split, not the dated lane list or
+paths below. The current generic code-standards skill and the active
+repository’s own instructions define the applicable review today.
 
 ## Files (delivered 2026-07-15)
 
