@@ -415,7 +415,7 @@ class TestEmptyDurationDistribution(unittest.TestCase):
         self.assertEqual(row["d14_all_p50_hours"], "UNKNOWN")
         rendered = DashboardRenderer().render(summary)
         self.assertIn("UNKNOWN", rendered)
-        self.assertNotIn("0.0h", rendered)
+        self.assertNotRegex(rendered, r"(?<![0-9.])0\.0h\b")
 
     def test_actual_zero_duration_remains_numeric_zero(self):
         result = MetricsAggregator().summarize_window_cohort([
