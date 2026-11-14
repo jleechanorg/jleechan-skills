@@ -123,6 +123,12 @@ def _judge(packet, command, timeout):
                 if not valid_type:
                     raise ValueError("judge annotation has an invalid field type")
         received_ids.append(annotation["event_id"])
+    if (
+        len(received_ids) != len(set(received_ids))
+        or set(received_ids) != expected_ids
+    ):
+        raise ValueError("judge response event IDs do not match the input packet")
+    for annotation in annotations:
         output_annotation = {"event_id": annotation["event_id"]}
         output_annotation.update({
             key: value
@@ -131,11 +137,6 @@ def _judge(packet, command, timeout):
         })
         output_annotation.update(annotation)
         normalized.append(output_annotation)
-    if (
-        len(received_ids) != len(set(received_ids))
-        or set(received_ids) != expected_ids
-    ):
-        raise ValueError("judge response event IDs do not match the input packet")
     return normalized
 
 

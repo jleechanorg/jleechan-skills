@@ -89,9 +89,16 @@ class HumanNudgeAdjudicationTests(unittest.TestCase):
         self.assertNotIn("native_origin_status", annotation)
 
     def test_foreign_or_duplicate_ids_fail_without_source_leak(self):
+        valid = {
+            "actor_kind": "unknown", "human_origin": "unknown",
+            "message_kind": None, "human_nudge_eligible": None,
+        }
         for response in (
-            {"annotations": [{"event_id": "foreign", "actor_kind": "unknown"}]},
-            {"annotations": [{"event_id": "event-1"}, {"event_id": "event-1"}]},
+            {"annotations": [{**valid, "event_id": self.secret}]},
+            {"annotations": [
+                {**valid, "event_id": "event-1"},
+                {**valid, "event_id": "event-1"},
+            ]},
         ):
             with self.subTest(response=response):
                 result = self.run_judge(response)
