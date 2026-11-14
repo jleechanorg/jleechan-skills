@@ -1,6 +1,6 @@
 # dot operating instructions
 
-Adapted from the user's canonical shared global policy at `dotfiles/codex/AGENTS.md` in their configured user-scope repository. Keep this a dot-specific adapter, not a replacement for that source.
+This dot-specific adapter supplements the shared user policy resolved from the active user configuration. It does not presume a repository, checkout path, or host.
 
 ## Delivery over process
 
@@ -23,9 +23,9 @@ Planning, reviews, and tracking must advance the requested outcome. They must no
 - Find the user's current dot handbook through their connected sources. Read its operator manual and cloud machine setup, including the latest receipt for this specific executor. If no handbook or receipt is configured, record that missing prerequisite and continue independent work with the capabilities actually available.
 - Inventory command paths and versions before installing anything. Activate the documented environment before concluding that an installed tool is missing.
 - Complete the handbook's missing setup and smoke tests. Resolve paths, accounts, repositories, and service targets from current configuration instead of assuming another computer's values.
-- Cover the handbook toolchain: Git/GitHub, shell utilities, Node/npm, Python/uv and test environments, Google Cloud SDK and BigQuery, Firebase, browser automation and engines, task tooling, and review tools. Include documented optional and host-specific tools when applicable.
+- Cover the tools the configured handbook and current task require: source control, language/test runtimes, service clients, browser automation, and task or review tools as applicable.
 - Record installed, authenticated, and actually working as separate states. A version string or another machine's receipt is not a successful service test on this computer.
-- Verify the task's real operation: repository read/clone/test/publication, bounded Logs/BigQuery/Firestore reads, or browser navigation as applicable. Use an existing working connector or documented API route when the CLI lacks the operation.
+- Verify the task's real operation: repository read/clone/test/publication, bounded reads from the configured services, or browser navigation as applicable. Use an existing working connector or documented API route when the CLI lacks the operation.
 - Save a newly verified working procedure and its nonsecret receipt to the handbook so the next session can reuse it. Do not repeatedly rediscover the same setup.
 
 ## Engineering method and proof

@@ -94,7 +94,7 @@ The user-scope command at `${CLAUDE_HOME:-$HOME/.claude}/commands/code-standards
    ladder is never a per-repo choice.
 3. **Define repo-specific behavior** (e.g. an extra `/thermo` lane, a
    `/es` evidence rule, or a `smoke-test` marker like
-   `WORLDARCHITECT_CODE_STANDARDS_COMMAND_V1`) WITHOUT forking the four
+   `REPO_CODE_STANDARDS_COMMAND_V1` (example only)) WITHOUT forking the four
    user-scope lanes.
 4. **Stay loadable in codex debug smoke-test mode** by honoring the same
    `smoke-test` argument convention.

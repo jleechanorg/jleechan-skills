@@ -31,7 +31,7 @@ across logout/reboot when `loginctl enable-linger` is on.
 - **Instead**, the unit must invoke a wrapper script (`systemd-wrapper.sh`)
   using `/bin/bash`, and secrets come from `EnvironmentFile=` pointing at
   a config file with `0600` perms outside the repo (e.g.
-  `~/.config/systemd/user/jleechanbrain-deploy-tokens.conf`).
+  `~/.config/systemd/user/<service>-env.conf`).
 - A unit may declare non-secret defaults inline (e.g. `HOME=%h`,
   `PATH=/usr/bin:/bin`) but anything credential-bearing goes through the
   wrapper + `EnvironmentFile=`.
@@ -173,12 +173,12 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 WorkingDirectory=@REPO@
-ExecStart=/bin/bash @HOME@/.local/libexec/systemd-wrapper.sh @REPO@/daemon/scripts/<job>.sh
+ExecStart=/bin/bash @HOME@/.local/libexec/systemd-wrapper.sh @REPO@/<worker-relative-path>
 # Strip shell-exported GitHub tokens so keyring auth wins (PR #206).
 UnsetEnvironment=GITHUB_TOKEN GH_TOKEN
-# Pulls in HERMES_SLACK_BOT_TOKEN etc. from the file at 0600; the leading
+# Pulls in service-specific credentials from the file at 0600; the leading
 # `-` makes the file optional — unit starts even if it doesn't exist yet.
-EnvironmentFile=-@HOME@/.config/systemd/user/jleechanbrain-deploy-tokens.conf
+EnvironmentFile=-@HOME@/.config/systemd/user/<service>-env.conf
 # Cap runtime so a stuck process can't pin the unit forever.
 TimeoutStartSec=600
 # Do NOT set Restart= for Type=oneshot timers — the timer fires it again
@@ -270,7 +270,7 @@ OnUnitActiveSec=60
 
 ## 6-Step Installation Checklist
 
-1. Write the target script (the worker) under `daemon/scripts/<job>.sh` and ensure it is executable (`chmod 0755 daemon/scripts/<job>.sh`).
+1. Locate or write the target worker in the owning repository’s configured script directory and ensure it is executable. Set `<worker-relative-path>` to its path from the repository root.
 2. Write the sourced wrapper script (`systemd-wrapper.sh`) to
    `~/.local/libexec/systemd-wrapper.sh` and `chmod 0755` it.
 3. Ensure the log directory exists: `mkdir -p "$HOME/.local/state/<service>/logs"` (or your configured state directory if customized).

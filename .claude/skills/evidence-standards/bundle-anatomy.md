@@ -1,15 +1,15 @@
-# Evidence bundle anatomy (MCP / `create_evidence_bundle`)
+# Evidence bundle anatomy
 
-_Last updated: 2026-04-26_
+Find the active repository’s evidence policy, bundle producer and configured
+artifact location. The paths and filenames below are illustrative, not required
+names. Map the actual files to their roles in the claim-to-artifact map. Cite
+the producing revision and a specific run or iteration; a mutable “latest”
+pointer alone is not proof.
 
-**Repo mirror (WorldArchitect):** [docs/evidence-standards/bundle-anatomy.md](https://github.com/$GITHUB_REPOSITORY/blob/main/docs/evidence-standards/bundle-anatomy.md) on `main` (or the branch that introduced it) — keep in sync when editing either copy.
-
-This describes artifacts produced under a typical path on the dedicated Scratch volume resolved dynamically via `~/.claude/skills/scratch-space/SKILL.md` (`diskm scratch-new <repo-path> <purpose> --kind evidence` or `$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh "<repo>/evidence/<date>-<slug>")`):
-
-`<scratch-root>/your-project.com/<branch-alias>/<test_name>/iteration_NNN/`
-(resolved dynamically via `diskm scratch-new` or `~/.claude/skills/scratch-space/scripts/scratch-dir.sh`)
-
-and the [`latest`](https://github.com/$GITHUB_REPOSITORY/blob/main/testing_mcp/lib/evidence_utils.py#L1878) symlink (points at the newest `iteration_*`; see [`create_evidence_bundle()`](https://github.com/$GITHUB_REPOSITORY/blob/main/testing_mcp/lib/evidence_utils.py#L1833)). **Normative process rules** (proof layers, video, hosted URLs, mock vs real, provenance and SHA applicability) live in [SKILL.md](./SKILL.md) and the canonical lifecycle; this doc is **structural**. Apply this bundle, manifest and media contract when claiming actual test, runtime or artifact proof. Source-only skill guidance follows the lifecycle's Markdown instruction-only route and does not automatically require a separate bundle or campaign.
+[Evidence standards](./SKILL.md) and the canonical lifecycle own the proof
+requirements. This document describes bundle structure, not an additional
+evidence gate. The lifecycle’s instruction-only route does not automatically
+require a runtime bundle.
 
 ## Core documentation
 
@@ -25,19 +25,19 @@ and the [`latest`](https://github.com/$GITHUB_REPOSITORY/blob/main/testing_mcp/l
 | File | Purpose |
 |------|---------|
 | **metadata.json** | `git_provenance`, `server` (if any), `timestamp` / `bundle_timestamp`, `bundle_version`, `evidence_mode`, optional full `provenance` echo, `summary` counts. |
-| **run.json** | Canonical scenario results; must include `scenarios[]` with `name`, `errors`, and `campaign_id` when campaigns exist. |
-| **scenario_results_checkpoint.json** | Optional: harness checkpoint (e.g. `MCPTestBase`) for long runs / recovery when the test driver writes it. |
+| **run.json** | Canonical scenario results; record scenario identity, outcomes and applicable fixture or state identity. |
+| **scenario_results_checkpoint.json** | Optional: checkpoint for long runs or recovery when the driver writes one. |
 
 ## Trace captures (JSONL)
 
-Emitted only when the corresponding capture exists or the harness copies that JSONL into the bundle (see optional paths/flags in [`create_evidence_bundle()`](https://github.com/$GITHUB_REPOSITORY/blob/main/testing_mcp/lib/evidence_utils.py#L1833)).
+Include the original traces for exercised boundaries when the producer captures them. Use the active producer’s documented options and formats.
 
 | File | Purpose |
 |------|---------|
 | **request_responses.jsonl** | Optional: MCP tool traffic (`tools/call`, etc.) when MCP capture is provided. |
 | **llm_request_responses.jsonl** | Optional: LLM request/response stream (`type`: request/response) when LLM capture exists. |
-| **http_request_responses.jsonl** | Optional: HTTP + SSE captures from the local app (e.g. `/interaction/stream`) when HTTP capture exists. |
-| **gemini_http_request_responses.jsonl** | Optional: transport-level Gemini HTTP traces when Gemini capture exists. |
+| **http_request_responses.jsonl** | Optional: HTTP or streaming captures from the application when HTTP capture exists. |
+| **provider_http_request_responses.jsonl** | Optional: sanitized transport-level provider traces where captured. |
 
 Duplicate `*_TIMESTAMP.jsonl` files may appear when captures rotate per run.
 
@@ -59,12 +59,12 @@ Duplicate `*_TIMESTAMP.jsonl` files may appear when captures rotate per run.
 |------|---------|
 | **server.log** | Server process log copy (sanitized). |
 | **lsof_output.txt** / **ps_output.txt** | Port/PID proof. |
-| **collection_log.txt** | Inventory of core files, top-level jsonl, `campaigns/`, other artifacts (reviewer aid). |
+| **collection_log.txt** | Inventory of core files, traces, state exports, and other artifacts (reviewer aid). |
 | **pre_restart_*.txt** | Optional cross-restart snapshots. |
 
-## `campaigns/`
+## State exports
 
-Exported campaign story + game state JSON (when local export runs). Supports persistence claims.
+When persistence is claimed, retain the original relevant state readback in the producer’s format.
 
 ## Recordings and console
 
@@ -99,5 +99,5 @@ provenance and applicable owner requirements remain binding.
 1. **metadata.json + run.json** → *what commit* and *what passed*.  
 2. **JSONL captures** → *what happened on the wire*.  
 3. **evidence.md** → *what you claim* and *where to look*.  
-4. **artifacts/ + campaigns/** → *environment and persisted state*.  
+4. **Logs and state exports** → *environment and persisted state*.
 5. **Hosted video URLs in PR** → *human-auditable proof* the bundle was produced honestly (see [SKILL.md](./SKILL.md)).

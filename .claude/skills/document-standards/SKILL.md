@@ -12,7 +12,7 @@ is a thin entry point. Every standard here is evidence-driven, traced to
 observed doc-revision patterns or to a named source skill.
 
 The dispatcher resolves `CLAUDE_HOME` to support isolated installs (e.g.
-`CLAUDE_HOME=/tmp/jleechan-skills.test/claude bash install-claude-commands.sh`).
+`CLAUDE_HOME="$(mktemp -d)" bash install-claude-commands.sh`).
 The smoke-test section below reports paths using the same `CLAUDE_HOME`
 substitution so the diagnostic matches both source-of-truth and isolated
 install layouts.
@@ -192,9 +192,8 @@ a prepared body cannot establish live `READY` or `FINAL_READY`.
      satisfy this; it must be legible to someone who has never read the code.
      A PR with zero user-facing effect states that explicitly ("No user-facing
      change — pure refactor/CI-only") rather than omitting the section. When
-     the repo has a project-specific story docset (e.g. worldarchitect.ai's
-     `docs/user-stories-ui/US-###.md` / `NEW-<slug>.md`, per its
-     `user-story-worldai` skill), link the matching doc for full detail — the
+     the repository declares a local user-story collection or companion skill,
+     find and link the matching document for full detail — the
      link is additional context, not a substitute for the one-sentence
      before/after; a bare link with no sentence does not satisfy this section.
      If the PR introduces new user-facing behavior with none, flag that a
