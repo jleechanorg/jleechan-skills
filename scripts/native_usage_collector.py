@@ -536,7 +536,10 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                  tool_result_records_excluded=0, context_records_excluded=0)
     if entire_parser:
         stats.update(entire_parser_sources=0, entire_parser_errors=0,
-                     entire_candidate_records=0)
+                     entire_candidate_records=0, entire_source_coverage="UNVERIFIED",
+                     entire_coverage_note=(
+                         "SDK conversion may omit or merge native events; "
+                         "source completeness is not reconciled"))
     stats["runtime_coverage"] = "Claude and Codex configured roots; other runtimes not collected"
     session_index = None
     if session_bindings:
@@ -831,7 +834,10 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
             except (OSError, UnicodeError):
                 stats["read_errors"] += 1
     errors = stats["missing_roots"] + stats["read_errors"] + stats["malformed_lines"]
-    stats["status"] = "FAILED" if not stats["roots_available"] else "PARTIAL" if errors else "COMPLETE"
+    if not stats["roots_available"]:
+        stats["status"] = "FAILED"
+    else:
+        stats["status"] = "PARTIAL" if errors or entire_parser else "COMPLETE"
     stats["window_start"], stats["window_end"] = format_iso_utc(start), format_iso_utc(cutoff)
     if state_conn:
         state_conn.close()

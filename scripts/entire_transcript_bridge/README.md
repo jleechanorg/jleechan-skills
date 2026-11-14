@@ -47,6 +47,8 @@ python3 scripts/human_nudge_adjudication.py \
 
 The adjudication CLI owns the prompt, annotation schema, and invocation details; this bridge only normalizes native transcript input.
 
+The SDK may omit or merge native events. The collector reports `entire_source_coverage=UNVERIFIED` and overall `PARTIAL` coverage when this adapter is selected, even after successful conversion. Emitted candidate counts describe converted events, not a complete native-event denominator.
+
 ## Privacy
 
 Transcript content can include private user and assistant text. The bridge processes bytes locally and does not make network requests or persist input. Successful stdout is the normalized transcript and may still contain source text; callers must handle it as private data. Errors and diagnostics contain no transcript values. Do not send bridge output to public destinations. Private adjudication packets are created only by the explicitly requested collector workflow and must remain private. The ordinary metrics export excludes raw transcript text.

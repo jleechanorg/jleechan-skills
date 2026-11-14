@@ -164,10 +164,10 @@ def main(argv=None):
         destination.parent.mkdir(parents=True, exist_ok=True)
         flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
         fd = os.open(destination, flags, 0o600)
+        os.fchmod(fd, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as output:
             for annotation in annotations:
                 output.write(json.dumps(annotation, ensure_ascii=False) + "\n")
-        os.chmod(destination, 0o600)
     except (OSError, ValueError) as exc:
         print(f"human-nudge adjudication failed: {exc}", file=sys.stderr)
         return 1

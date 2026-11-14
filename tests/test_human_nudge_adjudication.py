@@ -5,6 +5,9 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
+
+from scripts import human_nudge_adjudication as adjudication
 
 from scripts.native_usage_collector import _apply_replay_annotation
 
@@ -75,6 +78,22 @@ class HumanNudgeAdjudicationTests(unittest.TestCase):
         self.assertNotIn(self.secret, annotation.__repr__())
         self.assertNotIn(self.secret, result.stderr + result.stdout)
         self.assertEqual(os.stat(self.output).st_mode & 0o777, 0o600)
+
+    def test_existing_output_is_private_before_writing(self):
+        self.output.write_text("previous annotation", encoding="utf-8")
+        self.output.chmod(0o644)
+        fdopen = os.fdopen
+
+        def private_fdopen(fd, *args, **kwargs):
+            self.assertEqual(os.fstat(fd).st_mode & 0o777, 0o600)
+            return fdopen(fd, *args, **kwargs)
+
+        with mock.patch.object(adjudication, "_judge", return_value=[]), \
+                mock.patch.object(adjudication.os, "fdopen", side_effect=private_fdopen):
+            self.assertEqual(adjudication.main([
+                "--input", str(self.packet), "--judge-command", "unused",
+                "--output", str(self.output),
+            ]), 0)
 
     def test_unknown_and_native_origin_are_preserved_without_role_promotion(self):
         response = {"annotations": [{

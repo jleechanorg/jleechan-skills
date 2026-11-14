@@ -71,6 +71,20 @@ class EntireHistoryIngestionTests(unittest.TestCase):
         assert result["stats"]["automated_excluded_messages"] == 1
 
 
+    def test_successful_conversion_does_not_claim_native_source_completeness(self):
+        source = _history(self.tmp_path)
+        baseline = collector.collect_native_history([str(source)], cutoff=NOW, days=1)
+        self.assertEqual(baseline["stats"]["status"], "COMPLETE")
+        self.patch(collector, "run_entire_parser", lambda *_args: _sdk_rows())
+        result = collector.collect_native_history(
+            [str(source)], cutoff=NOW, days=1,
+            entire_parser="entire-parser", entire_agent="codex",
+        )
+        self.assertEqual(result["stats"]["status"], "PARTIAL")
+        self.assertEqual(result["stats"]["entire_source_coverage"], "UNVERIFIED")
+        self.assertEqual(result["stats"]["entire_parser_sources"], 1)
+        self.assertEqual(result["stats"]["entire_candidate_records"], 3)
+
     def test_normal_export_omits_text_and_requested_packet_is_private(self):
         source = _history(self.tmp_path)
         self.patch(collector, "run_entire_parser", lambda argv, agent, data: _sdk_rows())
