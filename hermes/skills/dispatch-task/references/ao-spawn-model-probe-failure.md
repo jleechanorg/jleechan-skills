@@ -30,7 +30,7 @@ The seventh failure mode is a **one-time config probe** failure, not a recurring
 
 ## Verified recipe (2026-07-30, ai_universe project)
 
-**Step 1 — Probe a known-good alias.** On this host, `sonnet`, `opus`, `fable` all return `PONG` to:
+**Step 1 — Probe a known-good alias.** On this host, `sonnet`, `opus`, `haiku` all return `PONG` to:
 
 ```bash
 timeout 30 claude -p --model sonnet 'Reply with exactly: PONG' 2>&1 | tail -3
@@ -92,7 +92,7 @@ Note the spawn flag is `--project` (long-only), not `-p`. The current ao-go CLI 
 sqlite3 ~/.ao/data/ao.db "SELECT json_extract(config, '$.agentConfig.model') FROM projects WHERE id='<project>';"
 
 # 2. If the model is anything other than one of these known-good values:
-#      sonnet, opus, fable, haiku, claude-sonnet-4-6, claude-opus-4-6
+#      sonnet, opus, haiku, claude-sonnet-4-6, claude-opus-4-6
 #    treat it as suspect and probe.
 ```
 

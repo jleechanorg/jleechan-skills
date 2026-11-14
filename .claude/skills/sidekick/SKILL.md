@@ -90,7 +90,7 @@ preflight questions.
 ## Model contract — explicit `model` on EVERY spawn (hard rule)
 
 Every sidekick spawn and every lane spawn MUST set `model` explicitly.
-Omitting it silently inherits the session model (often Fable/top-tier) — a
+Omitting it silently inherits the session model (often top-tier / frontier) — a
 policy violation, not a neutral default. Audit 2026-07-18 (bead $USER-0020)
 found real incidents: `sidekick-us-videos` ran on claude-fable-5 and
 `sidekick-fix-health-check-green` on MiniMax-M3 purely because `model` was

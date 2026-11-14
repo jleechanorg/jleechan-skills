@@ -133,8 +133,9 @@ Fail the review if any answer is missing:
 
 This skill extends:
 
-- `.claude/skills/zero-framework-cognition/SKILL.md`
-- `.claude/skills/root-cause-first/SKILL.md`
+- `${CLAUDE_HOME:-$HOME/.claude}/skills/zero-framework-cognition/SKILL.md`
+- `${CLAUDE_HOME:-$HOME/.claude}/skills/root-cause-first/SKILL.md`
+- `${CLAUDE_HOME:-$HOME/.claude}/skills/adjustment-proof/SKILL.md` (red/green worktree proof protocol)
 
 Run this skill whenever `/zfc` review encounters backend adjustment code or a
 proposal to add backend correction, suppression, defaulting, fallback, clamp,

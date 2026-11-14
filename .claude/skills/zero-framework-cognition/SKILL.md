@@ -5,6 +5,8 @@ description: Use when designing or reviewing model-owned contracts, gameplay, to
 
 # Zero-Framework Cognition
 
+Background: [Zero-Framework Cognition: A Way to Build Resilient AI Applications](https://steve-yegge.medium.com/zero-framework-cognition-a-way-to-build-resilient-ai-applications-56b090ed3e69) (Steve Yegge).
+
 Models decide; the server executes authorized operations. Invocation is review-only
 unless edits are already user-authorized; preserve that implementation scope
 without expanding it. Recommendations alone never authorize repairs.
@@ -118,88 +120,3 @@ an exact revision and file:line; conditional branches do not prove they executed
 Report unresolved authority, missing captures, unknown counts and review coverage.
 A passing fixture or string check is not proof of model compliance or production
 behavior. No repository-compliance PASS when required policy is missing.
-
-## Related session mode: /fable (model routing, not a ZFC rule)
-
-`/fable` is a separate session-level contract for model/subagent routing and
-token economy. It is unrelated to the ZFC judgment-ownership rules above, but
-is anchored here because `/fable` reserves main-thread Fable reasoning for
-"hardest reasoning" work — including ZFC / root-cause-first / leveling
-reviews. Kept as a clearly separate section so it is not confused with core
-ZFC principles.
-
-**Activation contract:** main thread = Fable (latest Claude), reserved for
-novel architecture, root-cause analysis, ZFC / RCF / leveling reviews,
-cross-PR synthesis, multi-step planning — anything where the prompt is
-"figure out what to do." Subagent defaults = Haiku-first, Sonnet for
-implementation. Token economy (best outcome AND best $/token) is a
-first-class constraint once `/fable` is invoked; the rules apply to every
-subsequent turn in the session.
-
-**What /fable does NOT do:**
-- Does not change `~/.claude/settings.json` or any persistent config — it is
-  a session-mode declaration, not a config edit.
-- Does not auto-spawn subagents — subagent use follows the routing table
-  below; the agent still decides when to spawn.
-- Does not bypass safety or rigor — fail-closed, `/es`, `/green`, evidence
-  standards are all still required; they are cheaper to follow than to skip.
-
-**3-tier routing table (apply per-call):**
-
-| Task shape | Subagent / tier | Rationale |
-|---|---|---|
-| Read-only Grep / Glob / Read / LS on a single file | **Haiku** | Pattern matching; 3x cheaper, comparable quality |
-| Multi-file read-only synthesis (e.g., `/ms`, multi-engine search, /e sweeps) | **Haiku + JSON schema** | Schema-forcing makes Haiku output reliable for aggregation |
-| Single targeted Edit / Write (the obvious fix) | **Sonnet** | Implementation needs moderate judgment |
-| Multi-file refactor, pair-coder, test writing | **Sonnet** | Pair-coder's full-context role |
-| Subagent that must reason about novel bugs or design | **Fable (escalate)** | Only escalate when Haiku/Sonnet demonstrably fail |
-| Adversarial review, root-cause-first, ZFC / leveling, architecture pivot, cross-PR synthesis, multi-step planning | **Fable (MAIN THREAD)** | "Figure out what to do" territory — this is where main-model reasoning pays for itself |
-
-Rule of thumb: if the agent's prompt can be written as "do exactly X to file
-Y" → Haiku or Sonnet. If the prompt is "figure out what to do" → Fable.
-
-**Token-economy rules (apply to ALL tiers) once /fable is active:**
-
-1. Reuse prior reads only while their inputs remain unchanged. Re-pin mutable
-   files, branch heads and check results before verification or a status claim.
-2. Reuse `/ms`, `/history`, `/e` results by ID for the same bounded question;
-   refresh when the scope, source state or required time window changes.
-3. Use offset/limit on Read for large files. Default
-   `$PROJECT_ROOT/world_logic.py` (421KB) → always Grep-first, never Read-whole.
-4. Bead lookups via `br` CLI only — never read `.beads/issues.jsonl`
-   directly.
-5. Parallel independent work in a single message — sequential execution of
-   independent work is a performance anti-pattern.
-6. Prefer the `Grep` tool over `grep` in Bash — save Bash for OS-level
-   operations.
-7. When context grows, compact proactively — do not let the session thrash.
-
-**Failure modes to avoid:**
-- **Haiku hallucination on nuanced prompts** — if a Haiku agent returns
-  output that doesn't match the expected schema or seems off, escalate to
-  Sonnet. Do not accept low-quality output just to save tokens.
-- **Sonnet pair-coder over-extension** — pair-coder/verifier roles benefit
-  from the full Sonnet context window; do not use Haiku for those.
-- **Fable overuse** — writing Fable-quality prompts for trivial edits burns
-  tokens; step down to Sonnet/Haiku.
-- **Subagent result-dumping** — a subagent's final message IS the return
-  value; do not re-summarize it in the main thread unless the synthesis
-  itself is the deliverable.
-
-**When /fable is the wrong choice:** a single-file typo fix (just Edit it),
-pure conversation/clarification (stay on the active model), or a session
-that needs persistent main-model reasoning throughout only 20% of the time
-(consider default routing instead).
-
-**Cross-references:** `~/.claude/skills/root-cause-first/SKILL.md` (RCF is
-Fable territory); hook `~/.claude/hooks/rtk.sh` (token-savings on shell
-commands, always-on, not /fable-specific); global policy `~/.claude/CLAUDE.md`
-(large file discipline, parallel subagents, bead lookup rules).
-
-**Invocation response:** user types `/fable` (with or without arguments).
-Reply confirms: `/fable active` — main thread = Fable; subagents =
-Haiku-first, Sonnet for implementation; Fable reserved for novel
-architecture, RCF, ZFC/leveling, cross-PR synthesis, multi-step planning;
-token economy rules in effect (reuse unchanged inputs, re-pin mutable state, bounded
-reads, parallel-where-independent). If arguments follow `/fable`, treat them
-as the task to begin.

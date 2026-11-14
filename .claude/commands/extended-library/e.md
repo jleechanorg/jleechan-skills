@@ -15,7 +15,7 @@ When delegating work to subagents or pair-programming partners, **default to the
 ### Claude family
 - **Haiku** — quick reads, transforms, summarization, lint sweeps, deterministic mechanical edits, single-file lookups, pollers/monitors/watch loops.
 - **Sonnet** — routine implementation, multi-file edits, test generation, conventional refactors, most code-pair work, PR fix lanes, conflict resolution, evidence packaging.
-- **Opus / Fable** — reserve ONLY for genuinely hard architectural reasoning, cross-context synthesis, ambiguous debugging, adversarial design judgment, or when Sonnet demonstrably fails (state which failure). Do not reach for the top tier by default — and NEVER by omission: an `Agent()`/workflow `agent()` spawn without an explicit `model` silently inherits the session model, which usually IS the top tier. Set `model` on every spawn (see ~/.claude/CLAUDE.md § "Subagent model routing").
+- **Opus / Frontier tier** — reserve ONLY for genuinely hard architectural reasoning, cross-context synthesis, ambiguous debugging, adversarial design judgment, or when Sonnet demonstrably fails (state which failure). Do not reach for the top tier by default — and NEVER by omission: an `Agent()`/workflow `agent()` spawn without an explicit `model` silently inherits the session model, which usually IS the top tier. Set `model` on every spawn (see ~/.claude/CLAUDE.md § "Subagent model routing").
 
 ### Codex family
 - **Codex Luna** (or other GPT-medium variants) — fast code generation, scaffolding, mechanical edits, well-scoped refactors.
