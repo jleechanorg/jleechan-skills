@@ -19,13 +19,15 @@ This is a **gate/check command** — run it before opening a PR, before merging,
 
 ## Step 1 — Load Required Skills and Roadmap Context
 
-Load and follow this skill **first**:
-- the `zfc-leveling-roadmap` skill
+First confirm that the active repository explicitly opts into this progression
+pack and identifies its applicable progression policy. If it does not, report
+**NOT APPLICABLE** and stop before loading the project checklist or running any
+test, edit, sync, or PR-label action. For general ZFC guidance, look for the
+target repository's own ZFC skill instead.
 
-Discover the active repository’s ZFC progression policy, plan, and task spec
-from its instructions or tracker. The opt-in skill’s file map applies only
-where the target repository explicitly selects it. Do not treat a personal
-checkout or historical roadmap copy as authoritative.
+For an opted-in repository, load `zfc-leveling-roadmap` and discover its current
+policy, plan, and task spec from its instructions or tracker. Do not treat a
+personal checkout or historical roadmap copy as authoritative.
 
 ---
 
@@ -66,7 +68,7 @@ If running against an open PR:
 
 1. Check PR title and description for ZFC alignment signals
 2. Verify the PR is targeting the correct merge lane (per roadmap PR sequencing)
-3. Confirm no merge conflicts with `origin/main`
+3. Confirm no merge conflicts with the PR’s actual base ref
 4. Run the target repository’s applicable tests and verify the results.
 5. Run its configured lint checks and verify the results.
 6. If the PR is marked `zfc_level`:
