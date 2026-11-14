@@ -294,10 +294,17 @@ def write_nudge_packets(path, records):
     """Write an explicitly requested, private model-input packet."""
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
+    unique_records = []
+    seen_records = set()
+    for record in records:
+        serialized = json.dumps(record, ensure_ascii=False, sort_keys=True)
+        if serialized not in seen_records:
+            seen_records.add(serialized)
+            unique_records.append(record)
     fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     os.fchmod(fd, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as descriptor:
-        json.dump({"schema_version": "human-nudge-input.v1", "events": records},
+        json.dump({"schema_version": "human-nudge-input.v1", "events": unique_records},
                   descriptor, ensure_ascii=False, sort_keys=True)
         descriptor.write("\n")
 

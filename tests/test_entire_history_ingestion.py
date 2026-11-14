@@ -10,6 +10,7 @@ from unittest import mock
 from datetime import datetime, timezone
 
 from scripts import native_usage_collector as collector
+from scripts import human_nudge_adjudication as adjudication
 from scripts.prw_metrics import aggregate_native_human_steering
 
 
@@ -254,6 +255,23 @@ class EntireHistoryIngestionTests(unittest.TestCase):
         assert len(records) == 2
         assert records[0]["session_id"] == records[1]["session_id"] == "shared-session"
         assert records[0]["event_id"] == records[1]["event_id"]
+        assert len(result["export_records"]) == 2
+
+        packet_path = self.tmp_path / "private" / "packet.json"
+        collector.write_nudge_packets(packet_path, result["nudge_packet_events"])
+        packet = adjudication._load_packet(packet_path)
+        assert len(packet["events"]) == 1
+        assert packet["events"][0] == result["nudge_packet_events"][0]
+
+        conflicting_packet_path = self.tmp_path / "private" / "conflicting-packet.json"
+        conflicting_records = [
+            dict(result["nudge_packet_events"][0]),
+            {**result["nudge_packet_events"][1], "text": "different"},
+        ]
+        collector.write_nudge_packets(conflicting_packet_path, conflicting_records)
+        assert len(json.loads(conflicting_packet_path.read_text())["events"]) == 2
+        with self.assertRaisesRegex(ValueError, "input event IDs must be unique"):
+            adjudication._load_packet(conflicting_packet_path)
 
 
     def test_entire_preserves_only_uniquely_matched_native_human_evidence(self):
