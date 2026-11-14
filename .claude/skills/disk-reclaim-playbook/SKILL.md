@@ -96,6 +96,13 @@ only for candidates the operator authorized and the tool qualified. Do not
 replace the CLI with a hand-written cleanup script, direct `rm`, raw worktree
 deletion, or a privileged container with a host-root mount.
 
+Before a clean-mode write, verify the target host's installed Disk Magician
+revision and the preview's effective age floor. Confirm that it is 48 hours or
+the explicitly selected emergency override. The policy written in this skill
+or in source code does not prove that the target host is running it. If the
+installed revision, effective floor, or override cannot be confirmed, stay in
+preview mode and do not write.
+
 On Linux Scratch backed by a sparse image, deleting guest files and returning
 host filesystem blocks are separate steps: run the existing
 `diskm volume reclaim --available-floor` path after deletion, then measure host
