@@ -159,6 +159,36 @@ class HumanNudgeAdjudicationTests(unittest.TestCase):
             ],
         )
 
+    def test_reviewed_binding_and_episode_metadata_survive_judging(self):
+        packet = json.loads(self.packet.read_text(encoding="utf-8"))
+        event = packet["events"][0]
+        event.update({
+            "episode_id": "episode-reviewed", "episode_role": "continuation",
+            "pr_binding": {
+                "pr": "example/game#42", "method": "reviewed_context", "weight": 1,
+            },
+            "association_method": "reviewed_context",
+            "unrelated_source_metadata": "must-not-be-copied",
+        })
+        self.packet.write_text(json.dumps(packet), encoding="utf-8")
+        response = {"annotations": [{
+            "event_id": "event-1", "actor_kind": "human",
+            "human_origin": "verified_human",
+            "message_kind": "continuation/followthrough_nudge",
+            "human_nudge_eligible": True,
+        }]}
+        result = self.run_judge(response)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        annotation = json.loads(self.output.read_text(encoding="utf-8"))
+        self.assertEqual(annotation["episode_id"], "episode-reviewed")
+        self.assertEqual(annotation["pr_binding"], event["pr_binding"])
+        self.assertEqual(annotation["association_method"], "reviewed_context")
+        self.assertEqual(annotation["actor_kind"], "human")
+        self.assertNotIn("text", annotation)
+        self.assertNotIn("context", annotation)
+        self.assertNotIn("unrelated_source_metadata", annotation)
+        self.assertNotIn(self.secret, json.dumps(annotation))
+
 
 if __name__ == "__main__":
     unittest.main()

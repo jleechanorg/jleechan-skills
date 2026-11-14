@@ -358,19 +358,22 @@ def _history_text_blocks(value):
 
 
 def _entire_records(rows, source_fingerprint, source_id, session_id, provider,
-                    annotations, native_actor_evidence):
+                    annotations, native_actor_evidence, session_git):
+    effective_session_id = session_id or source_id
     sdk_id_counts = {}
     for row in rows:
         event_id = row.get("id")
         if isinstance(event_id, str) and event_id:
             sdk_id_counts[event_id] = sdk_id_counts.get(event_id, 0) + 1
 
-    def has_native_human_evidence(row, blocks):
+    def matched_native_evidence(row, blocks):
         native_id = row.get("id")
         if native_id and sdk_id_counts.get(native_id) == 1:
             matches = [evidence for evidence in native_actor_evidence
                        if native_id in evidence["ids"]]
         else:
+            matches = []
+        if len(matches) != 1:
             timestamp = _parse_utc_instant(row.get("ts"))
             signature = (
                 format_iso_utc(timestamp) if timestamp else None,
@@ -389,8 +392,8 @@ def _entire_records(rows, source_fingerprint, source_id, session_id, provider,
                 )
                 sdk_matches += candidate_sig == signature
             if sdk_matches != 1:
-                return False
-        return len(matches) == 1 and matches[0]["verified"]
+                return None
+        return matches[0] if len(matches) == 1 else None
 
     candidates, occurrences = [], {}
     for index, row in enumerate(rows):
@@ -406,7 +409,7 @@ def _entire_records(rows, source_fingerprint, source_id, session_id, provider,
             occurrence = occurrences.get(identity, 0)
             occurrences[identity] = occurrence + 1
             namespace = hashlib.sha256(
-                f"{provider}:{source_id}:{session_id}".encode("utf-8")
+                f"{provider}:{session_id or source_id}".encode("utf-8")
             ).hexdigest()
             event_id = "entire:" + namespace + ":" + hashlib.sha256(
                 f"{identity}:{occurrence}".encode("utf-8")
@@ -415,11 +418,12 @@ def _entire_records(rows, source_fingerprint, source_id, session_id, provider,
     result, packet = [], []
     for index, row, blocks, user_text, native_id, timestamp, event_id in candidates:
         normalized_timestamp = format_iso_utc(timestamp) if timestamp else None
-        native_human = has_native_human_evidence(row, blocks)
+        native_evidence = matched_native_evidence(row, blocks)
+        native_human = native_evidence is not None and native_evidence["verified"]
         record = {
             "record_type": "human",
             "provider": provider,
-            "session_id": session_id,
+            "session_id": effective_session_id,
             "source_fingerprint": source_fingerprint,
             "source_agent": row.get("agent") if isinstance(row.get("agent"), str) else None,
             "native_origin_status": "verified_human" if native_human else "unknown",
@@ -431,6 +435,15 @@ def _entire_records(rows, source_fingerprint, source_id, session_id, provider,
         }
         if native_id:
             record["native_event_id"] = native_id
+        if native_evidence is not None:
+            for key in ("repository", "git_branch", "commit_hash", "branch_source", "branch_basis"):
+                value = native_evidence["git_metadata"].get(key)
+                if value and not record.get(key):
+                    record[key] = value
+        for key in ("repository", "git_branch", "commit_hash", "branch_source", "branch_basis"):
+            value = session_git.get(key)
+            if value and not record.get(key):
+                record[key] = value
         if normalized_timestamp:
             record["timestamp"] = normalized_timestamp
         else:
@@ -521,8 +534,9 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                  duplicate_usage_records=0, human_candidates=0, human_verified=0,
                  human_unannotated=0, automated_excluded_messages=0, pr_bound_usage_records=0,
                  tool_result_records_excluded=0, context_records_excluded=0)
-    stats.update(entire_parser_sources=0, entire_parser_errors=0,
-                 entire_candidate_records=0)
+    if entire_parser:
+        stats.update(entire_parser_sources=0, entire_parser_errors=0,
+                     entire_candidate_records=0)
     stats["runtime_coverage"] = "Claude and Codex configured roots; other runtimes not collected"
     session_index = None
     if session_bindings:
@@ -543,6 +557,7 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                 continue
             seen_files.add(identity)
             models, session, session_git = {}, None, {}
+            source_session_id = None
             native_actor_evidence = []
             try:
                 content = path.read_bytes()
@@ -555,21 +570,41 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                             continue
                         if not isinstance(row, dict):
                             continue
+                        if source_session_id is None and isinstance(row.get("sessionId"), str):
+                            source_session_id = _usage_label(row["sessionId"])
                         payload = row.get("payload", {})
                         if not isinstance(payload, dict):
                             continue
                         message = row.get("message", {})
                         message = message if isinstance(message, dict) else {}
-                        if row.get("type") == "user" and message.get("role") == "user":
+                        native_item = payload.get("item", {})
+                        native_item = native_item if isinstance(native_item, dict) else {}
+                        native_claude_user = (
+                            row.get("type") == "user" and message.get("role") == "user"
+                        )
+                        native_codex_user = (
+                            (row.get("type") == "response_item" and payload.get("role") == "user")
+                            or (row.get("type") == "event_msg" and payload.get("type") == "item_completed"
+                                and native_item.get("role") == "user")
+                        )
+                        if native_claude_user or native_codex_user:
                             origin = row.get("origin", {})
                             origin = origin if isinstance(origin, dict) else {}
                             native_ids = {
                                 value for value in (
-                                    row.get("uuid"), row.get("promptId"), payload.get("id")
+                                    row.get("uuid"), row.get("promptId"), payload.get("id"),
+                                    native_item.get("id"),
                                 ) if isinstance(value, str) and value
                             }
                             native_at = _parse_utc_instant(row.get("timestamp"))
-                            native_text = "".join(_history_text_blocks(message.get("content")))
+                            native_content = (
+                                message.get("content") if native_claude_user
+                                else native_item.get("content")
+                            )
+                            native_text = "".join(_history_text_blocks(native_content))
+                            native_payload = {**payload, **native_item}
+                            if "meta" in payload:
+                                native_payload["meta"] = payload["meta"]
                             native_actor_evidence.append({
                                 "ids": native_ids,
                                 "signature": (
@@ -577,10 +612,13 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                                     hashlib.sha256(native_text.encode("utf-8")).hexdigest(),
                                 ),
                                 "verified": (
-                                    origin.get("kind") == "human"
-                                    or row.get("turnOrigin") == "human"
-                                    or row.get("userType") == "human"
+                                    native_claude_user and (
+                                        origin.get("kind") == "human"
+                                        or row.get("turnOrigin") == "human"
+                                        or row.get("userType") == "human"
+                                    )
                                 ),
+                                "git_metadata": _git_metadata(row, native_payload, repository_map),
                             })
                         if row.get("type") == "session_meta":
                             session = _usage_label(payload.get("id"))
@@ -770,9 +808,9 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                     parsed, packet_rows = _entire_records(
                         entire_rows, fingerprint,
                         "source:" + hashlib.sha256(identity.encode()).hexdigest(),
-                        session or ("source:" + hashlib.sha256(identity.encode()).hexdigest()),
+                        session or source_session_id,
                         "openai" if entire_agent == "codex" else "anthropic", annotations,
-                        native_actor_evidence if entire_agent == "claude-code" else [],
+                        native_actor_evidence, session_git,
                     )
                     for record, packet_record in zip(parsed, packet_rows):
                         at = _parse_utc_instant(record.get("timestamp"))

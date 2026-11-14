@@ -3809,6 +3809,8 @@ class DashboardRenderer:
             md.append(
                 f"- **Verified messages**: {coverage.get('verified_messages', 0)}; "
                 f"unverified candidates: {coverage.get('candidate_messages', 0)}; "
+                f"human nudge messages: {coverage.get('human_nudge_messages', 0)}; "
+                f"human nudge episodes: {coverage.get('human_nudge_episodes', 0)}; "
                 f"automated actors excluded: {coverage.get('automated_excluded_messages', 0)}; "
                 f"unassigned verified messages: {coverage.get('unassigned_verified_messages', 0)} "
                 f"(reviewed unassigned: {coverage.get('reviewed_unassigned_messages', 0)}); "

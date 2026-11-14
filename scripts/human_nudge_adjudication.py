@@ -11,6 +11,13 @@ from pathlib import Path
 
 _PROMPTS = Path(__file__).parent / "prompts"
 _INPUT_SCHEMA_VERSION = "human-nudge-input.v1"
+_PRESERVED_ANNOTATION_FIELDS = {
+    "episode_id", "episode_role", "quality_label", "score_source", "review_id",
+    "context_pr_decision", "association_method", "annotation_confidence",
+    "effective_association_confidence", "original_association_basis",
+    "original_association_confidence", "context_associated_pr",
+    "effective_associated_pr", "original_associated_pr", "score", "pr_binding",
+}
 
 
 def _load_packet(path):
@@ -85,6 +92,7 @@ def _judge(packet, command, timeout):
         raise ValueError("judge response must contain an annotations array")
     annotations = response["annotations"]
     expected_ids = {event["event_id"] for event in packet["events"]}
+    events_by_id = {event["event_id"]: event for event in packet["events"]}
     received_ids = []
     normalized = []
     for annotation in annotations:
@@ -115,11 +123,18 @@ def _judge(packet, command, timeout):
                 if not valid_type:
                     raise ValueError("judge annotation has an invalid field type")
         received_ids.append(annotation["event_id"])
-        normalized.append({
-            key: value for key, value in annotation.items()
-            if key in annotation_fields
+        output_annotation = {"event_id": annotation["event_id"]}
+        output_annotation.update({
+            key: value
+            for key, value in events_by_id[annotation["event_id"]].items()
+            if key in _PRESERVED_ANNOTATION_FIELDS
         })
-    if len(received_ids) != len(set(received_ids)) or set(received_ids) != expected_ids:
+        output_annotation.update(annotation)
+        normalized.append(output_annotation)
+    if (
+        len(received_ids) != len(set(received_ids))
+        or set(received_ids) != expected_ids
+    ):
         raise ValueError("judge response event IDs do not match the input packet")
     return normalized
 
