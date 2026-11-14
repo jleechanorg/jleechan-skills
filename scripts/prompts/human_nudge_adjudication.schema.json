@@ -1,0 +1,22 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["annotations"],
+  "properties": {
+    "annotations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["event_id", "actor_kind", "human_origin", "message_kind", "human_nudge_eligible"],
+        "properties": {
+          "event_id": {"type": "string"},
+          "actor_kind": {"type": "string", "enum": ["human", "automated_watch", "unknown"]},
+          "human_origin": {"type": "string", "enum": ["verified_human", "unknown", "unverified_candidate", "automated_watch"]},
+          "message_kind": {"type": ["string", "null"], "enum": ["initial_task", "new_requirement/domain_judgment", "status_request", "continuation/followthrough_nudge", null]},
+          "human_nudge_eligible": {"type": ["boolean", "null"], "enum": [true, false, null]}
+        }
+      }
+    }
+  }
+}

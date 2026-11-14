@@ -4,8 +4,10 @@ import hashlib
 import io
 import json
 import math
+import os
 import re
 import sqlite3
+import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlparse
@@ -254,6 +256,52 @@ def write_normalized_history(path, records):
     target.write_text("".join(json.dumps(row, sort_keys=True) + "\n" for row in records), encoding="utf-8")
 
 
+def run_entire_parser(parser_argv, agent, source_bytes):
+    """Normalize one native source with the caller-selected Entire facade."""
+    if agent not in ("codex", "claude-code"):
+        raise ValueError("Entire agent must be codex or claude-code")
+    if isinstance(parser_argv, (str, Path)):
+        parser_argv = [str(parser_argv)]
+    if not isinstance(parser_argv, (list, tuple)) or not parser_argv:
+        raise ValueError("Entire parser must be a non-empty argv")
+    result = subprocess.run(
+        [str(value) for value in parser_argv] + ["--agent", agent],
+        input=source_bytes,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+        timeout=600,
+    )
+    if result.returncode:
+        raise RuntimeError(f"Entire parser failed with exit status {result.returncode}")
+    rows = []
+    for line_number, line in enumerate(result.stdout.splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except (ValueError, UnicodeError) as exc:
+            raise ValueError(f"Entire parser output line {line_number} is invalid JSON") from exc
+        if (not isinstance(row, dict) or row.get("v") != 1
+                or row.get("type") not in ("user", "assistant")
+                or "content" not in row):
+            raise ValueError(f"Entire parser output line {line_number} has an invalid ETF v1 record")
+        rows.append(row)
+    return rows
+
+
+def write_nudge_packets(path, records):
+    """Write an explicitly requested, private model-input packet."""
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    os.fchmod(fd, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as descriptor:
+        json.dump({"schema_version": "human-nudge-input.v1", "events": records},
+                  descriptor, ensure_ascii=False, sort_keys=True)
+        descriptor.write("\n")
+
+
 _GITHUB_SLUG = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 
 
@@ -297,6 +345,128 @@ def _git_metadata(row, payload, repository_map):
     return result
 
 
+def _history_text_blocks(value):
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        return [
+            part if isinstance(part, str) else part.get("text", "")
+            for part in value
+            if isinstance(part, str) or (isinstance(part, dict) and isinstance(part.get("text"), str))
+        ]
+    return []
+
+
+def _entire_records(rows, source_fingerprint, source_id, session_id, provider,
+                    annotations, native_actor_evidence):
+    sdk_id_counts = {}
+    for row in rows:
+        event_id = row.get("id")
+        if isinstance(event_id, str) and event_id:
+            sdk_id_counts[event_id] = sdk_id_counts.get(event_id, 0) + 1
+
+    def has_native_human_evidence(row, blocks):
+        native_id = row.get("id")
+        if native_id and sdk_id_counts.get(native_id) == 1:
+            matches = [evidence for evidence in native_actor_evidence
+                       if native_id in evidence["ids"]]
+        else:
+            timestamp = _parse_utc_instant(row.get("ts"))
+            signature = (
+                format_iso_utc(timestamp) if timestamp else None,
+                hashlib.sha256("".join(blocks).encode("utf-8")).hexdigest(),
+            )
+            matches = [evidence for evidence in native_actor_evidence
+                       if evidence["signature"] == signature]
+            sdk_matches = 0
+            for candidate in rows:
+                if candidate.get("type") != "user":
+                    continue
+                candidate_time = _parse_utc_instant(candidate.get("ts"))
+                candidate_sig = (
+                    format_iso_utc(candidate_time) if candidate_time else None,
+                    hashlib.sha256("".join(_history_text_blocks(candidate.get("content"))).encode("utf-8")).hexdigest(),
+                )
+                sdk_matches += candidate_sig == signature
+            if sdk_matches != 1:
+                return False
+        return len(matches) == 1 and matches[0]["verified"]
+
+    candidates, occurrences = [], {}
+    for index, row in enumerate(rows):
+        if row.get("type") == "user":
+            blocks = _history_text_blocks(row.get("content"))
+            text = "".join(blocks)
+            native_id = row.get("id") if isinstance(row.get("id"), str) and row.get("id") else None
+            timestamp = _parse_utc_instant(row.get("ts"))
+            identity = ("native:" + native_id) if native_id else (
+                "fallback:" + (format_iso_utc(timestamp) if timestamp else "undated")
+                + ":" + hashlib.sha256(text.encode("utf-8")).hexdigest()
+            )
+            occurrence = occurrences.get(identity, 0)
+            occurrences[identity] = occurrence + 1
+            namespace = hashlib.sha256(
+                f"{provider}:{source_id}:{session_id}".encode("utf-8")
+            ).hexdigest()
+            event_id = "entire:" + namespace + ":" + hashlib.sha256(
+                f"{identity}:{occurrence}".encode("utf-8")
+            ).hexdigest()
+            candidates.append((index, row, blocks, text, native_id, timestamp, event_id))
+    result, packet = [], []
+    for index, row, blocks, user_text, native_id, timestamp, event_id in candidates:
+        normalized_timestamp = format_iso_utc(timestamp) if timestamp else None
+        native_human = has_native_human_evidence(row, blocks)
+        record = {
+            "record_type": "human",
+            "provider": provider,
+            "session_id": session_id,
+            "source_fingerprint": source_fingerprint,
+            "source_agent": row.get("agent") if isinstance(row.get("agent"), str) else None,
+            "native_origin_status": "verified_human" if native_human else "unknown",
+            "origin_status": "verified_human" if native_human else "unverified_candidate",
+            "actor_kind": "human" if native_human else "unknown",
+            "native_source_status": "stable_id" if native_id else "missing_event_id",
+            "event_id": event_id,
+            "event_id_source": "entire_adapter",
+        }
+        if native_id:
+            record["native_event_id"] = native_id
+        if normalized_timestamp:
+            record["timestamp"] = normalized_timestamp
+        else:
+            record["native_timestamp_status"] = "missing_timestamp"
+        annotation = annotations.get(event_id)
+        if annotation is not None:
+            _apply_replay_annotation(record, annotation)
+        result.append(record)
+        context = []
+        for neighbor_index in range(max(0, index - 2), min(len(rows), index + 3)):
+            if neighbor_index == index:
+                continue
+            neighbor = rows[neighbor_index]
+            text_blocks = _history_text_blocks(neighbor.get("content"))
+            if not text_blocks:
+                continue
+            context_record = {
+                "role": neighbor.get("type"), "text": "".join(text_blocks),
+                "text_blocks": text_blocks,
+            }
+            if isinstance(neighbor.get("id"), str):
+                context_record["event_id"] = neighbor["id"]
+            neighbor_timestamp = _parse_utc_instant(neighbor.get("ts"))
+            if neighbor_timestamp:
+                context_record["timestamp"] = format_iso_utc(neighbor_timestamp)
+            context.append(context_record)
+        packet.append({
+            **record,
+            "text": user_text,
+            "text_blocks": blocks,
+            "text_available": row.get("content") is not None,
+            "context": context,
+        })
+    return result, packet
+
+
 def _fill_snapshot_context(record, snapshot):
     repo, branch = snapshot.get("repository"), snapshot.get("git_branch")
     if (repo and branch and
@@ -328,7 +498,8 @@ def enrich_replay_state(records, state_db):
 
 
 def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=None,
-                           repository_map=None, state_db=None, session_bindings=None):
+                           repository_map=None, state_db=None, session_bindings=None,
+                           entire_parser=None, entire_agent=None):
     if cutoff.tzinfo is None or days <= 0:
         raise ValueError("An aware cutoff and positive window are required")
     repository_map = repository_map if isinstance(repository_map, dict) else {}
@@ -350,12 +521,14 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                  duplicate_usage_records=0, human_candidates=0, human_verified=0,
                  human_unannotated=0, automated_excluded_messages=0, pr_bound_usage_records=0,
                  tool_result_records_excluded=0, context_records_excluded=0)
+    stats.update(entire_parser_sources=0, entire_parser_errors=0,
+                 entire_candidate_records=0)
     stats["runtime_coverage"] = "Claude and Codex configured roots; other runtimes not collected"
     session_index = None
     if session_bindings:
         session_index, join_stats = _load_session_bindings(session_bindings)
         stats.update(join_stats, session_bound_usage_records=0)
-    usage, humans, exported, seen_files, seen_usage = [], [], [], set(), set()
+    usage, humans, exported, packet_records, seen_files, seen_usage = [], [], [], [], set(), set()
     for root in history_roots:
         root = Path(root)
         if not root.exists():
@@ -370,6 +543,7 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                 continue
             seen_files.add(identity)
             models, session, session_git = {}, None, {}
+            native_actor_evidence = []
             try:
                 content = path.read_bytes()
                 digest = hashlib.sha256(content)
@@ -384,6 +558,30 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                         payload = row.get("payload", {})
                         if not isinstance(payload, dict):
                             continue
+                        message = row.get("message", {})
+                        message = message if isinstance(message, dict) else {}
+                        if row.get("type") == "user" and message.get("role") == "user":
+                            origin = row.get("origin", {})
+                            origin = origin if isinstance(origin, dict) else {}
+                            native_ids = {
+                                value for value in (
+                                    row.get("uuid"), row.get("promptId"), payload.get("id")
+                                ) if isinstance(value, str) and value
+                            }
+                            native_at = _parse_utc_instant(row.get("timestamp"))
+                            native_text = "".join(_history_text_blocks(message.get("content")))
+                            native_actor_evidence.append({
+                                "ids": native_ids,
+                                "signature": (
+                                    format_iso_utc(native_at) if native_at else None,
+                                    hashlib.sha256(native_text.encode("utf-8")).hexdigest(),
+                                ),
+                                "verified": (
+                                    origin.get("kind") == "human"
+                                    or row.get("turnOrigin") == "human"
+                                    or row.get("userType") == "human"
+                                ),
+                            })
                         if row.get("type") == "session_meta":
                             session = _usage_label(payload.get("id"))
                             session_git = _git_metadata(row, payload, repository_map)
@@ -400,6 +598,14 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                         _fill_snapshot_context(session_git, snapshot_git)
                 fingerprint = "sha256:" + digest.hexdigest()
                 stats["files_scanned"] += 1
+                entire_rows = None
+                if entire_parser:
+                    try:
+                        entire_rows = run_entire_parser(entire_parser, entire_agent, content)
+                        stats["entire_parser_sources"] += 1
+                    except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired):
+                        stats["entire_parser_errors"] += 1
+                        stats["read_errors"] += 1
                 with io.StringIO(content.decode("utf-8")) as stream:
                     for ordinal, line in enumerate(stream):
                         try:
@@ -416,7 +622,13 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                         claude_usage = kind == "assistant" and isinstance(message.get("usage"), dict)
                         codex_usage = kind == "token_usage_record" and isinstance(payload.get("usage"), dict)
                         claude_user = kind == "user" and message.get("role") == "user"
-                        codex_user = kind == "response_item" and payload.get("role") == "user"
+                        codex_item = payload.get("item", {})
+                        codex_item = codex_item if isinstance(codex_item, dict) else {}
+                        codex_user = (
+                            (kind == "response_item" and payload.get("role") == "user")
+                            or (kind == "event_msg" and payload.get("type") == "item_completed"
+                                and codex_item.get("role") == "user")
+                        )
                         if not any((claude_usage, codex_usage, claude_user, codex_user)):
                             continue
                         content = message.get("content")
@@ -517,10 +729,12 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                             ]
                             exported.append(export_record)
                             stats["usage_records_in_window"] += 1
-                        else:
+                        elif not entire_parser:
                             aliases = []
-                            event_id = _usage_label(row.get("uuid") or row.get("promptId") or payload.get("id"))
-                            for alias in (payload.get("id"), row.get("promptId"), row.get("uuid")):
+                            event_id = _usage_label(
+                                codex_item.get("id") if codex_user else None
+                            ) or _usage_label(row.get("uuid") or row.get("promptId") or payload.get("id"))
+                            for alias in (codex_item.get("id"), payload.get("id"), row.get("promptId"), row.get("uuid")):
                                 alias = _usage_label(alias)
                                 if alias and alias != event_id and alias not in aliases:
                                     aliases.append(alias)
@@ -529,6 +743,7 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                             origin = origin if isinstance(origin, dict) else {}
                             verified = claude_user and (origin.get("kind") == "human" or row.get("turnOrigin") == "human" or row.get("userType") == "human")
                             record = dict(common, event_id=event_id,
+                                          actor_kind="human" if verified else "unknown",
                                           origin_status="verified_human" if verified else "unverified_candidate")
                             if aliases:
                                 record["event_id_aliases"] = aliases
@@ -551,6 +766,30 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                                 stats["human_unannotated"] += annotation is None
                             humans.append(record)
                             exported.append(dict(record, record_type="human"))
+                if entire_rows is not None:
+                    parsed, packet_rows = _entire_records(
+                        entire_rows, fingerprint,
+                        "source:" + hashlib.sha256(identity.encode()).hexdigest(),
+                        session or ("source:" + hashlib.sha256(identity.encode()).hexdigest()),
+                        "openai" if entire_agent == "codex" else "anthropic", annotations,
+                        native_actor_evidence if entire_agent == "claude-code" else [],
+                    )
+                    for record, packet_record in zip(parsed, packet_rows):
+                        at = _parse_utc_instant(record.get("timestamp"))
+                        if at is None:
+                            stats["undated_records"] += 1
+                        elif not start <= at < cutoff:
+                            stats["outside_window_records"] += 1
+                        else:
+                            humans.append(record)
+                            exported.append(dict(record))
+                            packet_records.append(packet_record)
+                            automated = record.get("actor_kind") == "automated_watch" or record.get("origin_status") == "excluded_automated"
+                            stats["automated_excluded_messages"] += bool(automated)
+                            stats["human_candidates"] += not automated
+                            stats["human_verified"] += record.get("origin_status") == "verified_human"
+                            stats["human_unannotated"] += not automated and record.get("origin_status") != "verified_human"
+                    stats["entire_candidate_records"] += len(parsed)
             except (OSError, UnicodeError):
                 stats["read_errors"] += 1
     errors = stats["missing_roots"] + stats["read_errors"] + stats["malformed_lines"]
@@ -558,12 +797,16 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
     stats["window_start"], stats["window_end"] = format_iso_utc(start), format_iso_utc(cutoff)
     if state_conn:
         state_conn.close()
-    return dict(usage_records=usage, human_records=humans, export_records=exported, stats=stats)
+    return dict(usage_records=usage, human_records=humans, export_records=exported,
+                nudge_packet_events=packet_records, stats=stats)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--history-root", action="append", required=True)
+    parser.add_argument("--entire-parser", help="Entire parser executable; enables SDK human-message parsing")
+    parser.add_argument("--entire-agent", choices=("codex", "claude-code"))
+    parser.add_argument("--nudge-packets", help="Optional private human-nudge adjudication packet")
     parser.add_argument("--cutoff", required=True)
     parser.add_argument("--days", type=int, default=14)
     parser.add_argument("--annotations")
@@ -575,9 +818,16 @@ def main():
     cutoff = _parse_utc_instant(args.cutoff)
     if cutoff is None:
         parser.error("--cutoff must include a UTC offset")
+    if args.entire_parser and not args.entire_agent:
+        parser.error("--entire-parser requires --entire-agent")
+    if args.nudge_packets and not args.entire_parser:
+        parser.error("--nudge-packets requires --entire-parser")
     data = collect_native_history(args.history_root, cutoff=cutoff, days=args.days, annotation_path=args.annotations, state_db=args.state_db,
-                                  session_bindings=args.session_bindings)
+                                  session_bindings=args.session_bindings,
+                                  entire_parser=args.entire_parser, entire_agent=args.entire_agent)
     write_normalized_history(args.output, data["export_records"])
+    if args.nudge_packets:
+        write_nudge_packets(args.nudge_packets, data["nudge_packet_events"])
     Path(args.output + ".stats.json").write_text(json.dumps(data["stats"], sort_keys=True, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(data["stats"], sort_keys=True))
     if data["stats"]["status"] == "FAILED":

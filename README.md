@@ -149,6 +149,11 @@ safe rollback.
 Read a skill before using it: some skills require a local binary, browser
 session, or integration that is not bundled with this export.
 
+For human-nudge analysis, `scripts/native_usage_collector.py` uses the pinned
+Entire transcript bridge before the separate
+[`human_nudge_adjudication.py`](scripts/human_nudge_adjudication.py) classifier;
+see the [bridge usage and build notes](scripts/entire_transcript_bridge/README.md).
+
 An opt-in [curated portable edition](portable/README.md) provides native-tool
 derivatives with a hash manifest and isolated installation. Canonical Claude
 packages retain their existing behavior; file installation, runtime discovery,

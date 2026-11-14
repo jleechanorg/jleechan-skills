@@ -12,6 +12,7 @@ on:
     paths:
       - ".github/workflows/tests.yml"
       - "tests/**"
+      - "scripts/entire_transcript_bridge/**"
       - ".codex/hooks/**"
       - ".claude/skills/swarm/SKILL.md"
       - ".claude/commands/**"
@@ -23,6 +24,7 @@ on:
     paths:
       - ".github/workflows/tests.yml"
       - "tests/**"
+      - "scripts/entire_transcript_bridge/**"
       - ".codex/hooks/**"
       - ".claude/skills/swarm/SKILL.md"
       - ".claude/commands/**"
@@ -46,6 +48,15 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.4"
+          cache-dependency-path: scripts/entire_transcript_bridge/go.sum
+      - name: Test Entire transcript bridge
+        working-directory: scripts/entire_transcript_bridge
+        run: |
+          go test -mod=readonly ./...
+          go vet -mod=readonly ./...
       - name: Install test dependencies
         run: python3 -m pip install --quiet pyyaml duckdb==1.5.0
       - name: Install br
