@@ -11,7 +11,7 @@ execution_mode: immediate
 Verify that the current work (branch, PR, or in-progress changes) is aligned with:
 1. ZFC leveling principles and architecture
 2. The canonical ZFC leveling roadmap docs
-3. `~/roadmap` and `roadmap/` doc sync for ZFC leveling topics
+3. applicable roadmap and repository documentation alignment
 
 This is a **gate/check command** — run it before opening a PR, before merging, or when you are unsure whether work is ZFC-aligned.
 
@@ -22,15 +22,10 @@ This is a **gate/check command** — run it before opening a PR, before merging,
 Load and follow this skill **first**:
 - the `zfc-leveling-roadmap` skill
 
-Canonical roadmap files (read in order):
-1. `~/roadmap/zfc-level-up-model-computes-2026-04-19.md`
-2. `~/roadmap/zfc-pr-task-specs-2026-04-22.md`
-3. `roadmap/zfc-level-up-model-computes-2026-04-19.md` (repo-local copy — compare with ~/roadmap copy)
-4. `roadmap/zfc-pr-task-specs-2026-04-22.md` (repo-local copy)
-5. `~/roadmap/2026-04-21-level-up-zfc-loop-postmortem.md`
-6. Any other `roadmap/*zfc*` or `roadmap/*level-up*` files relevant to the current PR or work item
-
-If `~/roadmap` and `roadmap/` copies of the same file differ, that is a **doc sync violation** — record it explicitly and prefer the `~/roadmap` version as the canonical source.
+Discover the active repository’s ZFC progression policy, plan, and task spec
+from its instructions or tracker. The opt-in skill’s file map applies only
+where the target repository explicitly selects it. Do not treat a personal
+checkout or historical roadmap copy as authoritative.
 
 ---
 
@@ -59,24 +54,9 @@ Verify ALL of the following for the current work:
 
 ## Step 3 — Doc Sync Check
 
-Compare `~/roadmap/` and `roadmap/` for all ZFC-leveling-related files:
-
-```
-~/roadmap/zfc-level-up-model-computes-2026-04-19.md
-roadmap/zfc-level-up-model-computes-2026-04-19.md
-
-~/roadmap/zfc-pr-task-specs-2026-04-22.md
-roadmap/zfc-pr-task-specs-2026-04-22.md
-
-~/roadmap/2026-04-21-level-up-zfc-loop-postmortem.md
-roadmap/2026-04-21-level-up-zfc-loop-postmortem.md
-```
-
-For any file pair where content differs:
-1. Record the specific diff (which section/line changed)
-2. Prefer `~/roadmap` as canonical
-3. Update the `roadmap/` copy to match `~/roadmap` if the `~/roadmap` version is newer/more accurate
-4. If unsure which is canonical, flag it for human review
+If the repository documents paired copies of a plan, compare them against the
+declared canonical version. Name any missing or divergent copy. Do not sync
+files unless the task authorizes the change and the canonical owner is clear.
 
 ---
 
@@ -87,8 +67,8 @@ If running against an open PR:
 1. Check PR title and description for ZFC alignment signals
 2. Verify the PR is targeting the correct merge lane (per roadmap PR sequencing)
 3. Confirm no merge conflicts with `origin/main`
-4. Run `./run_tests.sh` and confirm all tests pass
-5. Run `./run_lint.sh` and confirm lint is clean
+4. Run the target repository’s applicable tests and verify the results.
+5. Run its configured lint checks and verify the results.
 6. If the PR is marked `zfc_level`:
    - Confirm `/es`, `/er`, and `/advice` passed at the current head; CodeRabbit/Bugbot feedback is advisory
    - Confirm it has evidence attached (video or E2E logs as required by the evidence policy)

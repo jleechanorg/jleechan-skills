@@ -123,13 +123,11 @@ After the matrix, include:
 
 ## Evidence bundle locations
 
-- MCP tests: `/tmp/your-project.com/<branch>/<test_name>/latest/`
-- Unit tests: retained raw output or an accessible exact-SHA CI run/job link, including commands, results, and tested SHA; a local copy is optional when the CI proof is accessible.
-- Antagonism prompt contract: `testing_mcp/test_living_world_antagonism_prompt_contract.py` (L1, standalone)
-- Sanctuary mode: `testing_mcp/test_sanctuary_mode.py` (L3, real LLM)
-- LW trigger gate: `testing_mcp/test_lw_trigger_gate.py` (L3, real LLM)
-- Multi-turn frequency: `testing_mcp/test_living_world_real_e2e.py` (L3, multi-turn)
-- Corrupt recovery: `testing_mcp/test_living_world_corrupt_recovery.py` (L3, real LLM)
+- Use the current test runner's documented evidence output, or a retained
+  exact-revision CI run/job link with the command and result.
+- For provider-dependent or integration claims, include only the artifacts
+  required by the tested boundary and repository policy.
+- A local copy is optional when the original evidence remains accessible.
 
 ## Cross-references
 

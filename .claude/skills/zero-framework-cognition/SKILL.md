@@ -17,13 +17,14 @@ This portable skill is REFERENCE guidance; the active repository's ZFC policy is
 On every invocation, including aliases and review lanes, first locate the active
 repository root and the requested file/diff scope. Read root and in-scope
 `AGENTS.md` / `CLAUDE.md` instructions. Follow their ZFC policy pointers before
-applying this reference. Also check these conventional repository locations:
-`.claude/skills/worldai-zfc/SKILL.md`, `.claude/skills/zfc/SKILL.md`,
-`.claude/skills/zero-framework-cognition/SKILL.md`, and their `.codex/skills/`
-equivalents. Resolve aliases/symlinks to the actual policy, read its required
-companions, and record resolved paths and source revisions. Deduplicate canonical
-paths and detect pointer cycles; do not crawl home directories or unrelated repos.
-An installed alias or this portable file is not evidence of a repository policy.
+applying this reference. If the instructions do not name a policy, look for ZFC
+or Zero-Framework Cognition skills in the active repository's skill catalog.
+Look for similarly named repository-local companions when the local policy calls
+for them. Do not assume that a skill from another repository applies here.
+Resolve aliases to their source, read required companions, and record their
+paths and revisions. Deduplicate aliases, stop on pointer cycles, and do not
+crawl unrelated repositories or home directories. This portable skill is not
+evidence that a local policy exists.
 
 Discovery reads identify the applicable policy and its required companions;
 they do not yet apply substantive rules. If a local policy orders global-first
@@ -45,9 +46,9 @@ Model ownership also covers non-game semantic interpretation, intent routing,
 classification, and domain decisions. Do not replace model judgment or existing
 model-backed classifiers with keyword/substring/regex intent routing, phrase maps
 or hand-tuned scores. Mechanical syntax parsing is not semantic interpretation.
-Gameplay semantics belong to the LLM: interpretation, eligibility, progression,
-combat outcomes, rankings, rewards, and context selection. Backend gameplay starts
-at zero. Defaults, aliases, clamps, totals, normalization, and deterministic formulas
+Start with no backend ownership of decisions assigned to the model. In a game
+this can include eligibility, progression, outcomes, and rewards; in other
+products, trace the semantic fields defined by the active contract. Defaults, aliases, clamps, totals, normalization, and deterministic formulas
 are not blanket exceptions. Recommend removing duplicate semantic checklists and requesting the minimal
 model-owned contract; do not edit it unless explicitly authorized. Never replace
 it silently with backend reasoning.

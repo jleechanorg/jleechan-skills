@@ -29,7 +29,7 @@ flowchart TD
 For each PR, provide:
 
 #### Header & Provenance
-- **GitHub URL**: Full clickable GitHub URL (e.g., `https://github.com/jleechanorg/worldarchitect.ai/pull/10107`)
+- **GitHub URL**: Full clickable GitHub URL (e.g., `https://github.com/OWNER/REPO/pull/123`)
 - **Branch / Head**: Branch name and exact commit SHA (e.g., `codex/8931-replacement-20261004` at `eb1c1b1f50a1f8a08f29815133065d28135ff966`)
 - **Line Delta**: Explicit production vs non-production LOC deltas, broken out as added/deleted (e.g., `Production: +22 / -16 | Non-production: +426 / -16 (Total: 480 [+448 / -32])`)
 - **Touched Files**: Plaintext clickable paths to all primary production files and key test/infrastructure files.
@@ -47,8 +47,8 @@ Enumerate distinct, numbered technical implementation mechanisms:
 3. **Invariants, Edge Cases & Safeguards**: Bounded conditions, fallback removals, UX-first preservation, and failure modes handled.
 4. **Verification & Test Coverage**: Targeted unit, integration, and real-LLM streaming tests verifying the change.
 
-#### `### Zero-Framework Cognition (ZFC) Audit`
-Verify model vs backend ownership:
+#### `### Zero-Framework Cognition (ZFC) Audit` (when applicable)
+Resolve the active repository’s ZFC skills first. Verify model vs backend ownership:
 - **Model Decides**: Did the LLM make the semantic judgment, select intent, and author the target state?
 - **Server Executes**: Is the backend restricted to executing tool operations, deterministic persistence, schema normalization, and UI projection?
 - **Anti-Pattern Check**: Verify that no regex parsing, hardcoded gameplay heuristics, procedural game rules, or keyword matching were added to backend code.
@@ -58,10 +58,10 @@ Follow `${CLAUDE_HOME:-$HOME/.claude}/skills/human-review-brief/SKILL.md` (canon
 
 ---
 
-- **Persistent Roadmap Document**: Every `/pr-summary` execution MUST persist the complete summary markdown document to `~/roadmap/` named `pr-summary-YYYY-MM-DD-<slug>.md` (or `pr-summary-<pr_number>-<slug>.md` for a single PR), following the roadmap repository's current local publication instructions and assigned owner. `/pr-summary` does not create a separate summary branch or PR; reporting the published summary does not recursively require another summary artifact.
+- **Persistent summary**: Use the task's authorized destination or the configured roadmap repository (`ROADMAP_DIR`, resolved by the [roadmap skill](../roadmap/SKILL.md)). Save `pr-summary-YYYY-MM-DD-<slug>.md` and follow that repository's publication rules. If no durable destination is configured, return the summary and state that it was not saved. Do not create a separate summary branch or PR.
 - **Required Output Links**: Every `/pr-summary` report MUST explicitly provide:
-  - The full clickable GitHub URL for each summarized PR (e.g. `https://github.com/jleechanorg/worldarchitect.ai/pull/10107`).
-  - The local file URL with `file:///` scheme (e.g. `[Local Roadmap Doc](file:///$HOME/roadmap/pr-summary-YYYY-MM-DD-<slug>.md)`) AND the unabbreviated plaintext filesystem path (e.g. `$HOME/roadmap/pr-summary-YYYY-MM-DD-<slug>.md`).
-- **Full Absolute Plaintext Paths**: Use full absolute filesystem paths at runtime (e.g. `$HOME/projects/worktree_small_prs/mvp_site/game_state_merge.py`). Never truncate to bare basenames.
+  - The full clickable GitHub URL for each summarized PR (e.g. `https://github.com/OWNER/REPO/pull/123`).
+  - For a saved summary, provide the verified shareable link when available, or the resolved absolute local path with a `file:///` link when the reader can open it.
+- **Full Absolute Plaintext Paths**: Use full absolute filesystem paths at runtime (e.g. `/absolute/project/src/example.py`). Never truncate to bare basenames.
 - **Clickable Markdown**: Format paths as normal prose or markdown links with `file:///` so they remain clickable in all agent environments.
 - **Empirical Rigor**: Ground all claims in real telemetry, PR diffs, and test runs. Never speculate from static reading alone.

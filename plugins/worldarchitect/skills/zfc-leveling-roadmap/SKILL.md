@@ -1,7 +1,7 @@
 ---
 name: zfc-leveling-roadmap
 description: ZFC Level-Up architecture alignment — file boundaries, API contracts, pre-flight checks, and milestone status. Read this BEFORE any level-up/rewards/XP code change.
-scope: your-project.com/mvp_site
+scope: opt-in project plugin; verify the active repository’s progression policy
 ---
 
 # ZFC Leveling Roadmap Alignment
@@ -21,11 +21,11 @@ instructions first, and treat backend correction as a last resort.
 
 > **"Model Computes, Backend Formats"** — the LLM decides level-up; `rewards_engine.py` formats it; `world_logic.py` wraps the formatted result with modal semantics.
 
-For WorldArchitect-specific backend ownership, this summary defers to the
-repository overlay `.claude/skills/worldai-zfc/SKILL.md`, the portable
-the `zero-framework-cognition` skill, and
-the `backend-justified` skill. Do not infer permission to alter
-model-owned domain state from schema validity, determinism, or this file alone.
+The file map below is specific to this opt-in plugin. Apply it only when the
+active repository’s instructions select it and the actual files match. Discover
+that repository’s ZFC and backend-justification skills first, then consult the
+portable `zero-framework-cognition` skill. Schema validity or determinism does
+not authorize altering model-owned domain state.
 
 > **"LLM Owns Domain Decisions; Backend Preserves and Executes"** — the model owns gameplay interpretation, progression, rewards, and choices. The server owns authorization, storage, transport, concurrency, and modal/session control. A backend transformation of model-owned fields is an exception only when the active repository policy explicitly authorizes that named exception and its required evidence is recorded; preserving a valid player turn is the UX default.
 
@@ -125,7 +125,7 @@ For each file you plan to modify, check the table above:
   - `agents._is_stale_level_up_pending()`
 
 ### 4. Scope check
-- [ ] Does a task spec exist in `~/roadmap/zfc-pr-task-specs-2026-04-22.md`?
+- [ ] Does the active repository or task tracker designate a progression spec?
 - [ ] If yes, is every file I'm touching in the "Likely files" list?
 - [ ] Am I adding unrelated features to this PR? → Open a separate PR.
 
@@ -237,7 +237,7 @@ For the full field registry, see the `field-ownership-contracts` skill.
 ---
 
 ## Canonical References
-For any WorldArchitect backend or progression change, read the local overlay `.claude/skills/worldai-zfc/SKILL.md` together with the `zero-framework-cognition` skill, the `backend-justified` skill, and the `root-cause-first` skill. Prompt/schema correction comes before backend protection. Preserve model-owned gameplay meaning and unknown fields; server-owned storage, authorization, transport, concurrency, and modal/session control remain server responsibilities. Any domain-field transformation must identify its exact active-policy exception, field and function, concrete necessity, and required evidence; where that policy requires registration, register it. This guide does not authorize finish-choice injection, paired payload dropping, gameplay defaults, clamps, semantic suppression, or rejection of a valid turn.
+For supported progression changes, read the active repository’s ZFC and backend-justification skills together with the portable `zero-framework-cognition` and `root-cause-first` skills. Prompt/schema correction comes before backend protection. Preserve model-owned gameplay meaning and unknown fields; server-owned storage, authorization, transport, concurrency, and modal/session control remain server responsibilities. Any domain-field transformation must identify its exact active-policy exception, field and function, concrete necessity, and required evidence; where that policy requires registration, register it. This guide does not authorize finish-choice injection, paired payload dropping, gameplay defaults, clamps, semantic suppression, or rejection of a valid turn.
 
 ## Related Skills
 

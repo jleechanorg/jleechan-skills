@@ -11,16 +11,19 @@ Generate a design reference doc for the current feature or PR.
 
 1. **Understand the feature** — read relevant source files, PR description, roadmap/plan docs.
 
-2. **Check existing style** — look in `docs/design/` for `.html` files. Match CSS variables, card/grid layout, section patterns exactly.
+2. **Check existing style** — discover the target repository’s design-doc location and template. Match its style when present; use a simple readable layout otherwise.
 
-3. **Determine slug** — use the feature/PR name as a kebab-case slug (e.g. `autonomy-gaps`, `agent-gemini-plugin`).
+3. **Determine slug** — use the feature/PR name as a kebab-case slug (e.g. `session-recovery`, `search-filters`).
 
 4. **Write both files in parallel** (single message, two Write tool calls):
-   - `docs/design/<slug>.html`
-   - `docs/design/<slug>.md`
+   - `<design-dir>/<slug>.html`
+   - `<design-dir>/<slug>.md`
 
-5. **HTML structure** (match `docs/design/agent-gemini-plugin.html` as canonical reference):
-   - CSS root tokens: `--bg #f2efe7`, `--panel #fffdf8`, `--ink #1f1a16`, `--muted #6f6357`, `--brand #165a72`, `--line #dfd3c2`
+   Use the repository’s documented design directory; `docs/design/` is a
+   possible default when the repository does not specify one.
+
+5. **HTML structure** (follow the target repository's selected template if present):
+   - Reuse the template's color and layout tokens. Otherwise choose a readable, accessible palette.
    - Hero section: h1 title, muted subtitle, tag pills (PR ref, key files, line delta, status)
    - Overview grid: one card per sub-feature/gap with priority badge and description
    - Per-feature sections with `section-label` dividers: before/after code blocks, tables, flow diagrams
@@ -34,7 +37,7 @@ Generate a design reference doc for the current feature or PR.
    - Per-gap H2 with before/after code blocks and tables
    - Summary table at end
 
-7. **Commit both** to the current branch and push.
+7. If the task authorizes publication, commit both on the intended branch and follow the repository’s publication workflow.
 
 ## Invocation
 

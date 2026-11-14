@@ -13,36 +13,23 @@ behavior; do not extend one project's changed-path requirements to every reposit
 
 ## Core principle — ZERO MOCKS
 
-A `/llm-testing` run is **invalid** if any of these are set:
-
-- `TEST_MODE=mock`
-- `MOCK_SERVICES_MODE` (any truthy value)
-- `USE_MOCK_FIREBASE`
-- `USE_MOCK_GEMINI`
-- `FORCE_TEST_MODEL=true`
-- any mock-server / fake-LLM / fake-firestore flag
+A `/llm-testing` run is invalid if it uses a fake model or substitutes mocked
+services for any real boundary the evidence claims to exercise. Inspect the
+actual server process using the target repository's documented flags.
 
 The production path uses a real LLM → the test must use a real LLM. Faking the model means the
 test cannot prove model-owned behavior (routing, level-up commit, reconciliation, narrative,
 streaming). **No exceptions.** If you only need to prove deterministic helper logic with faked
 externals, that is `/end2end-testing` (Layer 2), not `/llm-testing`.
 
-## Directories (run targets)
+## Locate the real-service runner
 
-| Layer | Directory | Runner | What it proves |
-|-------|-----------|--------|----------------|
-| **3. MCP API** | `testing_mcp/` | Follow `testing_mcp/CLAUDE.md` for the direct Python runner and explicit `PYTHONPATH` | Real server + real LLM over the MCP/HTTP API; game-state, rewards, level-up, routing |
-| **5. Browser/UI** | `testing_ui/` | Follow `testing_ui/CLAUDE.md` and the selected scoped driver | Real browser + real server + real LLM; user-visible/interactive behavior |
-
-`testing_mcp/` tests subclass `MCPTestBase` (`testing_mcp/lib/base_test.py`) which auto-starts a
-real local server on the worktree port and health-checks before running.
-
-## Environment (real services)
-
-Read the active repository's testing owner for provider, credentials, account,
-runtime, and transport setup. When `testing_mcp/CLAUDE.md` or
-`testing_ui/CLAUDE.md` exists, use its actual runner and prerequisites. Do not import
-provider opt-outs or authentication bypasses from another project.
+Read the active repository's testing policy for its API or browser driver,
+launch target, provider, credentials, test account and evidence. Use the
+documented runner rather than assuming directory names, interpreter, cloud
+services or transport. Do not import another project's auth bypasses or
+provider opt-outs. If the required real runner is unavailable, mark that proof
+missing; do not silently substitute a mock.
 
 For an AGY-backed repository, its installer owns the sanitized runtime location,
 credential copying, and generated environment file. A missing runtime requires
@@ -93,10 +80,9 @@ Print the full absolute evidence path and record the actual command and target.
 - Evidence bundle: Use the location required by the repository's testing owner.
   Print the **full absolute path**.
 - Include streaming artifacts when the claim involves streaming or the repository's
-  testing owner requires them. Use that owner's capture format; WorldArchitect's
-  production streaming requirement remains in force, including its request and
-  completion captures. A non-streaming real-model claim in another repository does
-  not require unrelated streaming artifacts.
+  testing owner requires them. Use that owner's capture format, including request
+  and completion captures where required. A non-streaming claim does not require
+  unrelated streaming artifacts.
 - UI/interactive behavior also requires a **captioned video** (`.mp4`/`.gif`/`.cast`) tied to the
   PR HEAD SHA.
 - Provenance: input captured from the real client, never reconstructed from backend reference

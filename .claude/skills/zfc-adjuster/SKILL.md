@@ -15,10 +15,10 @@ Use this skill before accepting code that adjusts, corrects, defaults,
 suppresses, clamps, retries, rolls back, composes, or otherwise reshapes
 model-owned output after the model responds.
 
-For WorldArchitect changes, read the repository overlay
-`.claude/skills/worldai-zfc/SKILL.md` alongside the portable ZFC contract.
-Repository-local field ownership, registered adjustment contracts, and the
-backend-justification gate determine whether any adjustment is allowed.
+Follow the portable ZFC skill's repository-first discovery. Read the active
+repository's ZFC skills and declared adjustment or field-ownership policy. Their
+approval and evidence rules determine whether a specific adjustment is allowed;
+another repository's exceptions never transfer.
 
 ## Default Position
 
@@ -99,11 +99,10 @@ Proof must be human-verifiable and durable:
 
 If backend adjustment remains necessary:
 
-- Register it in `$PROJECT_ROOT/backend_adjustment_specs.py` with `category=CORRECTION`,
-  populated `root_cause_status`, `evidence_refs`, `allowed_when`, and
-  `log_reason_code`. Any `server_generated=True` planning_block not covered by a
-  registered, active spec is a bug. Registry-listing does not waive the
-  long-term goal of removing the synthesis through prompt-first fixes.
+- Use the active repository's adjustment registry and schema when it requires
+  them. Record the exact field and function, root cause, evidence, allowed
+  conditions and audit reason. Do not create a new registry or infer an
+  exception from registration alone.
 - Keep it correction-only and as narrow as possible.
 - Log every firing with request ID, selected agent, state scope, reason code,
   and before/after field names.
@@ -133,9 +132,9 @@ Fail the review if any answer is missing:
 
 This skill extends:
 
-- `${CLAUDE_HOME:-$HOME/.claude}/skills/zero-framework-cognition/SKILL.md`
-- `${CLAUDE_HOME:-$HOME/.claude}/skills/root-cause-first/SKILL.md`
-- `${CLAUDE_HOME:-$HOME/.claude}/skills/adjustment-proof/SKILL.md` (red/green worktree proof protocol)
+- [Zero-Framework Cognition](../zero-framework-cognition/SKILL.md)
+- [Root Cause First](../root-cause-first/SKILL.md)
+- [Adjustment Proof](../adjustment-proof/SKILL.md) (isolated red/green proof)
 
 Run this skill whenever `/zfc` review encounters backend adjustment code or a
 proposal to add backend correction, suppression, defaulting, fallback, clamp,
