@@ -105,11 +105,13 @@ runtime-proof, or publication requirements.
 
 ### 1. Bundle integrity
 
-The example below handles the default manifest and sibling modes. If the
-canonical producer uses another aggregate filename, explicitly record its mapping
-to the same complete coverage contract and verify it with the existing producer
-verification utility or `sha256sum -c <mapped-manifest>` instead. A filename
-difference is not missing integrity; absent coverage or mismatching bytes is.
+The example below handles the default manifest and sibling modes. For a mapped
+aggregate manifest or digest-bearing receipt, identify the supported format and
+path-to-digest mapping before verification. Use the canonical producer’s verifier
+for its receipt format, or `sha256sum -c <mapped-manifest>` for a compatible
+text manifest. Recompute every digest against the actual bytes and reconcile
+the inventory; a mere digest claim, unsupported format or unreadable bytes
+leaves integrity unverified. A different supported filename is not a failure.
 
 ```bash
 (
@@ -145,10 +147,10 @@ difference is not missing integrity; absent coverage or mismatching bytes is.
 )
 ```
 
-- A top-level `checksums.sha256` means bundle-checksum mode; without one, verify every per-file `*.sha256`.
+- For the default layout, a top-level `checksums.sha256` means bundle-checksum mode; otherwise verify every per-file `*.sha256`. For a documented alternate format, use the mapped verification route above.
 - Any checksum mismatch → **FAIL** (not just PARTIAL: the bundle is tampered or stale).
-- No checksum files → **INCONCLUSIVE** for integrity; do not award PASS.
-- Independently inventory every substantive bundle artifact, including every claim-map artifact, and reconcile it against checksum coverage. A complete aggregate `checksums.sha256` manifest OR per-file `.sha256` siblings is sufficient; do not demand both. Resolve manifest paths from the bundle root and sibling entries from their own directory. Missing coverage or a listed-but-missing artifact is an integrity **FAIL**. A successful `sha256sum -c` checks listed bytes only and does not establish inventory completeness.
+- No verifiable digest manifest, receipt, or sibling checksums → **INCONCLUSIVE** for integrity; do not award PASS.
+- Independently inventory every substantive bundle artifact, including every claim-map artifact, and reconcile it against checksum coverage. A complete verified aggregate manifest, supported receipt, or per-file checksums is sufficient; do not demand redundant formats. Resolve manifest paths from the bundle root and sibling entries from their own directory. Missing coverage or a listed-but-missing artifact is an integrity **FAIL**. A successful `sha256sum -c` checks listed bytes only and does not establish inventory completeness.
 
 **Checksums establish integrity, not provenance.** A matching digest proves only that the reviewed bytes match the manifest, not where they came from, which code path produced them, or that they demonstrate the claimed behavior. For STRONG evidence, also resolve the primary raw artifact against its capture provenance (for example `metadata.json.provenance.git_head`, runtime/process metadata, and the raw request/response or test output that directly shows the claim). A claim supported only by a checksum or manifest entry is **MISSING**, not STRONG.
 

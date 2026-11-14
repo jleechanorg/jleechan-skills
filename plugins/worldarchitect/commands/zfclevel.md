@@ -20,9 +20,10 @@ This is a **gate/check command** — run it before opening a PR, before merging,
 ## Step 1 — Load Required Skills and Roadmap Context
 
 First confirm that the active repository explicitly opts into this progression
-pack and identifies its applicable progression policy. If it does not, report
-**NOT APPLICABLE** and stop before loading the project checklist or running any
-test, edit, sync, or PR-label action. For general ZFC guidance, look for the
+pack. A repository that does not opt in is **NOT APPLICABLE**. If it opts in
+but its progression policy cannot be verified, report **UNVERIFIED** and name
+the missing policy. In either case stop before loading the project checklist
+or running any test, edit, sync, or PR-label action. For general ZFC guidance, look for the
 target repository's own ZFC skill instead.
 
 For an opted-in repository, load `zfc-leveling-roadmap` and discover its current

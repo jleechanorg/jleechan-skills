@@ -14,8 +14,10 @@ Before any claim of "feature X is working" / "cache enabled" / "warmup completed
 3. **For each gate, state what it requires** — name the env var, expected value, runtime precondition.
 4. **Run the active repository's supported probe** under the standard startup
    configuration, with no temporary setting that would force success.
-5. **Verify the expected result** for the named activation gate. A separate
-   functional claim needs a probe that exercises the feature.
+5. **Verify that the observed result supports the specific claim.** An expected
+   disabled result proves disabled, not enabled. If the probe contradicts or
+   cannot answer the claim, report that directly. A separate functional claim
+   needs a probe that exercises the feature.
 6. **Quote the probe output verbatim** in the claim.
 
 ## Banned patterns

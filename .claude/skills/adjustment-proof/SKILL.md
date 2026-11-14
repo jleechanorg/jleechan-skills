@@ -57,10 +57,11 @@ adjustment cannot prove or delete another adjustment.
 
 ## Required Artifacts
 
-Each green and red evidence directory must contain:
+Each green and red evidence directory must include these roles in the active
+repository’s documented format (map the actual paths in the manifest):
 
-- `run.json`
-- `metadata.json`
+- machine-readable scenario outcomes and error details
+- capture provenance and run metadata
 - real HTTP request/response capture, such as `http_request_responses.jsonl`
 - real LLM capture, such as `llm_request_responses.jsonl`
 - matching git SHA provenance for the worktree that produced the evidence
@@ -87,7 +88,7 @@ permission to make provider calls.
 
 Fail the proof as `insufficient` when:
 
-- the green or red bundle is missing `run.json` or `metadata.json`
+- either bundle lacks readable outcomes or capture provenance under the repository’s artifact contract
 - the bundle has no real LLM capture
 - the evidence SHA does not match the worktree SHA and staleness tolerance was
   not explicitly justified

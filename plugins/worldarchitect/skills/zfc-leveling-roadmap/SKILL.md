@@ -101,7 +101,11 @@ These are the most frequently observed agent drift patterns. If you catch yourse
 
 ## Pre-Flight Checklist
 
-Run this **before writing any code** for a PR that touches level-up, rewards, XP, or canonicalization logic.
+Apply this checklist only when the active repository opts into this pack and
+the applicable progression policy and named files resolve. Otherwise skip this
+checklist; report any missing policy for an opted-in repository and do not infer
+authority to act. For eligible changes to level-up, rewards, XP, or
+canonicalization, run it **before writing code**.
 
 ### 1. File boundary check
 For each file you plan to modify, check the table above:

@@ -37,14 +37,13 @@ thing; L3 proves the model *does* the right thing.
 
 ### 3. Locate existing evidence
 
-Search evidence directories:
-```bash
-ls /tmp/your-project.com/<branch>/  # evidence bundles
-find /tmp/your-project.com/<branch>/ -maxdepth 3 -name "evidence.md"
-```
+Read the active repository’s evidence policy and search its configured artifact
+locations, including linked evidence bundles, supported runner output and
+exact-revision CI jobs. Inspect primary logs or artifacts before assigning
+coverage; an unavailable result is not proof.
 
-For each bundle, extract:
-- Git HEAD SHA from `evidence.md` or `metadata.json`
+For each accessible source, extract:
+- Tested Git SHA from run metadata or the original CI job and checkout log
 - Pass rate
 - Scenario names
 - Timestamp

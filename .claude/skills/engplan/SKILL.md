@@ -152,10 +152,9 @@ Choose layer by what the PR changes:
 - API contract → Layer 3
 - User-visible behavior → Layer 4
 
-### Rule 6: Beads tracking
-- Every PR has ≥1 governing bead (`rev-xxxxx`)
-- Every commit message references at least one bead
-- New beads created BEFORE PR work starts (not retroactively)
+### Rule 6: Repository-defined tracking
+- When the repository uses Beads, bind each PR and commit to its governing bead; create any authorized new beads before work starts.
+- For a different tracker, follow its existing reference and timing rules. If no tracker is configured, keep the plan’s references explicit and do not invent IDs.
 
 ### Rule 7: Memory linkage
 Plan reads:

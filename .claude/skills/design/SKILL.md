@@ -30,8 +30,8 @@ Generate a design reference doc for the current feature or PR.
    - Summary section: what-changed table + `.callout` with honest capability claim
    - Responsive: `.grid.two`, `.grid.three`, `.grid.four` breakpoint at 900px
 
-6. **MD structure**:
-   - No frontmatter
+6. **MD structure** (follow the repository’s Markdown template if present):
+   - Include frontmatter when the selected template requires it; omit it by default
    - H1 title with metadata block (PR, branch, date, beads, delta)
    - `---` dividers between major sections
    - Per-gap H2 with before/after code blocks and tables

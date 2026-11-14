@@ -51,7 +51,7 @@ Enumerate distinct, numbered technical implementation mechanisms:
 Resolve the active repository’s ZFC skills first. Verify model vs backend ownership:
 - **Model Decides**: Did the LLM make the semantic judgment, select intent, and author the target state?
 - **Server Executes**: Is the backend restricted to executing tool operations, deterministic persistence, schema normalization, and UI projection?
-- **Anti-Pattern Check**: Verify that no regex parsing, hardcoded gameplay heuristics, procedural game rules, or keyword matching were added to backend code.
+- **Anti-Pattern Check**: Apply the active ZFC policy to new semantic inference or hardcoded domain decision logic, including regex and keyword checks used for that purpose. Do not flag deterministic parsing or format validation solely because it uses regex.
 
 #### `### What to Review as a Human`
 Follow `${CLAUDE_HOME:-$HOME/.claude}/skills/human-review-brief/SKILL.md` (canonical owner — never list LLM-verifiable checks; every item requires `Why the LLM cannot do this:`).

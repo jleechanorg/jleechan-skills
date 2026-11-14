@@ -1,5 +1,5 @@
 ---
-description: /engplan - Generic engineering plan with stage-PR file-exclusive ownership (1 unified PR or 2-5 coarse vertical stage-PRs max), TDD, /4layer, and beads
+description: /engplan - Generic engineering plan with stage-PR file-exclusive ownership (1 unified PR or 2-5 coarse vertical stage-PRs max), TDD, /4layer, and repository-defined tracking
 type: planning
 execution_mode: immediate
 ---
@@ -13,13 +13,13 @@ execution_mode: immediate
 
 ## 🚨 EXECUTION WORKFLOW (summary)
 
-1. **Phase 0 — Discovery**: identify scope keyword; list `~/roadmap/` and `<repo>/roadmap/` docs in scope; list open PRs in scope; list active beads; check MEMORY.md.
+1. **Phase 0 — Discovery**: identify scope keyword; find the active repository’s existing plan, tracker, and applicable open PRs.
 2. **Phase 1 — File ownership audit**: per open PR, list files; build conflict matrix; identify hot files.
 3. **Phase 2 — Stage decomposition**: Group target work into **1 unified PR by default, or at most 2–5 coarse vertical stage-PRs; never exceed 5 PRs for one feature** (see `pr-quantity-control`); assign each file and its tests to one stage-PR; verify exclusivity; choose sequencing.
 4. **Phase 3 — Per-PR commit plan**: TDD discipline (RED check before GREEN implementation → optional refactor → evidence). Choose coherent commit/PR boundaries from dependencies and risk rather than arbitrary LOC targets; keep tests inside the same PR as the code they verify.
-5. **Phase 4 — Doc generation**: write `~/roadmap/nextsteps-<YYYY-MM-DD>-<scope>-stage-pr-plan.md` with 14 mandatory sections.
-6. **Phase 5 — Sync**: copy to `<repo>/roadmap/` and any active worktrees; `git add` so CI/CR see it.
-7. **Phase 6 — Memory write**: add entry to `~/.claude/projects/<project>/memory/`; update `MEMORY.md` index.
+5. **Phase 4 — Doc generation**: write the 14-section plan to the task’s authorized destination or the configured roadmap. If neither exists, return the plan without saving.
+6. **Phase 5 — Sync**: sync only to documented, authorized copies; do not write to another worktree without custody.
+7. **Phase 6 — Memory write**: use the active environment’s documented, authorized project memory; skip if unavailable.
 
 ## 📋 ARGUMENTS
 
@@ -33,7 +33,7 @@ If omitted, infer from current branch / recent commits / open PR titles.
 3. Coherent commit boundaries (no artificial 100–300 LOC commit caps or padding)
 4. Hard stage-PR cap: group into 1 cohesive PR by default, or at most 2–5 coarse vertical subsystem PRs (see `pr-quantity-control`; never exceed 5 PRs for one feature)
 5. /4layer test coverage per stage-PR (Layer 1-4 by what changes)
-6. Beads tracking — every PR has ≥1 governing bead, every commit references one
+6. Tracking — follow the active repository’s tracker and reference rules
 7. Memory linkage — read existing memory; write new entry per plan
 
 ## See Also
@@ -44,4 +44,3 @@ If omitted, infer from current branch / recent commits / open PR titles.
 - `.claude/skills/deletion-milestone/SKILL.md` — net-LOC discipline
 - `.claude/commands/extended-library/4layer.md` — minimal-repro ladder
 - `.claude/commands/tdd.md` — red/green/refactor
-- `~/roadmap/nextsteps-2026-04-28-zfc-stage-pr-hybrid-plan.md` — canonical example
