@@ -142,7 +142,7 @@ During a configured PRW measurement, the active owner may append one observed tr
 - **Evidence readiness**: Required proof is complete, readable, and available to the reviewer at its recorded candidate SHA.
 - **Actual review start**: An acknowledged message is not actual review start; `actual_review_started_at` records when the reviewer actually initiates substantive inspection.
 - **Authority readiness**: Explicitly define `authority_ready_at` as the timestamp when all readiness obligations (`FINAL_READY`) and merge authority are simultaneously satisfied (or `null` when either is incomplete), so `Authorized closeout delay` (`merged_at` minus `authority_ready_at`) is directly derivable from the schema.
-- **Interval censoring on invalidation**: If proof is invalidated before pickup (e.g. candidate head SHA moved or changed claims), close/censor that interval with the explicit reason rather than counting the whole period as reviewer neglect.
+- **Interval censoring on invalidation**: If the inspected head/base delta invalidates proof before pickup (for example by changing a covered claim, assertion, or evidence driver), close/censor that interval with the explicit reason rather than counting the whole period as reviewer neglect. SHA movement alone does not invalidate proof; apply the [SHA-binding rule](review-routing.md#sha-binding-rule-critical--applies-to-every-gate-in-this-chain).
 - **Waiting category separation**: Treat active execution, CI/provider waits, explicit user holds, authority waits, and unknown periods separately.
 - **No inferred idleness from quiet periods**: Never infer uninterrupted idleness from missing GitHub writes (e.g. periods without comment or push events).
 
