@@ -5,6 +5,8 @@ description: Use when designing or reviewing model-owned contracts, gameplay, to
 
 # Zero-Framework Cognition
 
+Background: [Zero-Framework Cognition: A Way to Build Resilient AI Applications](https://steve-yegge.medium.com/zero-framework-cognition-a-way-to-build-resilient-ai-applications-56b090ed3e69) (Steve Yegge).
+
 Models decide; the server executes authorized operations. Invocation is review-only
 unless edits are already user-authorized; preserve that implementation scope
 without expanding it. Recommendations alone never authorize repairs.
