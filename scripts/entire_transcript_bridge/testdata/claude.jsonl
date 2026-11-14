@@ -1,0 +1,2 @@
+{"type":"user","uuid":"user-001","timestamp":"2026-10-01T12:00:00.000Z","message":{"role":"user","content":"Please continue the approved task."}}
+{"type":"assistant","uuid":"assistant-001","timestamp":"2026-10-01T12:00:01.000Z","message":{"id":"msg-001","role":"assistant","content":[{"type":"text","text":"I will continue the approved task."}]},"requestId":"req-001"}

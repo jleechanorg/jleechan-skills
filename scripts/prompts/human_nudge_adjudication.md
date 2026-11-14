@@ -1,0 +1,9 @@
+Review each supplied event using its text, surrounding context, and supplied source metadata. Return exactly one annotation for every input event.
+
+Return four fields for each event: its exact `event_id`, `actor_kind`, `message_kind`, and `human_nudge_eligible`. `actor_kind=human` means a reviewed human label backed by supplied evidence; `automated_watch` excludes automation; use `unknown` otherwise. `native_origin_status` is supplied source metadata, not a judgment to repeat or revise. A nudge is a human reminder to resume already-authorized unfinished work, with no material new requirement and no unmet human-only gate. Initial tasks, material new requirements or domain judgments, status requests, and approvals are not automatically nudges. If context or actor evidence is insufficient, use unknown and null eligibility as appropriate.
+
+Use actor_kind values `human`, `automated_watch`, or `unknown`. Use message_kind values `initial_task`, `new_requirement/domain_judgment`, `status_request`, or `continuation/followthrough_nudge`; use null when the kind is unknown or outside these categories. Set human_nudge_eligible to true only for a qualifying human continuation/follow-through reminder, false when evidence establishes it is not eligible, and null when the evidence is insufficient.
+
+A user role, writing style, or text alone does not prove human authorship. Use explicit supplied actor evidence and reviewed annotations when present; otherwise keep the actor unknown. Do not promote a user role or native-origin metadata to human.
+
+The input packet's event_id values are the only valid IDs. Return each exactly once. Do not invent episode or pull-request associations; those are handled by the ingestion workflow and are not output fields here. Do not copy text or context into the output. Follow the supplied JSON schema and emit only one JSON object with an annotations array, no Markdown or explanation.

@@ -3809,6 +3809,8 @@ class DashboardRenderer:
             md.append(
                 f"- **Verified messages**: {coverage.get('verified_messages', 0)}; "
                 f"unverified candidates: {coverage.get('candidate_messages', 0)}; "
+                f"human nudge messages: {coverage.get('human_nudge_messages', 0)}; "
+                f"human nudge episodes: {coverage.get('human_nudge_episodes', 0)}; "
                 f"automated actors excluded: {coverage.get('automated_excluded_messages', 0)}; "
                 f"unassigned verified messages: {coverage.get('unassigned_verified_messages', 0)} "
                 f"(reviewed unassigned: {coverage.get('reviewed_unassigned_messages', 0)}); "
@@ -4953,6 +4955,9 @@ def main():
     )
     parser.add_argument("--history-annotations", help="Reviewed human metadata and PR bindings JSONL sidecar")
     parser.add_argument("--history-export", help="Write deterministic normalized usage and human metadata JSONL")
+    parser.add_argument("--entire-parser", help="Entire SDK parser executable; parses human records from native roots")
+    parser.add_argument("--entire-agent", choices=("codex", "claude-code"), help="Native format passed to Entire parser")
+    parser.add_argument("--nudge-packets", help="Optional private human-nudge model-input JSON packet")
     parser.add_argument("--state-db", help="Optional read-only Codex thread snapshot database for native roots")
     parser.add_argument("--repository-map", help="Exact cwd-to-repository map for native history roots")
     parser.add_argument("--pr-lookup-cache", help="Cached PR branch and lifecycle metadata JSON")
@@ -5000,6 +5005,12 @@ def main():
         parser.error("--session-bindings requires --history-root")
     if history_roots and args.history_replay:
         parser.error("choose either --history-root or --history-replay")
+    if args.entire_parser and not args.entire_agent:
+        parser.error("--entire-parser requires --entire-agent")
+    if args.nudge_packets and not args.entire_parser:
+        parser.error("--nudge-packets requires --entire-parser")
+    if args.entire_parser and not history_roots:
+        parser.error("--entire-parser requires --history-root")
     if args.history_replay and (args.history_export or args.repository_map):
         parser.error(
             "replay does not rescan sources; source maps and exports "
@@ -5015,13 +5026,13 @@ def main():
             from scripts.native_usage_collector import (
                 collect_native_history,
                 load_normalized_history,
-                write_normalized_history, enrich_replay_state,
+                write_normalized_history, enrich_replay_state, write_nudge_packets,
             )
         except ModuleNotFoundError:
             from native_usage_collector import (
                 collect_native_history,
                 load_normalized_history,
-                write_normalized_history, enrich_replay_state,
+                write_normalized_history, enrich_replay_state, write_nudge_packets,
             )
         if args.repository_map:
             with open(args.repository_map, encoding="utf-8") as stream:
@@ -5092,14 +5103,18 @@ def main():
                 repository_map=repository_map,
                 state_db=args.state_db,
                 session_bindings=args.session_bindings,
+                entire_parser=args.entire_parser,
+                entire_agent=args.entire_agent,
             )
         if repository_map is not None:
             history_data["stats"]["repository_map_entries"] = len(repository_map)
         if args.history_export:
             write_normalized_history(args.history_export, history_data["export_records"])
+        if args.nudge_packets:
+            write_nudge_packets(args.nudge_packets, history_data["nudge_packet_events"])
     elif (
         args.history_annotations or args.history_export or args.repository_map or args.state_db
-        or args.pr_lookup_cache or args.history_replay
+        or args.pr_lookup_cache or args.history_replay or args.entire_parser or args.nudge_packets
     ):
         parser.error("history annotations, exports, and PR lookup inputs require --history-root")
 
