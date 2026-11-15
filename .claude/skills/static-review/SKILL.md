@@ -44,6 +44,16 @@ read-only GitHub/API or an existing checkout when it supplies complete pinned
 objects. Use an export, saved revision packet or isolated clone only when needed
 for complete access or isolation; independence alone does not require a copy.
 
+### Pre-dispatch preflight
+
+Before spawning any cold `/cs`, `/er`, `/advice` or static-review seat on a PR or exported packet, fetch `origin/<base>`, confirm clean mergeability with `HEAD` (rebasing or merging `origin/<base>` first if conflicted so later conflict resolution does not invalidate completed review rounds), and run `verify_review_packet.py` (`scripts/verify_review_packet.py` in this catalog checkout, or `${CLAUDE_HOME:-$HOME/.claude}/scripts/verify_review_packet.py` when installed):
+
+```bash
+python3 scripts/verify_review_packet.py --repo <git-dir> --base origin/<base> --head HEAD --expected-head <40-char-sha> [--packet-dir <export-dir>]
+```
+
+Stop dispatch on any non-zero exit (`CONFLICT_WITH_BASE`, `HEAD_DRIFT`, `GIT_METADATA_PRESENT`, `MISSING_BASE_DIFF`, `MANIFEST_INVALID`, `HASH_MISMATCH`): sync `origin/<base>`, re-pin the full 40-hex `HEAD` SHA, or rebuild the non-git packet (`base.diff` present, `.git` absent, and every `manifest.json` / `SHA256SUMS` file digest matching disk) before queueing reviewers. When `verify_review_packet.py` is absent on a fresh host, run `git -C <git-dir> merge-tree --write-tree origin/<base> HEAD`, `git rev-parse HEAD`, and SHA-256 manifest checks directly with the same fail-closed gate.
+
 ## 2. Templates
 
 Shared revision template for clone, export, read-only and remote modes:
