@@ -215,6 +215,55 @@ class PayloadTests(unittest.TestCase):
     def test_absent_inputs_yield_an_empty_valid_snapshot(self):
         snapshot = export.build_snapshot(None, None, None)
         self.assertEqual((snapshot["schema_version"], snapshot["prs"], snapshot["data_through"]), (1, [], None))
+        self.assertEqual(
+            snapshot["human_tail_summary"],
+            {
+                "total_n": 0,
+                "observed_n": 0,
+                "unknown_n": 0,
+                "gt4_count": None,
+                "excess_over_4_sum": None,
+                "gte14_tail_count": None,
+                "p50": None,
+                "p90": None,
+                "p99": None,
+            },
+        )
+
+    def test_human_tail_summary_computes_babysit_and_tail_with_explicit_unknowns(self):
+        observed_counts = [1, 2, 4, 5, 7, 14, 20]
+        rows = [
+            metric(i + 1, human_coverage_status="OBSERVED_SCOPE_ONLY", raw_verified_human_message_count=c)
+            for i, c in enumerate(observed_counts)
+        ] + [
+            metric(10, human_coverage_status="CANDIDATE_ONLY", branch_associated_candidates=9),
+            metric(11),  # UNKNOWN human coverage
+        ]
+        tail = export.build_snapshot({}, query(rows), [])["human_tail_summary"]
+        self.assertEqual(
+            tail,
+            {
+                "total_n": 9,
+                "observed_n": 7,
+                "unknown_n": 2,
+                "gt4_count": 4,  # 5, 7, 14, 20
+                "excess_over_4_sum": (5 - 4) + (7 - 4) + (14 - 4) + (20 - 4),  # 30
+                "gte14_tail_count": 2,  # 14, 20
+                "p50": 5,
+                "p90": 20,
+                "p99": 20,
+            },
+        )
+
+    def test_human_tail_summary_keeps_unobserved_snapshot_null_not_zero(self):
+        rows = [
+            metric(1),
+            metric(2, human_coverage_status="CANDIDATE_ONLY", branch_associated_candidates=12),
+        ]
+        tail = export.build_snapshot({}, query(rows), [])["human_tail_summary"]
+        self.assertEqual((tail["total_n"], tail["observed_n"], tail["unknown_n"]), (2, 0, 2))
+        for key in ("gt4_count", "excess_over_4_sum", "gte14_tail_count", "p50", "p90", "p99"):
+            self.assertIsNone(tail[key], key)
 
     def test_data_through_is_the_collectors_freshness_not_the_query_cutoff(self):
         summary = {"status": "STALE", "data_through": "2026-11-08T00:00:00Z"}

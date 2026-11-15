@@ -49,6 +49,8 @@
     if (f.state && f.state !== "all" && pr.state !== f.state) return false;
     if (f.attribution === "usage" && !pr.usage) return false;
     if (f.attribution === "human" && !(pr.human && pr.human.verified_messages)) return false;
+    if (f.attribution === "gt4" && !(pr.human && pr.human.coverage_status !== "CANDIDATE_ONLY" && pr.human.verified_messages > 4)) return false;
+    if (f.attribution === "gte14" && !(pr.human && pr.human.coverage_status !== "CANDIDATE_ONLY" && pr.human.verified_messages >= 14)) return false;
     if (f.attribution === "none" && (pr.usage || (pr.human && pr.human.verified_messages))) return false;
     if (f.size && f.size !== "all" && sizeBand(pr) !== f.size) return false;
     if (f.search) {
@@ -168,6 +170,29 @@
     };
   }
 
+  /**
+   * Per-PR verified human prompt/message tail (> 4 mid-PR babysitting, >= 14 heavy tail) over rows.
+   * Candidate-only and missing human records stay in unknown_n and are never treated as zero.
+   */
+  function humanTail(rows) {
+    var known = rows.filter(function (pr) {
+      return pr.human && pr.human.coverage_status !== "CANDIDATE_ONLY" &&
+        typeof pr.human.verified_messages === "number" && isFinite(pr.human.verified_messages);
+    });
+    var counts = known.map(function (pr) { return pr.human.verified_messages; });
+    var s = summarize(counts), ok = s.n >= MIN_TILE_N;
+    var gt4 = counts.filter(function (v) { return v > 4; });
+    var excess4 = gt4.reduce(function (a, v) { return a + (v - 4); }, 0);
+    var gte14 = counts.filter(function (v) { return v >= 14; }).length;
+    return {
+      ok: ok, total_n: rows.length, observed_n: s.n, unknown_n: rows.length - s.n,
+      gt4_count: s.n ? gt4.length : null,
+      excess_over_4_sum: s.n ? excess4 : null,
+      gte14_tail_count: s.n ? gte14 : null,
+      p50: ok ? s.p50 : null, p90: ok ? s.p90 : null, p99: ok ? s.p99 : null,
+    };
+  }
+
   /** Calendar-day key in UTC or a fixed-offset zone label resolved by the caller. */
   function dayKey(msValue, timeZone) {
     var parts = new Intl.DateTimeFormat("en-CA", {
@@ -261,7 +286,7 @@
 
   return {
     quantile: quantile, summarize: summarize, filterPrs: filterPrs, aggregate: aggregate,
-    windowFilter: windowFilter, oneShot: oneShot, MIN_TILE_N: MIN_TILE_N, statusChip: statusChip, episodeCounts: episodeCounts,
+    windowFilter: windowFilter, oneShot: oneShot, humanTail: humanTail, MIN_TILE_N: MIN_TILE_N, statusChip: statusChip, episodeCounts: episodeCounts,
     mergedIn: mergedIn, inRange: inRange, sizeBand: sizeBand, dailyMerges: dailyMerges, histogram: histogram,
     ELAPSED_EDGES: ELAPSED_EDGES, ELAPSED_LABELS: ELAPSED_LABELS,
     TOKEN_EDGES: TOKEN_EDGES, TOKEN_LABELS: TOKEN_LABELS,
