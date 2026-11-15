@@ -342,6 +342,8 @@ def codex_lane(
     barrier: threading.Barrier,
     timeout_seconds: float,
     timeout_grace_seconds: float,
+    safe_mode: bool = False,
+    codex_model: str = "gpt-5.6-terra",
 ) -> dict[str, Any]:
     barrier.wait()
     started = time.time_ns()
@@ -349,15 +351,11 @@ def codex_lane(
     codex = command_path("codex")
     if codex:
         code, stdout, stderr, timed_out, forced_pipe_close, supervision = execute(
-            [
-                codex,
-                "exec",
-                "--yolo",
-                "-m",
-                "gpt-5.6-terra",
-                "--config",
-                "model_reasoning_effort=high",
-            ],
+            ([codex, "exec", "--sandbox", "read-only",
+              "--config", 'approval_policy="never"',
+              "--config", 'approvals_reviewer="user"']
+             if safe_mode else [codex, "exec", "--yolo"])
+            + ["-m", codex_model, "--config", "model_reasoning_effort=high"],
             cwd,
             prompt,
             timeout_seconds,
@@ -368,7 +366,7 @@ def codex_lane(
             failure = "missing_verdict"
         attempts.append(
             {
-                "transport": "codex exec --yolo",
+                "transport": "codex exec --sandbox read-only" if safe_mode else "codex exec --yolo",
                 "exit_code": code,
                 "stderr": stderr,
                 "failure": failure,
@@ -379,7 +377,7 @@ def codex_lane(
         if code == 0 and has_verdict(stdout):
             return {
                 "status": "success",
-                "transport": "codex exec --yolo",
+                "transport": "codex exec --sandbox read-only" if safe_mode else "codex exec --yolo",
                 "stdout": stdout,
                 "attempts": attempts,
                 "started_ns": started,
@@ -401,6 +399,7 @@ def opus_lane(
     barrier: threading.Barrier,
     timeout_seconds: float,
     timeout_grace_seconds: float,
+    safe_mode: bool = False,
 ) -> dict[str, Any]:
     barrier.wait()
     started = time.time_ns()
@@ -414,7 +413,12 @@ def opus_lane(
             "started_ns": started,
             "ended_ns": time.time_ns(),
         }
-    command = [claude, "-p", "--model", "opus", "--dangerously-skip-permissions"]
+    command = [claude, "-p", "--model", "opus"] + (
+        ["--restricted", "--safe-mode", "--permission-mode", "plan",
+         "--permission-prompts", "none", "--tools", "Read,Glob,Grep",
+         "--strict-mcp-config", "--no-chrome"]
+        if safe_mode else ["--dangerously-skip-permissions"]
+    )
     code, stdout, stderr, timed_out, forced_pipe_close, supervision = execute(
         command, cwd, prompt, timeout_seconds, timeout_grace_seconds
     )
@@ -423,7 +427,7 @@ def opus_lane(
         failure = "missing_verdict"
     return {
         "status": "success" if code == 0 and has_verdict(stdout) else "error",
-        "transport": "claude -p --model opus --dangerously-skip-permissions",
+        "transport": "claude -p --model opus --restricted --permission-mode plan" if safe_mode else "claude -p --model opus --dangerously-skip-permissions",
         "stdout": stdout,
         "attempts": [
             {
@@ -445,6 +449,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--repo", required=True, type=Path)
     parser.add_argument("--ref", required=True)
     parser.add_argument("--packet-file", required=True, type=Path)
+    parser.add_argument("--safe-mode", action="store_true",
+                        help="document-only restricted primary pair; no permission-bypass flags")
+    parser.add_argument("--codex-model", choices=("gpt-5.6-terra", "gpt-6.1-sol"),
+                        default="gpt-5.6-terra", help="Explicit Codex model for safe document review")
     parser.add_argument("--document", action="append", default=[],
                         help="saved Markdown document relative to repo; repeat for document-only review")
     parser.add_argument("--output-dir", required=True, type=Path)
@@ -467,6 +475,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="bounded output-drain grace after a timeout (default: 2)",
     )
     args = parser.parse_args(argv)
+    if not args.safe_mode and args.codex_model != "gpt-5.6-terra":
+        parser.error("--codex-model override requires --safe-mode")
+    if args.safe_mode and not args.document:
+        parser.error("--safe-mode requires at least one --document")
     reviewers = args.reviewers.split(",")
     if not reviewers or any(name not in {"codex", "opus"} for name in reviewers):
         parser.error("--reviewers must contain only codex and opus")
@@ -598,6 +610,8 @@ def main(
     temp_root = Path(tempfile.mkdtemp(prefix="advice-primary-pair-"))
     receipt: dict[str, Any] = {
         "sha": sha,
+        "permission_mode_requested": "safe-document" if args.safe_mode else "legacy-full-permission",
+        "codex_model_requested": args.codex_model,
         "review_kind": "documents" if documents else "revision",
         "document_hashes": document_hashes,
         "document_bundle_sha256": document_bundle_sha256,
@@ -635,6 +649,8 @@ def main(
                     barrier,
                     args.timeout_seconds,
                     args.timeout_grace_seconds,
+                    **({"safe_mode": True} if args.safe_mode else {}),
+                    **({"codex_model": args.codex_model} if name == "codex" and args.codex_model != "gpt-5.6-terra" else {}),
                 )
                 for name in reviewer_names
             }

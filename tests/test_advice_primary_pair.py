@@ -86,6 +86,83 @@ class PrimaryPairTest(unittest.TestCase):
             env=self.env,
         )
 
+    def test_safe_document_commands_and_receipt(self) -> None:
+        (self.repo / "plan.md").write_text("Review these complete saved bytes.\n")
+        for binary, lane in (("codex", "codex"), ("claude", "opus")):
+            self.executable(binary, f'printf "%s\\n" "$@" > "$ADVICE_TEST_SYNC_DIR/{lane}.args"\n'
+                            + 'printf "VERDICT: APPROVED\\nCOVERAGE: all documents\\n"\n')
+        result = self.invoke("--safe-mode", "--document", "plan.md")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        codex = (self.sync / "codex.args").read_text().splitlines()
+        opus = (self.sync / "opus.args").read_text().splitlines()
+        self.assertEqual(codex[:3], ["exec", "--sandbox", "read-only"])
+        self.assertIn('approval_policy="never"', codex)
+        self.assertIn('approvals_reviewer="user"', codex)
+        self.assertNotIn("--ask-for-approval", codex)
+        self.assertNotIn("--yolo", codex)
+        self.assertNotIn("--dangerously-skip-permissions", opus)
+        self.assertEqual(opus[opus.index("--tools") + 1], "Read,Glob,Grep")
+        self.assertEqual(opus[opus.index("--permission-mode") + 1], "plan")
+        self.assertEqual(opus[opus.index("--permission-prompts") + 1], "none")
+        for flag in ("--restricted", "--safe-mode", "--strict-mcp-config", "--no-chrome"):
+            self.assertIn(flag, opus)
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        self.assertEqual(receipt["permission_mode_requested"], "safe-document")
+        self.assertEqual(set(receipt["document_hashes"]), {"plan.md"})
+        self.assertTrue(receipt["cleanup"]["success"])
+        self.assertEqual((self.repo / "plan.md").read_text(), "Review these complete saved bytes.\n")
+
+    def test_safe_explicit_codex_model_selection(self) -> None:
+        (self.repo / "plan.md").write_text("Exact reviewed plan.\n")
+        self.executable("codex", 'printf "%s\\n" "$@" > "$ADVICE_TEST_SYNC_DIR/codex.args"\nprintf "VERDICT: APPROVED\\n"\n')
+        self.executable("claude", 'printf "%s\\n" "$@" > "$ADVICE_TEST_SYNC_DIR/opus.args"\nprintf "VERDICT: APPROVED\\n"\n')
+        result = self.invoke("--safe-mode", "--document", "plan.md", "--codex-model", "gpt-6.1-sol")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        args = (self.sync / "codex.args").read_text().splitlines()
+        self.assertEqual(args[args.index("-m") + 1], "gpt-6.1-sol")
+        self.assertNotIn("gpt-5.6-terra", args)
+        self.assertEqual(json.loads((self.output / "receipt.json").read_text())["codex_model_requested"], "gpt-6.1-sol")
+        self.assertEqual((self.sync / "opus.args").read_text().splitlines()[2], "opus")
+
+    def test_codex_model_override_rejected_outside_safe_mode(self) -> None:
+        result = self.invoke("--codex-model", "gpt-6.1-sol")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("requires --safe-mode", result.stderr)
+
+    def test_safe_mode_requires_documents_before_dispatch(self) -> None:
+        self.executable("codex", 'touch "$ADVICE_TEST_SYNC_DIR/unexpected"\n')
+        result = self.invoke("--safe-mode")
+        self.assertEqual(result.returncode, 2)
+        self.assertFalse((self.sync / "unexpected").exists())
+        self.assertFalse(self.output.exists())
+
+    def test_safe_mode_cli_rejection_never_retries_bypass(self) -> None:
+        (self.repo / "plan.md").write_text("Saved plan\n")
+        for binary in ("codex", "claude"):
+            self.executable(binary, f'echo invoked >> "$ADVICE_TEST_SYNC_DIR/{binary}.calls"\n'
+                            + 'echo "unsupported flag" >&2\nexit 2\n')
+        result = self.invoke("--safe-mode", "--document", "plan.md")
+        self.assertNotEqual(result.returncode, 0)
+        for binary in ("codex", "claude"):
+            self.assertEqual((self.sync / f"{binary}.calls").read_text().splitlines(), ["invoked"])
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        self.assertTrue(receipt["cleanup"]["success"])
+        self.assertEqual(receipt["permission_mode_requested"], "safe-document")
+
+    def test_safe_withheld_transport_is_not_an_approval_attestation(self) -> None:
+        (self.repo / "plan.md").write_text("Saved plan\n")
+        for binary in ("codex", "claude"):
+            self.executable(binary, 'printf "VERDICT: WITHHELD\\nCOVERAGE: permission denied; documents unread\\n"\n')
+        result = self.invoke("--safe-mode", "--document", "plan.md")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        self.assertEqual(receipt["permission_mode_requested"], "safe-document")
+        for lane in ("codex", "opus"):
+            self.assertEqual(receipt["reviewers"][lane]["status"], "success")
+            self.assertIn("VERDICT: WITHHELD", (self.output / f"{lane}.txt").read_text())
+            self.assertNotIn("APPROVED", (self.output / f"{lane}.txt").read_text())
+        self.assertNotIn("approval", receipt)
+
     def test_reviewers_accepts_codex_opus_subset_and_rejects_unknown_or_duplicates(self) -> None:
         self.executable("codex", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
         self.executable("claude", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")

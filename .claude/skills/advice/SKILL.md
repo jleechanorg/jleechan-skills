@@ -45,6 +45,32 @@ code or a PR. Save the synthesis with the local review receipt; the PR/commit pu
 section below applies only to revision reviews. External publication still requires
 applicable user authority. If a selected document changes, re-review its new bytes.
 
+### Opt-in restricted document review
+
+For an explicit GPT-6.1-Sol request, add `--codex-model gpt-6.1-sol` with
+`--safe-mode`. This selects that model without provider/model fallback; unsupported
+model access fails normally. The receipt records the requested model, not effective
+model attestation. Existing default invocations retain their model selection.
+
+Add `--safe-mode --reviewers codex,opus` to the document-review invocation to
+request Codex's read-only sandbox with escalation denied (`approval_policy=never`,
+`approvals_reviewer=user`), and restrict
+Opus to Read/Glob/Grep tools in plan mode. Opus uses restricted mode, disables
+customizations and MCP servers, and denies permission requests that cannot be
+answered in this noninteractive run. No bypass flags are used in this mode.
+It requires at least one `--document`; ordinary invocations retain their existing
+behavior. The models and independent full-coverage quorum are unchanged.
+
+This mode requires CLI versions supporting the selected flags. Unsupported
+flags, unavailable tools, or denied reads fail the affected lane; never retry
+with bypass flags or a different provider. A read denied by the sandbox is a
+coverage gap, not approval. CLI controls are not a new OS sandbox around the
+whole process. Receipt `permission_mode_requested` records the requested controls, not an
+attestation of effective provider enforcement. Claude safe mode preserves managed
+policies; it does not establish that all managed hooks are disabled. A completed
+transport returning `VERDICT: WITHHELD` or denied-read coverage cannot satisfy
+approval quorum; apply the synthesis and full-coverage gates below.
+
 ## Step 2: Fan out the reviewers in parallel
 
 **Size/risk gate first.** For low-risk diffs (docs/tests/config-only, or under ~100 changed production lines with no schema/security/prompt-contract surface), Reviewer A alone (Codex + Opus — two independent verdicts, so the ≥2-reviewer quorum for `APPROVED` still holds) satisfies the gate; skip B/C. Reserve the full A+B+C fan-out for diffs touching production behavior, schemas, security, or above that threshold. The quorum, coverage, and inline-artifact rules below apply unchanged regardless of which lanes run.
@@ -119,7 +145,7 @@ dirty checkout because those changes are not represented by the requested SHA.
 The runner creates two independent disposable clones with `git clone --no-local`,
 removes their `origin` remotes, and detaches both at the exact same SHA. It then
 starts A1 and A2 behind one concurrency barrier, gives them disjoint output
-files, and removes the clones afterward. It preserves the requested
+files, and removes the clones afterward. Without `--safe-mode`, it preserves the legacy
 full-permission transports explicitly: `codex exec --yolo` for A1 and
 `claude -p --model opus --dangerously-skip-permissions` for A2. Independent
 clones prevent reviewer writes to refs, config, or hooks from sharing the
@@ -134,7 +160,7 @@ root process group. The receipt lists discovered, signaled, and surviving PIDs
 plus whether termination was verified. Bounded drain then guarantees that a
 remaining inherited pipe cannot block runner return or clone cleanup.
 
-This lifecycle supervision does not change full-permission mode and is not an
+Lifecycle supervision alone does not change permission mode and is not an
 OS sandbox: it does not restrict network, environment, or process creation. An
 arbitrary daemon that forks, reparents, and disappears from the sampled lineage
 before the first observation can evade user-space process-tree tracking. For
