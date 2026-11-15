@@ -13,7 +13,10 @@ reviewers. A competent blocking objection, even from a partial-coverage reviewer
 coverage never supplies an approval. P1/P2 findings are nonblocking and alone neither withhold approval nor require
 another round; the author batches them and records each fix or disposition in the report. Without the required
 independent full-coverage approvals under §2's tier caps, the result is
-`WITHHELD`.
+`WITHHELD`. For a PR, `WITHHELD` does not stop the lifecycle: once the
+[order of attempts](reviewer-selection.md#order-of-attempts-for-a-missing-vote) is finished, the driver continues under
+[pr-lifecycle's self-review fallback](../pr-lifecycle/review-recovery.md#self-review-fallback-when-two-external-votes-cannot-be-obtained),
+which withholds final approval and never turns this verdict into an approval.
 
 **Report.** Give the full 40-hex reviewed SHA for revision-bound review or `DOCUMENTS sha256:<bundle hash>` for a
 complete bundle-only review; never use an abbreviated SHA or mutable `HEAD`. Each reviewer's verdict,

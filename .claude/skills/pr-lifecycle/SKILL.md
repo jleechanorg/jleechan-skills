@@ -136,6 +136,10 @@ See [review-routing.md](review-routing.md#advice-applicability).
 
 See [review-recovery.md](review-recovery.md#reviewer-timeout-and-completion).
 
+### Self-review fallback when external votes cannot be obtained
+
+Missing reviewer votes never stop the work. When every available seat has been attempted and the route's independent votes are still short, the driver's recorded self review counts for progress: undraft, get CI green and finish every other obligation, but withhold final approval and do not merge on it. See [review-recovery.md](review-recovery.md#self-review-fallback-when-two-external-votes-cannot-be-obtained).
+
 ## Compact risk-based route
 
 See [review-routing.md](review-routing.md#compact-risk-based-route).

@@ -70,6 +70,31 @@ instruction; unknown availability stays UNKNOWN. A probe is not a review attempt
 attempt UNVERIFIED. Never report all routes exhausted while an eligible unattempted candidate can fill a missing
 vote within the remaining authority and budget. Show the unresolved gate and next eligible action when none can.
 
+### Order of attempts for a missing vote
+
+When a required vote is missing, work this list in order before reporting a gap. Launch independent candidates
+concurrently where limits allow. Each line ends with a receipt or an evidenced skip reason in the candidate report.
+
+1. **CLI seats on this host:** every seat in § CLI capabilities, the alternate Claude seat and each
+   `ADVICE_EXTRA_CLIS` entry.
+2. **The same seats on every other configured host.** A shared account's quota makes the seat unavailable there
+   too; a different account does not.
+3. **Dot**, when `ADVICE_OUTSIDE_ROUTES` lists `dot`: each configured account in rotation order that is not
+   mid-task for another owner, until one returns a verdict or the Dot deadline passes.
+4. **Instinct**, when its own skill authorizes it and attests its account identity. Never pair it with Dot for
+   both votes.
+5. **One native static reviewer**, and **Hermes** at `ADVICE_HERMES_CHANNEL` when `ADVICE_OUTSIDE_ROUTES` lists
+   `hermes`.
+6. **Web chats** through /web-advice, when `ADVICE_OUTSIDE_ROUTES` lists `web`: one provider at a time, each on
+   a signed-in profile with an empty composer.
+
+Read `ADVICE_OUTSIDE_ROUTES` at the start, not after the CLI seats fail. A seat that withholds because it could
+not read a very large changed file in full has been attempted: move to the next seat. Before counting an
+approval on such a change, ask that seat in its own conversation which line ranges it directly read, and count
+the verdict it restates. When the list is finished and votes are still missing, `/advice` reports `WITHHELD` and
+a PR lifecycle continues under
+[pr-lifecycle's self-review fallback](../pr-lifecycle/review-recovery.md#self-review-fallback-when-two-external-votes-cannot-be-obtained).
+
 ### CLI capabilities
 
 | Seat | Machine-local command override or default |
