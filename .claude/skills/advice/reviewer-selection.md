@@ -72,28 +72,32 @@ vote within the remaining authority and budget. Show the unresolved gate and nex
 
 ### Order of attempts for a missing vote
 
-When a required vote is missing, work this list in order before reporting a gap. Launch independent candidates
-concurrently where limits allow. Each line ends with a receipt or an evidenced skip reason in the candidate report.
+When a required vote is missing, work this list in order, within the remaining authority and dispatch budget, before
+reporting a gap. Launch independent candidates concurrently where limits allow. Each line ends with a receipt or an
+evidenced skip reason in the candidate report; an exhausted budget is such a reason. An outside route is authorized
+when `ADVICE_OUTSIDE_ROUTES` lists it or the current task explicitly authorizes it
+(§ Outside-route authorization and transports).
 
 1. **CLI seats on this host:** every seat in § CLI capabilities, the alternate Claude seat and each
    `ADVICE_EXTRA_CLIS` entry.
 2. **The same seats on every other configured host.** A shared account's quota makes the seat unavailable there
    too; a different account does not.
-3. **Dot**, when `ADVICE_OUTSIDE_ROUTES` lists `dot`: each configured account in rotation order that is not
-   mid-task for another owner, until one returns a verdict or the Dot deadline passes.
+3. **Dot**, when authorized: each configured account in rotation order that is not mid-task for another owner,
+   until one returns a verdict or the Dot deadline passes.
 4. **Instinct**, when its own skill authorizes it and attests its account identity. Never pair it with Dot for
    both votes.
-5. **One native static reviewer**, and **Hermes** at `ADVICE_HERMES_CHANNEL` when `ADVICE_OUTSIDE_ROUTES` lists
-   `hermes`.
-6. **Web chats** through /web-advice, when `ADVICE_OUTSIDE_ROUTES` lists `web`: one provider at a time, each on
-   a signed-in profile with an empty composer.
+5. **One native static reviewer**, and **Hermes**, when authorized, at `ADVICE_HERMES_CHANNEL` or the conversation
+   /hermes resolves.
+6. **Web chats** through /web-advice, when authorized: one provider at a time, each on a signed-in profile with
+   an empty composer.
 
-Read `ADVICE_OUTSIDE_ROUTES` at the start, not after the CLI seats fail. A seat that withholds because it could
-not read a very large changed file in full has been attempted: move to the next seat. Before counting an
-approval on such a change, ask that seat in its own conversation which line ranges it directly read, and count
-the verdict it restates. When the list is finished and votes are still missing, `/advice` reports `WITHHELD` and
-a PR lifecycle continues under
-[pr-lifecycle's self-review fallback](../pr-lifecycle/review-recovery.md#self-review-fallback-when-two-external-votes-cannot-be-obtained).
+Check which outside routes are authorized at the start, not after the CLI seats fail. A seat that withholds because
+it could not read a very large changed file in full has been attempted: move to the next seat. This list changes no
+counting rule. An approval counts only with full-scope `COVERAGE:` under
+[§5](reconciliation.md#5-reconcile-and-report); when its coverage statement is in doubt it does not count, and the
+next seat is tried. A reviewer's later clarification can withdraw its approval; it never creates or repairs one.
+When the list is finished and votes are still missing, `/advice` reports `WITHHELD` and a PR lifecycle continues under
+[pr-lifecycle's self-review fallback](../pr-lifecycle/review-recovery.md#self-review-fallback-when-independent-votes-cannot-be-obtained).
 
 ### CLI capabilities
 

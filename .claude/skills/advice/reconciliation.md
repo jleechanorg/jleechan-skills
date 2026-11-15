@@ -15,7 +15,7 @@ another round; the author batches them and records each fix or disposition in th
 independent full-coverage approvals under §2's tier caps, the result is
 `WITHHELD`. For a PR, `WITHHELD` does not stop the lifecycle: once the
 [order of attempts](reviewer-selection.md#order-of-attempts-for-a-missing-vote) is finished, the driver continues under
-[pr-lifecycle's self-review fallback](../pr-lifecycle/review-recovery.md#self-review-fallback-when-two-external-votes-cannot-be-obtained),
+[pr-lifecycle's self-review fallback](../pr-lifecycle/review-recovery.md#self-review-fallback-when-independent-votes-cannot-be-obtained),
 which withholds final approval and never turns this verdict into an approval.
 
 **Report.** Give the full 40-hex reviewed SHA for revision-bound review or `DOCUMENTS sha256:<bundle hash>` for a

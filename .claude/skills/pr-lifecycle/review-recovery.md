@@ -14,7 +14,7 @@ The Markdown instruction-only route in [review-routing.md](review-routing.md#mar
 
 `/wa` (`/web-advice`) is optional, never an implicit lifecycle gate: run it only when requested or separately authorized, and keep its real verdict if it runs. Existing standing authorization and any governing workflow that requires /wa still apply. Neither optional review permits ignoring a known correctness or safety blocker.
 
-## Self-review fallback when two external votes cannot be obtained
+## Self-review fallback when independent votes cannot be obtained
 
 A missing reviewer vote never ends the work. Use this fallback once every seat in [advice's order of attempts](../advice/reviewer-selection.md#order-of-attempts-for-a-missing-vote) has an attempt receipt or an evidenced skip reason and the independent votes countable at the head are still fewer than the selected route requires. Quota, missing login, timeout, a vendor failure, `WITHHELD` for coverage and a non-countable approval all qualify; "not attempted" does not. A competent blocking finding from any attempt still means `NOT APPROVED` and is fixed first.
 
@@ -22,10 +22,10 @@ Then the PR driver:
 
 1. **Reviews its own change and records it.** Read the complete base-to-head diff, the changed code paths and their callers at the exact head. Fix or record a disposition for every finding the attempted reviewers returned. Write a `COVERAGE:` line naming what was actually read, and end with `SELF-REVIEW: NO BLOCKING FINDINGS at <40-hex SHA>` or the blocking finding to fix.
 2. **Counts the self review for progress, and labels it.** Record the source-review obligation as `SELF-REVIEW FALLBACK` in the review ledger, beside the complete candidate report. `/advice` keeps its own `WITHHELD` verdict. A self review is not an independent vote; never report it as one or as `/advice` approval.
-3. **Keeps going.** Treat the draft review gate as passed for progress: undraft, drive `/green` at the current head, close comments and conflicts, finish evidence and every other obligation that does not need the missing votes.
-4. **Withholds final approval.** Do not enter Stage 5, declare `FINAL_READY` or merge on the fallback. Report `final approval withheld — independent source votes N of M`, with each missing seat's earliest reset or missing capability, and continue other authorized work. In an opted-in six-stage repository the stage label stays at `stage:4-ci-undraft` and the title reads `[waiting][final approval withheld: N of M votes]`.
+3. **Keeps going.** Treat the draft review gate as satisfied for progress only, never as an independent vote: undraft, drive `/green` at the current head, close comments and conflicts, finish evidence and every other obligation that does not need the missing votes. Besides the preview-deploy exception, this is the only case where undraft precedes the route's independent source approval.
+4. **Withholds final approval.** Do not declare `FINAL_READY` or merge on the fallback. Report `final approval withheld — independent source votes N of M`, with each missing seat's earliest reset or missing capability, and continue other authorized work. In an opted-in six-stage repository the missing votes are the final closing approval, so once CI and readiness work are done the label is `stage:5-final-approval`. The title reads `[waiting][final approval withheld: N of M votes]` while a missing seat has a known reset, and `[blocked][final approval withheld: N of M votes]`, with the human-blocker ping, when only the user can clear it.
 
-Final approval is cleared by the missing independent votes arriving at the applicable head, or by the user's merge approval under the governing merge rule. The fallback grants no merge authority and does not replace `/er`, visual approval, CI or any domain check.
+The missing independent votes arriving at the applicable head make the PR `FINAL_READY`. The user's merge approval under the governing merge rule authorizes the merge with the votes still withheld; it does not make the PR `FINAL_READY`. The fallback grants no merge authority and does not replace `/er`, visual approval, CI or any domain check.
 
 ## Slow CI — never block-wait
 
