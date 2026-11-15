@@ -114,7 +114,7 @@ Explore → outcome spec → TDD (failing test first) → unit/integration tests
 
 ## User-visible timers, expiries, and magic numbers
 
-Agent-invented expiries that never reach the user as decisions are a recurring defect class: an invented 5-minute client expiry caused the old-UI flash on resume in worldai_frontend #690 and tests pinned it as correct.
+Agent-invented expiries that never reach the user as decisions are a recurring defect class: for example, an invented 5-minute client expiry caused an old-UI flash on resume while tests pinned it as correct.
 
 - Do not add a timer, expiry, timeout, retry, fallback, default, or magic number that changes user-visible behavior unless the request or specification calls for it. A genuinely needed one is flagged to the user as an explicit decision before shipping, never buried in review-hardening notes.
 - User-visible appearance or gating changes only on an authoritative server answer or an explicit user choice, never on a wall-clock timer; while revalidating, hold the last good frame or state.
