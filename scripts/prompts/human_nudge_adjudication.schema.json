@@ -12,7 +12,7 @@
         "properties": {
           "event_id": {"type": "string"},
           "actor_kind": {"type": "string", "enum": ["human", "automated_watch", "unknown"]},
-          "message_kind": {"type": ["string", "null"], "enum": ["initial_task", "new_requirement/domain_judgment", "status_request", "continuation/followthrough_nudge", null]},
+          "message_kind": {"type": ["string", "null"], "enum": ["initial_task", "new_requirement/domain_judgment", "status_request", "continuation/followthrough_nudge", "teammate_message", "cold_reviewer_dispatch", "compaction", "merge_approval", null]},
           "human_nudge_eligible": {"type": ["boolean", "null"], "enum": [true, false, null]}
         }
       }

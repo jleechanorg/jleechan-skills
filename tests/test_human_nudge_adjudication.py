@@ -179,7 +179,9 @@ class HumanNudgeAdjudicationTests(unittest.TestCase):
             annotation["properties"]["message_kind"]["enum"],
             [
                 "initial_task", "new_requirement/domain_judgment",
-                "status_request", "continuation/followthrough_nudge", None,
+                "status_request", "continuation/followthrough_nudge",
+                "teammate_message", "cold_reviewer_dispatch",
+                "compaction", "merge_approval", None,
             ],
         )
 
@@ -235,6 +237,35 @@ class HumanNudgeAdjudicationTests(unittest.TestCase):
         self.assertEqual(record["native_origin_status"], "unverified_candidate")
         self.assertEqual(summary["coverage"]["human_nudge_messages"], 0)
         self.assertEqual(summary["coverage"]["automated_excluded_messages"], 1)
+
+    def test_non_nudge_message_kinds_are_accepted_and_excluded_from_nudges(self):
+        for kind in (
+            "teammate_message",
+            "cold_reviewer_dispatch",
+            "compaction",
+            "merge_approval",
+        ):
+            with self.subTest(message_kind=kind):
+                response = {"annotations": [{
+                    "event_id": "event-1", "actor_kind": "human",
+                    "message_kind": kind,
+                    "human_nudge_eligible": False,
+                }]}
+                result = self.run_judge(response)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                annotation = json.loads(self.output.read_text(encoding="utf-8"))
+                record = {
+                    "event_id": "event-1", "provider": "codex",
+                    "timestamp": "2026-11-12T12:00:00Z", "actor_kind": "unknown",
+                    "native_origin_status": "unverified_candidate",
+                }
+                _apply_replay_annotation(record, annotation)
+                summary = aggregate_native_human_steering(
+                    [record], [], window_start="2026-11-12T00:00:00Z",
+                    window_end="2026-11-13T00:00:00Z",
+                )
+                self.assertEqual(summary["coverage"]["human_nudge_messages"], 0)
+                self.assertEqual(summary["coverage"]["message_kind_counts"].get(kind), 1)
 
 
 if __name__ == "__main__":

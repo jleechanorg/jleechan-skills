@@ -67,7 +67,8 @@ def _apply_replay_annotation(record, annotation):
                 record[key] = value
     if annotation.get("message_kind") in {
         "initial_task", "new_requirement/domain_judgment", "status_request",
-        "continuation/followthrough_nudge",
+        "continuation/followthrough_nudge", "teammate_message",
+        "cold_reviewer_dispatch", "compaction", "merge_approval",
     }:
         record["message_kind"] = annotation["message_kind"]
     if isinstance(annotation.get("human_nudge_eligible"), bool):
