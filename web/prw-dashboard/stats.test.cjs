@@ -280,7 +280,7 @@ test("humanTail computes >4 babysitting, excess over 4, >=14 tail, quantiles and
   assert.deepEqual(S.filterPrs(rows, { ...range, attribution: "gte14" }).map((p) => p.number), [4, 5]);
 });
 
-test("humanTail keeps unobserved counts null and withholds percentiles below MIN_TILE_N", () => {
+test("humanTail keeps unobserved counts null and withholds every figure below MIN_TILE_N", () => {
   const empty = S.humanTail([pr(1), pr(2)]);
   assert.deepEqual(empty, {
     ok: false, total_n: 2, observed_n: 0, unknown_n: 2,
@@ -289,6 +289,6 @@ test("humanTail keeps unobserved counts null and withholds percentiles below MIN
   });
   const sparse = S.humanTail([pr(1, { human: 5 }), pr(2, { human: 15 }), pr(3)]);
   assert.equal(sparse.ok, false);
-  assert.deepEqual([sparse.observed_n, sparse.unknown_n, sparse.gt4_count, sparse.excess_over_4_sum, sparse.gte14_tail_count], [2, 1, 2, 12, 1]);
+  assert.deepEqual([sparse.observed_n, sparse.unknown_n, sparse.gt4_count, sparse.excess_over_4_sum, sparse.gte14_tail_count], [2, 1, null, null, null]);
   assert.deepEqual([sparse.p50, sparse.p90, sparse.p99], [null, null, null]);
 });

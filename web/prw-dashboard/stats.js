@@ -172,7 +172,9 @@
 
   /**
    * Per-PR verified human prompt/message tail (> 4 mid-PR babysitting, >= 14 heavy tail) over rows.
-   * Candidate-only and missing human records stay in unknown_n and are never treated as zero.
+   * Candidate-only and missing human records stay in unknown_n and are never treated as zero. The collector
+   * records a count only for a PR with at least one verified message, so a PR with none is also unknown.
+   * Below MIN_TILE_N observations every figure is withheld.
    */
   function humanTail(rows) {
     var known = rows.filter(function (pr) {
@@ -186,9 +188,9 @@
     var gte14 = counts.filter(function (v) { return v >= 14; }).length;
     return {
       ok: ok, total_n: rows.length, observed_n: s.n, unknown_n: rows.length - s.n,
-      gt4_count: s.n ? gt4.length : null,
-      excess_over_4_sum: s.n ? excess4 : null,
-      gte14_tail_count: s.n ? gte14 : null,
+      gt4_count: ok ? gt4.length : null,
+      excess_over_4_sum: ok ? excess4 : null,
+      gte14_tail_count: ok ? gte14 : null,
       p50: ok ? s.p50 : null, p90: ok ? s.p90 : null, p99: ok ? s.p99 : null,
     };
   }

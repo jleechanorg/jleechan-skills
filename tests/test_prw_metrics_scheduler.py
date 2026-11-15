@@ -126,7 +126,7 @@ class PRWMetricsSchedulerTests(unittest.TestCase):
 
     def test_no_embedded_credentials_or_personal_paths(self):
         """Ensures template and scripts contain zero credentials, tokens, or hardcoded personal paths."""
-        files_to_check = [PLIST_TEMPLATE, RUN_SCRIPT, INSTALL_SCRIPT]
+        files_to_check = [PLIST_TEMPLATE, DASHBOARD_PLIST_TEMPLATE, RUN_SCRIPT, INSTALL_SCRIPT]
         credential_patterns = [
             re.compile(r"ghp_[A-Za-z0-9_]{20,}"),
             re.compile(r"github_pat_[A-Za-z0-9_]{20,}"),

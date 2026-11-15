@@ -219,7 +219,7 @@
             ? "+" + ht.excess_over_4_sum.toLocaleString("en-US") + " over 4 · ≥14 tail: " + ht.gte14_tail_count.toLocaleString("en-US") +
               " · p50/p90/p99 " + ht.p50 + "/" + ht.p90 + "/" + ht.p99 + " · unknown: " + ht.unknown_n.toLocaleString("en-US")
             : "n = " + ht.observed_n.toLocaleString("en-US") + " observed · unknown: " + ht.unknown_n.toLocaleString("en-US") + (ht.observed_n ? " (needs " + S.MIN_TILE_N + "+)" : ""),
-          covLabel: "PRs with known prompt count", covN: ht.observed_n, covD: N,
+          covLabel: "PRs with at least one verified prompt", covN: ht.observed_n, covD: N,
         });
       })(),
       tile({ label: "Observed active time", value: agg.activeN ? S.formatDuration(agg.active.p50) : null, naText: "Not measured",
@@ -453,7 +453,7 @@
       ["> 4 prompts / PR (babysitting)", typeof hts.gt4_count === "number" ? nInt(hts.gt4_count) + " (+" + nInt(hts.excess_over_4_sum) + " over 4)" : null],
       ["≥ 14 prompts / PR (heavy tail)", nInt(hts.gte14_tail_count)],
       ["Per-PR p50 / p90 / p99", typeof hts.p50 === "number" ? hts.p50 + " / " + hts.p90 + " / " + hts.p99 : null],
-    ], "Verified-human messages per PR over observed rows; candidate-only and uncollected PRs stay in unknown."));
+    ], "Verified-human messages per PR, over PRs with at least one. PRs with none, candidate-only and uncollected PRs stay in unknown."));
     var hand = (data.handoffs || []).map(function (x) {
       return [x.name, x.status === "UNKNOWN" || x.observed_n === 0 ? null : (x.observed_n + " observed")];
     });
