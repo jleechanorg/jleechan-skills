@@ -73,8 +73,9 @@ vote within the remaining authority and budget. Show the unresolved gate and nex
 ### Order of attempts for a missing vote
 
 When a required vote is missing, work this list, within the remaining authority, attempt deadlines and dispatch
-budget, before giving the final verdict. The order sets priority, not a sequence: launch independent candidates
-concurrently where limits allow. Each line ends with a receipt or an
+budget, before giving the final verdict. The order sets priority and tier admission still binds: launch candidates concurrently
+within a tier, advance to the next tier only when the earlier tiers cannot fill the missing votes, and stop new
+dispatch at quorum. Each line ends with a receipt or an
 evidenced skip reason in the candidate report; an exhausted budget is such a reason. An outside route is authorized
 when `ADVICE_OUTSIDE_ROUTES` lists it or the current task explicitly authorizes it
 (§ Outside-route authorization and transports).
