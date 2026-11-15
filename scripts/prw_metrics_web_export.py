@@ -12,7 +12,6 @@ No prompt text, PR bodies, reasoning or credentials are copied.
 
 import argparse
 import json
-import math
 import os
 import re
 import uuid
@@ -356,52 +355,6 @@ def _cohort_row(row):
     }
 
 
-def _quantile_disc(sorted_values, p):
-    """Nearest-rank (type 1) quantile matching DuckDB quantile_disc and frontend stats.js."""
-    n = len(sorted_values)
-    if not n:
-        return None
-    rank = math.ceil(p * n)
-    return sorted_values[min(n, max(1, rank)) - 1]
-
-
-def _human_tail_summary(rows):
-    """Per-PR verified human prompt/steer tail (>4 babysitting, >=14 tail, quantiles) with explicit unknowns."""
-    total_n = len(rows)
-    counts = sorted(
-        row["human"]["verified_messages"]
-        for row in rows
-        if isinstance(row.get("human"), dict)
-        and row["human"].get("coverage_status") != "CANDIDATE_ONLY"
-        and _count(row["human"].get("verified_messages")) is not None
-    )
-    observed_n = len(counts)
-    unknown_n = total_n - observed_n
-    if not observed_n:
-        return {
-            "total_n": total_n,
-            "observed_n": 0,
-            "unknown_n": unknown_n,
-            "gt4_count": None,
-            "excess_over_4_sum": None,
-            "gte14_tail_count": None,
-            "p50": None,
-            "p90": None,
-            "p99": None,
-        }
-    return {
-        "total_n": total_n,
-        "observed_n": observed_n,
-        "unknown_n": unknown_n,
-        "gt4_count": sum(1 for c in counts if c > 4),
-        "excess_over_4_sum": sum(c - 4 for c in counts if c > 4),
-        "gte14_tail_count": sum(1 for c in counts if c >= 14),
-        "p50": _quantile_disc(counts, 0.50),
-        "p90": _quantile_disc(counts, 0.90),
-        "p99": _quantile_disc(counts, 0.99),
-    }
-
-
 def _gaps(rows, coverage):
     """Plain statements of what this snapshot does not measure."""
     total = len(rows)
@@ -459,15 +412,11 @@ def _finite(value):
 
 def build_snapshot(summary_data, query_summary, prs, *, generated_at=None, code_version=None, timeline=None):
     """Build the dashboard payload. All three inputs are optional; absent means unknown."""
-    annotation_freshness = (
-        summary_data.get("annotation_freshness")
-        if isinstance(summary_data, dict)
-        else None
-    )
-    if not isinstance(annotation_freshness, dict):
-        annotation_freshness = {"status": "UNKNOWN"}
     # The retained-summary schema projection: only listed fields, at every depth.
     summary_data = _project_summary(summary_data)
+    annotation_freshness = summary_data.get("annotation_freshness")
+    if not isinstance(annotation_freshness, dict) or not isinstance(annotation_freshness.get("status"), str):
+        annotation_freshness = {"status": "UNKNOWN"}
     query_summary = query_summary if isinstance(query_summary, dict) else {}
     index = _index_prs(prs)
     scenarios = _scenarios_by_pr(query_summary.get("catalog_scenario_pr_metrics"))
@@ -513,7 +462,6 @@ def build_snapshot(summary_data, query_summary, prs, *, generated_at=None, code_
         },
         "human_coverage": human.get("coverage"),
         "human_interventions": summary_data.get("human_interventions"),
-        "human_tail_summary": _human_tail_summary(rows),
         "handoff_transitions": [{"key": key, "label": label} for key, label, _s, _e in HANDOFF_TRANSITIONS],
         "gaps": _gaps(rows, query_summary.get("query_coverage")),
         "prs": rows,

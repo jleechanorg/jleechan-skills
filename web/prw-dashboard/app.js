@@ -446,7 +446,7 @@
       ["Usage requests in snapshot", c(qc.canonical_event_n)], ["Naming a PR directly", c(qc.validated_direct_attribution_event_n)],
       ["Not bound to any PR", c(qc.unbound_event_n)],
     ], "Unbound usage is real work that cannot yet be assigned to a pull request. It is not spread across PRs."));
-    var hts = data.human_tail_summary || S.humanTail(data.prs);
+    var hts = S.humanTail(data.prs);
     var nInt = function (v) { return typeof v === "number" ? v.toLocaleString("en-US") : null; };
     facts.appendChild(fact("Prompt link tail, whole snapshot", [
       ["Observed PRs / unknown", typeof hts.observed_n === "number" ? nInt(hts.observed_n) + " / " + nInt(hts.unknown_n) : null],

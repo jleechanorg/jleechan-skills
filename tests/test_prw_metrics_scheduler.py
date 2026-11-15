@@ -13,6 +13,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PLIST_TEMPLATE = REPO_ROOT / "launchd" / "com.jleechan.prw-metrics.plist.template"
+DASHBOARD_PLIST_TEMPLATE = REPO_ROOT / "launchd" / "org.prw.dashboard.plist.template"
 RUN_SCRIPT = REPO_ROOT / "scripts" / "run_prw_metrics.sh"
 INSTALL_SCRIPT = REPO_ROOT / "scripts" / "install-prw-metrics-launchd.sh"
 
@@ -114,6 +115,14 @@ class PRWMetricsSchedulerTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, f"plutil lint failed: {result.stderr}")
             self.assertIn("OK", result.stdout)
+
+    def test_dashboard_plist_template_parses_and_serves_loopback_only(self):
+        rendered = DASHBOARD_PLIST_TEMPLATE.read_text(encoding="utf-8").replace("@HOME@", str(self.fake_home))
+        parsed = plistlib.loads(rendered.encode("utf-8"))
+        self.assertEqual(parsed["Label"], "org.prw.dashboard")
+        arguments = parsed["ProgramArguments"]
+        self.assertEqual(arguments[arguments.index("--bind") + 1], "127.0.0.1")
+        self.assertTrue(arguments[arguments.index("--directory") + 1].startswith(str(self.fake_home)))
 
     def test_no_embedded_credentials_or_personal_paths(self):
         """Ensures template and scripts contain zero credentials, tokens, or hardcoded personal paths."""
