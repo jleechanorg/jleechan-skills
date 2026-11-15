@@ -252,3 +252,43 @@ test("started count retains missing-stage coverage as unknown", () => {
   const t = S.oneShot([flowPr(1, { flow: { reached_final: false, started_at: null, final_at: null } }), pr(2), pr(3)]);
   assert.deepEqual(t.counts, { ok: false, started: 1, reached: 0, unknown: 2 });
 });
+
+test("humanTail computes >4 babysitting, excess over 4, >=14 tail, quantiles and explicit unknowns", () => {
+  const rows = [
+    pr(1, { human: 1 }),
+    pr(2, { human: 4 }),
+    pr(3, { human: 6 }),
+    pr(4, { human: 14 }),
+    pr(5, { human: 20 }),
+    { ...pr(6), human: { coverage_status: "CANDIDATE_ONLY", verified_messages: 99 } },
+    pr(7), // unknown human count
+  ];
+  const ht = S.humanTail(rows);
+  assert.deepEqual(ht, {
+    ok: true,
+    total_n: 7,
+    observed_n: 5,
+    unknown_n: 2,
+    gt4_count: 3,
+    excess_over_4_sum: 2 + 10 + 16,
+    gte14_tail_count: 2,
+    p50: 6,
+    p90: 20,
+    p99: 20,
+  });
+  assert.deepEqual(S.filterPrs(rows, { ...range, attribution: "gt4" }).map((p) => p.number), [3, 4, 5]);
+  assert.deepEqual(S.filterPrs(rows, { ...range, attribution: "gte14" }).map((p) => p.number), [4, 5]);
+});
+
+test("humanTail keeps unobserved counts null and withholds every figure below MIN_TILE_N", () => {
+  const empty = S.humanTail([pr(1), pr(2)]);
+  assert.deepEqual(empty, {
+    ok: false, total_n: 2, observed_n: 0, unknown_n: 2,
+    gt4_count: null, excess_over_4_sum: null, gte14_tail_count: null,
+    p50: null, p90: null, p99: null,
+  });
+  const sparse = S.humanTail([pr(1, { human: 5 }), pr(2, { human: 15 }), pr(3)]);
+  assert.equal(sparse.ok, false);
+  assert.deepEqual([sparse.observed_n, sparse.unknown_n, sparse.gt4_count, sparse.excess_over_4_sum, sparse.gte14_tail_count], [2, 1, null, null, null]);
+  assert.deepEqual([sparse.p50, sparse.p90, sparse.p99], [null, null, null]);
+});

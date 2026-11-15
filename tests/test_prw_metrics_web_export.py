@@ -152,6 +152,23 @@ class UsageAndCostTests(unittest.TestCase):
 
 
 class PayloadTests(unittest.TestCase):
+    def test_annotation_freshness_round_trips_or_defaults_unknown(self):
+        supplied = {"status": "STALE", "reviewed_through": "2026-11-09T23:19:00Z"}
+        snapshot = export.build_snapshot(
+            {"annotation_freshness": supplied}, query([metric(1)]), []
+        )
+        self.assertEqual(snapshot["annotation_freshness"], supplied)
+        for missing in ({}, {"annotation_freshness": {}}, {"annotation_freshness": "STALE"},
+                        {"annotation_freshness": {"status": {"nested": "x"}}}):
+            absent = export.build_snapshot(missing, query([metric(1)]), [])
+            self.assertEqual(absent["annotation_freshness"], {"status": "UNKNOWN"}, missing)
+
+    def test_annotation_freshness_is_projected_like_the_rest_of_the_summary(self):
+        supplied = {"status": "STALE", "path": "/private/input/annotations.json",
+                    "error": "boom at /private/input", "detail": {"note": "kept out"}}
+        snapshot = export.build_snapshot({"annotation_freshness": supplied}, query([metric(1)]), [])
+        self.assertEqual(snapshot["annotation_freshness"], {"status": "STALE"})
+
     def test_private_text_is_not_copied(self):
         prs = [{"repo": "acme/app", "number": 1, "title": "Add thing", "body": "SECRET-BODY-TEXT",
                 "url": "https://github.com/acme/app/pull/1", "isDraft": False}]

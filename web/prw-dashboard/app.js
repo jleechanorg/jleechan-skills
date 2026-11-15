@@ -132,6 +132,8 @@
     var names = Object.keys(sources), complete = names.filter(function (n) { return sources[n] && sources[n].status === "COMPLETE"; }).length;
     ribbon.appendChild(h("span", { class: "chip " + (names.length && complete === names.length ? "good" : "warn") },
       [h("i"), "Sources " + complete + "/" + names.length + " complete"]));
+    var annotation = data.annotation_freshness || {};
+    ribbon.appendChild(h("span", null, ["Annotation freshness ", h("b", { text: annotation.status || "UNKNOWN" })]));
     $("scope-line").textContent = data.prs.length.toLocaleString("en-US") + " pull requests in this snapshot across " + data.repositories.length +
       " repositories, " + fmtTime(data.window_start, false) + " to " + fmtTime(data.window_end || data.data_through, false) + ".";
     var banner = $("banner");
@@ -207,6 +209,19 @@
       tile({ label: "Verified human steering messages", value: agg.humanN ? agg.human.sum.toLocaleString("en-US") : null,
         detail: agg.humanN ? "per PR: median " + agg.human.p50 + " · p90 " + agg.human.p90 + " · p99 " + agg.human.p99 : "No verified steering is tied to these PRs",
         covLabel: "PRs with verified steering", covN: agg.humanN, covD: N }),
+      (function () {
+        var ht = S.humanTail(rows);
+        return tile({
+          label: "Prompts > 4 / PR (babysit & tail)",
+          value: ht.ok ? ht.gt4_count.toLocaleString("en-US") + " of " + ht.observed_n.toLocaleString("en-US") + " · " + pct(ht.gt4_count, ht.observed_n) : null,
+          naText: ht.observed_n ? "Not enough data" : "Unavailable",
+          detail: ht.ok
+            ? "+" + ht.excess_over_4_sum.toLocaleString("en-US") + " over 4 · ≥14 tail: " + ht.gte14_tail_count.toLocaleString("en-US") +
+              " · p50/p90/p99 " + ht.p50 + "/" + ht.p90 + "/" + ht.p99 + " · unknown: " + ht.unknown_n.toLocaleString("en-US")
+            : "n = " + ht.observed_n.toLocaleString("en-US") + " observed · unknown: " + ht.unknown_n.toLocaleString("en-US") + (ht.observed_n ? " (needs " + S.MIN_TILE_N + "+)" : ""),
+          covLabel: "PRs with at least one verified prompt", covN: ht.observed_n, covD: N,
+        });
+      })(),
       tile({ label: "Observed active time", value: agg.activeN ? S.formatDuration(agg.active.p50) : null, naText: "Not measured",
         detail: agg.activeN ? dist(agg.active, S.formatDuration) : "No timed operation telemetry for these PRs",
         covLabel: "PRs with active-time telemetry", covN: agg.activeN, covD: N }),
@@ -431,6 +446,14 @@
       ["Usage requests in snapshot", c(qc.canonical_event_n)], ["Naming a PR directly", c(qc.validated_direct_attribution_event_n)],
       ["Not bound to any PR", c(qc.unbound_event_n)],
     ], "Unbound usage is real work that cannot yet be assigned to a pull request. It is not spread across PRs."));
+    var hts = S.humanTail(data.prs);
+    var nInt = function (v) { return typeof v === "number" ? v.toLocaleString("en-US") : null; };
+    facts.appendChild(fact("Prompt link tail, whole snapshot", [
+      ["Observed PRs / unknown", typeof hts.observed_n === "number" ? nInt(hts.observed_n) + " / " + nInt(hts.unknown_n) : null],
+      ["> 4 prompts / PR (babysitting)", typeof hts.gt4_count === "number" ? nInt(hts.gt4_count) + " (+" + nInt(hts.excess_over_4_sum) + " over 4)" : null],
+      ["≥ 14 prompts / PR (heavy tail)", nInt(hts.gte14_tail_count)],
+      ["Per-PR p50 / p90 / p99", typeof hts.p50 === "number" ? hts.p50 + " / " + hts.p90 + " / " + hts.p99 : null],
+    ], "Verified-human messages per PR, over PRs with at least one. PRs with none, candidate-only and uncollected PRs stay in unknown."));
     var hand = (data.handoffs || []).map(function (x) {
       return [x.name, x.status === "UNKNOWN" || x.observed_n === 0 ? null : (x.observed_n + " observed")];
     });
@@ -633,8 +656,8 @@
       { header: "url", value: function (p) { return p.url; } },
     ]);
   }
-  function aggCsv(agg) {
-    var ep = S.episodeCounts(agg);
+  function aggCsv(rows, agg) {
+    var ep = S.episodeCounts(agg), ht = S.humanTail(rows);
     var lines = [
       ["pull_requests_in_selection", agg.total, agg.total, ""], ["merged", agg.merged, agg.total, ""],
       ["open_to_merge_seconds_mean", agg.elapsed.mean, agg.elapsed.n, "nearest-rank"], ["open_to_merge_seconds_p50", agg.elapsed.p50, agg.elapsed.n, "nearest-rank"],
@@ -642,7 +665,14 @@
       ["tokens_attributed_sum", agg.usage.sum, agg.usageN, "per-PR basis in row export"], ["tokens_per_pr_p50", agg.usage.p50, agg.usageN, ""],
       ["tokens_per_pr_p90", agg.usage.p90, agg.usageN, ""], ["tokens_per_pr_p99", agg.usage.p99, agg.usageN, ""],
       ["list_price_known_usd_sum", agg.costKnown.sum, agg.costKnownN, "lower bound; not invoiced spend"], ["prs_fully_priced", agg.costFullN, agg.total, ""],
-      ["verified_steering_messages_sum", agg.human.sum, agg.humanN, ""], ["active_seconds_p50", agg.active.p50, agg.activeN, ""],
+      ["verified_steering_messages_sum", agg.human.sum, agg.humanN, ""],
+      ["human_prompts_gt4_pr_count", ht.gt4_count, ht.observed_n, "unknown_n=" + ht.unknown_n],
+      ["human_prompts_excess_over_4_sum", ht.excess_over_4_sum, ht.observed_n, "unknown_n=" + ht.unknown_n],
+      ["human_prompts_gte14_tail_pr_count", ht.gte14_tail_count, ht.observed_n, "unknown_n=" + ht.unknown_n],
+      ["human_prompts_per_pr_p50", ht.p50, ht.observed_n, "nearest-rank"],
+      ["human_prompts_per_pr_p90", ht.p90, ht.observed_n, "nearest-rank"],
+      ["human_prompts_per_pr_p99", ht.p99, ht.observed_n, "nearest-rank"],
+      ["active_seconds_p50", agg.active.p50, agg.activeN, ""],
       ["eligible_unattended_seconds_mean", agg.idle.mean, agg.idleN, ""], ["eligible_unattended_seconds_p50", agg.idle.p50, agg.idleN, ""],
       ["eligible_unattended_seconds_p90", agg.idle.p90, agg.idleN, ""], ["eligible_unattended_seconds_p99", agg.idle.p99, agg.idleN, ""],
       ["steering_episodes_good", ep.good, agg.episodePrN, ""], ["steering_episodes_bad", ep.bad, agg.episodePrN, ""],
@@ -696,7 +726,7 @@
     $("foot").textContent = "Snapshot schema " + data.schema_version + " · collector " + (data.code_version || "unknown version") +
       " · percentiles: " + (data.quantile_method || "nearest rank") + ", computed from the PR rows on this page.";
     $("dl-rows").addEventListener("click", function () { download("prw-pull-requests.csv", rowsCsv(current.rows)); });
-    $("dl-agg").addEventListener("click", function () { download("prw-summary.csv", aggCsv(current.agg)); });
+    $("dl-agg").addEventListener("click", function () { download("prw-summary.csv", aggCsv(current.rows, current.agg)); });
     $("scrim").addEventListener("click", closePanel);
     document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !$("panel").hidden) closePanel(); });
     $("content").hidden = false;

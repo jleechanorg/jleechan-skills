@@ -7,10 +7,13 @@ The PRW metrics job can write a compact, versioned JSON snapshot of the per-PR a
 1. `scripts/prw_metrics_web_export.py` builds the snapshot from structured inputs only: the renderer summary, the DuckDB query result and the cached PR list.
 2. `scripts/prw_metrics.py --dashboard-json <path>` writes it after a run that computed query metrics. Without the option, behaviour is unchanged.
 3. `web/prw-dashboard/` is a dependency-free page that fetches `dashboard.json` from its own directory and derives every view from one filtered slice.
+4. The page reports the per-PR verified human prompt tail for the filtered slice: PRs above 4 prompts, the excess over 4, PRs at 14 or more, and nearest-rank p50/p90/p99, with attribution filters for the first two groups. The page computes these from the PR rows; the export adds no summary of its own. The population is PRs with at least one verified prompt: the collector records no count for a PR with none, so those stay unknown. With fewer than 3 such PRs every figure is withheld.
+5. When a summary supplies `annotation_freshness` (`status`, `reviewed_through`), the snapshot passes it through the same summary projection as every other field; otherwise it is `UNKNOWN`. No collector in this repository writes the field yet.
+6. `launchd/org.prw.dashboard.plist.template` is an optional template that serves a local copy of the page on the loopback interface only. Nothing in this change installs it.
 
 ## 2. Non-goals
 
-- Hosting the page, choosing an audience, or deciding where a real snapshot may be published.
+- Choosing an audience, exposing the page beyond the local machine, or deciding where a real snapshot may be published.
 - Wiring `--dashboard-json` into a scheduled job or installing anything on a host.
 - New measurements: the export only projects values the job already computes.
 - Committing any real snapshot data.

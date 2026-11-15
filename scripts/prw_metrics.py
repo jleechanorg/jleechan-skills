@@ -343,6 +343,7 @@ _ATTENTION_ROW = {
 # records, ("map", spec) = dynamic keys. Anything not listed is dropped at every depth.
 SUMMARY_SCHEMA = {
     "status": _SC, "generated_at": _SC, "data_through": _SC,
+    "annotation_freshness": {"status": _SC, "reviewed_through": _SC},
     "w1_bounds": [_SC], "w2_bounds": [_SC], "w2_merged_cohort_n": _SC,
     "sources": ("map", {"status": _SC, "count": _SC, "cutoff": _SC}),
     "repo_comparison": [{k: _SC for k in (
