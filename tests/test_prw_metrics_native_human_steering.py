@@ -135,6 +135,44 @@ class NativeHumanSteeringTests(unittest.TestCase):
         self.assertEqual(rows["example/repo#7"]["raw_verified_messages"], 0)
         self.assertEqual(rows["example/repo#6"]["coverage_status"], "UNKNOWN")
 
+    def test_explicit_bindings_with_different_repository_casing_count_for_the_listed_pr(self):
+        base = {"provider": "claude", "timestamp": "2026-10-05T10:00:00Z", "origin_status": "verified_human"}
+        events = [
+            dict(base, event_id="direct", pr_binding={"pr": "Example/Repo#5"}),
+            dict(base, event_id="context", context_pr_decision="override", original_associated_pr="EXAMPLE/repo#5",
+                 context_associated_pr="Example/Repo#6", effective_associated_pr="Example/Repo#6",
+                 effective_association_confidence="REVIEWED_CONTEXT"),
+        ]
+        result = aggregate_native_human_steering(
+            events, self.prs, window_start="2026-10-01T00:00:00Z", window_end="2026-10-20T00:00:00Z",
+            source_stats=self.stats,
+        )
+        rows = {row["pr"]: row for row in result["per_pr"]}
+        self.assertEqual(set(rows), {"example/repo#5", "example/repo#6", "example/repo#7"})
+        self.assertEqual(rows["example/repo#5"]["direct_verified_messages"], 1)
+        self.assertEqual(rows["example/repo#6"]["context_associated_verified_messages"], 1)
+
+    def test_bindings_are_not_respelled_when_the_list_is_ambiguous_or_the_id_is_a_lookalike(self):
+        stale = dict(self.prs[0], repo="Example/Repo", closedAt=None, state="OPEN")  # a stale cached copy of #5
+        closed = dict(self.prs[2], repo="Example/Repo", number=9, createdAt="2026-01-01T00:00:00Z",
+                      closedAt="2026-01-02T00:00:00Z")  # outside the window
+        kelvin = dict(self.prs[0], repo="k-dev/board", number=3)
+        base = {"provider": "claude", "origin_status": "verified_human", "timestamp": "2026-10-05T10:00:00Z"}
+        events = [
+            dict(base, event_id="mixed", pr_binding={"pr": "EXAMPLE/repo#5"}),
+            dict(base, event_id="exact", pr_binding={"pr": "example/repo#6"}),
+            dict(base, event_id="outside", pr_binding={"pr": "example/repo#9"}),
+            dict(base, event_id="kelvin", pr_binding={"pr": "\u212a-dev/board#3"}),
+        ]
+        window = dict(window_start="2026-10-01T00:00:00Z", window_end="2026-10-20T00:00:00Z", source_stats=self.stats)
+        rows = {r["pr"]: r["direct_verified_messages"] for r in aggregate_native_human_steering(
+            events, self.prs + [stale, closed, kelvin], **window)["per_pr"]}
+        self.assertEqual(rows["example/repo#5"], 0)  # two listed spellings: never choose between them
+        self.assertEqual(rows["Example/Repo#5"], 0)
+        self.assertEqual(rows["example/repo#6"], 1)
+        self.assertEqual(rows["Example/Repo#9"], 1)  # a listed PR outside the window is still the same PR
+        self.assertEqual(rows["k-dev/board#3"], 0)
+
     def test_unassigned_and_ambiguous_records_remain_visible_in_coverage(self):
         result = aggregate_native_human_steering(
             self.events, self.prs,

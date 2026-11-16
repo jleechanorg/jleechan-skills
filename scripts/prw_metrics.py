@@ -4106,6 +4106,7 @@ def aggregate_native_human_steering(
             "_confidences": set(), "_confirmed_at": [], "_unconfirmed": 0,
         }
 
+    listed = set()
     for pr in prs or []:
         if not isinstance(pr, dict):
             continue
@@ -4113,6 +4114,7 @@ def aggregate_native_human_steering(
         key = pr_key(repo, pr.get("number"))
         if not key:
             continue
+        listed.add(key)
         created = parsed_time(pr.get("createdAt") or pr.get("created_at"))
         closed = parsed_time(pr.get("mergedAt") or pr.get("merged_at") or
                              pr.get("closedAt") or pr.get("closed_at"))
@@ -4125,6 +4127,25 @@ def aggregate_native_human_steering(
             entry = (key, pr, created, closed)
             branch_index.setdefault((repo, branch), []).append(entry)
             branch_only_index.setdefault(branch, []).append(entry)
+
+    spellings = {}  # GitHub PR ids are case-insensitive; every listed copy counts, in window or not
+    for key in listed:
+        spellings.setdefault(key.lower(), set()).add(key)
+
+    def canonical_pr(value):  # respell an explicit PR id only to its one listed spelling
+        if not (_safe_pr_id(value) and value.isascii()) or value in listed or len(spellings.get(value.lower(), ())) != 1:
+            return value
+        return next(iter(spellings[value.lower()]))
+
+    def canonical_event(e):
+        if not isinstance(e, dict):
+            return e
+        e = dict(e, **{f: canonical_pr(e[f]) for f in ("effective_associated_pr", "context_associated_pr", "original_associated_pr") if f in e})
+        if isinstance(e.get("pr_binding"), dict) and "pr" in e["pr_binding"]:
+            e["pr_binding"] = dict(e["pr_binding"], pr=canonical_pr(e["pr_binding"]["pr"]))
+        return e
+
+    human_records = [canonical_event(e) for e in human_records or []]
 
     def ensure_direct_row(key):
         if key in pr_rows:
