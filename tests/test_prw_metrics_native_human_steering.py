@@ -5,10 +5,15 @@ import re
 import tempfile
 import unittest
 
-from scripts.prw_metrics import DashboardRenderer, Publisher, aggregate_native_human_steering
+from scripts.prw_metrics import DashboardRenderer, Publisher, _project_summary, aggregate_native_human_steering
 
 
 class NativeHumanSteeringTests(unittest.TestCase):
+    def test_summary_projection_keeps_confirmed_message_times(self):
+        times = ["2026-11-01T10:30:00Z"]
+        summary = {"human_summary": {"per_pr": [{"pr": "acme/app#1", "confirmed_verified_at": times}]}}
+        self.assertEqual(_project_summary(summary)["human_summary"]["per_pr"][0]["confirmed_verified_at"], times)
+
     def setUp(self):
         self.prs = [
             {

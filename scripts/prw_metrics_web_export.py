@@ -257,6 +257,8 @@ def _mid_pr(confirmed_at, flow):
     """Confirmed human messages strictly inside the observed start..final interval; unknown without both ends."""
     if not isinstance(confirmed_at, str) or not flow or not flow["started_at"] or not flow["final_at"]:
         return None
+    if flow["started_at"] >= flow["final_at"]:
+        return None
     try:
         times = json.loads(confirmed_at)
     except ValueError:

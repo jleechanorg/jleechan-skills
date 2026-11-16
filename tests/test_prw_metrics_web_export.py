@@ -363,6 +363,11 @@ class FlowTests(unittest.TestCase):
         self.assertIsNone(row["flow"]["final_at"])
         self.assertIsNone(row["human"]["mid_pr"])
 
+    def test_mid_pr_is_unknown_when_only_the_final_stage_is_recorded(self):
+        row = self.steer_row(["2026-11-01T10:30:00Z"],
+                             [self.stage("stage:5-final-approval", "2026-11-01T12:00:00Z")])
+        self.assertIsNone(row["human"]["mid_pr"])
+
     def test_mid_pr_is_unknown_without_confirmed_times(self):
         q = query([metric(1, human_coverage_status="OBSERVED_SCOPE_ONLY")])
         row = export.build_snapshot({}, q, [{"repo": "acme/app", "number": 1, "stage_transitions": [

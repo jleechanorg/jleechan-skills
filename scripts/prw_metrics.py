@@ -419,6 +419,7 @@ SUMMARY_SCHEMA = {
             "followup_episodes": _SC,
             "episodes_by_quality": {key: _SC for key in ("good", "bad", "mixed", "unknown")},
             "association_basis": [_SC], "association_confidence": _SC,
+            "confirmed_verified_at": [_SC],
         }],
     },
     "usage_summary": {
