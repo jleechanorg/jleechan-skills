@@ -4104,7 +4104,7 @@ def aggregate_native_human_steering(
             "_confidences": set(),
         }
 
-    listed, outside_heads = set(), set()
+    listed, outside_heads = set(), {}  # (repo or None, branch) -> head SHAs of listed PRs outside the window
     for pr in prs or []:
         if not isinstance(pr, dict):
             continue
@@ -4117,7 +4117,10 @@ def aggregate_native_human_steering(
         closed = parsed_time(pr.get("mergedAt") or pr.get("merged_at") or
                              pr.get("closedAt") or pr.get("closed_at"))
         if start and end and created and (created >= end or (closed and closed < start)):
-            outside_heads.add(pr.get("headRefOid"))
+            head = next((pr[f] for f in ("headRefOid", "head_sha", "head_ref_oid") if isinstance(pr.get(f), str)), None)
+            out_branch = pr.get("headRefName") or pr.get("head_ref_name")
+            for scope in ((repo, out_branch), (None, out_branch)) if head and out_branch else ():
+                outside_heads.setdefault(scope, set()).add(head)
             continue
         pr_rows[key] = new_row(key, pr)
         pr_sources[key] = pr
@@ -4132,7 +4135,7 @@ def aggregate_native_human_steering(
         for name in names:
             spellings.setdefault(name.lower(), set()).add(name)
         return lambda v: next(iter(spellings[v.lower()])) if (
-            isinstance(v, str) and v not in names and len(spellings.get(v.lower(), ())) == 1) else v
+            isinstance(v, str) and v.isascii() and v not in names and len(spellings.get(v.lower(), ())) == 1) else v
 
     canonical_pr = unique_casing(listed)  # every listed copy, in window or not, so a stale copy is never the only spelling
     canonical_repo = unique_casing({key.rsplit("#", 1)[0] for key in listed})
@@ -4313,7 +4316,7 @@ def aggregate_native_human_steering(
                 association = exact_head[0][0]
                 confidence = "LOW_BEST_EFFORT_HEAD" if low_context else "BRANCH_HEAD_MATCH"
                 basis, association_kind = "repo_branch_exact_head", "branch"
-            elif repository and commit and commit in outside_heads:  # the head of a PR outside the window: never credit another PR
+            elif isinstance(commit, str) and commit in outside_heads.get((repository, branch), ()):  # an out-of-window PR's head: credit no other PR
                 pass
             elif len(time_candidates) == 1:
                 association = time_candidates[0][0]
@@ -4342,7 +4345,7 @@ def aggregate_native_human_steering(
                     confidence = "BRANCH_ONLY_LOW_HEAD" if low_context else "BRANCH_ONLY_HEAD_MATCH"
                     basis, association_kind = "branch_only_exact_head", "branch_only"
                     coverage["branch_only_messages"] += 1
-                elif commit and commit in outside_heads:
+                elif isinstance(commit, str) and commit in outside_heads.get((None, branch), ()):
                     pass
                 elif len(branch_time) == 1 and len(branch_all) == 1:
                     association = branch_time[0][0]

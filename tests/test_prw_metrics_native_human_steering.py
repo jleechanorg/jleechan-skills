@@ -187,6 +187,32 @@ class NativeHumanSteeringTests(unittest.TestCase):
                                                          window_end="2026-10-20T00:00:00Z", source_stats=self.stats)
                 self.assertEqual([r["raw_verified_messages"] for r in result["per_pr"]], [0], (repository, branch_kw))
 
+    def test_out_of_window_head_veto_reads_every_sha_field_and_stays_on_its_branch(self):
+        closed = {k: v for k, v in self.prs[0].items() if k != "headRefOid"}
+        closed.update(head_sha="sha-pr5", closedAt="2026-09-30T00:00:00Z")
+        successor = dict(self.prs[1], createdAt="2026-10-01T00:00:00Z")
+        elsewhere = dict(self.prs[0], repo="other/repo", headRefName="other", number=40, closedAt="2026-09-30T00:00:00Z",
+                         headRefOid="sha-shared")
+        base = {"event_id": "e", "provider": "claude", "origin_status": "verified_human", "repository": "example/repo",
+                "git_branch": "topic", "timestamp": "2026-10-10T10:00:00Z"}
+        window = dict(window_start="2026-10-01T00:00:00Z", window_end="2026-10-20T00:00:00Z", source_stats=self.stats)
+        counts = lambda commit: [r["raw_verified_messages"] for r in aggregate_native_human_steering(
+            [dict(base, commit_hash=commit)], [closed, successor, elsewhere], **window)["per_pr"] if r["pr"] == "example/repo#6"]
+        self.assertEqual(counts("sha-pr5"), [0])  # the closed PR stored its head as head_sha
+        self.assertEqual(counts("sha-shared"), [1])  # a head on another repository and branch vetoes nothing
+        self.assertEqual(counts({"sha": "sha-pr5"}), [1])  # a malformed commit is not evidence and does not crash
+
+    def test_a_non_ascii_lookalike_is_never_respelled_into_a_valid_pr(self):
+        prs = [dict(self.prs[0], repo="k-dev/board", number=9)]
+        for binding in ({"pr_binding": {"pr": "\u212a-dev/board#9"}},
+                        {"context_pr_decision": "override", "effective_associated_pr": "\u212a-dev/board#9"}):
+            event = dict({"event_id": "kelvin", "provider": "claude", "origin_status": "verified_human",
+                          "timestamp": "2026-10-05T10:00:00Z"}, **binding)
+            rows = {r["pr"]: r for r in aggregate_native_human_steering(
+                [event], prs, window_start="2026-10-01T00:00:00Z", window_end="2026-10-20T00:00:00Z",
+                source_stats=self.stats)["per_pr"]}
+            self.assertEqual(rows["k-dev/board#9"]["raw_verified_messages"], 0, binding)
+
     def test_url_repository_with_different_casing_matches_the_listed_spelling(self):
         event = {"event_id": "branch", "provider": "claude", "origin_status": "verified_human",
                  "repository_url": "https://github.com/Example/Repo.git", "git_branch": "topic", "timestamp": "2026-10-06T10:00:00Z"}
