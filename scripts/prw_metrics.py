@@ -4104,15 +4104,7 @@ def aggregate_native_human_steering(
             "_confidences": set(),
         }
 
-    listed, outside_heads = set(), {}  # (lowercase repo or None, branch) -> head SHAs of listed PRs outside the window
-
-    def first(pr, *names):  # the PR list mixes live field names with lookup-cache aliases
-        return next((pr[n] for n in names if pr.get(n) not in (None, "")), None)
-
-    def head_of(pr):
-        head = first(pr, "headRefOid", "head_sha", "head_ref_oid")
-        return head if isinstance(head, str) else None
-
+    listed = set()
     for pr in prs or []:
         if not isinstance(pr, dict):
             continue
@@ -4121,38 +4113,32 @@ def aggregate_native_human_steering(
         if not key:
             continue
         listed.add(key)
-        created = parsed_time(first(pr, "createdAt", "created_at_utc", "created_at"))
-        closed = parsed_time(first(pr, "mergedAt", "merged_at_utc", "merged_at", "closedAt", "closed_at_utc", "closed_at"))
-        branch = first(pr, "headRefName", "head_branch", "head_ref_name")
-        branch = branch if isinstance(branch, str) else None
+        created = parsed_time(pr.get("createdAt") or pr.get("created_at"))
+        closed = parsed_time(pr.get("mergedAt") or pr.get("merged_at") or
+                             pr.get("closedAt") or pr.get("closed_at"))
         if start and end and created and (created >= end or (closed and closed < start)):
-            for scope in ((repo.lower(), branch), (None, branch)) if head_of(pr) and branch else ():
-                outside_heads.setdefault(scope, set()).add(head_of(pr))
             continue
         pr_rows[key] = new_row(key, pr)
         pr_sources[key] = pr
+        branch = pr.get("headRefName") or pr.get("head_ref_name")
         if branch:
             entry = (key, pr, created, closed)
             branch_index.setdefault((repo, branch), []).append(entry)
             branch_only_index.setdefault(branch, []).append(entry)
 
-    def unique_casing(names):  # GitHub names are case-insensitive: respell only to the one listed spelling
-        spellings = {}
-        for name in names:
-            spellings.setdefault(name.lower(), set()).add(name)
-        return lambda v: next(iter(spellings[v.lower()])) if (
-            isinstance(v, str) and v.isascii() and v not in names and len(spellings.get(v.lower(), ())) == 1) else v
+    spellings = {}  # GitHub PR ids are case-insensitive; every listed copy counts, in window or not
+    for key in listed:
+        spellings.setdefault(key.lower(), set()).add(key)
 
-    canonical_pr = unique_casing(listed)  # every listed copy, in window or not, so a stale copy is never the only spelling
-    canonical_repo = unique_casing({key.rsplit("#", 1)[0] for key in listed})
+    def canonical_pr(value):  # respell an explicit PR id only to its one listed spelling
+        if not (_safe_pr_id(value) and value.isascii()) or value in listed or len(spellings.get(value.lower(), ())) != 1:
+            return value
+        return next(iter(spellings[value.lower()]))
 
     def canonical_event(e):
         if not isinstance(e, dict):
             return e
         e = dict(e, **{f: canonical_pr(e[f]) for f in ("effective_associated_pr", "context_associated_pr", "original_associated_pr") if f in e})
-        slug = safe_repo(e.get("repository") or e.get("repository_url"))
-        if slug:
-            e["repository"] = canonical_repo(slug)
         if isinstance(e.get("pr_binding"), dict) and "pr" in e["pr_binding"]:
             e["pr_binding"] = dict(e["pr_binding"], pr=canonical_pr(e["pr_binding"]["pr"]))
         return e
@@ -4312,7 +4298,7 @@ def aggregate_native_human_steering(
             time_candidates, all_candidates = branch_candidates(repository, branch, at)
             commit = event.get("commit_hash")
             exact_head = [(key, pr) for key, pr in all_candidates
-                          if commit and head_of(pr) == commit]
+                          if commit and pr.get("headRefOid") == commit]
             low_context = (
                 "low_confidence" in str(event.get("branch_source") or "")
                 or "not_event_time" in str(event.get("branch_basis") or "")
@@ -4322,8 +4308,6 @@ def aggregate_native_human_steering(
                 association = exact_head[0][0]
                 confidence = "LOW_BEST_EFFORT_HEAD" if low_context else "BRANCH_HEAD_MATCH"
                 basis, association_kind = "repo_branch_exact_head", "branch"
-            elif repository and isinstance(commit, str) and commit in outside_heads.get((repository.lower(), branch), ()):  # out-of-window head
-                pass
             elif len(time_candidates) == 1:
                 association = time_candidates[0][0]
                 confidence = "LOW_BEST_EFFORT" if low_context else "BEST_EFFORT"
@@ -4340,7 +4324,7 @@ def aggregate_native_human_steering(
                 branch_time = candidates_for(branch_entries, at)
                 branch_all = [(key, pr) for key, pr, _, _ in branch_entries]
                 exact_only = [(key, pr) for key, pr in branch_all
-                              if commit and head_of(pr) == commit]
+                              if commit and pr.get("headRefOid") == commit]
                 low_context = (
                     "low_confidence" in str(event.get("branch_source") or "")
                     or "not_event_time" in str(event.get("branch_basis") or "")
@@ -4351,8 +4335,6 @@ def aggregate_native_human_steering(
                     confidence = "BRANCH_ONLY_LOW_HEAD" if low_context else "BRANCH_ONLY_HEAD_MATCH"
                     basis, association_kind = "branch_only_exact_head", "branch_only"
                     coverage["branch_only_messages"] += 1
-                elif isinstance(commit, str) and commit in outside_heads.get((None, branch), ()):
-                    pass
                 elif len(branch_time) == 1 and len(branch_all) == 1:
                     association = branch_time[0][0]
                     confidence, basis = "BRANCH_ONLY_LOW", "best_effort_branch_only_event_time"

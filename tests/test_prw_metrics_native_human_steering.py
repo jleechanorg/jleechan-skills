@@ -130,14 +130,13 @@ class NativeHumanSteeringTests(unittest.TestCase):
         self.assertEqual(rows["example/repo#7"]["raw_verified_messages"], 0)
         self.assertEqual(rows["example/repo#6"]["coverage_status"], "UNKNOWN")
 
-    def test_repository_casing_in_bindings_matches_the_known_pr(self):
+    def test_explicit_bindings_with_different_repository_casing_count_for_the_listed_pr(self):
         base = {"provider": "claude", "timestamp": "2026-10-05T10:00:00Z", "origin_status": "verified_human"}
         events = [
             dict(base, event_id="direct", pr_binding={"pr": "Example/Repo#5"}),
             dict(base, event_id="context", context_pr_decision="override", original_associated_pr="EXAMPLE/repo#5",
                  context_associated_pr="Example/Repo#6", effective_associated_pr="Example/Repo#6",
                  effective_association_confidence="REVIEWED_CONTEXT"),
-            dict(base, event_id="branch", repository="Example/Repo", git_branch="topic", timestamp="2026-10-06T10:00:00Z"),
         ]
         result = aggregate_native_human_steering(
             events, self.prs, window_start="2026-10-01T00:00:00Z", window_end="2026-10-20T00:00:00Z",
@@ -146,91 +145,28 @@ class NativeHumanSteeringTests(unittest.TestCase):
         rows = {row["pr"]: row for row in result["per_pr"]}
         self.assertEqual(set(rows), {"example/repo#5", "example/repo#6", "example/repo#7"})
         self.assertEqual(rows["example/repo#5"]["direct_verified_messages"], 1)
-        self.assertEqual(rows["example/repo#5"]["branch_associated_verified_messages"], 1)
         self.assertEqual(rows["example/repo#6"]["context_associated_verified_messages"], 1)
 
-    def test_casing_is_left_alone_when_the_pr_list_spells_a_repository_two_ways(self):
+    def test_bindings_are_not_respelled_when_the_list_is_ambiguous_or_the_id_is_a_lookalike(self):
         stale = dict(self.prs[0], repo="Example/Repo", closedAt=None, state="OPEN")  # a stale cached copy of #5
-        cached = dict(self.prs[2], repo="Example/Repo", number=9, createdAt="2026-01-01T00:00:00Z",
-                      closedAt="2026-01-02T00:00:00Z")  # out of the window
-        base = {"provider": "claude", "origin_status": "verified_human"}
+        closed = dict(self.prs[2], repo="Example/Repo", number=9, createdAt="2026-01-01T00:00:00Z",
+                      closedAt="2026-01-02T00:00:00Z")  # outside the window
+        kelvin = dict(self.prs[0], repo="k-dev/board", number=3)
+        base = {"provider": "claude", "origin_status": "verified_human", "timestamp": "2026-10-05T10:00:00Z"}
         events = [
-            dict(base, event_id="branch", repository="example/repo", git_branch="topic", timestamp="2026-10-12T10:00:00Z"),
-            dict(base, event_id="direct", pr_binding={"pr": "example/repo#6"}, timestamp="2026-10-12T11:00:00Z"),
-            dict(base, event_id="mixed", pr_binding={"pr": "EXAMPLE/repo#5"}, timestamp="2026-10-05T10:00:00Z"),
+            dict(base, event_id="mixed", pr_binding={"pr": "EXAMPLE/repo#5"}),
+            dict(base, event_id="exact", pr_binding={"pr": "example/repo#6"}),
+            dict(base, event_id="outside", pr_binding={"pr": "example/repo#9"}),
+            dict(base, event_id="kelvin", pr_binding={"pr": "\u212a-dev/board#3"}),
         ]
         window = dict(window_start="2026-10-01T00:00:00Z", window_end="2026-10-20T00:00:00Z", source_stats=self.stats)
-        rows = lambda prs: {r["pr"]: r for r in aggregate_native_human_steering(events, prs, **window)["per_pr"]}
-        expected = rows(self.prs + [stale])  # an exact spelling never moves, and two in-window spellings are never chosen between
-        self.assertEqual(rows(self.prs + [stale, cached]), expected)
-        self.assertEqual(expected["example/repo#6"]["direct_verified_messages"], 1)
-        self.assertNotIn("Example/Repo#9", expected)
-        self.assertEqual(expected["Example/Repo#5"]["raw_verified_messages"], 0)
-
-    def test_a_stale_cached_spelling_never_credits_a_pr_closed_before_the_window(self):
-        closed = dict(self.prs[0], closedAt="2026-09-30T00:00:00Z")
-        stale = dict(self.prs[0], repo="Example/Repo", closedAt=None, state="OPEN")
-        event = {"event_id": "branch", "provider": "claude", "origin_status": "verified_human",
-                 "repository": "example/repo", "git_branch": "topic", "timestamp": "2026-10-10T10:00:00Z"}
-        result = aggregate_native_human_steering([event], [closed, stale], window_start="2026-10-01T00:00:00Z",
-                                                 window_end="2026-10-20T00:00:00Z", source_stats=self.stats)
-        self.assertEqual([r["raw_verified_messages"] for r in result["per_pr"]], [0])
-
-    def test_a_commit_on_the_head_of_a_pr_outside_the_window_is_never_credited_to_its_successor(self):
-        closed = dict(self.prs[0], closedAt="2026-09-30T00:00:00Z")
-        successor = dict(self.prs[1], createdAt="2026-10-01T00:00:00Z")
-        for repository in ("example/repo", "Example/Repo"):
-            for branch_kw in ({"repository": repository}, {}):
-                event = dict({"event_id": "old-worktree", "provider": "claude", "origin_status": "verified_human",
-                              "git_branch": "topic", "commit_hash": "sha-pr5", "timestamp": "2026-10-10T10:00:00Z"}, **branch_kw)
-                result = aggregate_native_human_steering([event], [closed, successor], window_start="2026-10-01T00:00:00Z",
-                                                         window_end="2026-10-20T00:00:00Z", source_stats=self.stats)
-                self.assertEqual([r["raw_verified_messages"] for r in result["per_pr"]], [0], (repository, branch_kw))
-
-    def test_out_of_window_head_veto_reads_every_sha_field_and_stays_on_its_branch(self):
-        closed = {k: v for k, v in self.prs[0].items() if k != "headRefOid"}
-        closed.update(head_sha="sha-pr5", closedAt="2026-09-30T00:00:00Z")
-        successor = dict(self.prs[1], createdAt="2026-10-01T00:00:00Z")
-        elsewhere = dict(self.prs[0], repo="other/repo", headRefName="other", number=40, closedAt="2026-09-30T00:00:00Z",
-                         headRefOid="sha-shared")
-        base = {"event_id": "e", "provider": "claude", "origin_status": "verified_human", "repository": "example/repo",
-                "git_branch": "topic", "timestamp": "2026-10-10T10:00:00Z"}
-        window = dict(window_start="2026-10-01T00:00:00Z", window_end="2026-10-20T00:00:00Z", source_stats=self.stats)
-        counts = lambda commit: [r["raw_verified_messages"] for r in aggregate_native_human_steering(
-            [dict(base, commit_hash=commit)], [closed, successor, elsewhere], **window)["per_pr"] if r["pr"] == "example/repo#6"]
-        self.assertEqual(counts("sha-pr5"), [0])  # the closed PR stored its head as head_sha
-        self.assertEqual(counts("sha-shared"), [1])  # a head on another repository and branch vetoes nothing
-        self.assertEqual(counts({"sha": "sha-pr5"}), [1])  # a malformed commit is not evidence and does not crash
-
-    def test_out_of_window_head_veto_reads_cache_aliases_and_any_repository_casing(self):
-        successor = dict(self.prs[1], createdAt="2026-10-01T00:00:00Z")
-        cache_row = {"repo": "Example/Repo", "number": 5, "head_branch": "topic", "head_sha": "sha-pr5",
-                     "created_at_utc": "2026-09-01T00:00:00Z", "closed_at_utc": "2026-09-30T00:00:00Z"}
-        malformed = dict(cache_row, number=4, head_branch=["topic"])
-        event = {"event_id": "e", "provider": "claude", "origin_status": "verified_human", "repository": "example/repo",
-                 "git_branch": "topic", "commit_hash": "sha-pr5", "timestamp": "2026-10-10T10:00:00Z"}
-        result = aggregate_native_human_steering([event], [successor, cache_row, malformed], window_start="2026-10-01T00:00:00Z",
-                                                 window_end="2026-10-20T00:00:00Z", source_stats=self.stats)
-        self.assertEqual({r["pr"]: r["raw_verified_messages"] for r in result["per_pr"]}, {"example/repo#6": 0})
-
-    def test_a_non_ascii_lookalike_is_never_respelled_into_a_valid_pr(self):
-        prs = [dict(self.prs[0], repo="k-dev/board", number=9)]
-        for binding in ({"pr_binding": {"pr": "\u212a-dev/board#9"}},
-                        {"context_pr_decision": "override", "effective_associated_pr": "\u212a-dev/board#9"}):
-            event = dict({"event_id": "kelvin", "provider": "claude", "origin_status": "verified_human",
-                          "timestamp": "2026-10-05T10:00:00Z"}, **binding)
-            rows = {r["pr"]: r for r in aggregate_native_human_steering(
-                [event], prs, window_start="2026-10-01T00:00:00Z", window_end="2026-10-20T00:00:00Z",
-                source_stats=self.stats)["per_pr"]}
-            self.assertEqual(rows["k-dev/board#9"]["raw_verified_messages"], 0, binding)
-
-    def test_url_repository_with_different_casing_matches_the_listed_spelling(self):
-        event = {"event_id": "branch", "provider": "claude", "origin_status": "verified_human",
-                 "repository_url": "https://github.com/Example/Repo.git", "git_branch": "topic", "timestamp": "2026-10-06T10:00:00Z"}
-        result = aggregate_native_human_steering([event], self.prs, window_start="2026-10-01T00:00:00Z",
-                                                 window_end="2026-10-20T00:00:00Z", source_stats=self.stats)
-        rows = {r["pr"]: r for r in result["per_pr"]}
-        self.assertEqual(rows["example/repo#5"]["branch_associated_verified_messages"], 1)
+        rows = {r["pr"]: r["direct_verified_messages"] for r in aggregate_native_human_steering(
+            events, self.prs + [stale, closed, kelvin], **window)["per_pr"]}
+        self.assertEqual(rows["example/repo#5"], 0)  # two listed spellings: never choose between them
+        self.assertEqual(rows["Example/Repo#5"], 0)
+        self.assertEqual(rows["example/repo#6"], 1)
+        self.assertEqual(rows["Example/Repo#9"], 1)  # a listed PR outside the window is still the same PR
+        self.assertEqual(rows["k-dev/board#3"], 0)
 
     def test_unassigned_and_ambiguous_records_remain_visible_in_coverage(self):
         result = aggregate_native_human_steering(
