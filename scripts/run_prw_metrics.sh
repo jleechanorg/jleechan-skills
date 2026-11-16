@@ -165,14 +165,16 @@ fi
 STATUS=$?
 set -e
 
+# Stage page assets on success and failure alike: a long outage must not pin an old page.
+if [[ -f "$DASHBOARD_JSON" ]]; then
+  for _asset in index.html app.js stats.js styles.css; do
+    cp "$REPO_DIR/web/prw-dashboard/$_asset" "$(dirname "$DASHBOARD_JSON")/$_asset" || true
+  done
+fi
+
 if [[ $STATUS -eq 0 ]]; then
   date +%s > "$LAST_SUCCESS_FILE"
   rm -f "$FAILURE_MARKER" "$(dirname "$DASHBOARD_JSON")/last_failure.json"
-  if [[ -f "$DASHBOARD_JSON" ]]; then
-    for _asset in index.html app.js stats.js styles.css; do
-      cp "$REPO_DIR/web/prw-dashboard/$_asset" "$(dirname "$DASHBOARD_JSON")/$_asset" || true
-    done
-  fi
   # Scheduled skill-invocation measure: non-fatal; skipped until the counter supports --state-dir.
   _skill_counter="${PRW_METRICS_SKILL_COUNTER:-$REPO_DIR/.claude/skills/command-research/scripts/count_command_usage_unified.py}"
   if [[ -f "$_skill_counter" ]] && [[ "$(python3 "$_skill_counter" --help 2>&1 || true)" == *--state-dir* ]]; then

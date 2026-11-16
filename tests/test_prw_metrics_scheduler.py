@@ -388,7 +388,9 @@ class PRWMetricsSchedulerTests(unittest.TestCase):
             )
             return subprocess.run(["bash", str(RUN_SCRIPT)], capture_output=True, text=True, env=env, check=False)
 
+        dash.write_text("{}", encoding="utf-8")
         self.assertEqual(run("exit 7").returncode, 7)
+        self.assertTrue((dash.parent / "app.js").exists())
         data = json.loads(marker.read_text(encoding="utf-8"))
         self.assertEqual(data["exit_status"], 7)
         self.assertIsInstance(data["epoch"], int)
