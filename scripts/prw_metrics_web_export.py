@@ -415,7 +415,7 @@ def _finite(value):
     return value
 
 
-def build_snapshot(summary_data, query_summary, prs, *, generated_at=None, code_version=None, timeline=None, failure=None):
+def build_snapshot(summary_data, query_summary, prs, *, generated_at=None, code_version=None, timeline=None):
     """Build the dashboard payload. All three inputs are optional; absent means unknown."""
     # The retained-summary schema projection: only listed fields, at every depth.
     summary_data = _project_summary(summary_data)
@@ -470,9 +470,6 @@ def build_snapshot(summary_data, query_summary, prs, *, generated_at=None, code_
         "human_interventions": summary_data.get("human_interventions"),
         "handoff_transitions": [{"key": key, "label": label} for key, label, _s, _e in HANDOFF_TRANSITIONS],
         "gaps": _gaps(rows, query_summary.get("query_coverage")),
-        # The collector's last failed run (time and exit status only); absent means none recorded.
-        "pipeline": {"last_failure": {"time_utc": to_utc_iso(failure.get("time_utc")), "exit_status": _count(failure.get("exit_status"))}
-                     if isinstance(failure, dict) and to_utc_iso(failure.get("time_utc")) else None},
         "prs": rows,
     }))
 
@@ -498,7 +495,6 @@ def main():
     parser.add_argument("--query", required=True, help="prw_metrics_queries result JSON")
     parser.add_argument("--prs", help="Cached PR list JSON")
     parser.add_argument("--code-version", help="Source revision that produced the inputs")
-    parser.add_argument("--failure-marker", help="Collector last_failure.json; read only if present")
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
@@ -507,7 +503,6 @@ def main():
 
     snapshot = build_snapshot(
         load(args.summary), load(args.query), load(args.prs), code_version=args.code_version,
-        failure=load(args.failure_marker) if args.failure_marker and Path(args.failure_marker).exists() else None,
     )
     write_snapshot(args.output, snapshot)
     print(f"Wrote {len(snapshot['prs'])} PR rows to {args.output}")

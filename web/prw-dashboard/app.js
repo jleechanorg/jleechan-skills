@@ -137,8 +137,8 @@
     $("scope-line").textContent = data.prs.length.toLocaleString("en-US") + " pull requests in this snapshot across " + data.repositories.length +
       " repositories, " + fmtTime(data.window_start, false) + " to " + fmtTime(data.window_end || data.data_through, false) + ".";
     var banner = $("banner");
-    var failure = data.pipeline && data.pipeline.last_failure;
-    if (failure && !(Date.parse(failure.time_utc) <= Date.parse(data.generated_at))) {
+    var failure = lastFailure;
+    if (failure && Date.parse(failure.time_utc) > Date.parse(data.generated_at)) {
       banner.hidden = false;
       banner.textContent = "The last scheduled collection failed at " + fmtTime(failure.time_utc) + " (exit " + failure.exit_status + "). This snapshot has not been refreshed since.";
     } else if (data.fixture) {
@@ -693,6 +693,7 @@
 
   // ---------- render ----------
   var current = { rows: [], agg: null };
+  var lastFailure = null; // optional last_failure.json beside the snapshot; absent or unreadable means none
   function render() {
     var f = currentFilter(), rows = S.filterPrs(data.prs, f), agg = S.aggregate(rows, f);
     current = { rows: rows, agg: agg };
@@ -739,6 +740,12 @@
 
   fetch(DATA_URL, { cache: "no-store" })
     .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+    .then(function (d) {
+      return fetch("last_failure.json", { cache: "no-store" })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .catch(function () { return null; })
+        .then(function (m) { lastFailure = m && typeof m === "object" ? m : null; return d; });
+    })
     .then(start)
     .catch(function (err) { fail("Could not load " + DATA_URL + " (" + err.message + "). Nothing is shown rather than stale or partial figures."); });
 })();
