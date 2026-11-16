@@ -1069,6 +1069,51 @@ class TestPRWMetricsQueries(unittest.TestCase):
                                     timeline=timeline)["prs"][0]
         self.assertIsNone(row["human"]["mid_pr"])
 
+    def _mid_pr_from_raw_history(self, prompts, cutoff, binding, stages):
+        from scripts import prw_metrics_web_export as export
+        from scripts.native_usage_collector import collect_native_history
+
+        root = self.root / "codex-root"
+        root.mkdir()
+        (root / "rollout.jsonl").write_text("".join(json.dumps(
+            {"type": "response_item", "timestamp": at, "payload": {"id": f"p-{i}", "role": "user", "content": "prompt"}}
+        ) + "\n" for i, at in enumerate(prompts)), encoding="utf-8")
+        first = collect_native_history([root], cutoff=cutoff, days=14)
+        sidecar = self.root / "annotations.jsonl"
+        sidecar.write_text("".join(json.dumps({
+            "event_id": record["event_id"], "human_origin": "verified_human",
+            "pr_binding": {"pr": binding, "method": "direct", "weight": "1"},
+        }) + "\n" for record in first["human_records"]), encoding="utf-8")
+        history = collect_native_history([root], cutoff=cutoff, days=14, annotation_path=sidecar)
+        prs = [{"repo": "example/repo", "number": 5, "state": "MERGED", "createdAt": stages[0],
+                "mergedAt": stages[1], "closedAt": stages[1]}]
+        human_summary = aggregate_native_human_steering(
+            history["human_records"], prs, window_start=history["stats"]["window_start"],
+            window_end=history["stats"]["window_end"], source_stats=history["stats"],
+        )
+        result = run_query(events_path=[], pr_snapshots_path=prs, human_summary_path=human_summary,
+                           snapshot_at_utc=history["stats"]["window_end"])
+        timeline = [{"repo": "example/repo", "pr_number": 5, "event": "labeled", "label": label, "createdAt": at}
+                    for label, at in zip(("stage:1-coding", "stage:5-final-approval"), stages)]
+        summary = {"usage_summary": {"coverage": {"native_source": history["stats"]}}}
+        return export.build_snapshot(summary, result, [{"repo": "example/repo", "number": 5}],
+                                     timeline=timeline)["prs"][0]["human"]["mid_pr"]
+
+    def test_stage_starting_before_a_subsecond_history_window_leaves_mid_pr_unknown(self):
+        from datetime import datetime, timezone
+
+        cutoff = datetime(2026, 11, 9, 10, 0, 0, 750000, tzinfo=timezone.utc)  # history starts 2026-10-26T10:00:00.750
+        self.assertIsNone(self._mid_pr_from_raw_history(
+            ["2026-10-26T10:00:00.250Z", "2026-10-26T12:00:00Z"], cutoff, "example/repo#5",  # only the second is in the window
+            ("2026-10-26T10:00:00Z", "2026-10-26T12:00:00Z")))
+
+    def test_binding_with_different_repository_casing_counts_mid_pr(self):
+        from datetime import datetime, timezone
+
+        cutoff = datetime(2026, 11, 9, 3, 34, tzinfo=timezone.utc)
+        self.assertEqual(self._mid_pr_from_raw_history(
+            ["2026-11-04T10:30:00Z"], cutoff, "Example/Repo#5", ("2026-11-04T10:00:00Z", "2026-11-04T12:00:00Z")), 1)
+
     def test_metric_cohorts_separate_direct_and_low_request_observations(self):
         event = self._event(
             "sha256:low-request", "example-org/repo-alpha#1",
