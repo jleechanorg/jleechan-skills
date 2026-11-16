@@ -78,6 +78,29 @@ class TestRecords(unittest.TestCase):
                 recs, _ = run(post(cmd))
                 self.assertEqual([(r["pr"], r["source"]) for r in recs], [("acme/web#9", "gh_pr_checkout")])
 
+    def test_real_chained_and_repo_pr_create_forms_bind(self):
+        out = "      56\nhttps://github.com/acme/app/pull/11482\n"
+        for cmd in ("gh pr create --repo acme/app --draft --title t --body-file b.md",
+                    "gh -R acme/app pr create --fill",
+                    "cd /w/x && gh pr create --draft --title \"t\" --body \"$(cat b.md)\"",
+                    "B=$(mktemp)\ncat > \"$B\" <<'EOF'\nbody gh pr text\nEOF\n"
+                    "git push -u origin HEAD && gh pr create --body-file \"$B\" | tail -1"):
+            with self.subTest(cmd=cmd):
+                recs, _ = run(post(cmd, out))
+                self.assertEqual([(r["pr"], r["source"]) for r in recs],
+                                 [("acme/app#11482", "gh_pr_create")])
+
+    def test_chained_create_stays_fail_closed_when_ambiguous(self):
+        url = "https://github.com/acme/app/pull/1\n"
+        two = url + "https://github.com/acme/app/pull/2\n"
+        for cmd, out in (("cd x && gh pr create --fill", two), ("cd x && gh pr create --fill", "error"),
+                         ("gh pr view 9 && gh pr create --fill", url),
+                         ("echo $(gh pr view 9 --json url) && gh pr create --fill", url),
+                         ("cat " + url.strip() + " && gh pr create --fill", url),
+                         ("cd x && gh pr create --repo a/b --dry-run", url)):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(run(post(cmd, out))[0], [])
+
     def test_checkout_failed_or_interrupted(self):
         url = "gh pr checkout https://github.com/acme/web/pull/9"
         self.assertEqual(run(post(url, interrupted=True))[0], [])
@@ -91,7 +114,7 @@ class TestRecords(unittest.TestCase):
                     "gh pr checkout " + u + " -R acme/app", "gh pr checkout " + u + "/files",
                     "gh co " + u, "/usr/bin/gh pr checkout " + u, "GH_REPO=a/b gh pr checkout " + u,
                     "gh pr create --dry-run --fill", "gh pr create --web", "gh pr create --fill > out.txt",
-                    'gh pr create --body "$(cat f)"', "cd x && gh pr checkout " + u,
+                    "cd x && gh pr checkout " + u,
                     "gh pr checkout " + u + " && git log", "gh pr checkout " + u + " || true",
                     "(gh pr checkout " + u + ")", "echo " + u + "; gh pr create --fill",
                     "true || gh pr checkout " + u, "if true; then gh pr checkout " + u + "; fi",
