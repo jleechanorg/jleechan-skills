@@ -109,6 +109,10 @@ def _load_replay_annotations(path):
     return annotations
 
 
+def _window_iso(value):  # full precision: a window rounded to the second claims time it never observed
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z") if value else None
+
+
 def _export_source_quality(path, start, cutoff):
     """Retain only source-quality fields from an export's companion receipt."""
     result = {"status": "UNKNOWN"}
@@ -130,7 +134,7 @@ def _export_source_quality(path, start, cutoff):
     for key in ("window_start", "window_end"):
         value = _parse_utc_instant(data.get(key))
         if value:
-            result[key] = format_iso_utc(value)
+            result[key] = _window_iso(value)
     if status == "COMPLETE":
         source_start = _parse_utc_instant(result.get("window_start"))
         source_end = _parse_utc_instant(result.get("window_end"))
@@ -166,7 +170,7 @@ def load_normalized_history(path, cutoff, days=14, annotation_path=None):
         runtime_coverage=(
             "Claude and Codex normalized export; source roots were not reopened"
         ),
-        window_start=format_iso_utc(start), window_end=format_iso_utc(cutoff),
+        window_start=_window_iso(start), window_end=_window_iso(cutoff),
     )
     stats["source_exports"] = [_export_source_quality(path, start, cutoff)]
     annotations = _load_replay_annotations(annotation_path)
@@ -850,7 +854,7 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
         stats["status"] = "FAILED"
     else:
         stats["status"] = "PARTIAL" if errors or entire_parser or stats["undated_records"] else "COMPLETE"
-    stats["window_start"], stats["window_end"] = format_iso_utc(start), format_iso_utc(cutoff)
+    stats["window_start"], stats["window_end"] = _window_iso(start), _window_iso(cutoff)
     if state_conn:
         state_conn.close()
     return dict(usage_records=usage, human_records=humans, export_records=exported,
