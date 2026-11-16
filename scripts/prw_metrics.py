@@ -4069,13 +4069,12 @@ def aggregate_native_human_steering(
     source_stats = source_stats or {}
     pr_rows, pr_sources, branch_index, branch_only_index = {}, {}, {}, {}
 
-    known_repos = {}  # GitHub repository names are case-insensitive; the first casing seen (the PR list) wins
-
     def safe_repo(value):
         if not isinstance(value, str) or not value:
             return None
-        slug = value if re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", value) else extract_github_repo_slug(value)
-        return known_repos.setdefault(slug.lower(), slug) if slug else None
+        if re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", value):
+            return value
+        return extract_github_repo_slug(value)
 
     def pr_key(repo, number):
         if not repo or number is None:
@@ -4125,13 +4124,22 @@ def aggregate_native_human_steering(
             branch_index.setdefault((repo, branch), []).append(entry)
             branch_only_index.setdefault(branch, []).append(entry)
 
-    def canonical_pr(value):
-        return f"{safe_repo(value.rsplit('#', 1)[0])}#{value.rsplit('#', 1)[1]}" if _safe_pr_id(value) else value
+    def unique_casing(names):  # GitHub names are case-insensitive: respell only to the one in-window spelling
+        spellings = {}
+        for name in names:
+            spellings.setdefault(name.lower(), set()).add(name)
+        return lambda v: next(iter(spellings[v.lower()])) if (
+            isinstance(v, str) and v not in names and len(spellings.get(v.lower(), ())) == 1) else v
+
+    canonical_pr = unique_casing(set(pr_rows))
+    canonical_repo = unique_casing({key.rsplit("#", 1)[0] for key in pr_rows})
 
     def canonical_event(e):
         if not isinstance(e, dict):
             return e
         e = dict(e, **{f: canonical_pr(e[f]) for f in ("effective_associated_pr", "context_associated_pr", "original_associated_pr") if f in e})
+        if "repository" in e:
+            e["repository"] = canonical_repo(e["repository"])
         if isinstance(e.get("pr_binding"), dict) and "pr" in e["pr_binding"]:
             e["pr_binding"] = dict(e["pr_binding"], pr=canonical_pr(e["pr_binding"]["pr"]))
         return e

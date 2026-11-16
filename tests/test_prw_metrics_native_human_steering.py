@@ -149,6 +149,24 @@ class NativeHumanSteeringTests(unittest.TestCase):
         self.assertEqual(rows["example/repo#5"]["branch_associated_verified_messages"], 1)
         self.assertEqual(rows["example/repo#6"]["context_associated_verified_messages"], 1)
 
+    def test_casing_is_left_alone_when_the_pr_list_spells_a_repository_two_ways(self):
+        stale = dict(self.prs[0], repo="Example/Repo", closedAt=None, state="OPEN")  # a stale cached copy of #5
+        cached = dict(self.prs[2], repo="Example/Repo", number=9, createdAt="2026-01-01T00:00:00Z",
+                      closedAt="2026-01-02T00:00:00Z")  # out of the window
+        base = {"provider": "claude", "origin_status": "verified_human"}
+        events = [
+            dict(base, event_id="branch", repository="example/repo", git_branch="topic", timestamp="2026-10-12T10:00:00Z"),
+            dict(base, event_id="direct", pr_binding={"pr": "example/repo#6"}, timestamp="2026-10-12T11:00:00Z"),
+            dict(base, event_id="mixed", pr_binding={"pr": "EXAMPLE/repo#5"}, timestamp="2026-10-05T10:00:00Z"),
+        ]
+        window = dict(window_start="2026-10-01T00:00:00Z", window_end="2026-10-20T00:00:00Z", source_stats=self.stats)
+        rows = lambda prs: {r["pr"]: r for r in aggregate_native_human_steering(events, prs, **window)["per_pr"]}
+        expected = rows(self.prs + [stale])  # an exact spelling never moves, and two in-window spellings are never chosen between
+        self.assertEqual(rows(self.prs + [stale, cached]), expected)
+        self.assertEqual(expected["example/repo#6"]["direct_verified_messages"], 1)
+        self.assertNotIn("Example/Repo#9", expected)
+        self.assertEqual(expected["Example/Repo#5"]["raw_verified_messages"], 0)
+
     def test_unassigned_and_ambiguous_records_remain_visible_in_coverage(self):
         result = aggregate_native_human_steering(
             self.events, self.prs,
