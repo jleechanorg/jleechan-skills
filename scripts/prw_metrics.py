@@ -4104,7 +4104,15 @@ def aggregate_native_human_steering(
             "_confidences": set(),
         }
 
-    listed, outside_heads = set(), {}  # (repo or None, branch) -> head SHAs of listed PRs outside the window
+    listed, outside_heads = set(), {}  # (lowercase repo or None, branch) -> head SHAs of listed PRs outside the window
+
+    def first(pr, *names):  # the PR list mixes live field names with lookup-cache aliases
+        return next((pr[n] for n in names if pr.get(n) not in (None, "")), None)
+
+    def head_of(pr):
+        head = first(pr, "headRefOid", "head_sha", "head_ref_oid")
+        return head if isinstance(head, str) else None
+
     for pr in prs or []:
         if not isinstance(pr, dict):
             continue
@@ -4113,18 +4121,16 @@ def aggregate_native_human_steering(
         if not key:
             continue
         listed.add(key)
-        created = parsed_time(pr.get("createdAt") or pr.get("created_at"))
-        closed = parsed_time(pr.get("mergedAt") or pr.get("merged_at") or
-                             pr.get("closedAt") or pr.get("closed_at"))
+        created = parsed_time(first(pr, "createdAt", "created_at_utc", "created_at"))
+        closed = parsed_time(first(pr, "mergedAt", "merged_at_utc", "merged_at", "closedAt", "closed_at_utc", "closed_at"))
+        branch = first(pr, "headRefName", "head_branch", "head_ref_name")
+        branch = branch if isinstance(branch, str) else None
         if start and end and created and (created >= end or (closed and closed < start)):
-            head = next((pr[f] for f in ("headRefOid", "head_sha", "head_ref_oid") if isinstance(pr.get(f), str)), None)
-            out_branch = pr.get("headRefName") or pr.get("head_ref_name")
-            for scope in ((repo, out_branch), (None, out_branch)) if head and out_branch else ():
-                outside_heads.setdefault(scope, set()).add(head)
+            for scope in ((repo.lower(), branch), (None, branch)) if head_of(pr) and branch else ():
+                outside_heads.setdefault(scope, set()).add(head_of(pr))
             continue
         pr_rows[key] = new_row(key, pr)
         pr_sources[key] = pr
-        branch = pr.get("headRefName") or pr.get("head_ref_name")
         if branch:
             entry = (key, pr, created, closed)
             branch_index.setdefault((repo, branch), []).append(entry)
@@ -4306,7 +4312,7 @@ def aggregate_native_human_steering(
             time_candidates, all_candidates = branch_candidates(repository, branch, at)
             commit = event.get("commit_hash")
             exact_head = [(key, pr) for key, pr in all_candidates
-                          if commit and pr.get("headRefOid") == commit]
+                          if commit and head_of(pr) == commit]
             low_context = (
                 "low_confidence" in str(event.get("branch_source") or "")
                 or "not_event_time" in str(event.get("branch_basis") or "")
@@ -4316,7 +4322,7 @@ def aggregate_native_human_steering(
                 association = exact_head[0][0]
                 confidence = "LOW_BEST_EFFORT_HEAD" if low_context else "BRANCH_HEAD_MATCH"
                 basis, association_kind = "repo_branch_exact_head", "branch"
-            elif repository and isinstance(commit, str) and commit in outside_heads.get((repository, branch), ()):  # out-of-window head
+            elif repository and isinstance(commit, str) and commit in outside_heads.get((repository.lower(), branch), ()):  # out-of-window head
                 pass
             elif len(time_candidates) == 1:
                 association = time_candidates[0][0]
@@ -4334,7 +4340,7 @@ def aggregate_native_human_steering(
                 branch_time = candidates_for(branch_entries, at)
                 branch_all = [(key, pr) for key, pr, _, _ in branch_entries]
                 exact_only = [(key, pr) for key, pr in branch_all
-                              if commit and pr.get("headRefOid") == commit]
+                              if commit and head_of(pr) == commit]
                 low_context = (
                     "low_confidence" in str(event.get("branch_source") or "")
                     or "not_event_time" in str(event.get("branch_basis") or "")

@@ -202,6 +202,17 @@ class NativeHumanSteeringTests(unittest.TestCase):
         self.assertEqual(counts("sha-shared"), [1])  # a head on another repository and branch vetoes nothing
         self.assertEqual(counts({"sha": "sha-pr5"}), [1])  # a malformed commit is not evidence and does not crash
 
+    def test_out_of_window_head_veto_reads_cache_aliases_and_any_repository_casing(self):
+        successor = dict(self.prs[1], createdAt="2026-10-01T00:00:00Z")
+        cache_row = {"repo": "Example/Repo", "number": 5, "head_branch": "topic", "head_sha": "sha-pr5",
+                     "created_at_utc": "2026-09-01T00:00:00Z", "closed_at_utc": "2026-09-30T00:00:00Z"}
+        malformed = dict(cache_row, number=4, head_branch=["topic"])
+        event = {"event_id": "e", "provider": "claude", "origin_status": "verified_human", "repository": "example/repo",
+                 "git_branch": "topic", "commit_hash": "sha-pr5", "timestamp": "2026-10-10T10:00:00Z"}
+        result = aggregate_native_human_steering([event], [successor, cache_row, malformed], window_start="2026-10-01T00:00:00Z",
+                                                 window_end="2026-10-20T00:00:00Z", source_stats=self.stats)
+        self.assertEqual({r["pr"]: r["raw_verified_messages"] for r in result["per_pr"]}, {"example/repo#6": 0})
+
     def test_a_non_ascii_lookalike_is_never_respelled_into_a_valid_pr(self):
         prs = [dict(self.prs[0], repo="k-dev/board", number=9)]
         for binding in ({"pr_binding": {"pr": "\u212a-dev/board#9"}},
