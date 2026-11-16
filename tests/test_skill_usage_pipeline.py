@@ -10,7 +10,7 @@ from tempfile import TemporaryDirectory
 from scripts.audit_command_skill_usage import audit
 from scripts.capture_command_skill_usage import _extract_codex_jsonl, capture
 from scripts.skill_read_telemetry import extract_skill_read_events
-from tests.test_command_skill_usage_audit import build_audit_fixture, digest
+from test_command_skill_usage_audit import build_audit_fixture, digest
 
 
 class SkillUsagePipelineTest(unittest.TestCase):

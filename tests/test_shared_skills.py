@@ -41,6 +41,14 @@ class SharedSkillsTests(unittest.TestCase):
             for runtime in shared.ROOTS:
                 self.assertTrue((home/runtime/'skills'/name).is_symlink())
 
+    def test_check_flags_unlinked_runtime_skill_then_passes_after_apply(self):
+        root, home = self.fixture()
+        self.assertEqual([], shared.check())
+        n = len(shared.ROOTS) * len(shared.source_manifest()['skills'])
+        self.assertEqual(n, len(shared.check(home)))
+        shared.apply(shared.plan(home, root/'undo'))
+        self.assertEqual([], shared.check(home))
+
     def test_drift_refuses_before_any_write(self):
         root, home = self.fixture()
         plan = shared.plan(home, root/'undo')

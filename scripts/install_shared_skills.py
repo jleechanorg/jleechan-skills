@@ -159,13 +159,31 @@ def apply(saved):
     return receipt_path
 
 
+def check(home=None):
+    """Read-only: verify source hashes; with home, that runtime links project canonical packages."""
+    manifest = source_manifest()
+    problems = []
+    if home:
+        for runtime in ROOTS:
+            for name in manifest['skills']:
+                dest = home / runtime / 'skills' / name
+                if not dest.is_symlink() or dest.resolve() != (home / '.claude/skills' / name).resolve():
+                    problems.append(str(dest))
+    return problems
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--home', type=Path)
     parser.add_argument('--undo', type=Path)
     parser.add_argument('--plan', type=Path)
     parser.add_argument('--apply', type=Path)
+    parser.add_argument('--check', action='store_true', help='read-only validation; --home also checks links')
     args = parser.parse_args()
+    if args.check:
+        problems = check(args.home)
+        print('\n'.join(f'not a projection of canonical package: {p}' for p in problems) or 'ok')
+        raise SystemExit(1 if problems else 0)
     if args.apply:
         print(apply(json.loads(args.apply.read_text())))
     else:

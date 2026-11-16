@@ -1,11 +1,14 @@
 import json
 import os
 import sqlite3
+import sys
 import tempfile
 import unittest
 from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import patch
 
+import count_command_usage_unified as unified
 from count_command_usage_unified import (
     is_imperative_invocation,
     is_listing_or_report,
@@ -273,6 +276,19 @@ class TestCountCommandUsageUnified(unittest.TestCase):
                 RuntimeError, "Failed to scan Codex history database"
             ):
                 scan_codex({"velocity"}, cutoff=0, db_path=database)
+
+
+class TestSkillUsageStateDir(unittest.TestCase):
+    def test_skills_mode_writes_dated_json_to_state_dir(self):
+        payload = {"human": {}, "agent": {"fixpr": 2}, "unknown": {}, "stores": {}, "limitations": []}
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch.object(unified, "load_known_skills", return_value={"fixpr"}), \
+                patch.object(unified, "scan_skill_usage", return_value=payload), \
+                patch.object(sys, "argv", ["x", "--skills", "--json", "--state-dir", str(Path(tmp) / "s")]):
+            unified.main()
+            files = list((Path(tmp) / "s").glob("skill-usage-????-??-??.json"))
+            self.assertEqual(1, len(files))
+            self.assertEqual(2, json.loads(files[0].read_text())["agent"]["fixpr"])
 
 
 if __name__ == "__main__":

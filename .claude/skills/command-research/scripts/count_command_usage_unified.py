@@ -13,6 +13,7 @@ Classifies invocations into:
 
 Usage:
     python count_command_usage_unified.py [--days N] [--top N] [--human-only] [--agent-only] [--json]
+    python count_command_usage_unified.py --skills --days 7 --state-dir DIR   # writes DIR/skill-usage-YYYY-MM-DD.json
 """
 
 import argparse
@@ -1049,6 +1050,12 @@ def main():
         help="Measure explicit Skill tool calls across Claude, Codex, and Hermes",
     )
     parser.add_argument("--json", action="store_true", help="Output results as JSON")
+    parser.add_argument(
+        "--state-dir",
+        type=Path,
+        default=os.environ.get("SKILL_USAGE_STATE_DIR"),
+        help="With --skills, also write skill-usage-YYYY-MM-DD.json here (env SKILL_USAGE_STATE_DIR)",
+    )
     args = parser.parse_args()
 
     cutoff = (time.time() - args.days * 86400) if args.days > 0 else 0
@@ -1059,6 +1066,11 @@ def main():
             human_only=args.human_only, agent_only=args.agent_only
         )
         _filter_skill_payload(payload, destinations)
+        if args.state_dir:
+            args.state_dir = Path(args.state_dir)
+            args.state_dir.mkdir(parents=True, exist_ok=True)
+            out = args.state_dir / f"skill-usage-{datetime.now(UTC):%Y-%m-%d}.json"
+            out.write_text(json.dumps(payload, indent=2) + "\n")
         if args.json:
             print(json.dumps(payload, indent=2))
         else:
