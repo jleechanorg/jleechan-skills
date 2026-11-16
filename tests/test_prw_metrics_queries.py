@@ -1033,6 +1033,42 @@ class TestPRWMetricsQueries(unittest.TestCase):
                                     timeline=timeline)["prs"][0]
         self.assertEqual(row["human"]["mid_pr"], 1)
 
+    def test_undated_prompt_in_raw_native_history_leaves_mid_pr_unknown(self):
+        from datetime import datetime, timezone
+        from scripts import prw_metrics_web_export as export
+        from scripts.native_usage_collector import collect_native_history
+
+        root = self.root / "codex-root"
+        root.mkdir()
+        (root / "rollout.jsonl").write_text("".join(json.dumps(row) + "\n" for row in [
+            {"type": "response_item", "timestamp": "2026-11-04T09:00:00Z",
+             "payload": {"id": "p-0", "role": "user", "content": "before the stage"}},
+            {"type": "response_item", "payload": {"id": "p-1", "role": "user", "content": "undated"}},
+        ]), encoding="utf-8")
+        cutoff = datetime(2026, 11, 9, 3, 34, tzinfo=timezone.utc)
+        first = collect_native_history([root], cutoff=cutoff, days=14)
+        sidecar = self.root / "annotations.jsonl"
+        sidecar.write_text(json.dumps({
+            "event_id": first["human_records"][0]["event_id"], "human_origin": "verified_human",
+            "pr_binding": {"pr": "example/repo#5", "method": "direct", "weight": "1"},
+        }) + "\n", encoding="utf-8")
+        history = collect_native_history([root], cutoff=cutoff, days=14, annotation_path=sidecar)
+        prs = [{"repo": "example/repo", "number": 5, "state": "MERGED", "createdAt": "2026-11-04T08:00:00Z",
+                "mergedAt": "2026-11-04T13:00:00Z", "closedAt": "2026-11-04T13:00:00Z"}]
+        human_summary = aggregate_native_human_steering(
+            history["human_records"], prs, window_start=history["stats"]["window_start"],
+            window_end=history["stats"]["window_end"], source_stats=history["stats"],
+        )
+        result = run_query(events_path=[], pr_snapshots_path=prs, human_summary_path=human_summary,
+                           snapshot_at_utc=self.CUTOFF)
+        timeline = [{"repo": "example/repo", "pr_number": 5, "event": "labeled", "label": label, "createdAt": at}
+                    for label, at in (("stage:1-coding", "2026-11-04T10:00:00Z"),
+                                      ("stage:5-final-approval", "2026-11-04T12:00:00Z"))]
+        summary = {"usage_summary": {"coverage": {"native_source": history["stats"]}}}
+        row = export.build_snapshot(summary, result, [{"repo": "example/repo", "number": 5}],
+                                    timeline=timeline)["prs"][0]
+        self.assertIsNone(row["human"]["mid_pr"])
+
     def test_metric_cohorts_separate_direct_and_low_request_observations(self):
         event = self._event(
             "sha256:low-request", "example-org/repo-alpha#1",
