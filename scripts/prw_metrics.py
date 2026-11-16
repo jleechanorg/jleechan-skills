@@ -4184,10 +4184,6 @@ def aggregate_native_human_steering(
         "unassigned_no_single_pr": "no_single_pr_unassigned_messages",
     }
 
-    attribution_keys = (  # fields deciding a prompt's PR, confidence or interval membership
-        "pr_binding context_pr_decision effective_associated_pr context_associated_pr original_associated_pr "
-        "effective_association_confidence timestamp repository repository_url git_branch branch commit_hash "
-        "branch_source branch_basis").split()
     copies = {}  # (provider, event_id) -> every copy; disagreeing copies are unconfirmed
     for item in human_records or []:
         if isinstance(item, dict) and item.get("event_id"):
@@ -4197,7 +4193,7 @@ def aggregate_native_human_steering(
         return i.get("effective_associated_pr") or i.get("context_associated_pr") or i.get("original_associated_pr")
 
     def disputed_prs(items):  # PRs any copy names, or None when the copies agree
-        if len({json.dumps([i.get(k) for k in attribution_keys], default=str) for i in items}) < 2:
+        if len({json.dumps({k: v for k, v in i.items() if k not in ("source_fingerprint", "source_id")}, sort_keys=True, default=str) for i in items}) < 2:  # all fields but provenance
             return None
         return {pr for i in items for pr in ((i.get("pr_binding") or {}).get("pr") if isinstance(i.get("pr_binding"), dict) else None, named_context_pr(i)) if _safe_pr_id(pr)}
 
@@ -4217,16 +4213,18 @@ def aggregate_native_human_steering(
         if not any(t and not ((start and t < start) or (end and t >= end))
                    for t in (parsed_time(i.get("timestamp")) for i in items)):
             continue
-        actor_kind = event.get("actor_kind")
-        if actor_kind == "automated_watch" or event.get("origin_status") == "excluded_automated":
+        def automated(i):
+            return i.get("actor_kind") == "automated_watch" or i.get("origin_status") == "excluded_automated"
+        if all(automated(i) for i in items):
             coverage["automated_excluded_messages"] += 1
             continue
-        verified = actor_kind == "human" or event.get("origin_status") == "verified_human"
-        if disputed is not None:
+        verified = any(i.get("actor_kind") == "human" or i.get("origin_status") == "verified_human" for i in items)
+        if disputed is not None:  # unconfirmed for every named PR; no copy's fields decide counting
             for pr in disputed:
                 ensure_direct_row(pr)
                 pr_rows[pr]["_unconfirmed"] += verified
-            event = {**event, "pr_binding": None, "context_pr_decision": "unassigned_multi_pr"}
+            event = {**event, "pr_binding": None, "context_pr_decision": "unassigned_multi_pr",
+                     "message_kind": None, "human_nudge_eligible": None, "score": None, "episode_id": None}
         coverage["verified_messages" if verified else "candidate_messages"] += 1
         if event.get("branch_source") == "cached_repository_map":
             coverage["repository_map_resolved_events"] += 1
