@@ -1114,6 +1114,33 @@ class TestPRWMetricsQueries(unittest.TestCase):
         self.assertEqual(self._mid_pr_from_raw_history(
             ["2026-11-04T10:30:00Z"], cutoff, "Example/Repo#5", ("2026-11-04T10:00:00Z", "2026-11-04T12:00:00Z")), 1)
 
+    def test_an_out_of_window_copy_with_another_binding_leaves_both_prs_unknown(self):
+        from datetime import datetime, timezone
+        from scripts.native_usage_collector import disputing_copies, load_normalized_history
+
+        cutoff = datetime(2026, 11, 9, 10, 0, tzinfo=timezone.utc)  # replay window starts 2026-10-26T10:00Z
+        human = dict(record_type="human", provider="openai", origin_status="verified_human", event_id="e")
+        prs = [{"repo": "example/repo", "number": n, "state": "MERGED", "createdAt": "2026-10-27T08:00:00Z",
+                "mergedAt": "2026-11-02T13:00:00Z", "closedAt": "2026-11-02T13:00:00Z"} for n in (1, 2)]
+
+        def per_pr(linux_rows):
+            replays = []
+            for name, rows in (("mac", [dict(human, timestamp="2026-11-01T10:00:00Z", pr_binding={"pr": "example/repo#1"})]),
+                               ("linux", linux_rows)):
+                export = self.root / f"{name}.jsonl"
+                export.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+                replays.append(load_normalized_history(export, cutoff, days=14))
+            humans = [h for r in replays for h in r["human_records"]]
+            humans += disputing_copies(humans, [h for r in replays for h in r["outside_human_records"]])
+            summary = aggregate_native_human_steering(humans, prs, window_start=replays[0]["stats"]["window_start"],
+                                                      window_end=replays[0]["stats"]["window_end"], source_stats={"status": "COMPLETE"})
+            return [(r["confirmed_verified_at"], r["unconfirmed_verified_messages"]) for r in summary["per_pr"]]
+
+        outside = dict(human, timestamp="2026-10-26T09:00:00Z", pr_binding={"pr": "example/repo#2"})
+        self.assertEqual(per_pr([outside]), [([], 1), ([], 1)])  # a dispute, not an extra prompt
+        self.assertEqual(per_pr([dict(outside, event_id="other")]), [(["2026-11-01T10:00:00Z"], 0), ([], 0)])
+        self.assertEqual(per_pr([dict(outside, provider=["openai"])]), [(["2026-11-01T10:00:00Z"], 0), ([], 0)])
+
     def test_metric_cohorts_separate_direct_and_low_request_observations(self):
         event = self._event(
             "sha256:low-request", "example-org/repo-alpha#1",

@@ -220,7 +220,8 @@ def load_normalized_history(path, cutoff, days=14, annotation_path=None):
                 continue
             if not start <= at < cutoff:
                 stats["outside_window_records"] += 1
-                outside_humans += [record] if record["record_type"] == "human" and record.get("event_id") else []
+                outside_humans += [record] if record["record_type"] == "human" and all(
+                    isinstance(record.get(k), str) for k in ("provider", "event_id")) else []  # identity must be hashable
                 continue
             exported.append(record)
             if record["record_type"] == "usage":
