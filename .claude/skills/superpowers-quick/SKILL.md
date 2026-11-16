@@ -12,6 +12,10 @@ Run the full design-to-plan workflow autonomously. For this invocation, select r
 
 This authorization covers planning decisions and the `/advice` review below, not implementation, destructive actions, credentials, or expanded scope. The caller's existing authorization for implementation or execution continues after this planning report; `/sq` does not grant it. Standing authorization covers the required `/web-advice` plan submission unless the current request explicitly prohibits external submissions.
 
+## Guard decisions
+
+Apply [No speculative enforcement](../../../AGENTS.md#no-speculative-enforcement) before selecting recommended defaults. For each proposed check, gate, retry, timer, expiry, validation, or fallback, identify the requirement/source, authoritative owner, false-rejection cost, and smallest justified change. An autonomous planning checkpoint cannot approve scope the user did not request; omit unsupported guards and continue the requested plan. Preserve existing security and repository-specific requirements.
+
 ## Owners and boundaries
 
 - Use the installed `superpowers:brainstorming` and `superpowers:writing-plans` skills when available; otherwise follow `../superpowers-brainstorming/SKILL.md` and `../superpowers-writing-plans/SKILL.md`. Those skills own their detailed design and plan-writing methods. Always produce both architectural documents, including for work otherwise classified as bounded.
