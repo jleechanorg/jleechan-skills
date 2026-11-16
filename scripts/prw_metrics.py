@@ -4316,7 +4316,7 @@ def aggregate_native_human_steering(
                 association = exact_head[0][0]
                 confidence = "LOW_BEST_EFFORT_HEAD" if low_context else "BRANCH_HEAD_MATCH"
                 basis, association_kind = "repo_branch_exact_head", "branch"
-            elif isinstance(commit, str) and commit in outside_heads.get((repository, branch), ()):  # an out-of-window PR's head: credit no other PR
+            elif repository and isinstance(commit, str) and commit in outside_heads.get((repository, branch), ()):  # out-of-window head
                 pass
             elif len(time_candidates) == 1:
                 association = time_candidates[0][0]
