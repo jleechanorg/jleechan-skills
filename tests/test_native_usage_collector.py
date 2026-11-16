@@ -121,6 +121,27 @@ class NativeUsageCollectorTests(unittest.TestCase):
         self.assertEqual(sorted(h["timestamp"] for h in data["human_records"]),
                          ["2026-10-28T09:00:01.250000Z", "2026-10-28T09:00:02Z"])
 
+    def test_undated_records_make_collection_and_replay_incomplete(self):
+        rows = [
+            {"type": "response_item", "timestamp": "2026-11-02T10:00:00Z",
+             "payload": {"id": "p-1", "role": "user", "content": "dated"}},
+            {"type": "response_item", "payload": {"id": "p-2", "role": "user", "content": "undated"}},
+        ]
+        self._write(self.codex, "rollout.jsonl", rows)
+        data = collect_native_history([self.codex], cutoff=self.cutoff, days=14)
+        self.assertEqual(data["stats"]["undated_records"], 1)
+        self.assertEqual(data["stats"]["status"], "PARTIAL")
+        dated = dict(record_type="human", event_id="e1", provider="openai", timestamp="2026-11-02T10:00:00Z")
+        for records, expected in (([dated], "COMPLETE"), ([dated, dict(dated, timestamp=None)], "PARTIAL")):
+            export = self.base / f"replay-{expected}.jsonl"
+            export.write_text("".join(json.dumps(r) + "\n" for r in records), encoding="utf-8")
+            Path(str(export) + ".stats.json").write_text(json.dumps({
+                "status": "COMPLETE", "malformed_lines": 0, "read_errors": 0,
+                "window_start": "2026-10-26T00:00:00Z", "window_end": "2026-11-10T00:00:00Z",
+            }), encoding="utf-8")
+            replay = load_normalized_history(export, self.cutoff, days=14)
+            self.assertEqual(replay["stats"]["source_exports"][0]["status"], expected)
+
     def test_conflicting_response_observation_remains_unknown_not_first_priced(self):
         self._write(self.codex, "rollout.jsonl", [
             {"type": "turn_context", "payload": {"turn_id": "turn-a", "model": "fixture-codex-model"}},
