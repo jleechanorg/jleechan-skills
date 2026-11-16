@@ -2,14 +2,19 @@
   "format": "jleechan-shared-skills-v1",
   "skills": [
     "4layer",
+    "backend-first",
     "four-layer",
     "integration-verification",
+    "llm-first",
     "pr-blocker-min-repro"
   ],
   "files": {
     "4layer/SKILL.md": "3294714ac1df960ec0e9e265b066db9d9e600d8f65f5100e106a0a77c6f2836a",
+    "backend-first/SKILL.md": "1b404739b8c1492330d4864e433f2923d0d9aa05ad7d32aafcf70579928b456c",
     "four-layer/SKILL.md": "2cd9dd2d2169affcddecfdfee610159e866a814c41d6976dc04be3d65081d4bf",
     "integration-verification/SKILL.md": "b833445ba5c7e3fc794c1c9a2d11d5171d5cc06943a7ed42a9125d08bf7c024c",
+    "llm-first/SKILL.md": "e917fd8ef7ac14e2f381f7a886e9f48ad623c6cf523a7e243a9fda2722cabbe5",
+    "llm-first/agents/openai.yaml": "c7da6b3f4e9501c1b875a79950b420f3c32f2caf0a14cca0fc79ef52c7d59ed4",
     "pr-blocker-min-repro/SKILL.md": "f5a3d2ac638e6701ecb09b040b339e90f102d217af8bd2fa667e1f46757a3261"
   }
 }
