@@ -385,6 +385,12 @@ class FlowTests(unittest.TestCase):
         self.assertIsNone(self.steer_row([], timeline, history_from="2026-11-01T11:00:00Z")["human"]["mid_pr"])
         self.assertEqual(self.steer_row([], timeline, history_from="2026-11-01T10:00:00Z")["human"]["mid_pr"], 0)
 
+    def test_mid_pr_is_unknown_when_the_timestamp_container_is_not_an_array(self):
+        timeline = [self.stage("stage:1-coding", "2026-11-01T10:00:00Z"),
+                    self.stage("stage:5-final-approval", "2026-11-01T12:00:00Z")]
+        for bad in ({}, "text"):
+            self.assertIsNone(self.steer_row(bad, timeline)["human"]["mid_pr"])
+
     def test_mid_pr_is_unknown_when_native_history_is_not_complete(self):
         timeline = [self.stage("stage:1-coding", "2026-11-01T10:00:00Z"),
                     self.stage("stage:5-final-approval", "2026-11-01T12:00:00Z")]

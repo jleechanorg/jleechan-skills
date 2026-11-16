@@ -279,9 +279,10 @@ def _mid_pr(metric, flow, cutoff, history_from, history_to):
     if end is None or start >= end or not observed_from or observed_from > start or not observed_to or observed_to < end:
         return None
     try:
-        times = [_instant(t) for t in json.loads(metric.get("confirmed_verified_at"))]
+        raw = json.loads(metric.get("confirmed_verified_at"))
     except (TypeError, ValueError):
         return None
+    times = [_instant(t) for t in raw] if isinstance(raw, list) else [None]
     return None if None in times else sum(start < t < end for t in times)
 
 

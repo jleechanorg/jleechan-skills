@@ -4184,6 +4184,17 @@ def aggregate_native_human_steering(
         "unassigned_no_single_pr": "no_single_pr_unassigned_messages",
     }
 
+    def event_prs(item):  # every PR this record attributes the event to
+        binding = item.get("pr_binding")
+        ids = (binding.get("pr") if isinstance(binding, dict) else None,
+               item.get("effective_associated_pr") or item.get("context_associated_pr") or item.get("original_associated_pr"))
+        return frozenset(pr for pr in ids if _safe_pr_id(pr))
+
+    claims = {}  # duplicates of one event that disagree on PR are unconfirmed for all
+    for item in human_records or []:
+        if isinstance(item, dict) and item.get("event_id"):
+            claims.setdefault((item.get("provider"), item["event_id"]), set()).add(event_prs(item))
+
     for event in human_records or []:
         if not isinstance(event, dict):
             continue
@@ -4202,6 +4213,11 @@ def aggregate_native_human_steering(
             coverage["automated_excluded_messages"] += 1
             continue
         verified = actor_kind == "human" or event.get("origin_status") == "verified_human"
+        if event_id and len(claims[identity]) > 1:
+            for pr in frozenset().union(*claims[identity]):
+                ensure_direct_row(pr)
+                pr_rows[pr]["_unconfirmed"] += verified
+            event = {**event, "pr_binding": None, "context_pr_decision": "unassigned_multi_pr"}
         coverage["verified_messages" if verified else "candidate_messages"] += 1
         if event.get("branch_source") == "cached_repository_map":
             coverage["repository_map_resolved_events"] += 1

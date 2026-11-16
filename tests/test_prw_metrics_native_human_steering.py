@@ -410,6 +410,30 @@ class NativeHumanSteeringTests(unittest.TestCase):
             self.assertEqual(rows[pr]["unconfirmed_verified_messages"], 1, pr)
             self.assertEqual(rows[pr]["confirmed_verified_at"], [], pr)
 
+    def test_duplicate_events_disagreeing_on_pr_are_unconfirmed_for_both_in_any_order(self):
+        def record(pr):
+            return {
+                "event_id": "dup", "provider": "claude", "timestamp": "2026-10-05T10:00:00Z",
+                "origin_status": "verified_human", "actor_kind": "human",
+                "repository": "example/repo", "pr_binding": {"pr": pr},
+            }
+        for pair in ([record("example/repo#5"), record("example/repo#6")],
+                     [record("example/repo#6"), record("example/repo#5")]):
+            result = aggregate_native_human_steering(
+                pair, self.prs, window_start="2026-10-01T00:00:00Z", window_end="2026-10-20T00:00:00Z",
+                source_stats=self.stats,
+            )
+            rows = {row["pr"]: row for row in result["per_pr"]}
+            for pr in ("example/repo#5", "example/repo#6"):
+                self.assertEqual(rows[pr]["unconfirmed_verified_messages"], 1, pr)
+                self.assertEqual(rows[pr]["confirmed_verified_at"], [], pr)
+        same = aggregate_native_human_steering(
+            [record("example/repo#5"), record("example/repo#5")], self.prs,
+            window_start="2026-10-01T00:00:00Z", window_end="2026-10-20T00:00:00Z", source_stats=self.stats,
+        )
+        pr5 = next(row for row in same["per_pr"] if row["pr"] == "example/repo#5")
+        self.assertEqual(pr5["confirmed_verified_at"], ["2026-10-05T10:00:00Z"])
+
     def test_context_override_uses_effective_pr_and_separates_nudge_categories(self):
         event = {
             "event_id": "context-override", "provider": "claude", "timestamp": "2026-10-05T10:00:00Z",
