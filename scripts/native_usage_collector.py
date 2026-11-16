@@ -113,15 +113,14 @@ def _window_iso(value):  # full precision: a window rounded to the second claims
     return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z") if value else None
 
 
-def _export_source_quality(path, start, cutoff):
-    """Retain only source-quality fields from an export's companion receipt."""
+def _export_source_quality(path, body, start, cutoff):
+    """Retain only source-quality fields from an export's companion receipt, if it names these exact bytes."""
     result = {"status": "UNKNOWN"}
     try:
         data = json.loads(Path(str(path) + ".stats.json").read_text(encoding="utf-8"))
-        export_sha256 = hashlib.sha256(Path(path).read_bytes()).hexdigest()
     except (OSError, ValueError, UnicodeError):
         return result
-    if not isinstance(data, dict) or data.get("export_sha256") != export_sha256:  # stale or unbound receipt
+    if not isinstance(data, dict) or data.get("export_sha256") != hashlib.sha256(body).hexdigest():  # stale or unbound receipt
         return result
     status = data.get("status")
     if status not in ("COMPLETE", "PARTIAL", "FAILED"):
@@ -173,10 +172,11 @@ def load_normalized_history(path, cutoff, days=14, annotation_path=None):
         ),
         window_start=_window_iso(start), window_end=_window_iso(cutoff),
     )
-    stats["source_exports"] = [_export_source_quality(path, start, cutoff)]
+    body = Path(path).read_bytes()  # hashed and parsed from one read, so a concurrent rewrite cannot slip between
+    stats["source_exports"] = [_export_source_quality(path, body, start, cutoff)]
     annotations = _load_replay_annotations(annotation_path)
     seen_usage = set()
-    with Path(path).open(encoding="utf-8") as stream:
+    with io.StringIO(body.decode("utf-8")) as stream:
         for line_number, line in enumerate(stream, 1):
             if not line.strip():
                 continue
@@ -263,12 +263,15 @@ def write_normalized_history(path, records, stats=None):
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     body = "".join(json.dumps(row, sort_keys=True) + "\n" for row in records).encode("utf-8")
-    target.write_bytes(body)
     receipt = Path(str(target) + ".stats.json")  # a receipt names the exact export bytes it describes
-    if stats is None:
-        receipt.unlink(missing_ok=True)
-    else:
-        receipt.write_text(json.dumps(dict(stats, export_sha256=hashlib.sha256(body).hexdigest()), sort_keys=True, indent=2) + "\n", encoding="utf-8")
+    for file, data in ((target, body), (receipt, None if stats is None else (json.dumps(dict(
+            stats, export_sha256=hashlib.sha256(body).hexdigest()), sort_keys=True, indent=2) + "\n").encode("utf-8"))):
+        if data is None:
+            file.unlink(missing_ok=True)
+            continue
+        temporary = file.with_name(f".{file.name}.{os.getpid()}.tmp")
+        temporary.write_bytes(data)
+        os.replace(temporary, file)  # readers see the old file or the new one, never a partial write
 
 
 def run_entire_parser(parser_argv, agent, source_bytes):

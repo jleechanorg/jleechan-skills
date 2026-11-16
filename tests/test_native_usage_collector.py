@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -164,6 +165,19 @@ class NativeUsageCollectorTests(unittest.TestCase):
         self.assertFalse(Path(str(export) + ".stats.json").exists())
         Path(str(export) + ".stats.json").write_text(json.dumps(stats), encoding="utf-8")  # a receipt with no export hash
         self.assertEqual(status(), "UNKNOWN")
+        write_normalized_history(export, [dated], stats)
+        original_read_bytes = Path.read_bytes
+
+        def rewrite_after_read(path):  # a writer replaces the export right after replay reads it
+            body = original_read_bytes(path)
+            if path == export:
+                export.write_text("", encoding="utf-8")
+            return body
+
+        with unittest.mock.patch.object(Path, "read_bytes", rewrite_after_read):
+            replay = load_normalized_history(export, self.cutoff, days=14)
+        self.assertEqual((replay["stats"]["source_exports"][0]["status"], len(replay["human_records"])), ("COMPLETE", 1))
+        self.assertEqual(sorted(p.name for p in self.base.iterdir() if p.name.startswith(".")), [])  # no temporary left
 
     def test_history_window_keeps_subseconds_in_collection_receipt_and_replay(self):
         cutoff = datetime(2026, 11, 9, 10, 0, 0, 750000, tzinfo=timezone.utc)
