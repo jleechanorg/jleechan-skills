@@ -341,8 +341,8 @@ class FlowTests(unittest.TestCase):
     def steer_row(self, times, timeline, cutoff=None, record=None, history_from="2026-10-01T00:00:00Z",
                   history_to="2026-12-01T00:00:00Z", native_status="COMPLETE", source_quality=None, **extra):
         extra.setdefault("unconfirmed_verified_messages", 0)
-        q = query([metric(1, human_coverage_status="OBSERVED_SCOPE_ONLY", raw_verified_human_message_count=len(times),
-                          confirmed_verified_at=times, **extra)])
+        extra.setdefault("human_coverage_status", "OBSERVED_SCOPE_ONLY")
+        q = query([metric(1, raw_verified_human_message_count=len(times), confirmed_verified_at=times, **extra)])
         if cutoff:
             q["snapshot_at_utc"] = cutoff
         summary = {"usage_summary": {"coverage": {"native_source": {"status": native_status, "window_start": history_from,
@@ -353,6 +353,12 @@ class FlowTests(unittest.TestCase):
     @staticmethod
     def stage(label, at):
         return {"repo": "acme/app", "pr_number": 1, "event": "labeled", "label": label, "createdAt": at}
+
+    def test_mid_pr_is_unknown_for_candidate_only_or_conflicting_summary_rows(self):
+        stages = [self.stage("stage:1-coding", "2026-11-01T10:00:00Z"), self.stage("stage:5-final-approval", "2026-11-01T12:00:00Z")]
+        self.assertEqual(self.steer_row([], stages)["human"]["mid_pr"], 0)
+        self.assertIsNone(self.steer_row([], stages, human_coverage_status="CANDIDATE_ONLY")["human"]["mid_pr"])
+        self.assertIsNone(self.steer_row([], stages, human_summary_conflict=True)["human"]["mid_pr"])
 
     def test_mid_pr_uses_timeline_stage_events(self):
         row = self.steer_row(["2026-11-01T10:30:00Z", "2026-11-01T09:00:00Z", "2026-11-01T12:00:00Z"],

@@ -173,6 +173,24 @@ class NativeHumanSteeringTests(unittest.TestCase):
         self.assertEqual(rows["Example/Repo#9"], 1)  # a listed PR outside the window is still the same PR
         self.assertEqual(rows["k-dev/board#3"], 0)
 
+    def test_a_message_not_confirmed_for_one_pr_leaves_every_plausible_pr_unknown(self):
+        base = {"provider": "claude", "origin_status": "verified_human", "timestamp": "2026-10-12T10:00:00Z"}
+        branch = dict(base, repository="example/repo", git_branch="topic")
+        override = dict(base, event_id="d", context_pr_decision="override", original_associated_pr="example/repo#5",
+                        effective_associated_pr="example/repo#6", effective_association_confidence="REVIEWED_CONTEXT")
+
+        def unknown(events, prs=self.prs):
+            result = aggregate_native_human_steering(events, prs, window_start="2026-10-01T00:00:00Z",
+                                                     window_end="2026-10-20T00:00:00Z", source_stats=self.stats)
+            return [r["unconfirmed_verified_messages"] for r in result["per_pr"]]
+
+        self.assertEqual(unknown([override, dict(override, timestamp="2026-10-12T10:00:01Z")]), [1, 1, 0])  # disputed copies
+        self.assertEqual(unknown([dict(base, event_id="m", context_pr_decision="unassigned_multi_pr",
+                                       original_associated_pr="example/repo#5")]), [1, 0, 0])
+        self.assertEqual(unknown([dict(branch, event_id="a")], [dict(p, repo="Example/Repo") for p in self.prs]), [1, 1, 1])
+        self.assertEqual(unknown([dict(branch, event_id="h", commit_hash="sha-pr6")]), [1, 1, 1])  # a session SHA is not confirmation
+        self.assertEqual(unknown([dict(branch, event_id="c", pr_binding={"pr": "example/repo#6"})]), [0, 0, 0])
+
     def test_unassigned_and_ambiguous_records_remain_visible_in_coverage(self):
         result = aggregate_native_human_steering(
             self.events, self.prs,

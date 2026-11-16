@@ -4213,10 +4213,13 @@ def aggregate_native_human_steering(
     def named_context_pr(i):
         return i.get("effective_associated_pr") or i.get("context_associated_pr") or i.get("original_associated_pr")
 
-    def disputed_prs(items):  # PRs any copy names, or None when the copies agree
-        if len({json.dumps({k: v for k, v in i.items() if k not in ("source_fingerprint", "source_id")}, sort_keys=True, default=str) for i in items}) < 2:  # all fields but provenance
-            return None
-        return {pr for i in items for pr in ((i.get("pr_binding") or {}).get("pr") if isinstance(i.get("pr_binding"), dict) else None, named_context_pr(i)) if _safe_pr_id(pr)}
+    def implicated(items):  # every PR the copies name or whose repository (any casing) and branch they match
+        prs = {pr for i in items for pr in ((i.get("pr_binding") or {}).get("pr") if isinstance(i.get("pr_binding"), dict) else None, i.get(
+            "effective_associated_pr"), i.get("context_associated_pr"), i.get("original_associated_pr")) if _safe_pr_id(pr)}
+        for i in items:
+            repo_i, branch_i = safe_repo(i.get("repository") or i.get("repository_url")), i.get("git_branch") or i.get("branch")
+            prs |= {e[0] for (r, b), es in branch_index.items() for e in es if b == branch_i and (repo_i is None or r.lower() == repo_i.lower())}
+        return prs
 
     for event in human_records or []:
         if not isinstance(event, dict):
@@ -4229,7 +4232,6 @@ def aggregate_native_human_steering(
         if event_id:
             seen.add(identity)
         items = copies.get(identity, [event])
-        disputed = disputed_prs(items)
         at = parsed_time(event.get("timestamp"))
         if not any(t and not ((start and t < start) or (end and t >= end))
                    for t in (parsed_time(i.get("timestamp")) for i in items)):
@@ -4240,14 +4242,8 @@ def aggregate_native_human_steering(
             coverage["automated_excluded_messages"] += 1
             continue
         verified = any(i.get("actor_kind") == "human" or i.get("origin_status") == "verified_human" for i in items)
-        if disputed is not None:  # unconfirmed for every PR a copy names or its repository and branch could match
-            for i in items:
-                repo_i, branch_i = safe_repo(i.get("repository") or i.get("repository_url")), i.get("git_branch") or i.get("branch")
-                disputed |= {e[0] for e in (branch_index.get((repo_i, branch_i), []) if repo_i else branch_only_index.get(branch_i, []))} if isinstance(branch_i, str) else set()
-            for pr in disputed:
-                ensure_direct_row(pr)
-                pr_rows[pr]["_unconfirmed"] += verified
-            event = {**event, "pr_binding": None, "context_pr_decision": "unassigned_multi_pr",
+        if len({json.dumps({k: v for k, v in i.items() if k not in ("source_fingerprint", "source_id")}, sort_keys=True, default=str) for i in items}) > 1:
+            event = {**event, "pr_binding": None, "context_pr_decision": "unassigned_multi_pr",  # copies disagree: bind none
                      "message_kind": None, "human_nudge_eligible": None, "score": None, "episode_id": None}
         coverage["verified_messages" if verified else "candidate_messages"] += 1
         if event.get("branch_source") == "cached_repository_map":
@@ -4289,9 +4285,6 @@ def aggregate_native_human_steering(
             clash = context_decision in ("confirm_original", "override", "context_associated") and _safe_pr_id(other) and other != direct_pr
             if clash or context_decision in context_unassigned:  # contradictory evidence: confirmed for no PR
                 confidence = "CONFLICTING_ATTRIBUTION"
-                if clash and verified:
-                    ensure_direct_row(other)
-                    pr_rows[other]["_unconfirmed"] += 1
         elif context_decision in context_unassigned:
             coverage["reviewed_unassigned_messages"] += 1
             coverage[context_unassigned[context_decision]] += 1
@@ -4385,9 +4378,11 @@ def aggregate_native_human_steering(
                     coverage["branch_only_messages"] += 1
                 elif len(branch_all) > 1:
                     coverage["ambiguous_branch_messages"] += 1
-            if association is None and verified:  # ambiguous branch: unknown, unbound, for every plausible PR
-                for key in {k for k, _ in all_candidates} or ({k for k, _ in branch_all} if repository is None and branch and at else set()):
-                    pr_rows[key]["_unconfirmed"] += 1
+
+        confirmed = association_kind in ("direct", "context") and confidence in ("EXPLICIT", "REVIEWED_CONTEXT")
+        for pr in implicated(items) if verified and not confirmed else ():  # unknown, never zero, for every plausible PR
+            ensure_direct_row(pr)
+            pr_rows[pr]["_unconfirmed"] += 1
 
         role = event.get("episode_role")
         quality_label = event.get("quality_label")
@@ -4429,11 +4424,8 @@ def aggregate_native_human_steering(
         row["_confidences"].add(confidence)
         if verified:
             row["raw_verified_messages"] += 1
-            # Branch matches and low-confidence context are heuristics, not confirmed steering.
-            if association_kind in ("direct", "context") and confidence in ("EXPLICIT", "REVIEWED_CONTEXT"):
+            if confirmed:  # branch matches and low-confidence context are heuristics, not confirmed steering
                 row["_confirmed_at"].append(at.isoformat().replace("+00:00", "Z"))
-            else:
-                row["_unconfirmed"] += 1
             field = {
                 "direct": "direct_verified_messages",
                 "context": "context_associated_verified_messages",

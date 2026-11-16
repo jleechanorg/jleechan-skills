@@ -267,7 +267,8 @@ def _instant(value):
 
 
 def _mid_pr(metric, flow, cutoff, history_from, history_to):
-    if _count(metric.get("unconfirmed_verified_messages")) != 0 or not flow or not flow["started_at"]:
+    if (_count(metric.get("unconfirmed_verified_messages")) != 0 or metric.get("human_summary_conflict")
+            or metric.get("human_coverage_status") == "CANDIDATE_ONLY" or not flow or not flow["started_at"]):
         return None
     start, end = _instant(flow["started_at"]), _instant(flow["final_at"])
     merged = _instant(str(metric.get("merged_at_utc")))
