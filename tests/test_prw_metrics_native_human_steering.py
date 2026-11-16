@@ -410,6 +410,26 @@ class NativeHumanSteeringTests(unittest.TestCase):
             self.assertEqual(rows[pr]["unconfirmed_verified_messages"], 1, pr)
             self.assertEqual(rows[pr]["confirmed_verified_at"], [], pr)
 
+    def test_duplicate_events_disagreeing_on_decision_or_timestamp_are_unconfirmed_in_any_order(self):
+        base = {
+            "event_id": "dup2", "provider": "claude", "timestamp": "2026-10-05T10:00:00Z",
+            "origin_status": "verified_human", "actor_kind": "human",
+            "repository": "example/repo", "pr_binding": {"pr": "example/repo#5"},
+        }
+        variants = (
+            {"context_pr_decision": "unassigned_multi_pr"},
+            {"timestamp": "2026-10-04T10:00:00Z"},
+        )
+        for change in variants:
+            for pair in ([base, {**base, **change}], [{**base, **change}, base]):
+                result = aggregate_native_human_steering(
+                    pair, self.prs, window_start="2026-10-01T00:00:00Z",
+                    window_end="2026-10-20T00:00:00Z", source_stats=self.stats,
+                )
+                row = next(r for r in result["per_pr"] if r["pr"] == "example/repo#5")
+                self.assertEqual(row["unconfirmed_verified_messages"], 1, (change, pair))
+                self.assertEqual(row["confirmed_verified_at"], [], (change, pair))
+
     def test_duplicate_events_disagreeing_on_pr_are_unconfirmed_for_both_in_any_order(self):
         def record(pr):
             return {

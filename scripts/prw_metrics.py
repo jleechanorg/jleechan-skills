@@ -4184,16 +4184,22 @@ def aggregate_native_human_steering(
         "unassigned_no_single_pr": "no_single_pr_unassigned_messages",
     }
 
-    def event_prs(item):  # every PR this record attributes the event to
-        binding = item.get("pr_binding")
-        ids = (binding.get("pr") if isinstance(binding, dict) else None,
-               item.get("effective_associated_pr") or item.get("context_associated_pr") or item.get("original_associated_pr"))
-        return frozenset(pr for pr in ids if _safe_pr_id(pr))
-
-    claims = {}  # duplicates of one event that disagree on PR are unconfirmed for all
+    attribution_keys = (  # fields deciding a prompt's PR, confidence or interval membership
+        "pr_binding context_pr_decision effective_associated_pr context_associated_pr original_associated_pr "
+        "effective_association_confidence timestamp repository repository_url git_branch branch commit_hash "
+        "branch_source branch_basis").split()
+    copies = {}  # (provider, event_id) -> every copy; disagreeing copies are unconfirmed
     for item in human_records or []:
         if isinstance(item, dict) and item.get("event_id"):
-            claims.setdefault((item.get("provider"), item["event_id"]), set()).add(event_prs(item))
+            copies.setdefault((item.get("provider"), item["event_id"]), []).append(item)
+
+    def named_context_pr(i):
+        return i.get("effective_associated_pr") or i.get("context_associated_pr") or i.get("original_associated_pr")
+
+    def disputed_prs(items):  # PRs any copy names, or None when the copies agree
+        if len({json.dumps([i.get(k) for k in attribution_keys], default=str) for i in items}) < 2:
+            return None
+        return {pr for i in items for pr in ((i.get("pr_binding") or {}).get("pr") if isinstance(i.get("pr_binding"), dict) else None, named_context_pr(i)) if _safe_pr_id(pr)}
 
     for event in human_records or []:
         if not isinstance(event, dict):
@@ -4205,16 +4211,19 @@ def aggregate_native_human_steering(
             continue
         if event_id:
             seen.add(identity)
+        items = copies.get(identity, [event])
+        disputed = disputed_prs(items)
         at = parsed_time(event.get("timestamp"))
-        if at is None or (start and at < start) or (end and at >= end):
+        if not any(t and not ((start and t < start) or (end and t >= end))
+                   for t in (parsed_time(i.get("timestamp")) for i in items)):
             continue
         actor_kind = event.get("actor_kind")
         if actor_kind == "automated_watch" or event.get("origin_status") == "excluded_automated":
             coverage["automated_excluded_messages"] += 1
             continue
         verified = actor_kind == "human" or event.get("origin_status") == "verified_human"
-        if event_id and len(claims[identity]) > 1:
-            for pr in frozenset().union(*claims[identity]):
+        if disputed is not None:
+            for pr in disputed:
                 ensure_direct_row(pr)
                 pr_rows[pr]["_unconfirmed"] += verified
             event = {**event, "pr_binding": None, "context_pr_decision": "unassigned_multi_pr"}
@@ -4254,7 +4263,7 @@ def aggregate_native_human_steering(
             association = direct_pr
             ensure_direct_row(association)
             confidence, basis, association_kind = "EXPLICIT", "reviewed_direct_pr_binding", "direct"
-            other = event.get("effective_associated_pr") or event.get("context_associated_pr") or event.get("original_associated_pr")
+            other = named_context_pr(event)
             clash = context_decision in ("confirm_original", "override", "context_associated") and _safe_pr_id(other) and other != direct_pr
             if clash or context_decision in context_unassigned:  # contradictory evidence: confirmed for no PR
                 confidence = "CONFLICTING_ATTRIBUTION"

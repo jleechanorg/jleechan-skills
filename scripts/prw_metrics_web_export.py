@@ -257,7 +257,6 @@ def _scenarios_by_pr(rows):
 
 
 def _instant(value):
-    """Full-precision UTC instant, or None."""
     if not isinstance(value, str):
         return None
     try:
@@ -268,7 +267,6 @@ def _instant(value):
 
 
 def _mid_pr(metric, flow, cutoff, history_from, history_to):
-    """Confirmed human messages strictly inside start..end (final stage, else merge by cutoff); None unless fully observed."""
     if _count(metric.get("unconfirmed_verified_messages")) != 0 or not flow or not flow["started_at"]:
         return None
     start, end = _instant(flow["started_at"]), _instant(flow["final_at"])
