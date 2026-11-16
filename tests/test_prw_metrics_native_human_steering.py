@@ -194,6 +194,19 @@ class NativeHumanSteeringTests(unittest.TestCase):
         self.assertEqual(unknown([override, dict(override, timestamp="2026-10-12T10:00:01Z", original_associated_pr="example/repo#5")],
                                  spelled), [1, 1, 1, 1])  # each listed spelling, plus the named ones
 
+    def test_outside_or_contradicting_evidence_never_adds_verified_counts(self):
+        window = dict(window_start="2026-10-01T00:00:00Z", window_end="2026-10-20T00:00:00Z", source_stats=self.stats)
+        candidate = {"event_id": "c", "provider": "claude", "timestamp": "2026-10-12T10:00:00Z",
+                     "origin_status": "unverified_candidate", "pr_binding": {"pr": "example/repo#6"}}
+        result = aggregate_native_human_steering([candidate, dict(candidate, timestamp="2026-10-25T10:00:00Z",
+                                                                  origin_status="verified_human")], self.prs, **window)
+        self.assertEqual((result["coverage"]["verified_messages"], result["coverage"]["candidate_messages"]), (0, 1))
+        clash = {"event_id": "x", "provider": "claude", "timestamp": "2026-10-12T10:00:00Z", "origin_status": "verified_human",
+                 "pr_binding": {"pr": "example/repo#6"}, "context_pr_decision": "override",
+                 "effective_associated_pr": "example/repo#5", "effective_association_confidence": "REVIEWED_CONTEXT"}
+        rows = aggregate_native_human_steering([clash], self.prs, **window)["per_pr"]
+        self.assertEqual([(r["raw_verified_messages"], r["unconfirmed_verified_messages"]) for r in rows], [(0, 1), (0, 1), (0, 0)])
+
     def test_unassigned_and_ambiguous_records_remain_visible_in_coverage(self):
         result = aggregate_native_human_steering(
             self.events, self.prs,

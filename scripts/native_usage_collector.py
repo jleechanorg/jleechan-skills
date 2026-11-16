@@ -568,7 +568,7 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
     if session_bindings:
         session_index, join_stats = _load_session_bindings(session_bindings)
         stats.update(join_stats, session_bound_usage_records=0)
-    usage, humans, exported, packet_records, seen_files, seen_usage = [], [], [], [], set(), set()
+    usage, humans, exported, packet_records, seen_files, seen_usage, outside_humans = [], [], [], [], set(), set(), []
     for root in history_roots:
         root = Path(root)
         if not root.exists():
@@ -708,8 +708,9 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                         if at is None:
                             stats["undated_records"] += 1
                             continue
-                        if not start <= at < cutoff:
-                            stats["outside_window_records"] += 1
+                        outside = not start <= at < cutoff  # an outside human copy is kept only to dispute an inside one
+                        stats["outside_window_records"] += outside
+                        if outside and (claude_usage or codex_usage or entire_parser):
                             continue
                         provider = "openai" if codex_usage or codex_user else "anthropic"
                         source_identity = "source:" + hashlib.sha256(identity.encode()).hexdigest()
@@ -818,6 +819,9 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                                 annotation = next((annotations[alias] for alias in aliases if alias in annotations), None)
                             if annotation is not None:
                                 _apply_replay_annotation(record, annotation)
+                            if outside:
+                                outside_humans.append(record)
+                                continue
                             automated = (
                                 record.get("actor_kind") == "automated_watch"
                                 or record.get("origin_status") == "excluded_automated"
@@ -844,6 +848,7 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                             stats["undated_records"] += 1
                         elif not start <= at < cutoff:
                             stats["outside_window_records"] += 1
+                            outside_humans.append(record)
                         else:
                             humans.append(record)
                             exported.append(dict(record))
@@ -863,6 +868,9 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
     else:
         stats["status"] = "PARTIAL" if errors or entire_parser or stats["undated_records"] else "COMPLETE"
     stats["window_start"], stats["window_end"] = _window_iso(start), _window_iso(cutoff)
+    disputing = disputing_copies(humans, outside_humans)  # exported too, so a replay sees the same evidence
+    humans += disputing
+    exported += [dict(r, record_type="human") for r in disputing]
     if state_conn:
         state_conn.close()
     return dict(usage_records=usage, human_records=humans, export_records=exported,

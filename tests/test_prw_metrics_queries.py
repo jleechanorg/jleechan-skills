@@ -1141,6 +1141,28 @@ class TestPRWMetricsQueries(unittest.TestCase):
         self.assertEqual(per_pr([dict(outside, event_id="other")]), [(["2026-11-01T10:00:00Z"], 0), ([], 0)])
         self.assertEqual(per_pr([dict(outside, provider=["openai"])]), [(["2026-11-01T10:00:00Z"], 0), ([], 0)])
 
+    def test_direct_collection_and_its_replay_agree_on_a_copy_disputed_across_the_window(self):
+        from datetime import datetime, timezone
+        from scripts.native_usage_collector import (collect_native_history, disputing_copies, load_normalized_history,
+                                                    write_normalized_history)
+
+        root = self.root / "claude-root"
+        (root / "a").mkdir(parents=True)
+        (root / "b").mkdir()
+        row = {"type": "user", "uuid": "u-1", "userType": "human", "sessionId": "s",
+               "message": {"role": "user", "content": [{"type": "text", "text": "prompt"}]}}
+        (root / "a" / "s.jsonl").write_text(json.dumps(dict(row, timestamp="2026-11-01T10:00:00Z")) + "\n", encoding="utf-8")
+        (root / "b" / "s.jsonl").write_text(json.dumps(dict(row, timestamp="2026-10-26T09:00:00Z")) + "\n", encoding="utf-8")
+        cutoff = datetime(2026, 11, 9, 10, 0, tzinfo=timezone.utc)  # window starts 2026-10-26T10:00Z
+        live = collect_native_history([root], cutoff=cutoff, days=14)
+        self.assertEqual(sorted(h["timestamp"] for h in live["human_records"]), ["2026-10-26T09:00:00Z", "2026-11-01T10:00:00Z"])
+        self.assertEqual((live["stats"]["human_candidates"], live["stats"]["outside_window_records"]), (1, 1))
+        export = self.root / "mac.jsonl"
+        write_normalized_history(export, live["export_records"])
+        replay = load_normalized_history(export, cutoff, days=14)
+        replayed = replay["human_records"] + disputing_copies(replay["human_records"], replay["outside_human_records"])
+        self.assertEqual(sorted(h["timestamp"] for h in replayed), sorted(h["timestamp"] for h in live["human_records"]))
+
     def test_metric_cohorts_separate_direct_and_low_request_observations(self):
         event = self._event(
             "sha256:low-request", "example-org/repo-alpha#1",

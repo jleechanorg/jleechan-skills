@@ -4233,15 +4233,17 @@ def aggregate_native_human_steering(
             seen.add(identity)
         items = copies.get(identity, [event])
         at = parsed_time(event.get("timestamp"))
-        if not any(t and not ((start and t < start) or (end and t >= end))
-                   for t in (parsed_time(i.get("timestamp")) for i in items)):
+        def in_window(i):  # an outside copy is evidence of a dispute, never of verification
+            t = parsed_time(i.get("timestamp"))
+            return t is not None and not ((start and t < start) or (end and t >= end))
+        if not any(in_window(i) for i in items):
             continue
         def automated(i):
             return i.get("actor_kind") == "automated_watch" or i.get("origin_status") == "excluded_automated"
         if all(automated(i) for i in items):
             coverage["automated_excluded_messages"] += 1
             continue
-        verified = any(i.get("actor_kind") == "human" or i.get("origin_status") == "verified_human" for i in items)
+        verified = any(i.get("actor_kind") == "human" or i.get("origin_status") == "verified_human" for i in items if in_window(i))
         if len({json.dumps({k: v for k, v in i.items() if k not in ("source_fingerprint", "source_id")}, sort_keys=True, default=str) for i in items}) > 1:
             event = {**event, "pr_binding": None, "context_pr_decision": "unassigned_multi_pr",  # copies disagree: bind none
                      "message_kind": None, "human_nudge_eligible": None, "score": None, "episode_id": None}
@@ -4283,8 +4285,8 @@ def aggregate_native_human_steering(
             confidence, basis, association_kind = "EXPLICIT", "reviewed_direct_pr_binding", "direct"
             other = named_context_pr(event)
             clash = context_decision in ("confirm_original", "override", "context_associated") and _safe_pr_id(other) and other != direct_pr
-            if clash or context_decision in context_unassigned:  # contradictory evidence: confirmed for no PR
-                confidence = "CONFLICTING_ATTRIBUTION"
+            if clash or context_decision in context_unassigned:  # contradictory evidence: bound to and confirmed for no PR
+                association, confidence = None, None
         elif context_decision in context_unassigned:
             coverage["reviewed_unassigned_messages"] += 1
             coverage[context_unassigned[context_decision]] += 1
