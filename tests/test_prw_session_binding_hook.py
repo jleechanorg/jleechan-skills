@@ -97,7 +97,8 @@ class TestRecords(unittest.TestCase):
                          ("gh pr view 9 && gh pr create --fill", url),
                          ("echo $(gh pr view 9 --json url) && gh pr create --fill", url),
                          ("cat " + url.strip() + " && gh pr create --fill", url),
-                         ("cd x && gh pr create --repo a/b --dry-run", url)):
+                         ("cd x && gh pr create --repo a/b --dry-run", url),
+                         ("gh pr create --fill; cat notes.md", url)):
             with self.subTest(cmd=cmd):
                 self.assertEqual(run(post(cmd, out))[0], [])
 

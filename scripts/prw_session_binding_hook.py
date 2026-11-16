@@ -135,14 +135,22 @@ def _classify(seg):
     return None
 
 
-def _sole_gh_create(command, segs):
+PIPE_FILTERS = {"tail", "head", "grep", "sed", "cut", "tr"}
+
+
+def _sole_gh_create(command, segs, seps):
     """The `gh pr create` segment when it is the only gh invocation in the command.
 
-    A command that itself names a PR URL could echo it, so it never qualifies.
+    A command that itself names a PR URL could echo it, and a later command could
+    print an unrelated one, so neither qualifies; only filters piped from the
+    create may follow it.
     """
     gh_segs = [s for s in segs if s[0] == "gh"]
     text = HEREDOC_RE.sub("\n", command)
     if len(gh_segs) != 1 or "/pull/" in text or len(GH_WORD_RE.findall(text)) != 1:
+        return None
+    k = next(i for i, s in enumerate(segs) if s is gh_segs[0])
+    if any(seps[i] != "|" or segs[i + 1][0] not in PIPE_FILTERS for i in range(k, len(segs) - 1)):
         return None
     c = _classify(gh_segs[0])
     return gh_segs[0] if c and c[1] == "create" else None
@@ -207,7 +215,7 @@ def records_for(payload, runtime, git, now=None):
         segs, seps, grouped = _segments(command)
     except ValueError:
         return []
-    chained = _sole_gh_create(command, segs)
+    chained = _sole_gh_create(command, segs, seps)
     if chained:
         seg = chained
     else:
