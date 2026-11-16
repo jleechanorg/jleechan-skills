@@ -19,9 +19,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 try:
-    from scripts.prw_metrics import MetricsAggregator, _project_summary, _scrub_secrets
+    from scripts.prw_metrics import MetricsAggregator, _project_summary, _scrub_secrets, normalize_stage_label
 except ModuleNotFoundError:
-    from prw_metrics import MetricsAggregator, _project_summary, _scrub_secrets
+    from prw_metrics import MetricsAggregator, _project_summary, _scrub_secrets, normalize_stage_label
 
 SCHEMA_VERSION = 1
 
@@ -156,28 +156,32 @@ def _stage_events_by_pr(timeline):
     return by_pr
 
 
-def _flow(record, stage_events=None):
+def _flow(record, stage_events=None, cutoff=None):
     """Whether the PR reached the final stage, and when /prw started and the final stage began.
 
     Entries come from the PR's stage transitions and from stage label events in the timeline.
     Start is the earliest recorded stage entry; final is the first entry into the final stage.
     Without any stage evidence the answer is unknown (None), not "never reached".
+    Entries after the snapshot cutoff are ignored, and legacy aliases are normalized first.
     """
     record = record if isinstance(record, dict) else {}
     starts, finals = [], []
     for when, label in stage_events or []:
+        if cutoff and when > cutoff:
+            continue
         starts.append(when)
-        if label == FINAL_STAGE:
+        if normalize_stage_label(label) == FINAL_STAGE:
             finals.append(when)
     for transition in record.get("stage_transitions") or []:
         if not isinstance(transition, dict):
             continue
         entered = to_utc_iso(_first(transition, ("entered_at", "start_at", "start")))
-        if entered:
+        if entered and not (cutoff and entered > cutoff):
             starts.append(entered)
-            if (transition.get("stage") or transition.get("label")) == FINAL_STAGE:
+            if normalize_stage_label(transition.get("stage") or transition.get("label") or transition.get("name")) == FINAL_STAGE:
                 finals.append(entered)
     label = record.get("legacy_stage")
+    label = normalize_stage_label(label) if isinstance(label, str) else label
     label_final = label == FINAL_STAGE
     has_stage_label = isinstance(label, str) and label.startswith("stage:")
     if not starts and not has_stage_label:
@@ -249,7 +253,7 @@ def _scenarios_by_pr(rows):
     return grouped
 
 
-def _pr_row(metric, record, scenario, stage_events=None):
+def _pr_row(metric, record, scenario, stage_events=None, cutoff=None):
     repository = metric.get("repository")
     number = _count(metric.get("pr_number"))
     record = record or {}
@@ -328,7 +332,7 @@ def _pr_row(metric, record, scenario, stage_events=None):
         "human": human,
         "human_coverage_status": metric.get("human_coverage_status"),
         "handoffs": _handoffs(record),
-        "flow": _flow(record, stage_events),
+        "flow": _flow(record, stage_events, cutoff),
         "active_s": _number(metric.get("observed_active_wall_seconds")),
         "agent_effort_s": _number(metric.get("agent_effort_seconds")),
         "eligible_idle_s": _number(metric.get("eligible_idle_seconds")),
@@ -421,12 +425,13 @@ def build_snapshot(summary_data, query_summary, prs, *, generated_at=None, code_
     index = _index_prs(prs)
     scenarios = _scenarios_by_pr(query_summary.get("catalog_scenario_pr_metrics"))
     stage_events = _stage_events_by_pr(timeline)
+    cutoff = to_utc_iso(query_summary.get("snapshot_at_utc"))
     rows = []
     for metric in query_summary.get("pr_metrics") or []:
         if not isinstance(metric, dict) or _count(metric.get("pr_number")) is None:
             continue
         key = _pr_key(metric.get("repository"), _count(metric.get("pr_number")))
-        rows.append(_pr_row(metric, index.get(key), scenarios.get(key), stage_events.get(key)))
+        rows.append(_pr_row(metric, index.get(key), scenarios.get(key), stage_events.get(key), cutoff))
     rows.sort(key=lambda row: (row["repo"] or "", row["number"]))
     cohorts = [_cohort_row(row) for row in query_summary.get("metric_cohorts") or [] if isinstance(row, dict)]
     usage = summary_data.get("usage_summary") if isinstance(summary_data.get("usage_summary"), dict) else {}

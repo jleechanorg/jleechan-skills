@@ -272,6 +272,22 @@ class FlowTests(unittest.TestCase):
         ]})["flow"]
         self.assertEqual(flow, {"reached_final": True, "started_at": "2026-11-01T09:30:00Z", "final_at": "2026-11-01T12:00:00Z"})
 
+    def test_events_after_snapshot_cutoff_are_ignored(self):
+        record = dict(repo="acme/app", number=1, stage_transitions=[
+            {"stage": "stage:1-coding", "entered_at": "2026-11-01T10:00:00Z"},
+            {"stage": "stage:5-final-approval", "entered_at": "2026-11-03T10:00:00Z"},
+        ])
+        q = query([metric(1)])
+        q["snapshot_at_utc"] = "2026-11-02T00:00:00Z"
+        flow = export.build_snapshot({}, q, [record])["prs"][0]["flow"]
+        self.assertEqual(flow, {"reached_final": False, "started_at": "2026-11-01T10:00:00Z", "final_at": None})
+
+    def test_legacy_alias_and_start_key_are_normalized(self):
+        flow = self.snapshot_row({"stage_transitions": [
+            {"label": "stage:4-ci-undraft", "start": "2026-11-01T10:00:00Z"},
+        ], "legacy_stage": "stage:5-final-approval"})["flow"]
+        self.assertEqual(flow, {"reached_final": True, "started_at": "2026-11-01T10:00:00Z", "final_at": None})
+
     def test_first_entry_into_final_is_used(self):
         flow = self.snapshot_row({"stage_transitions": [
             {"stage": "stage:5-final-approval", "start_at": "2026-11-01T14:00:00Z"},
