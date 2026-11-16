@@ -135,17 +135,19 @@ def _classify(seg):
     return None
 
 
-def _sole_gh_create(command, segs):
+def _sole_gh_create(command, segs, seps):
     """The `gh pr create` segment when it is the only gh invocation and the last command.
 
     A command that itself names a PR URL could echo it, and a later command could
     print an unrelated one. A pipe after the create also hides its exit status, so
-    gh's "already exists: <URL>" error would look like a created PR.
+    gh's "already exists: <URL>" error would look like a created PR, and after
+    `||` an earlier command's output can stand in for a create that never ran.
     """
     gh_segs = [s for s in segs if s[0] == "gh"]
     text = HEREDOC_RE.sub("\n", command)
     if (len(gh_segs) != 1 or segs[-1] is not gh_segs[0] or "/pull/" in text
-            or len(GH_WORD_RE.findall(text)) != 1):
+            or len(GH_WORD_RE.findall(text)) != 1
+            or any(s not in ("&&", ";", "\0", "") for s in seps)):
         return None
     c = _classify(gh_segs[0])
     return gh_segs[0] if c and c[1] == "create" else None
@@ -210,7 +212,7 @@ def records_for(payload, runtime, git, now=None):
         segs, seps, grouped = _segments(command)
     except ValueError:
         return []
-    chained = _sole_gh_create(command, segs)
+    chained = _sole_gh_create(command, segs, seps)
     if chained:
         seg = chained
     else:

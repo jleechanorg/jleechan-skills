@@ -99,6 +99,8 @@ class TestRecords(unittest.TestCase):
                          ("cat " + url.strip() + " && gh pr create --fill", url),
                          ("cd x && gh pr create --repo a/b --dry-run", url),
                          ("gh pr create --fill; cat notes.md", url),
+                         ("cat notes.md || gh pr create --fill", url),
+                         ("cat notes.md & gh pr create --fill", url),
                          ("cd x && gh pr create --fill | tail -3",
                           "a pull request for branch \"b\" into branch \"main\" already exists:\n" + url)):
             with self.subTest(cmd=cmd):
