@@ -253,6 +253,19 @@ def _scenarios_by_pr(rows):
     return grouped
 
 
+def _mid_pr(confirmed_at, flow):
+    """Confirmed human messages strictly inside the observed start..final interval; unknown without both ends."""
+    if not isinstance(confirmed_at, str) or not flow or not flow["started_at"] or not flow["final_at"]:
+        return None
+    try:
+        times = json.loads(confirmed_at)
+    except ValueError:
+        return None
+    if not isinstance(times, list):
+        return None
+    return sum(flow["started_at"] < t < flow["final_at"] for t in times if isinstance(t, str))
+
+
 def _pr_row(metric, record, scenario, stage_events=None, cutoff=None):
     repository = metric.get("repository")
     number = _count(metric.get("pr_number"))
@@ -292,6 +305,7 @@ def _pr_row(metric, record, scenario, stage_events=None, cutoff=None):
             "total": direct_total,
             "requests": _count(metric.get("direct_usage_observation_count")),
         }
+    flow = _flow(record, stage_events, cutoff)
     human = None
     if metric.get("human_coverage_status") not in (None, "UNKNOWN"):
         human = {
@@ -300,7 +314,7 @@ def _pr_row(metric, record, scenario, stage_events=None, cutoff=None):
             "verified_messages": _count(metric.get("raw_verified_human_message_count")),
             "initial": _count(metric.get("verified_initial_human_message_count")),
             "followup": _count(metric.get("verified_followup_human_message_count")),
-            "mid_pr": _count(metric.get("mid_pr_human_message_count")),
+            "mid_pr": _mid_pr(metric.get("confirmed_verified_at"), flow),
             "branch_candidates": _count(metric.get("branch_associated_candidates")),
             "episodes": {
                 label: _count(metric.get(f"{label}_episode_count"))
@@ -333,7 +347,7 @@ def _pr_row(metric, record, scenario, stage_events=None, cutoff=None):
         "human": human,
         "human_coverage_status": metric.get("human_coverage_status"),
         "handoffs": _handoffs(record),
-        "flow": _flow(record, stage_events, cutoff),
+        "flow": flow,
         "active_s": _number(metric.get("observed_active_wall_seconds")),
         "agent_effort_s": _number(metric.get("agent_effort_seconds")),
         "eligible_idle_s": _number(metric.get("eligible_idle_seconds")),

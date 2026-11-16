@@ -338,10 +338,37 @@ class FlowTests(unittest.TestCase):
         self.assertEqual(zero["human"]["followup"], 0)
         self.assertIsNone(self.snapshot_row(None)["human"])
 
-    def test_mid_pr_is_exported(self):
-        row = self.snapshot_row(None, human_coverage_status="OBSERVED_SCOPE_ONLY", raw_verified_human_message_count=3,
-                                mid_pr_human_message_count=1)
+    def steer_row(self, times, timeline, cutoff=None, record=None):
+        q = query([metric(1, human_coverage_status="OBSERVED_SCOPE_ONLY", raw_verified_human_message_count=len(times),
+                          confirmed_verified_at=json.dumps(times))])
+        if cutoff:
+            q["snapshot_at_utc"] = cutoff
+        return export.build_snapshot({}, q, [dict(record or {}, repo="acme/app", number=1)], timeline=timeline)["prs"][0]
+
+    @staticmethod
+    def stage(label, at):
+        return {"repo": "acme/app", "pr_number": 1, "event": "labeled", "label": label, "createdAt": at}
+
+    def test_mid_pr_uses_timeline_stage_events(self):
+        row = self.steer_row(["2026-11-01T10:30:00Z", "2026-11-01T09:00:00Z", "2026-11-01T12:00:00Z"],
+                             [self.stage("stage:1-coding", "2026-11-01T10:00:00Z"),
+                              self.stage("stage:5-final-approval", "2026-11-01T12:00:00Z")])
         self.assertEqual(row["human"]["mid_pr"], 1)
+
+    def test_mid_pr_is_unknown_when_final_is_after_snapshot_cutoff(self):
+        row = self.steer_row(["2026-11-01T09:00:00Z"],
+                             [self.stage("stage:1-coding", "2026-11-01T10:00:00Z"),
+                              self.stage("stage:5-final-approval", "2026-11-01T12:00:00Z")],
+                             cutoff="2026-11-01T11:00:00Z", record={"legacy_stage": "stage:5-final-approval"})
+        self.assertIsNone(row["flow"]["final_at"])
+        self.assertIsNone(row["human"]["mid_pr"])
+
+    def test_mid_pr_is_unknown_without_confirmed_times(self):
+        q = query([metric(1, human_coverage_status="OBSERVED_SCOPE_ONLY")])
+        row = export.build_snapshot({}, q, [{"repo": "acme/app", "number": 1, "stage_transitions": [
+            {"stage": "stage:1-coding", "entered_at": "2026-11-01T10:00:00Z"},
+            {"stage": "stage:5-final-approval", "entered_at": "2026-11-01T12:00:00Z"}]}])["prs"][0]
+        self.assertIsNone(row["human"]["mid_pr"])
 
 
 @unittest.skipUnless(shutil.which("node"), "node is not installed")
