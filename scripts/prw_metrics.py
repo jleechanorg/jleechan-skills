@@ -4104,6 +4104,7 @@ def aggregate_native_human_steering(
             "_confidences": set(),
         }
 
+    listed = set()
     for pr in prs or []:
         if not isinstance(pr, dict):
             continue
@@ -4111,6 +4112,7 @@ def aggregate_native_human_steering(
         key = pr_key(repo, pr.get("number"))
         if not key:
             continue
+        listed.add(key)
         created = parsed_time(pr.get("createdAt") or pr.get("created_at"))
         closed = parsed_time(pr.get("mergedAt") or pr.get("merged_at") or
                              pr.get("closedAt") or pr.get("closed_at"))
@@ -4124,22 +4126,23 @@ def aggregate_native_human_steering(
             branch_index.setdefault((repo, branch), []).append(entry)
             branch_only_index.setdefault(branch, []).append(entry)
 
-    def unique_casing(names):  # GitHub names are case-insensitive: respell only to the one in-window spelling
+    def unique_casing(names):  # GitHub names are case-insensitive: respell only to the one listed spelling
         spellings = {}
         for name in names:
             spellings.setdefault(name.lower(), set()).add(name)
         return lambda v: next(iter(spellings[v.lower()])) if (
             isinstance(v, str) and v not in names and len(spellings.get(v.lower(), ())) == 1) else v
 
-    canonical_pr = unique_casing(set(pr_rows))
-    canonical_repo = unique_casing({key.rsplit("#", 1)[0] for key in pr_rows})
+    canonical_pr = unique_casing(listed)  # every listed copy, in window or not, so a stale copy is never the only spelling
+    canonical_repo = unique_casing({key.rsplit("#", 1)[0] for key in listed})
 
     def canonical_event(e):
         if not isinstance(e, dict):
             return e
         e = dict(e, **{f: canonical_pr(e[f]) for f in ("effective_associated_pr", "context_associated_pr", "original_associated_pr") if f in e})
-        if "repository" in e:
-            e["repository"] = canonical_repo(e["repository"])
+        slug = safe_repo(e.get("repository") or e.get("repository_url"))
+        if slug:
+            e["repository"] = canonical_repo(slug)
         if isinstance(e.get("pr_binding"), dict) and "pr" in e["pr_binding"]:
             e["pr_binding"] = dict(e["pr_binding"], pr=canonical_pr(e["pr_binding"]["pr"]))
         return e

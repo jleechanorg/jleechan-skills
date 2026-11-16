@@ -167,6 +167,23 @@ class NativeHumanSteeringTests(unittest.TestCase):
         self.assertNotIn("Example/Repo#9", expected)
         self.assertEqual(expected["Example/Repo#5"]["raw_verified_messages"], 0)
 
+    def test_a_stale_cached_spelling_never_credits_a_pr_closed_before_the_window(self):
+        closed = dict(self.prs[0], closedAt="2026-09-30T00:00:00Z")
+        stale = dict(self.prs[0], repo="Example/Repo", closedAt=None, state="OPEN")
+        event = {"event_id": "branch", "provider": "claude", "origin_status": "verified_human",
+                 "repository": "example/repo", "git_branch": "topic", "timestamp": "2026-10-10T10:00:00Z"}
+        result = aggregate_native_human_steering([event], [closed, stale], window_start="2026-10-01T00:00:00Z",
+                                                 window_end="2026-10-20T00:00:00Z", source_stats=self.stats)
+        self.assertEqual([r["raw_verified_messages"] for r in result["per_pr"]], [0])
+
+    def test_url_repository_with_different_casing_matches_the_listed_spelling(self):
+        event = {"event_id": "branch", "provider": "claude", "origin_status": "verified_human",
+                 "repository_url": "https://github.com/Example/Repo.git", "git_branch": "topic", "timestamp": "2026-10-06T10:00:00Z"}
+        result = aggregate_native_human_steering([event], self.prs, window_start="2026-10-01T00:00:00Z",
+                                                 window_end="2026-10-20T00:00:00Z", source_stats=self.stats)
+        rows = {r["pr"]: r for r in result["per_pr"]}
+        self.assertEqual(rows["example/repo#5"]["branch_associated_verified_messages"], 1)
+
     def test_unassigned_and_ambiguous_records_remain_visible_in_coverage(self):
         result = aggregate_native_human_steering(
             self.events, self.prs,
