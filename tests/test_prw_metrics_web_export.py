@@ -342,7 +342,7 @@ class FlowTests(unittest.TestCase):
                   history_to="2026-12-01T00:00:00Z", native_status="COMPLETE", source_quality=None, **extra):
         extra.setdefault("unconfirmed_verified_messages", 0)
         q = query([metric(1, human_coverage_status="OBSERVED_SCOPE_ONLY", raw_verified_human_message_count=len(times),
-                          confirmed_verified_at=json.dumps(times), **extra)])
+                          confirmed_verified_at=times, **extra)])
         if cutoff:
             q["snapshot_at_utc"] = cutoff
         summary = {"usage_summary": {"coverage": {"native_source": {"status": native_status, "window_start": history_from,
@@ -473,7 +473,7 @@ class FlowTests(unittest.TestCase):
                 records, prs, window_start="2026-10-01T00:00:00Z", window_end="2026-12-01T00:00:00Z",
                 source_stats={"status": "COMPLETE"})["per_pr"]}
             q = query([metric(n, human_coverage_status="OBSERVED_SCOPE_ONLY", raw_verified_human_message_count=2,
-                              confirmed_verified_at=json.dumps(agg[f"acme/app#{n}"]["confirmed_verified_at"]),
+                              confirmed_verified_at=agg[f"acme/app#{n}"]["confirmed_verified_at"],
                               unconfirmed_verified_messages=agg[f"acme/app#{n}"]["unconfirmed_verified_messages"])
                        for n in (1, 2, 3)])
             timeline = [dict(self.stage(label, at), pr_number=n) for n in (1, 2, 3) for label, at in

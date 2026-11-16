@@ -973,6 +973,31 @@ class TestPRWMetricsQueries(unittest.TestCase):
         self.assertIn("| example/repo#6 | 1 | 1 | 0 |", human_table)
         self.assertIn("| example/repo#7 | UNKNOWN | UNKNOWN | UNKNOWN |", human_table)
 
+    def test_confirmed_times_survive_the_query_into_the_mid_pr_count(self):
+        from scripts import prw_metrics_web_export as export
+
+        prs = [{"repo": "example/repo", "number": 5, "state": "MERGED", "createdAt": "2026-11-04T08:00:00Z",
+                "mergedAt": "2026-11-04T13:00:00Z", "closedAt": "2026-11-04T13:00:00Z"}]
+        events = [
+            {"event_id": f"m{i}", "provider": "anthropic", "timestamp": at, "origin_status": "verified_human",
+             "pr_binding": {"pr": "example/repo#5"}}
+            for i, at in enumerate(("2026-11-04T09:00:00Z", "2026-11-04T10:30:00.250Z"))
+        ]
+        window = {"window_start": "2026-10-26T00:00:00Z", "window_end": self.CUTOFF}
+        human_summary = aggregate_native_human_steering(
+            events, prs, window_start=window["window_start"], window_end=self.CUTOFF,
+            source_stats={"status": "COMPLETE"},
+        )
+        result = run_query(events_path=[], pr_snapshots_path=prs, human_summary_path=human_summary,
+                           snapshot_at_utc=self.CUTOFF)
+        timeline = [{"repo": "example/repo", "pr_number": 5, "event": "labeled", "label": label, "createdAt": at}
+                    for label, at in (("stage:1-coding", "2026-11-04T10:00:00Z"),
+                                      ("stage:5-final-approval", "2026-11-04T12:00:00Z"))]
+        summary = {"usage_summary": {"coverage": {"native_source": {"status": "COMPLETE", **window}}}}
+        row = export.build_snapshot(summary, result, [{"repo": "example/repo", "number": 5}],
+                                    timeline=timeline)["prs"][0]
+        self.assertEqual(row["human"]["mid_pr"], 1)
+
     def test_metric_cohorts_separate_direct_and_low_request_observations(self):
         event = self._event(
             "sha256:low-request", "example-org/repo-alpha#1",
