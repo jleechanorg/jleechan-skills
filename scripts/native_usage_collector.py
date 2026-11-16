@@ -118,9 +118,10 @@ def _export_source_quality(path, start, cutoff):
     result = {"status": "UNKNOWN"}
     try:
         data = json.loads(Path(str(path) + ".stats.json").read_text(encoding="utf-8"))
+        export_sha256 = hashlib.sha256(Path(path).read_bytes()).hexdigest()
     except (OSError, ValueError, UnicodeError):
         return result
-    if not isinstance(data, dict):
+    if not isinstance(data, dict) or data.get("export_sha256") != export_sha256:  # stale or unbound receipt
         return result
     status = data.get("status")
     if status not in ("COMPLETE", "PARTIAL", "FAILED"):
@@ -258,10 +259,16 @@ def load_normalized_history(path, cutoff, days=14, annotation_path=None):
     }
 
 
-def write_normalized_history(path, records):
+def write_normalized_history(path, records, stats=None):
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text("".join(json.dumps(row, sort_keys=True) + "\n" for row in records), encoding="utf-8")
+    body = "".join(json.dumps(row, sort_keys=True) + "\n" for row in records).encode("utf-8")
+    target.write_bytes(body)
+    receipt = Path(str(target) + ".stats.json")  # a receipt names the exact export bytes it describes
+    if stats is None:
+        receipt.unlink(missing_ok=True)
+    else:
+        receipt.write_text(json.dumps(dict(stats, export_sha256=hashlib.sha256(body).hexdigest()), sort_keys=True, indent=2) + "\n", encoding="utf-8")
 
 
 def run_entire_parser(parser_argv, agent, source_bytes):
@@ -885,10 +892,9 @@ def main():
     data = collect_native_history(args.history_root, cutoff=cutoff, days=args.days, annotation_path=args.annotations, state_db=args.state_db,
                                   session_bindings=args.session_bindings,
                                   entire_parser=args.entire_parser, entire_agent=args.entire_agent)
-    write_normalized_history(args.output, data["export_records"])
+    write_normalized_history(args.output, data["export_records"], data["stats"])
     if args.nudge_packets:
         write_nudge_packets(args.nudge_packets, data["nudge_packet_events"])
-    Path(args.output + ".stats.json").write_text(json.dumps(data["stats"], sort_keys=True, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(data["stats"], sort_keys=True))
     if data["stats"]["status"] == "FAILED":
         raise SystemExit(1)

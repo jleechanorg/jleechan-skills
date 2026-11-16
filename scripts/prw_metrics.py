@@ -5133,7 +5133,7 @@ def main():
         if repository_map is not None:
             history_data["stats"]["repository_map_entries"] = len(repository_map)
         if args.history_export:
-            write_normalized_history(args.history_export, history_data["export_records"])
+            write_normalized_history(args.history_export, history_data["export_records"], history_data["stats"])
         if args.nudge_packets:
             write_nudge_packets(args.nudge_packets, history_data["nudge_packet_events"])
     elif (

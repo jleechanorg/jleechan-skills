@@ -1,5 +1,6 @@
 """Deterministic metadata-only acquisition from explicit native history roots."""
 
+import hashlib
 import json
 import subprocess
 import sys
@@ -140,15 +141,29 @@ class NativeUsageCollectorTests(unittest.TestCase):
             Path(str(export) + ".stats.json").write_text(json.dumps({
                 "status": receipt, "malformed_lines": 0, "read_errors": 0,
                 "window_start": "2026-10-26T00:00:00Z", "window_end": "2026-11-10T00:00:00Z",
+                "export_sha256": hashlib.sha256(export.read_bytes()).hexdigest(),
             }), encoding="utf-8")
             replay = load_normalized_history(export, self.cutoff, days=14)
             self.assertEqual(replay["stats"]["source_exports"][0]["status"], expected)
         export = self.base / "written.jsonl"  # writer-to-replay round trip, including a receipt the old writer marked COMPLETE
-        write_normalized_history(export, data["export_records"])
         for receipt in (data["stats"], dict(data["stats"], status="COMPLETE")):
-            Path(str(export) + ".stats.json").write_text(json.dumps(receipt), encoding="utf-8")
+            write_normalized_history(export, data["export_records"], receipt)
             replay = load_normalized_history(export, self.cutoff, days=14)
             self.assertEqual(replay["stats"]["source_exports"][0]["status"], "PARTIAL")
+
+    def test_a_receipt_describes_only_the_export_bytes_it_was_written_with(self):
+        dated = dict(record_type="human", event_id="e1", provider="openai", timestamp="2026-11-02T10:00:00Z")
+        stats = {"status": "COMPLETE", "window_start": "2026-10-26T00:00:00Z", "window_end": "2026-11-10T00:00:00Z"}
+        export = self.base / "rewritten.jsonl"
+        status = lambda: load_normalized_history(export, self.cutoff, days=14)["stats"]["source_exports"][0]["status"]
+        write_normalized_history(export, [dated, dict(dated, event_id="e2")], stats)
+        self.assertEqual(status(), "COMPLETE")
+        export.write_text(json.dumps(dated) + "\n", encoding="utf-8")  # rewritten beside its old receipt
+        self.assertEqual(status(), "UNKNOWN")
+        write_normalized_history(export, [dated])  # rewritten without a receipt removes the old one
+        self.assertFalse(Path(str(export) + ".stats.json").exists())
+        Path(str(export) + ".stats.json").write_text(json.dumps(stats), encoding="utf-8")  # a receipt with no export hash
+        self.assertEqual(status(), "UNKNOWN")
 
     def test_history_window_keeps_subseconds_in_collection_receipt_and_replay(self):
         cutoff = datetime(2026, 11, 9, 10, 0, 0, 750000, tzinfo=timezone.utc)
@@ -160,8 +175,7 @@ class NativeUsageCollectorTests(unittest.TestCase):
         window = ("2026-10-26T10:00:00.750000Z", "2026-11-09T10:00:00.750000Z")
         self.assertEqual((data["stats"]["window_start"], data["stats"]["window_end"]), window)
         export = self.base / "precise.jsonl"
-        write_normalized_history(export, data["export_records"])
-        Path(str(export) + ".stats.json").write_text(json.dumps(data["stats"]), encoding="utf-8")
+        write_normalized_history(export, data["export_records"], data["stats"])
         replay = load_normalized_history(export, cutoff, days=14)["stats"]
         self.assertEqual((replay["window_start"], replay["window_end"]), window)
         source = replay["source_exports"][0]
@@ -594,6 +608,7 @@ class ReplaySourceQualityTests(unittest.TestCase):
                 "status": "PARTIAL", "malformed_lines": 76, "read_errors": 2,
                 "files_scanned": 23, "window_start": "2026-10-26T00:00:00Z",
                 "window_end": "2026-11-09T00:00:00Z", "secret_path": "/secret/private",
+                "export_sha256": hashlib.sha256(b"").hexdigest(),
             }), encoding="utf-8")
             cutoff = datetime(2026, 11, 9, tzinfo=timezone.utc)
             partial = load_normalized_history(path, cutoff=cutoff)["stats"]
@@ -616,7 +631,7 @@ class ReplaySourceQualityTests(unittest.TestCase):
             Path(str(partial) + ".stats.json").write_text(json.dumps({
                 "status": "PARTIAL", "malformed_lines": 76, "read_errors": 0,
                 "window_start": "2026-10-26T00:00:00Z", "window_end": "2026-11-09T00:00:00Z",
-                "secret_path": "/private/secret",
+                "secret_path": "/private/secret", "export_sha256": hashlib.sha256(partial.read_bytes()).hexdigest(),
             }), encoding="utf-8")
             output = root / "report.md"
             cmd = [sys.executable, "scripts/prw_metrics.py", "--offline", "--history-replay", str(partial), "--history-replay", str(missing), "--cutoff", "2026-11-09T00:00:00Z", "--output", str(output)]
