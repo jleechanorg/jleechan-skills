@@ -338,6 +338,15 @@ class FlowTests(unittest.TestCase):
         self.assertEqual(zero["human"]["followup"], 0)
         self.assertIsNone(self.snapshot_row(None)["human"])
 
+    def test_failure_marker_and_mid_pr_are_exported(self):
+        row = self.snapshot_row(None, human_coverage_status="OBSERVED_SCOPE_ONLY", raw_verified_human_message_count=3,
+                                mid_pr_human_message_count=1)
+        self.assertEqual(row["human"]["mid_pr"], 1)
+        marker = {"time_utc": "2026-11-15T20:00:00Z", "exit_status": 255, "secret": "x"}
+        snap = export.build_snapshot({}, query([metric(1)]), [], failure=marker)
+        self.assertEqual(snap["pipeline"]["last_failure"], {"time_utc": "2026-11-15T20:00:00Z", "exit_status": 255})
+        self.assertIsNone(export.build_snapshot({}, query([metric(1)]), [])["pipeline"]["last_failure"])
+
 
 @unittest.skipUnless(shutil.which("node"), "node is not installed")
 class FrontendStatsTests(unittest.TestCase):

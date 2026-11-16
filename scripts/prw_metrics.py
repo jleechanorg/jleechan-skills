@@ -4101,7 +4101,7 @@ def aggregate_native_human_steering(
             "association_basis": set(), "coverage_status": "UNKNOWN",
             "association_confidence": "UNKNOWN", "_episode_labels": {},
             "_nudge_episode_ids": set(), "_assigned_observations": 0,
-            "_confidences": set(),
+            "_confidences": set(), "_verified_at": [],
         }
 
     for pr in prs or []:
@@ -4370,6 +4370,7 @@ def aggregate_native_human_steering(
         row["_confidences"].add(confidence)
         if verified:
             row["raw_verified_messages"] += 1
+            row["_verified_at"].append(at)
             field = {
                 "direct": "direct_verified_messages",
                 "context": "context_associated_verified_messages",
@@ -4431,6 +4432,17 @@ def aggregate_native_human_steering(
         row["association_basis"] = sorted(row["association_basis"])
         row.pop("_episode_labels", None)
         row.pop("_assigned_observations", None)
+        # Mid-PR: verified messages strictly after the first recorded stage and before the final stage (or merge).
+        pr = pr_sources.get(row["pr"]) or {}
+        entries = [(parsed_time(t.get("entered_at") or t.get("start_at") or t.get("start")),
+                    normalize_stage_label(t.get("stage") or t.get("label") or t.get("name")))
+                   for t in pr.get("stage_transitions") or [] if isinstance(t, dict)]
+        entries = [(when, label) for when, label in entries if when]
+        finals = [when for when, label in entries if label == "stage:5-final-approval"]
+        first = min((when for when, _ in entries), default=None)
+        last = min(finals) if finals else parsed_time(pr.get("mergedAt") or pr.get("merged_at"))
+        times = row.pop("_verified_at")
+        row["mid_pr_messages"] = sum(first < t < last for t in times) if first and last else None
     return {"coverage": coverage, "per_pr": [pr_rows[key] for key in sorted(pr_rows)]}
 
 

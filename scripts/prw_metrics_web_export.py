@@ -300,6 +300,7 @@ def _pr_row(metric, record, scenario, stage_events=None, cutoff=None):
             "verified_messages": _count(metric.get("raw_verified_human_message_count")),
             "initial": _count(metric.get("verified_initial_human_message_count")),
             "followup": _count(metric.get("verified_followup_human_message_count")),
+            "mid_pr": _count(metric.get("mid_pr_human_message_count")),
             "branch_candidates": _count(metric.get("branch_associated_candidates")),
             "episodes": {
                 label: _count(metric.get(f"{label}_episode_count"))
@@ -414,7 +415,7 @@ def _finite(value):
     return value
 
 
-def build_snapshot(summary_data, query_summary, prs, *, generated_at=None, code_version=None, timeline=None):
+def build_snapshot(summary_data, query_summary, prs, *, generated_at=None, code_version=None, timeline=None, failure=None):
     """Build the dashboard payload. All three inputs are optional; absent means unknown."""
     # The retained-summary schema projection: only listed fields, at every depth.
     summary_data = _project_summary(summary_data)
@@ -469,6 +470,9 @@ def build_snapshot(summary_data, query_summary, prs, *, generated_at=None, code_
         "human_interventions": summary_data.get("human_interventions"),
         "handoff_transitions": [{"key": key, "label": label} for key, label, _s, _e in HANDOFF_TRANSITIONS],
         "gaps": _gaps(rows, query_summary.get("query_coverage")),
+        # The collector's last failed run (time and exit status only); absent means none recorded.
+        "pipeline": {"last_failure": {"time_utc": to_utc_iso(failure.get("time_utc")), "exit_status": _count(failure.get("exit_status"))}
+                     if isinstance(failure, dict) and to_utc_iso(failure.get("time_utc")) else None},
         "prs": rows,
     }))
 
@@ -494,6 +498,7 @@ def main():
     parser.add_argument("--query", required=True, help="prw_metrics_queries result JSON")
     parser.add_argument("--prs", help="Cached PR list JSON")
     parser.add_argument("--code-version", help="Source revision that produced the inputs")
+    parser.add_argument("--failure-marker", help="Collector last_failure.json; read only if present")
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
@@ -501,7 +506,8 @@ def main():
         return json.loads(Path(path).read_text(encoding="utf-8")) if path else None
 
     snapshot = build_snapshot(
-        load(args.summary), load(args.query), load(args.prs), code_version=args.code_version
+        load(args.summary), load(args.query), load(args.prs), code_version=args.code_version,
+        failure=load(args.failure_marker) if args.failure_marker and Path(args.failure_marker).exists() else None,
     )
     write_snapshot(args.output, snapshot)
     print(f"Wrote {len(snapshot['prs'])} PR rows to {args.output}")

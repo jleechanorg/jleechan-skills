@@ -487,3 +487,27 @@ class NativeHumanSteeringTests(unittest.TestCase):
         self.assertEqual(row["human_nudge_messages"], 1)
         self.assertEqual(result["coverage"]["unassigned_nudge_episodes"], 1)
         self.assertEqual(result["coverage"]["human_nudge_messages"], 2)
+
+
+class MidPrHumanCountTests(unittest.TestCase):
+    def test_only_messages_strictly_between_first_stage_and_final_count(self):
+        pr = {"repo": "example/repo", "number": 9, "headRefName": "t9", "state": "MERGED",
+              "createdAt": "2026-10-01T00:00:00Z", "mergedAt": "2026-10-04T00:00:00Z",
+              "stage_transitions": [
+                  {"stage": "stage:1-coding", "entered_at": "2026-10-02T00:00:00Z"},
+                  {"stage": "stage:5-final-approval", "entered_at": "2026-10-03T00:00:00Z"}]}
+
+        def msg(name, ts):
+            return {"event_id": name, "provider": "codex", "timestamp": ts, "origin_status": "verified_human",
+                    "pr_binding": {"pr": "example/repo#9"}, "source_fingerprint": name}
+
+        events = [msg("before", "2026-10-01T12:00:00Z"), msg("at-start", "2026-10-02T00:00:00Z"),
+                  msg("mid1", "2026-10-02T06:00:00Z"), msg("mid2", "2026-10-02T18:00:00Z"),
+                  msg("after", "2026-10-03T12:00:00Z")]
+        row = aggregate_native_human_steering(
+            events, [pr], window_start="2026-09-01T00:00:00Z", window_end="2026-11-01T00:00:00Z")["per_pr"][0]
+        self.assertEqual((row["raw_verified_messages"], row["mid_pr_messages"]), (5, 2))
+        pr.pop("stage_transitions")
+        row = aggregate_native_human_steering(
+            events, [pr], window_start="2026-09-01T00:00:00Z", window_end="2026-11-01T00:00:00Z")["per_pr"][0]
+        self.assertIsNone(row["mid_pr_messages"])
