@@ -399,6 +399,28 @@ class PRWMetricsSchedulerTests(unittest.TestCase):
         self.assertTrue((dash.parent / "index.html").exists())
         self.assertTrue((dash.parent / "app.js").exists())
 
+    def test_skill_usage_measure_attempted_and_non_fatal(self):
+        """The success path calls the skill counter with --state-dir; its failure only warns."""
+        log = Path(self.temp_dir.name) / "counter.log"
+        counter = Path(self.temp_dir.name) / "counter.py"
+        counter.write_text(
+            "import sys\n"
+            "if '--help' in sys.argv:\n    print('--state-dir'); sys.exit(0)\n"
+            f"open({str(log)!r}, 'w').write(' '.join(sys.argv[1:]))\n"
+            "sys.exit(3)\n",
+            encoding="utf-8",
+        )
+        env = self._base_env(
+            PRW_METRICS_FORCE_RUN="1",
+            PRW_METRICS_COLLECTOR_CMD="true",
+            PRW_METRICS_SKILL_COUNTER=str(counter),
+        )
+        result = subprocess.run(["bash", str(RUN_SCRIPT)], capture_output=True, text=True, env=env, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--skills", log.read_text(encoding="utf-8"))
+        self.assertIn(str(self.state_dir / "skill-usage"), log.read_text(encoding="utf-8"))
+        self.assertIn("WARN", result.stderr)
+
     def test_runtime_config_sourcing_and_publication_exports(self):
         """Tests that optional runtime config is sourced and publication defaults are exported."""
         self.assertTrue(RUN_SCRIPT.exists(), f"Missing run script: {RUN_SCRIPT}")

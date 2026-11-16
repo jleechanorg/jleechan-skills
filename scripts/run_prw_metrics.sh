@@ -173,6 +173,12 @@ if [[ $STATUS -eq 0 ]]; then
       cp "$REPO_DIR/web/prw-dashboard/$_asset" "$(dirname "$DASHBOARD_JSON")/$_asset" || true
     done
   fi
+  # Scheduled skill-invocation measure: non-fatal; skipped until the counter supports --state-dir.
+  _skill_counter="${PRW_METRICS_SKILL_COUNTER:-$REPO_DIR/.claude/skills/command-research/scripts/count_command_usage_unified.py}"
+  if [[ -f "$_skill_counter" ]] && python3 "$_skill_counter" --help 2>&1 | grep -q -- '--state-dir'; then
+    python3 "$_skill_counter" --skills --days 7 --json --state-dir "$PRW_METRICS_STATE_DIR/skill-usage" >/dev/null \
+      || echo "WARN: skill usage measurement failed (non-fatal)" >&2
+  fi
   echo "PRW metrics collection succeeded at $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
   exit 0
 else

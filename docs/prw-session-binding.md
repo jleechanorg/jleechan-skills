@@ -2,7 +2,7 @@
 
 Records which pull request an agent session is working on, so the metrics job can tie the session's token usage to that PR instead of guessing from branch names.
 
-Status: built and unit-tested; installed on the Mac Claude profiles (PostToolUse `Bash`, SessionStart, Stop). Until 2026-11-16 it never emitted `pr_binding` (0 of 1256 ledger lines) because real `gh pr create` calls are chained or use `--repo`; chained and `--repo` creates now bind (a replay of 117 real transcript calls went from 0 to 26 bound). Linux-side binding is unverified. Codex payloads are unverified.
+Status: built and unit-tested; installed on the Mac Claude profiles (PostToolUse `Bash`, SessionStart, Stop). The installed copy predates this branch's binding fix and must be re-installed before the fix takes effect. Until 2026-11-16 it never emitted `pr_binding` (0 of 1256 ledger lines) because real `gh pr create` calls are chained or use `--repo`; chained and `--repo` creates now bind (a replay of 117 real transcript calls went from 0 to 26 bound). Linux-side binding is unverified. Codex payloads are unverified.
 
 Specification: [docs/specs/prw-session-binding-spec.md](specs/prw-session-binding-spec.md).
 
