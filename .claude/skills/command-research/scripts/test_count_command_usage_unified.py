@@ -3,10 +3,9 @@ import os
 import sqlite3
 import tempfile
 import unittest
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
-
-import sys
 from unittest.mock import patch
 
 import count_command_usage_unified as unified
@@ -279,10 +278,6 @@ class TestCountCommandUsageUnified(unittest.TestCase):
                 scan_codex({"velocity"}, cutoff=0, db_path=database)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestSkillUsageStateDir(unittest.TestCase):
     def test_skills_mode_writes_dated_json_to_state_dir(self):
         payload = {"human": {}, "agent": {"fixpr": 2}, "unknown": {}, "stores": {}, "limitations": []}
@@ -294,3 +289,7 @@ class TestSkillUsageStateDir(unittest.TestCase):
             files = list((Path(tmp) / "s").glob("skill-usage-????-??-??.json"))
             self.assertEqual(1, len(files))
             self.assertEqual(2, json.loads(files[0].read_text())["agent"]["fixpr"])
+
+
+if __name__ == "__main__":
+    unittest.main()
