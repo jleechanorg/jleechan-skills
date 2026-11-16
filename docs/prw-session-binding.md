@@ -2,7 +2,7 @@
 
 Records which pull request an agent session is working on, so the metrics job can tie the session's token usage to that PR instead of guessing from branch names.
 
-Status: built, unit-tested and exercised by a real headless Claude Code session. **Not installed on any host.** Codex payloads are unverified.
+Status: built and unit-tested; installed on the Mac Claude profiles (PostToolUse `Bash`, SessionStart, Stop). Until 2026-11-16 it never emitted `pr_binding` (0 of 1256 ledger lines) because real `gh pr create` calls are chained or use `--repo`; chained and `--repo` creates now bind (a replay of 117 real transcript calls went from 0 to 26 bound). Linux-side binding is unverified. Codex payloads are unverified.
 
 Specification: [docs/specs/prw-session-binding-spec.md](specs/prw-session-binding-spec.md).
 
@@ -18,7 +18,7 @@ Specification: [docs/specs/prw-session-binding-spec.md](specs/prw-session-bindin
 | `git push`, `git switch`, `git checkout`, `git worktree add`, optionally with a literal `git -C <dir>` | `branch` with the branch and commit afterwards |
 | Stop, subagent stop | `stop` |
 
-Coverage is a deliberate lower bound. Each row counts only as one simple command: literally `gh pr ...` or `git ...` with nothing else in the line apart from a trailing `;`, no condition, grouping, pipe, redirection, assignment, alias, executable path or `$(...)`/backtick substitution. A PR is bound only from a fully qualified `github.com/<owner>/<repo>/pull/<N>` URL. A bare number, `-R`/`--repo`, `gh repo set-default`, fork remotes, `gh pr checkout` with any flag (`--detach`, `--help`, `-b`), `gh pr create --dry-run`/`--web`/`--help` and every other form record nothing, so the hook never guesses which repository gh resolved. Reading a PR (`gh pr view`, `list`, `checks`, `diff`, comments, reviews) records nothing.
+Coverage is a deliberate lower bound. Each row counts only as one simple command: literally `gh pr ...` or `git ...` with nothing else in the line apart from a trailing `;`, no condition, grouping, pipe, redirection, assignment, alias, executable path or `$(...)`/backtick substitution. Exception: `gh pr create` may sit in a chain, use `-R`/`--repo` and use `$(...)` in its body when it is the only `gh` invocation in the command, the command text names no `/pull/` URL, and the output holds exactly one PR URL. A PR is bound only from a fully qualified `github.com/<owner>/<repo>/pull/<N>` URL. A bare number, `-R`/`--repo` on checkout, `gh repo set-default`, fork remotes, `gh pr checkout` with any flag (`--detach`, `--help`, `-b`), `gh pr create --dry-run`/`--web`/`--help` and every other form record nothing, so the hook never guesses which repository gh resolved. Reading a PR (`gh pr view`, `list`, `checks`, `diff`, comments, reviews) records nothing.
 
 The ledger holds only: schema version, timestamp, runtime, session id, kind, repository, branch, commit, PR and source. It never holds command text, prompts, tool output or paths. It names private repositories and branches, so it stays on the host.
 
@@ -85,7 +85,7 @@ cat "$S/ledger.jsonl"   # expect session_start, branch, stop with one session_id
 - A coordinator session that drives several PRs is attributed to the PR it last created or checked out. Usage before its first binding stays unattributed.
 - Child agents inherit a binding only when they share the parent's session id.
 - A PR created outside an agent session produces no binding.
-- Most real binding commands are not recorded: `gh pr checkout <number>`, `git push ... && gh pr create`, `cd x && gh pr checkout ...`. Only the simple forms above count.
+- Most real checkout commands are not recorded: `gh pr checkout <number>`, `cd x && gh pr checkout ...`. Chained `gh pr create` binds only under the sole-`gh` rule above; chains that also call `gh pr view`/`edit` still record nothing.
 - A branch change the hook does not record (a compound or unmodelled `git switch`) does not clear an earlier binding; the session stays credited to that PR until its next recorded binding or branch record.
 - The ledger is append-only with no rotation or size cap.
 - Crediting a whole request to the bound PR is an inference from the session's last declared PR. It is labelled as session-bound wherever it is shown, separate from requests that name a PR directly.

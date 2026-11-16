@@ -1,5 +1,6 @@
 """Tests for 4-hour launchd scheduling, locking, and execution wrapper (bd-yq6x)."""
 
+import json
 import os
 import plistlib
 import re
@@ -372,6 +373,31 @@ class PRWMetricsSchedulerTests(unittest.TestCase):
             initial_epoch,
             "last_success_epoch must not be modified on failure",
         )
+
+    def test_failure_marker_written_then_cleared_and_dashboard_staged(self):
+        """A failed collector leaves last_failure.json; the next success removes it and stages assets."""
+        marker = self.state_dir / "last_failure.json"
+        dash = Path(self.temp_dir.name) / "current" / "dashboard.json"
+        dash.parent.mkdir()
+
+        def run(cmd):
+            env = self._base_env(
+                PRW_METRICS_FORCE_RUN="1",
+                PRW_METRICS_DASHBOARD_JSON=str(dash),
+                PRW_METRICS_COLLECTOR_CMD=cmd,
+            )
+            return subprocess.run(["bash", str(RUN_SCRIPT)], capture_output=True, text=True, env=env, check=False)
+
+        self.assertEqual(run("exit 7").returncode, 7)
+        data = json.loads(marker.read_text(encoding="utf-8"))
+        self.assertEqual(data["exit_status"], 7)
+        self.assertIsInstance(data["epoch"], int)
+        self.assertRegex(data["time_utc"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
+
+        self.assertEqual(run(f"echo '{{}}' > '{dash}'").returncode, 0)
+        self.assertFalse(marker.exists())
+        self.assertTrue((dash.parent / "index.html").exists())
+        self.assertTrue((dash.parent / "app.js").exists())
 
     def test_runtime_config_sourcing_and_publication_exports(self):
         """Tests that optional runtime config is sourced and publication defaults are exported."""
