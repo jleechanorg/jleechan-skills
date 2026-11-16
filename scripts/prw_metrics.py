@@ -4069,12 +4069,13 @@ def aggregate_native_human_steering(
     source_stats = source_stats or {}
     pr_rows, pr_sources, branch_index, branch_only_index = {}, {}, {}, {}
 
+    known_repos = {}  # GitHub repository names are case-insensitive; the first casing seen (the PR list) wins
+
     def safe_repo(value):
         if not isinstance(value, str) or not value:
             return None
-        if re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", value):
-            return value
-        return extract_github_repo_slug(value)
+        slug = value if re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", value) else extract_github_repo_slug(value)
+        return known_repos.setdefault(slug.lower(), slug) if slug else None
 
     def pr_key(repo, number):
         if not repo or number is None:
@@ -4123,6 +4124,19 @@ def aggregate_native_human_steering(
             entry = (key, pr, created, closed)
             branch_index.setdefault((repo, branch), []).append(entry)
             branch_only_index.setdefault(branch, []).append(entry)
+
+    def canonical_pr(value):
+        return f"{safe_repo(value.rsplit('#', 1)[0])}#{value.rsplit('#', 1)[1]}" if _safe_pr_id(value) else value
+
+    def canonical_event(e):
+        if not isinstance(e, dict):
+            return e
+        e = dict(e, **{f: canonical_pr(e[f]) for f in ("effective_associated_pr", "context_associated_pr", "original_associated_pr") if f in e})
+        if isinstance(e.get("pr_binding"), dict) and "pr" in e["pr_binding"]:
+            e["pr_binding"] = dict(e["pr_binding"], pr=canonical_pr(e["pr_binding"]["pr"]))
+        return e
+
+    human_records = [canonical_event(e) for e in human_records or []]
 
     def ensure_direct_row(key):
         if key in pr_rows:

@@ -130,6 +130,25 @@ class NativeHumanSteeringTests(unittest.TestCase):
         self.assertEqual(rows["example/repo#7"]["raw_verified_messages"], 0)
         self.assertEqual(rows["example/repo#6"]["coverage_status"], "UNKNOWN")
 
+    def test_repository_casing_in_bindings_matches_the_known_pr(self):
+        base = {"provider": "claude", "timestamp": "2026-10-05T10:00:00Z", "origin_status": "verified_human"}
+        events = [
+            dict(base, event_id="direct", pr_binding={"pr": "Example/Repo#5"}),
+            dict(base, event_id="context", context_pr_decision="override", original_associated_pr="EXAMPLE/repo#5",
+                 context_associated_pr="Example/Repo#6", effective_associated_pr="Example/Repo#6",
+                 effective_association_confidence="REVIEWED_CONTEXT"),
+            dict(base, event_id="branch", repository="Example/Repo", git_branch="topic", timestamp="2026-10-06T10:00:00Z"),
+        ]
+        result = aggregate_native_human_steering(
+            events, self.prs, window_start="2026-10-01T00:00:00Z", window_end="2026-10-20T00:00:00Z",
+            source_stats=self.stats,
+        )
+        rows = {row["pr"]: row for row in result["per_pr"]}
+        self.assertEqual(set(rows), {"example/repo#5", "example/repo#6", "example/repo#7"})
+        self.assertEqual(rows["example/repo#5"]["direct_verified_messages"], 1)
+        self.assertEqual(rows["example/repo#5"]["branch_associated_verified_messages"], 1)
+        self.assertEqual(rows["example/repo#6"]["context_associated_verified_messages"], 1)
+
     def test_unassigned_and_ambiguous_records_remain_visible_in_coverage(self):
         result = aggregate_native_human_steering(
             self.events, self.prs,
