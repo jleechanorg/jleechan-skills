@@ -147,6 +147,11 @@ def _export_source_quality(path, start, cutoff):
     return result
 
 
+def disputing_copies(humans, outside):  # an out-of-window copy is kept only as evidence against an in-window one
+    inside = {(r.get("provider"), r.get("event_id")) for r in humans}
+    return [r for r in outside if (r.get("provider"), r.get("event_id")) in inside]
+
+
 def load_normalized_history(path, cutoff, days=14, annotation_path=None):
     """Replay a typed normalized export without reopening native history sources."""
     if isinstance(cutoff, datetime) and cutoff.tzinfo:
@@ -174,7 +179,7 @@ def load_normalized_history(path, cutoff, days=14, annotation_path=None):
     )
     stats["source_exports"] = [_export_source_quality(path, start, cutoff)]
     annotations = _load_replay_annotations(annotation_path)
-    seen_usage = set()
+    seen_usage, outside_humans = set(), []
     with Path(path).open(encoding="utf-8") as stream:
         for line_number, line in enumerate(stream, 1):
             if not line.strip():
@@ -215,6 +220,7 @@ def load_normalized_history(path, cutoff, days=14, annotation_path=None):
                 continue
             if not start <= at < cutoff:
                 stats["outside_window_records"] += 1
+                outside_humans += [record] if record["record_type"] == "human" and record.get("event_id") else []
                 continue
             exported.append(record)
             if record["record_type"] == "usage":
@@ -253,6 +259,7 @@ def load_normalized_history(path, cutoff, days=14, annotation_path=None):
     return {
         "usage_records": usage,
         "human_records": humans,
+        "outside_human_records": outside_humans,
         "export_records": exported,
         "stats": stats,
     }

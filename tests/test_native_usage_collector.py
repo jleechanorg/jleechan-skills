@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from scripts.native_usage_collector import (
-    collect_native_history, load_normalized_history, write_normalized_history,
+    collect_native_history, disputing_copies, load_normalized_history, write_normalized_history,
 )
 from scripts.prw_metrics import (
     _sanitize_usage_event_record,
@@ -166,6 +166,24 @@ class NativeUsageCollectorTests(unittest.TestCase):
         self.assertEqual((replay["window_start"], replay["window_end"]), window)
         source = replay["source_exports"][0]
         self.assertEqual((source["status"], source["window_start"], source["window_end"]), ("COMPLETE",) + window)
+
+    def test_replay_keeps_out_of_window_copies_only_as_evidence_against_in_window_events(self):
+        cutoff = datetime(2026, 11, 9, 10, 0, tzinfo=timezone.utc)  # window starts 2026-10-26T10:00Z
+        human = dict(record_type="human", provider="openai", origin_status="verified_human")
+        exports = {"mac": [dict(human, event_id="shared", timestamp="2026-11-01T10:00:00Z")],
+                   "linux": [dict(human, event_id="shared", timestamp="2026-10-26T09:00:00Z"),  # disputes the mac copy
+                             dict(human, event_id="alone", timestamp="2026-10-26T09:00:00Z")]}
+        replays = []
+        for name, rows in exports.items():
+            export = self.base / f"{name}.jsonl"
+            export.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+            replays.append(load_normalized_history(export, cutoff, days=14))
+        self.assertEqual([len(r["human_records"]) for r in replays], [1, 0])
+        self.assertEqual(replays[1]["stats"]["outside_window_records"], 2)
+        humans = [h for r in replays for h in r["human_records"]]
+        outside = [h for r in replays for h in r["outside_human_records"]]
+        self.assertEqual([(h["event_id"], h["timestamp"]) for h in disputing_copies(humans, outside)],
+                         [("shared", "2026-10-26T09:00:00Z")])
 
     def test_conflicting_response_observation_remains_unknown_not_first_priced(self):
         self._write(self.codex, "rollout.jsonl", [
