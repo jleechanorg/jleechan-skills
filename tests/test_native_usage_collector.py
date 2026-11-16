@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -166,18 +167,41 @@ class NativeUsageCollectorTests(unittest.TestCase):
         Path(str(export) + ".stats.json").write_text(json.dumps(stats), encoding="utf-8")  # a receipt with no export hash
         self.assertEqual(status(), "UNKNOWN")
         write_normalized_history(export, [dated], stats)
-        original_read_bytes = Path.read_bytes
+        original_open = Path.open
 
-        def rewrite_after_read(path):  # a writer replaces the export right after replay reads it
-            body = original_read_bytes(path)
+        def rewrite_after_open(path, *args, **kwargs):  # a writer replaces the export right after replay opens it
+            stream = original_open(path, *args, **kwargs)
             if path == export:
-                export.write_text("", encoding="utf-8")
-            return body
+                write_normalized_history(export, [], dict(stats, status="PARTIAL"))
+            return stream
 
-        with unittest.mock.patch.object(Path, "read_bytes", rewrite_after_read):
+        with unittest.mock.patch.object(Path, "open", rewrite_after_open):
             replay = load_normalized_history(export, self.cutoff, days=14)
-        self.assertEqual((replay["stats"]["source_exports"][0]["status"], len(replay["human_records"])), ("COMPLETE", 1))
+        self.assertEqual((replay["stats"]["source_exports"][0]["status"], len(replay["human_records"])), ("UNKNOWN", 1))
         self.assertEqual(sorted(p.name for p in self.base.iterdir() if p.name.startswith(".")), [])  # no temporary left
+
+    def test_republishing_an_export_keeps_it_private_and_publishes_the_receipt_first(self):
+        dated = dict(record_type="human", event_id="e1", provider="openai", timestamp="2026-11-02T10:00:00Z")
+        stats = {"status": "COMPLETE", "window_start": "2026-10-26T00:00:00Z", "window_end": "2026-11-10T00:00:00Z"}
+        export, receipt = self.base / "private.jsonl", self.base / "private.jsonl.stats.json"
+        write_normalized_history(export, [dated], stats)
+        self.assertEqual([oct(f.stat().st_mode & 0o777) for f in (export, receipt)], ["0o600", "0o600"])
+        os.chmod(export, 0o640)
+        write_normalized_history(export, [dated], stats)
+        self.assertEqual([oct(f.stat().st_mode & 0o777) for f in (export, receipt)], ["0o640", "0o600"])
+        original_replace = os.replace
+        published = []
+
+        def interrupt_after_first(src, dst):
+            if published:
+                raise OSError("interrupted")
+            published.append(dst)
+            original_replace(src, dst)
+
+        with unittest.mock.patch("os.replace", interrupt_after_first), self.assertRaises(OSError):
+            write_normalized_history(export, [dated], dict(stats, status="PARTIAL"))  # same bytes, a partial scan
+        replay = load_normalized_history(export, self.cutoff, days=14)
+        self.assertEqual(replay["stats"]["source_exports"][0]["status"], "PARTIAL")
 
     def test_history_window_keeps_subseconds_in_collection_receipt_and_replay(self):
         cutoff = datetime(2026, 11, 9, 10, 0, 0, 750000, tzinfo=timezone.utc)
