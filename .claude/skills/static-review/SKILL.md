@@ -60,6 +60,11 @@ no timer reset). The model must directly read all content (fetching bytes into a
 script variable or reading only a required-content subset is not coverage). If required content is missing
 or cannot be retrieved completely by the deadline, report incomplete COVERAGE and
 withhold.
+For each user-visible wait, gate, retry, timer, expiry, fallback or failure screen
+the change adds, state what the user sees when it waits or fails at cold start,
+resume and offline, and whether the PR body quotes the user's ask for it; report an
+unquoted one as P1 `unrequested behaviour`, and never propose adding more such
+behaviour as a fix.
 Report every supported finding in this one pass with file:line, tagged P0
 (blocking) or P1/P2 (nonblocking), and MODEL: for the reviewer's actual
 runtime/model when exposed, or `unreported` when hidden. Never name the
@@ -82,7 +87,11 @@ deadline (600s for static-review §4; 1800s for advice §3; no timer reset). The
 model must directly read all content (fetching bytes into a script variable or
 reading only a required-content subset is not coverage). If required content is missing, unreadable or
 cannot be retrieved completely by the deadline, report incomplete COVERAGE and
-withhold. Report every supported finding in this one pass with file:line, tagged P0
+withhold. For each user-visible wait, gate, retry, timer, expiry, fallback or
+failure screen the change adds, state what the user sees when it waits or fails at
+cold start, resume and offline, and whether the PR body quotes the user's ask for
+it; report an unquoted one as P1 `unrequested behaviour`, and never propose adding
+more such behaviour as a fix. Report every supported finding in this one pass with file:line, tagged P0
 (blocking) or P1/P2 (nonblocking), and MODEL: for the reviewer's actual
 runtime/model when exposed, or `unreported` when hidden. Never name the
 reviewed system or scope as the model. Add COVERAGE: naming every file and diff actually read. Approve source only with
