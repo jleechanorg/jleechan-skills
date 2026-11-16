@@ -393,9 +393,11 @@ class PRWMetricsSchedulerTests(unittest.TestCase):
         self.assertEqual(data["exit_status"], 7)
         self.assertIsInstance(data["epoch"], int)
         self.assertRegex(data["time_utc"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
+        self.assertEqual(json.loads((dash.parent / "last_failure.json").read_text(encoding="utf-8")), data)
 
         self.assertEqual(run(f"echo '{{}}' > '{dash}'").returncode, 0)
         self.assertFalse(marker.exists())
+        self.assertFalse((dash.parent / "last_failure.json").exists())
         self.assertTrue((dash.parent / "index.html").exists())
         self.assertTrue((dash.parent / "app.js").exists())
 

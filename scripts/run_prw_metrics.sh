@@ -167,7 +167,7 @@ set -e
 
 if [[ $STATUS -eq 0 ]]; then
   date +%s > "$LAST_SUCCESS_FILE"
-  rm -f "$FAILURE_MARKER"
+  rm -f "$FAILURE_MARKER" "$(dirname "$DASHBOARD_JSON")/last_failure.json"
   if [[ -f "$DASHBOARD_JSON" ]]; then
     for _asset in index.html app.js stats.js styles.css; do
       cp "$REPO_DIR/web/prw-dashboard/$_asset" "$(dirname "$DASHBOARD_JSON")/$_asset" || true
@@ -187,6 +187,7 @@ else
   _now_iso="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
   printf '{"epoch": %s, "exit_status": %s, "time_utc": "%s", "reason": "collector exited non-zero"}\n' \
     "$(date +%s)" "$STATUS" "$_now_iso" > "$FAILURE_MARKER" || true
+  [[ -d "$(dirname "$DASHBOARD_JSON")" ]] && cp "$FAILURE_MARKER" "$(dirname "$DASHBOARD_JSON")/last_failure.json" || true
   if [[ -n "${SLACK_WEBHOOK_URL:-}" ]]; then
     curl -sS --max-time 10 -X POST -H 'Content-type: application/json' \
       --data "{\"text\": \"PRW metrics collection failed (exit $STATUS) at $_now_iso\"}" \
