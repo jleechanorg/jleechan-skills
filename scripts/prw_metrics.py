@@ -4238,8 +4238,13 @@ def aggregate_native_human_steering(
             association = direct_pr
             ensure_direct_row(association)
             confidence, basis, association_kind = "EXPLICIT", "reviewed_direct_pr_binding", "direct"
-            if context_decision in context_unassigned:  # contradictory evidence: not confirmed
+            other = event.get("effective_associated_pr") or event.get("context_associated_pr") or event.get("original_associated_pr")
+            clash = context_decision in ("confirm_original", "override", "context_associated") and _safe_pr_id(other) and other != direct_pr
+            if clash or context_decision in context_unassigned:  # contradictory evidence: confirmed for no PR
                 confidence = "CONFLICTING_ATTRIBUTION"
+                if clash and verified:
+                    ensure_direct_row(other)
+                    pr_rows[other]["_unconfirmed"] += 1
         elif context_decision in context_unassigned:
             coverage["reviewed_unassigned_messages"] += 1
             coverage[context_unassigned[context_decision]] += 1

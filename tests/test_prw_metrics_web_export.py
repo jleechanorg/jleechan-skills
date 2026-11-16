@@ -339,14 +339,15 @@ class FlowTests(unittest.TestCase):
         self.assertIsNone(self.snapshot_row(None)["human"])
 
     def steer_row(self, times, timeline, cutoff=None, record=None, history_from="2026-10-01T00:00:00Z",
-                  history_to="2026-12-01T00:00:00Z", native_status="COMPLETE", **extra):
+                  history_to="2026-12-01T00:00:00Z", native_status="COMPLETE", source_quality=None, **extra):
         extra.setdefault("unconfirmed_verified_messages", 0)
         q = query([metric(1, human_coverage_status="OBSERVED_SCOPE_ONLY", raw_verified_human_message_count=len(times),
                           confirmed_verified_at=json.dumps(times), **extra)])
         if cutoff:
             q["snapshot_at_utc"] = cutoff
         summary = {"usage_summary": {"coverage": {"native_source": {"status": native_status, "window_start": history_from,
-                                                                    "window_end": history_to}}}}
+                                                                    "window_end": history_to,
+                                                                    "source_quality": source_quality}}}}
         return export.build_snapshot(summary, q, [dict(record or {}, repo="acme/app", number=1)], timeline=timeline)["prs"][0]
 
     @staticmethod
@@ -403,6 +404,20 @@ class FlowTests(unittest.TestCase):
                                   self.stage("stage:5-final-approval", "2026-11-01T12:00:00.750Z")],
                              cutoff="2026-11-01T12:00:00.250Z")
         self.assertIsNone(cut["flow"]["final_at"])
+
+    def test_mid_pr_accepts_replay_only_when_upstream_exports_are_complete(self):
+        timeline = [self.stage("stage:1-coding", "2026-11-01T10:00:00Z"),
+                    self.stage("stage:5-final-approval", "2026-11-01T12:00:00Z")]
+        times = ["2026-11-01T11:00:00Z"]
+        self.assertEqual(self.steer_row(times, timeline, native_status="REPLAYED", source_quality="COMPLETE")["human"]["mid_pr"], 1)
+        for quality in ("PARTIAL", "UNKNOWN", None):
+            self.assertIsNone(self.steer_row(times, timeline, native_status="REPLAYED", source_quality=quality)["human"]["mid_pr"])
+
+    def test_mid_pr_is_unknown_when_any_confirmed_timestamp_is_malformed(self):
+        timeline = [self.stage("stage:1-coding", "2026-11-01T10:00:00Z"),
+                    self.stage("stage:5-final-approval", "2026-11-01T12:00:00Z")]
+        for times in (["not-a-time"], ["2026-11-01T11:00:00Z", "garbage"], [None]):
+            self.assertIsNone(self.steer_row(times, timeline)["human"]["mid_pr"])
 
     def test_mid_pr_is_unknown_without_a_bounded_history_window(self):
         timeline = [self.stage("stage:1-coding", "2026-11-01T10:00:00Z"),

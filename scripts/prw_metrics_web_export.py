@@ -268,13 +268,8 @@ def _instant(value):
 
 
 def _mid_pr(metric, flow, cutoff, history_from, history_to):
-    """Confirmed human messages strictly inside the start..end interval; unknown unless the interval is fully observed.
-
-    End is the final-stage entry, else the merge when it is on or before the snapshot cutoff. Unknown
-    (None) also covers unconfirmed attributions and an interval not inside the observed history window.
-    """
-    unconfirmed = metric.get("unconfirmed_verified_messages")
-    if _count(unconfirmed) != 0 or not flow or not flow["started_at"]:
+    """Confirmed human messages strictly inside start..end (final stage, else merge by cutoff); None unless fully observed."""
+    if _count(metric.get("unconfirmed_verified_messages")) != 0 or not flow or not flow["started_at"]:
         return None
     start, end = _instant(flow["started_at"]), _instant(flow["final_at"])
     merged = _instant(str(metric.get("merged_at_utc")))
@@ -284,12 +279,10 @@ def _mid_pr(metric, flow, cutoff, history_from, history_to):
     if end is None or start >= end or not observed_from or observed_from > start or not observed_to or observed_to < end:
         return None
     try:
-        times = json.loads(metric.get("confirmed_verified_at"))
+        times = [_instant(t) for t in json.loads(metric.get("confirmed_verified_at"))]
     except (TypeError, ValueError):
         return None
-    if not isinstance(times, list):
-        return None
-    return sum(start < t < end for t in map(_instant, times) if t)
+    return None if None in times else sum(start < t < end for t in times)
 
 
 def _pr_row(metric, record, scenario, stage_events=None, cutoff=None, history_from=None, history_to=None):
@@ -468,8 +461,9 @@ def build_snapshot(summary_data, query_summary, prs, *, generated_at=None, code_
     stage_events = _stage_events_by_pr(timeline)
     cutoff = to_utc_iso(query_summary.get("snapshot_at_utc"))
     native = ((summary_data.get("usage_summary") or {}).get("coverage") or {}).get("native_source")
-    # Only a COMPLETE native history shows that an interval inside its window was observed.
-    history_from, history_to = (native.get("window_start"), native.get("window_end")) if isinstance(native, dict) and native.get("status") == "COMPLETE" else (None, None)
+    # Only a COMPLETE native history (or a replay whose upstream exports are all COMPLETE) shows that an interval inside its window was observed.
+    complete = isinstance(native, dict) and (native.get("status") == "COMPLETE" or (native.get("status") == "REPLAYED" and native.get("source_quality") == "COMPLETE"))
+    history_from, history_to = (native.get("window_start"), native.get("window_end")) if complete else (None, None)
     rows = []
     for metric in query_summary.get("pr_metrics") or []:
         if not isinstance(metric, dict) or _count(metric.get("pr_number")) is None:

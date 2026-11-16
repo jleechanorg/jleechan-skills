@@ -392,6 +392,24 @@ class NativeHumanSteeringTests(unittest.TestCase):
         self.assertEqual(pr5["unconfirmed_verified_messages"], 1)
         self.assertEqual(pr5["confirmed_verified_at"], [])
 
+    def test_direct_binding_contradicting_reviewed_override_is_unconfirmed_for_both_prs(self):
+        event = {
+            "event_id": "two-pr-conflict", "provider": "claude", "timestamp": "2026-10-05T10:00:00Z",
+            "origin_status": "verified_human", "actor_kind": "human",
+            "repository": "example/repo", "pr_binding": {"pr": "example/repo#5"},
+            "context_pr_decision": "override", "context_associated_pr": "example/repo#6",
+            "effective_associated_pr": "example/repo#6", "effective_association_confidence": "REVIEWED_CONTEXT",
+        }
+        result = aggregate_native_human_steering(
+            [event], self.prs,
+            window_start="2026-10-01T00:00:00Z", window_end="2026-10-20T00:00:00Z",
+            source_stats=self.stats,
+        )
+        rows = {row["pr"]: row for row in result["per_pr"]}
+        for pr in ("example/repo#5", "example/repo#6"):
+            self.assertEqual(rows[pr]["unconfirmed_verified_messages"], 1, pr)
+            self.assertEqual(rows[pr]["confirmed_verified_at"], [], pr)
+
     def test_context_override_uses_effective_pr_and_separates_nudge_categories(self):
         event = {
             "event_id": "context-override", "provider": "claude", "timestamp": "2026-10-05T10:00:00Z",
