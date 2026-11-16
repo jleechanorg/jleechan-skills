@@ -3,7 +3,6 @@ import os
 import sqlite3
 import tempfile
 import unittest
-import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
