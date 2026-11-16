@@ -176,6 +176,17 @@ class NativeHumanSteeringTests(unittest.TestCase):
                                                  window_end="2026-10-20T00:00:00Z", source_stats=self.stats)
         self.assertEqual([r["raw_verified_messages"] for r in result["per_pr"]], [0])
 
+    def test_a_commit_on_the_head_of_a_pr_outside_the_window_is_never_credited_to_its_successor(self):
+        closed = dict(self.prs[0], closedAt="2026-09-30T00:00:00Z")
+        successor = dict(self.prs[1], createdAt="2026-10-01T00:00:00Z")
+        for repository in ("example/repo", "Example/Repo"):
+            for branch_kw in ({"repository": repository}, {}):
+                event = dict({"event_id": "old-worktree", "provider": "claude", "origin_status": "verified_human",
+                              "git_branch": "topic", "commit_hash": "sha-pr5", "timestamp": "2026-10-10T10:00:00Z"}, **branch_kw)
+                result = aggregate_native_human_steering([event], [closed, successor], window_start="2026-10-01T00:00:00Z",
+                                                         window_end="2026-10-20T00:00:00Z", source_stats=self.stats)
+                self.assertEqual([r["raw_verified_messages"] for r in result["per_pr"]], [0], (repository, branch_kw))
+
     def test_url_repository_with_different_casing_matches_the_listed_spelling(self):
         event = {"event_id": "branch", "provider": "claude", "origin_status": "verified_human",
                  "repository_url": "https://github.com/Example/Repo.git", "git_branch": "topic", "timestamp": "2026-10-06T10:00:00Z"}

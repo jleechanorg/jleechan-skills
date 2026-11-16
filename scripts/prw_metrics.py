@@ -4104,7 +4104,7 @@ def aggregate_native_human_steering(
             "_confidences": set(),
         }
 
-    listed = set()
+    listed, outside_heads = set(), set()
     for pr in prs or []:
         if not isinstance(pr, dict):
             continue
@@ -4117,6 +4117,7 @@ def aggregate_native_human_steering(
         closed = parsed_time(pr.get("mergedAt") or pr.get("merged_at") or
                              pr.get("closedAt") or pr.get("closed_at"))
         if start and end and created and (created >= end or (closed and closed < start)):
+            outside_heads.add(pr.get("headRefOid"))
             continue
         pr_rows[key] = new_row(key, pr)
         pr_sources[key] = pr
@@ -4312,6 +4313,8 @@ def aggregate_native_human_steering(
                 association = exact_head[0][0]
                 confidence = "LOW_BEST_EFFORT_HEAD" if low_context else "BRANCH_HEAD_MATCH"
                 basis, association_kind = "repo_branch_exact_head", "branch"
+            elif commit and commit in outside_heads:  # the head of a PR outside the window: never credit another PR
+                pass
             elif len(time_candidates) == 1:
                 association = time_candidates[0][0]
                 confidence = "LOW_BEST_EFFORT" if low_context else "BEST_EFFORT"
@@ -4339,6 +4342,8 @@ def aggregate_native_human_steering(
                     confidence = "BRANCH_ONLY_LOW_HEAD" if low_context else "BRANCH_ONLY_HEAD_MATCH"
                     basis, association_kind = "branch_only_exact_head", "branch_only"
                     coverage["branch_only_messages"] += 1
+                elif commit and commit in outside_heads:
+                    pass
                 elif len(branch_time) == 1 and len(branch_all) == 1:
                     association = branch_time[0][0]
                     confidence, basis = "BRANCH_ONLY_LOW", "best_effort_branch_only_event_time"
