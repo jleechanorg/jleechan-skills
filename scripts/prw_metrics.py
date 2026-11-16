@@ -5086,13 +5086,13 @@ def main():
         try:
             from scripts.native_usage_collector import (
                 collect_native_history,
-                load_normalized_history,
+                load_normalized_history, disputing_copies,
                 write_normalized_history, enrich_replay_state, write_nudge_packets,
             )
         except ModuleNotFoundError:
             from native_usage_collector import (
                 collect_native_history,
-                load_normalized_history,
+                load_normalized_history, disputing_copies,
                 write_normalized_history, enrich_replay_state, write_nudge_packets,
             )
         if args.repository_map:
@@ -5123,6 +5123,7 @@ def main():
                 "usage_records": [], "human_records": [], "export_records": [],
                 "stats": None,
             }
+            outside_humans = []
             for replay_path in args.history_replay:
                 replay = load_normalized_history(
                     replay_path, cutoff=history_cutoff, days=args.days,
@@ -5130,6 +5131,7 @@ def main():
                 )
                 for key in ("usage_records", "human_records", "export_records"):
                     history_data[key].extend(replay[key])
+                outside_humans.extend(replay["outside_human_records"])
                 if history_data["stats"] is None:
                     history_data["stats"] = replay["stats"]
                 else:
@@ -5138,6 +5140,7 @@ def main():
                             history_data["stats"][key].extend(value)
                         elif isinstance(value, int) and not isinstance(value, bool):
                             history_data["stats"][key] += value
+            history_data["human_records"] += disputing_copies(history_data["human_records"], outside_humans)
             quality = [item["status"] for item in history_data["stats"]["source_exports"]]
             history_data["stats"]["source_quality"] = next(
                 (status for status in ("FAILED", "PARTIAL", "UNKNOWN", "COMPLETE") if status in quality),
