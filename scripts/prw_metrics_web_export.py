@@ -165,9 +165,10 @@ def _flow(record, stage_events=None, cutoff=None):
     Entries after the snapshot cutoff are ignored, and legacy aliases are normalized first.
     """
     record = record if isinstance(record, dict) else {}
-    starts, finals = [], []
+    starts, finals, late_final = [], [], False
     for when, label in stage_events or []:
         if cutoff and when > cutoff:
+            late_final = late_final or normalize_stage_label(label) == FINAL_STAGE
             continue
         starts.append(when)
         if normalize_stage_label(label) == FINAL_STAGE:
@@ -176,7 +177,9 @@ def _flow(record, stage_events=None, cutoff=None):
         if not isinstance(transition, dict):
             continue
         entered = to_utc_iso(_first(transition, ("entered_at", "start_at", "start")))
-        if entered and not (cutoff and entered > cutoff):
+        if entered and cutoff and entered > cutoff:
+            late_final = late_final or normalize_stage_label(transition.get("stage") or transition.get("label") or transition.get("name")) == FINAL_STAGE
+        elif entered:
             starts.append(entered)
             if normalize_stage_label(transition.get("stage") or transition.get("label") or transition.get("name")) == FINAL_STAGE:
                 finals.append(entered)
@@ -186,8 +189,10 @@ def _flow(record, stage_events=None, cutoff=None):
     has_stage_label = isinstance(label, str) and label.startswith("stage:")
     if not starts and not has_stage_label:
         return None
+    # A dated final entry after the cutoff outranks an untimed current label.
+    reached = bool(finals) or (label_final and not late_final)
     return {
-        "reached_final": bool(finals) or label_final,
+        "reached_final": reached,
         "started_at": min(starts) if starts else None,
         "final_at": min(finals) if finals else None,
     }
@@ -253,22 +258,45 @@ def _scenarios_by_pr(rows):
     return grouped
 
 
-def _mid_pr(confirmed_at, flow):
-    """Confirmed human messages strictly inside the observed start..final interval; unknown without both ends."""
-    if not isinstance(confirmed_at, str) or not flow or not flow["started_at"] or not flow["final_at"]:
-        return None
-    if flow["started_at"] >= flow["final_at"]:
+def _instant(value):
+    """Full-precision UTC instant, or None."""
+    if not isinstance(value, str):
         return None
     try:
-        times = json.loads(confirmed_at)
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
     except ValueError:
+        return None
+    return parsed.astimezone(timezone.utc) if parsed.tzinfo else None
+
+
+def _mid_pr(metric, flow, cutoff, history_from):
+    """Confirmed human messages strictly inside the start..end interval; unknown unless the interval is fully observed.
+
+    End is the final-stage entry, else the merge when it is on or before the snapshot cutoff. Unknown
+    (None) also covers unconfirmed attributions and history that begins after the PR started.
+    """
+    unconfirmed = metric.get("unconfirmed_verified_messages")
+    if _count(unconfirmed) != 0 or not flow or not flow["started_at"]:
+        return None
+    start, end = _instant(flow["started_at"]), _instant(flow["final_at"])
+    merged = _instant(str(metric.get("merged_at_utc")))
+    if end is None and merged and (not cutoff or merged <= _instant(cutoff)):
+        end = merged
+    observed_from = _instant(history_from)
+    if end is None or start >= end or (observed_from and observed_from > start):
+        return None
+    try:
+        times = json.loads(metric.get("confirmed_verified_at"))
+    except (TypeError, ValueError):
         return None
     if not isinstance(times, list):
         return None
-    return sum(flow["started_at"] < t < flow["final_at"] for t in times if isinstance(t, str))
+    if not isinstance(times, list):
+        return None
+    return sum(start < t < end for t in map(_instant, times) if t)
 
 
-def _pr_row(metric, record, scenario, stage_events=None, cutoff=None):
+def _pr_row(metric, record, scenario, stage_events=None, cutoff=None, history_from=None):
     repository = metric.get("repository")
     number = _count(metric.get("pr_number"))
     record = record or {}
@@ -316,7 +344,7 @@ def _pr_row(metric, record, scenario, stage_events=None, cutoff=None):
             "verified_messages": _count(metric.get("raw_verified_human_message_count")),
             "initial": _count(metric.get("verified_initial_human_message_count")),
             "followup": _count(metric.get("verified_followup_human_message_count")),
-            "mid_pr": _mid_pr(metric.get("confirmed_verified_at"), flow),
+            "mid_pr": _mid_pr(metric, flow, cutoff, history_from),
             "branch_candidates": _count(metric.get("branch_associated_candidates")),
             "episodes": {
                 label: _count(metric.get(f"{label}_episode_count"))
@@ -443,12 +471,14 @@ def build_snapshot(summary_data, query_summary, prs, *, generated_at=None, code_
     scenarios = _scenarios_by_pr(query_summary.get("catalog_scenario_pr_metrics"))
     stage_events = _stage_events_by_pr(timeline)
     cutoff = to_utc_iso(query_summary.get("snapshot_at_utc"))
+    native = ((summary_data.get("usage_summary") or {}).get("coverage") or {}).get("native_source")
+    history_from = native.get("window_start") if isinstance(native, dict) else None
     rows = []
     for metric in query_summary.get("pr_metrics") or []:
         if not isinstance(metric, dict) or _count(metric.get("pr_number")) is None:
             continue
         key = _pr_key(metric.get("repository"), _count(metric.get("pr_number")))
-        rows.append(_pr_row(metric, index.get(key), scenarios.get(key), stage_events.get(key), cutoff))
+        rows.append(_pr_row(metric, index.get(key), scenarios.get(key), stage_events.get(key), cutoff, history_from))
     rows.sort(key=lambda row: (row["repo"] or "", row["number"]))
     cohorts = [_cohort_row(row) for row in query_summary.get("metric_cohorts") or [] if isinstance(row, dict)]
     usage = summary_data.get("usage_summary") if isinstance(summary_data.get("usage_summary"), dict) else {}

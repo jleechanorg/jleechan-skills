@@ -507,3 +507,20 @@ class ConfirmedHumanTimesTests(unittest.TestCase):
             window_end="2026-11-01T00:00:00Z")["per_pr"][0]
         self.assertEqual(row["raw_verified_messages"], 2)
         self.assertEqual(row["confirmed_verified_at"], ["2026-10-02T06:00:00Z"])
+
+    def test_low_confidence_context_and_branch_only_are_unconfirmed_and_times_keep_precision(self):
+        pr = {"repo": "example/repo", "number": 9, "headRefName": "t9", "state": "MERGED",
+              "createdAt": "2026-10-01T00:00:00Z", "mergedAt": "2026-10-04T00:00:00Z"}
+        bound = {"event_id": "b", "provider": "codex", "timestamp": "2026-10-02T06:00:00.250Z",
+                 "origin_status": "verified_human", "pr_binding": {"pr": "example/repo#9"}, "source_fingerprint": "b"}
+        low = {"event_id": "l", "provider": "codex", "timestamp": "2026-10-02T07:00:00Z",
+               "origin_status": "verified_human", "context_pr_decision": "override",
+               "effective_associated_pr": "example/repo#9",
+               "effective_association_confidence": "LOW_BEST_EFFORT_CONTEXT", "source_fingerprint": "l"}
+        branch_only = {"event_id": "h", "provider": "codex", "timestamp": "2026-10-02T08:00:00Z",
+                       "origin_status": "verified_human", "git_branch": "t9", "source_fingerprint": "h"}
+        row = aggregate_native_human_steering(
+            [branch_only, low, bound], [pr], window_start="2026-09-01T00:00:00Z",
+            window_end="2026-11-01T00:00:00Z")["per_pr"][0]
+        self.assertEqual(row["confirmed_verified_at"], ["2026-10-02T06:00:00.250000Z"])
+        self.assertEqual(row["unconfirmed_verified_messages"], 2)

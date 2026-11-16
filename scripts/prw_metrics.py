@@ -420,6 +420,7 @@ SUMMARY_SCHEMA = {
             "episodes_by_quality": {key: _SC for key in ("good", "bad", "mixed", "unknown")},
             "association_basis": [_SC], "association_confidence": _SC,
             "confirmed_verified_at": [_SC],
+            "unconfirmed_verified_messages": _SC,
         }],
     },
     "usage_summary": {
@@ -4102,7 +4103,7 @@ def aggregate_native_human_steering(
             "association_basis": set(), "coverage_status": "UNKNOWN",
             "association_confidence": "UNKNOWN", "_episode_labels": {},
             "_nudge_episode_ids": set(), "_assigned_observations": 0,
-            "_confidences": set(), "_confirmed_at": [],
+            "_confidences": set(), "_confirmed_at": [], "_unconfirmed": 0,
         }
 
     for pr in prs or []:
@@ -4371,8 +4372,11 @@ def aggregate_native_human_steering(
         row["_confidences"].add(confidence)
         if verified:
             row["raw_verified_messages"] += 1
-            if association_kind in ("direct", "context"):  # branch matches are heuristics
-                row["_confirmed_at"].append(at.strftime("%Y-%m-%dT%H:%M:%SZ"))
+            # Branch matches and low-confidence context are heuristics, not confirmed steering.
+            if association_kind in ("direct", "context") and confidence in ("EXPLICIT", "REVIEWED_CONTEXT"):
+                row["_confirmed_at"].append(at.isoformat().replace("+00:00", "Z"))
+            else:
+                row["_unconfirmed"] += 1
             field = {
                 "direct": "direct_verified_messages",
                 "context": "context_associated_verified_messages",
@@ -4435,6 +4439,7 @@ def aggregate_native_human_steering(
         row.pop("_episode_labels", None)
         row.pop("_assigned_observations", None)
         row["confirmed_verified_at"] = sorted(row.pop("_confirmed_at"))
+        row["unconfirmed_verified_messages"] = row.pop("_unconfirmed")
     return {"coverage": coverage, "per_pr": [pr_rows[key] for key in sorted(pr_rows)]}
 
 

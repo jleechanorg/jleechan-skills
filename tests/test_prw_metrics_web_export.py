@@ -338,12 +338,14 @@ class FlowTests(unittest.TestCase):
         self.assertEqual(zero["human"]["followup"], 0)
         self.assertIsNone(self.snapshot_row(None)["human"])
 
-    def steer_row(self, times, timeline, cutoff=None, record=None):
+    def steer_row(self, times, timeline, cutoff=None, record=None, history_from=None, **extra):
+        extra.setdefault("unconfirmed_verified_messages", 0)
         q = query([metric(1, human_coverage_status="OBSERVED_SCOPE_ONLY", raw_verified_human_message_count=len(times),
-                          confirmed_verified_at=json.dumps(times))])
+                          confirmed_verified_at=json.dumps(times), **extra)])
         if cutoff:
             q["snapshot_at_utc"] = cutoff
-        return export.build_snapshot({}, q, [dict(record or {}, repo="acme/app", number=1)], timeline=timeline)["prs"][0]
+        summary = {"usage_summary": {"coverage": {"native_source": {"window_start": history_from}}}}
+        return export.build_snapshot(summary, q, [dict(record or {}, repo="acme/app", number=1)], timeline=timeline)["prs"][0]
 
     @staticmethod
     def stage(label, at):
@@ -367,6 +369,38 @@ class FlowTests(unittest.TestCase):
         row = self.steer_row(["2026-11-01T10:30:00Z"],
                              [self.stage("stage:5-final-approval", "2026-11-01T12:00:00Z")])
         self.assertIsNone(row["human"]["mid_pr"])
+
+    def test_mid_pr_is_unknown_with_unconfirmed_branch_only_messages(self):
+        row = self.steer_row([], [self.stage("stage:1-coding", "2026-11-01T10:00:00Z"),
+                                  self.stage("stage:5-final-approval", "2026-11-01T12:00:00Z")],
+                             unconfirmed_verified_messages=1)
+        self.assertIsNone(row["human"]["mid_pr"])
+
+    def test_mid_pr_is_unknown_when_history_starts_after_the_pr_started(self):
+        timeline = [self.stage("stage:1-coding", "2026-11-01T10:00:00Z"),
+                    self.stage("stage:5-final-approval", "2026-11-01T12:00:00Z")]
+        self.assertIsNone(self.steer_row([], timeline, history_from="2026-11-01T11:00:00Z")["human"]["mid_pr"])
+        self.assertEqual(self.steer_row([], timeline, history_from="2026-11-01T10:00:00Z")["human"]["mid_pr"], 0)
+
+    def test_mid_pr_compares_full_precision_instants(self):
+        row = self.steer_row(["2026-11-01T10:00:00.250Z"],
+                             [self.stage("stage:1-coding", "2026-11-01T10:00:00Z"),
+                              self.stage("stage:5-final-approval", "2026-11-01T12:00:00Z")])
+        self.assertEqual(row["human"]["mid_pr"], 1)
+
+    def test_mid_pr_ends_at_merge_when_no_final_stage_and_merge_precedes_cutoff(self):
+        timeline = [self.stage("stage:1-coding", "2026-11-01T10:00:00Z")]
+        merged = {"merged_at_utc": "2026-11-01 12:00:00+00:00"}
+        row = self.steer_row(["2026-11-01T11:00:00Z", "2026-11-01T13:00:00Z"], timeline, **merged)
+        self.assertEqual(row["human"]["mid_pr"], 1)
+        late = self.steer_row(["2026-11-01T11:00:00Z"], timeline, cutoff="2026-11-01T11:30:00Z", **merged)
+        self.assertIsNone(late["human"]["mid_pr"])
+
+    def test_untimed_final_label_does_not_count_when_dated_final_is_after_cutoff(self):
+        row = self.steer_row([], [self.stage("stage:1-coding", "2026-11-01T10:00:00Z"),
+                                  self.stage("stage:5-final-approval", "2026-11-01T12:00:00Z")],
+                             cutoff="2026-11-01T11:00:00Z", record={"legacy_stage": "stage:5-final-approval"})
+        self.assertFalse(row["flow"]["reached_final"])
 
     def test_mid_pr_is_unknown_without_confirmed_times(self):
         q = query([metric(1, human_coverage_status="OBSERVED_SCOPE_ONLY")])
