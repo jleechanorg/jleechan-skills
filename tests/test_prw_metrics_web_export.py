@@ -339,13 +339,13 @@ class FlowTests(unittest.TestCase):
         self.assertIsNone(self.snapshot_row(None)["human"])
 
     def steer_row(self, times, timeline, cutoff=None, record=None, history_from="2026-10-01T00:00:00Z",
-                  history_to="2026-12-01T00:00:00Z", **extra):
+                  history_to="2026-12-01T00:00:00Z", native_status="COMPLETE", **extra):
         extra.setdefault("unconfirmed_verified_messages", 0)
         q = query([metric(1, human_coverage_status="OBSERVED_SCOPE_ONLY", raw_verified_human_message_count=len(times),
                           confirmed_verified_at=json.dumps(times), **extra)])
         if cutoff:
             q["snapshot_at_utc"] = cutoff
-        summary = {"usage_summary": {"coverage": {"native_source": {"window_start": history_from,
+        summary = {"usage_summary": {"coverage": {"native_source": {"status": native_status, "window_start": history_from,
                                                                     "window_end": history_to}}}}
         return export.build_snapshot(summary, q, [dict(record or {}, repo="acme/app", number=1)], timeline=timeline)["prs"][0]
 
@@ -383,6 +383,26 @@ class FlowTests(unittest.TestCase):
                     self.stage("stage:5-final-approval", "2026-11-01T12:00:00Z")]
         self.assertIsNone(self.steer_row([], timeline, history_from="2026-11-01T11:00:00Z")["human"]["mid_pr"])
         self.assertEqual(self.steer_row([], timeline, history_from="2026-11-01T10:00:00Z")["human"]["mid_pr"], 0)
+
+    def test_mid_pr_is_unknown_when_native_history_is_not_complete(self):
+        timeline = [self.stage("stage:1-coding", "2026-11-01T10:00:00Z"),
+                    self.stage("stage:5-final-approval", "2026-11-01T12:00:00Z")]
+        for status in ("PARTIAL", "FAILED", None):
+            self.assertIsNone(self.steer_row([], timeline, native_status=status)["human"]["mid_pr"])
+
+    def test_stage_endpoints_and_cutoff_keep_subsecond_precision(self):
+        late = self.steer_row(["2026-11-01T10:00:00.250Z"],
+                              [self.stage("stage:1-coding", "2026-11-01T10:00:00.750Z"),
+                               self.stage("stage:5-final-approval", "2026-11-01T12:00:00Z")])
+        self.assertEqual(late["human"]["mid_pr"], 0)
+        early = self.steer_row(["2026-11-01T12:00:00.250Z"],
+                               [self.stage("stage:1-coding", "2026-11-01T10:00:00Z"),
+                                self.stage("stage:5-final-approval", "2026-11-01T12:00:00.750Z")])
+        self.assertEqual(early["human"]["mid_pr"], 1)
+        cut = self.steer_row([], [self.stage("stage:1-coding", "2026-11-01T10:00:00Z"),
+                                  self.stage("stage:5-final-approval", "2026-11-01T12:00:00.750Z")],
+                             cutoff="2026-11-01T12:00:00.250Z")
+        self.assertIsNone(cut["flow"]["final_at"])
 
     def test_mid_pr_is_unknown_without_a_bounded_history_window(self):
         timeline = [self.stage("stage:1-coding", "2026-11-01T10:00:00Z"),

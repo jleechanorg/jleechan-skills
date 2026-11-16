@@ -136,18 +136,12 @@
     ribbon.appendChild(h("span", null, ["Annotation freshness ", h("b", { text: annotation.status || "UNKNOWN" })]));
     $("scope-line").textContent = data.prs.length.toLocaleString("en-US") + " pull requests in this snapshot across " + data.repositories.length +
       " repositories, " + fmtTime(data.window_start, false) + " to " + fmtTime(data.window_end || data.data_through, false) + ".";
-    var banner = $("banner");
-    var failure = lastFailure;
-    if (failure && Date.parse(failure.time_utc) > Date.parse(data.generated_at)) {
-      banner.hidden = false;
-      banner.textContent = "The last scheduled collection failed at " + fmtTime(failure.time_utc) + " (exit " + failure.exit_status + "). This snapshot has not been refreshed since.";
-    } else if (data.fixture) {
-      banner.hidden = false;
-      banner.textContent = "Synthetic fixture: " + data.fixture + " These are not real measurements.";
-    } else if (stale) {
-      banner.hidden = false;
-      banner.textContent = "This snapshot is marked " + data.status + ". Figures reflect data through " + (fmtTime(data.data_through) || "an unknown time") + ", not the present.";
-    } else banner.hidden = true;
+    var banner = $("banner"), failure = lastFailure, notes = [];
+    if (failure && Date.parse(failure.time_utc) > Date.parse(data.generated_at)) notes.push("The last scheduled collection failed at " + fmtTime(failure.time_utc) + " (exit " + failure.exit_status + "). This snapshot has not been refreshed since.");
+    if (data.fixture) notes.push("Synthetic fixture: " + data.fixture + " These are not real measurements.");
+    if (stale) notes.push("This snapshot is marked " + data.status + ". Figures reflect data through " + (fmtTime(data.data_through) || "an unknown time") + ", not the present.");
+    banner.hidden = !notes.length;
+    banner.textContent = notes.join(" ");
   }
 
   // ---------- cards ----------
@@ -741,11 +735,14 @@
   fetch(DATA_URL, { cache: "no-store" })
     .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
     .then(function (d) {
+      start(d);
       return fetch("last_failure.json", { cache: "no-store" })
         .then(function (r) { return r.ok ? r.json() : null; })
         .catch(function () { return null; })
-        .then(function (m) { lastFailure = m && typeof m === "object" ? m : null; return d; });
+        .then(function (m) {
+          lastFailure = m && typeof m === "object" ? m : null;
+          if (lastFailure && data) renderHeader();
+        });
     })
-    .then(start)
     .catch(function (err) { fail("Could not load " + DATA_URL + " (" + err.message + "). Nothing is shown rather than stale or partial figures."); });
 })();

@@ -376,6 +376,22 @@ class NativeHumanSteeringTests(unittest.TestCase):
         self.assertEqual(result["coverage"]["multi_pr_unassigned_messages"], 1)
         self.assertEqual(result["coverage"]["human_nudge_messages"], 1)
 
+    def test_direct_binding_contradicting_unassigned_decision_is_unconfirmed(self):
+        event = {
+            "event_id": "conflict", "provider": "claude", "timestamp": "2026-10-05T10:00:00Z",
+            "origin_status": "verified_human", "actor_kind": "human",
+            "repository": "example/repo", "pr_binding": {"pr": "example/repo#5"},
+            "context_pr_decision": "unassigned_multi_pr",
+        }
+        result = aggregate_native_human_steering(
+            [event], self.prs,
+            window_start="2026-10-01T00:00:00Z", window_end="2026-10-20T00:00:00Z",
+            source_stats=self.stats,
+        )
+        pr5 = next(row for row in result["per_pr"] if row["pr"] == "example/repo#5")
+        self.assertEqual(pr5["unconfirmed_verified_messages"], 1)
+        self.assertEqual(pr5["confirmed_verified_at"], [])
+
     def test_context_override_uses_effective_pr_and_separates_nudge_categories(self):
         event = {
             "event_id": "context-override", "provider": "claude", "timestamp": "2026-10-05T10:00:00Z",

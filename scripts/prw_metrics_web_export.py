@@ -26,7 +26,7 @@ except ModuleNotFoundError:
 SCHEMA_VERSION = 1
 
 _TS = re.compile(
-    r"^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})(?:\.\d+)?(Z|[+-]\d{2}(?::?\d{2})?)?$"
+    r"^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2}(?:\.\d+)?)(Z|[+-]\d{2}(?::?\d{2})?)?$"
 )
 
 
@@ -47,7 +47,7 @@ def to_utc_iso(value):
         parsed = datetime.fromisoformat(f"{day}T{clock}{zone}")
     except ValueError:
         return None
-    return parsed.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return parsed.astimezone(timezone.utc).replace(tzinfo=None).isoformat() + "Z"  # subseconds kept for ordering
 
 
 def _number(value):
@@ -130,9 +130,7 @@ def _handoffs(record):
         start, end = to_utc_iso(_first(record, start_fields)), to_utc_iso(_first(record, end_fields))
         if not start or not end:
             continue
-        seconds = (
-            datetime.strptime(end, "%Y-%m-%dT%H:%M:%SZ") - datetime.strptime(start, "%Y-%m-%dT%H:%M:%SZ")
-        ).total_seconds()
+        seconds = (_instant(end) - _instant(start)).total_seconds()
         if seconds >= 0:  # an end before its start is a recording conflict, not a duration
             intervals[key] = seconds
     return intervals or None
@@ -167,7 +165,7 @@ def _flow(record, stage_events=None, cutoff=None):
     record = record if isinstance(record, dict) else {}
     starts, finals, late_final = [], [], False
     for when, label in stage_events or []:
-        if cutoff and when > cutoff:
+        if cutoff and _instant(when) > _instant(cutoff):
             late_final = late_final or normalize_stage_label(label) == FINAL_STAGE
             continue
         starts.append(when)
@@ -177,7 +175,7 @@ def _flow(record, stage_events=None, cutoff=None):
         if not isinstance(transition, dict):
             continue
         entered = to_utc_iso(_first(transition, ("entered_at", "start_at", "start")))
-        if entered and cutoff and entered > cutoff:
+        if entered and cutoff and _instant(entered) > _instant(cutoff):
             late_final = late_final or normalize_stage_label(transition.get("stage") or transition.get("label") or transition.get("name")) == FINAL_STAGE
         elif entered:
             starts.append(entered)
@@ -193,8 +191,8 @@ def _flow(record, stage_events=None, cutoff=None):
     reached = bool(finals) or (label_final and not late_final)
     return {
         "reached_final": reached,
-        "started_at": min(starts) if starts else None,
-        "final_at": min(finals) if finals else None,
+        "started_at": min(starts, key=_instant) if starts else None,
+        "final_at": min(finals, key=_instant) if finals else None,
     }
 
 
@@ -470,7 +468,8 @@ def build_snapshot(summary_data, query_summary, prs, *, generated_at=None, code_
     stage_events = _stage_events_by_pr(timeline)
     cutoff = to_utc_iso(query_summary.get("snapshot_at_utc"))
     native = ((summary_data.get("usage_summary") or {}).get("coverage") or {}).get("native_source")
-    history_from, history_to = (native.get("window_start"), native.get("window_end")) if isinstance(native, dict) else (None, None)
+    # Only a COMPLETE native history shows that an interval inside its window was observed.
+    history_from, history_to = (native.get("window_start"), native.get("window_end")) if isinstance(native, dict) and native.get("status") == "COMPLETE" else (None, None)
     rows = []
     for metric in query_summary.get("pr_metrics") or []:
         if not isinstance(metric, dict) or _count(metric.get("pr_number")) is None:
