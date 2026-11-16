@@ -425,7 +425,7 @@ def _entire_records(rows, source_fingerprint, source_id, session_id, provider,
             candidates.append((index, row, blocks, text, native_id, timestamp, event_id))
     result, packet = [], []
     for index, row, blocks, user_text, native_id, timestamp, event_id in candidates:
-        normalized_timestamp = format_iso_utc(timestamp) if timestamp else None
+        normalized_timestamp = timestamp.isoformat().replace("+00:00", "Z") if timestamp else None  # keep subseconds
         native_evidence = matched_native_evidence(row, blocks)
         native_human = native_evidence is not None and native_evidence["verified"]
         record = {
@@ -700,7 +700,7 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                         source_identity = "source:" + hashlib.sha256(identity.encode()).hexdigest()
                         namespace = session or _usage_label(row.get("sessionId")) or source_identity
                         turn = _usage_label(payload.get("turn_id"))
-                        common = dict(timestamp=format_iso_utc(at), provider=provider,
+                        common = dict(timestamp=at.isoformat().replace("+00:00", "Z"), provider=provider,  # keep subseconds
                                       session_id=namespace, turn_id=turn, source_fingerprint=fingerprint)
                         if codex_usage or codex_user:
                             git_metadata = _git_metadata(row, payload, repository_map)
