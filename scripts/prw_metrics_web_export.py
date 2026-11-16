@@ -269,11 +269,11 @@ def _instant(value):
     return parsed.astimezone(timezone.utc) if parsed.tzinfo else None
 
 
-def _mid_pr(metric, flow, cutoff, history_from):
+def _mid_pr(metric, flow, cutoff, history_from, history_to):
     """Confirmed human messages strictly inside the start..end interval; unknown unless the interval is fully observed.
 
     End is the final-stage entry, else the merge when it is on or before the snapshot cutoff. Unknown
-    (None) also covers unconfirmed attributions and history that begins after the PR started.
+    (None) also covers unconfirmed attributions and an interval not inside the observed history window.
     """
     unconfirmed = metric.get("unconfirmed_verified_messages")
     if _count(unconfirmed) != 0 or not flow or not flow["started_at"]:
@@ -282,8 +282,8 @@ def _mid_pr(metric, flow, cutoff, history_from):
     merged = _instant(str(metric.get("merged_at_utc")))
     if end is None and merged and (not cutoff or merged <= _instant(cutoff)):
         end = merged
-    observed_from = _instant(history_from)
-    if end is None or start >= end or (observed_from and observed_from > start):
+    observed_from, observed_to = _instant(history_from), _instant(history_to)
+    if end is None or start >= end or not observed_from or observed_from > start or not observed_to or observed_to < end:
         return None
     try:
         times = json.loads(metric.get("confirmed_verified_at"))
@@ -291,12 +291,10 @@ def _mid_pr(metric, flow, cutoff, history_from):
         return None
     if not isinstance(times, list):
         return None
-    if not isinstance(times, list):
-        return None
     return sum(start < t < end for t in map(_instant, times) if t)
 
 
-def _pr_row(metric, record, scenario, stage_events=None, cutoff=None, history_from=None):
+def _pr_row(metric, record, scenario, stage_events=None, cutoff=None, history_from=None, history_to=None):
     repository = metric.get("repository")
     number = _count(metric.get("pr_number"))
     record = record or {}
@@ -344,7 +342,7 @@ def _pr_row(metric, record, scenario, stage_events=None, cutoff=None, history_fr
             "verified_messages": _count(metric.get("raw_verified_human_message_count")),
             "initial": _count(metric.get("verified_initial_human_message_count")),
             "followup": _count(metric.get("verified_followup_human_message_count")),
-            "mid_pr": _mid_pr(metric, flow, cutoff, history_from),
+            "mid_pr": _mid_pr(metric, flow, cutoff, history_from, history_to),
             "branch_candidates": _count(metric.get("branch_associated_candidates")),
             "episodes": {
                 label: _count(metric.get(f"{label}_episode_count"))
@@ -472,13 +470,13 @@ def build_snapshot(summary_data, query_summary, prs, *, generated_at=None, code_
     stage_events = _stage_events_by_pr(timeline)
     cutoff = to_utc_iso(query_summary.get("snapshot_at_utc"))
     native = ((summary_data.get("usage_summary") or {}).get("coverage") or {}).get("native_source")
-    history_from = native.get("window_start") if isinstance(native, dict) else None
+    history_from, history_to = (native.get("window_start"), native.get("window_end")) if isinstance(native, dict) else (None, None)
     rows = []
     for metric in query_summary.get("pr_metrics") or []:
         if not isinstance(metric, dict) or _count(metric.get("pr_number")) is None:
             continue
         key = _pr_key(metric.get("repository"), _count(metric.get("pr_number")))
-        rows.append(_pr_row(metric, index.get(key), scenarios.get(key), stage_events.get(key), cutoff, history_from))
+        rows.append(_pr_row(metric, index.get(key), scenarios.get(key), stage_events.get(key), cutoff, history_from, history_to))
     rows.sort(key=lambda row: (row["repo"] or "", row["number"]))
     cohorts = [_cohort_row(row) for row in query_summary.get("metric_cohorts") or [] if isinstance(row, dict)]
     usage = summary_data.get("usage_summary") if isinstance(summary_data.get("usage_summary"), dict) else {}
