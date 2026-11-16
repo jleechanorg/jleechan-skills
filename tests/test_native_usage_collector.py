@@ -105,6 +105,22 @@ class NativeUsageCollectorTests(unittest.TestCase):
         self.assertNotIn(secret, encoded)
         self.assertNotIn(str(self.codex), encoded)
 
+    def test_human_record_timestamps_keep_fractional_seconds(self):
+        rows = [
+            {"type": "turn_context", "timestamp": "2026-10-28T09:00:00Z",
+             "payload": {"turn_id": "turn-a", "model": "fixture-codex-model"}},
+            {"type": "response_item", "timestamp": "2026-10-28T09:00:01.250Z",
+             "payload": {"id": "prompt-1", "turn_id": "turn-a", "role": "user",
+                         "content": [{"type": "input_text", "text": "first"}]}},
+            {"type": "response_item", "timestamp": "2026-10-28T09:00:02Z",
+             "payload": {"id": "prompt-2", "turn_id": "turn-a", "role": "user",
+                         "content": [{"type": "input_text", "text": "second"}]}},
+        ]
+        self._write(self.codex, "2026/11/rollout.jsonl", rows)
+        data = collect_native_history([self.codex], cutoff=self.cutoff, days=14)
+        self.assertEqual(sorted(h["timestamp"] for h in data["human_records"]),
+                         ["2026-10-28T09:00:01.250000Z", "2026-10-28T09:00:02Z"])
+
     def test_conflicting_response_observation_remains_unknown_not_first_priced(self):
         self._write(self.codex, "rollout.jsonl", [
             {"type": "turn_context", "payload": {"turn_id": "turn-a", "model": "fixture-codex-model"}},
