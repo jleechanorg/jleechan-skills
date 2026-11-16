@@ -84,7 +84,7 @@ class TestRecords(unittest.TestCase):
                     "gh -R acme/app pr create --fill",
                     "cd /w/x && gh pr create --draft --title \"t\" --body \"$(cat b.md)\"",
                     "B=$(mktemp)\ncat > \"$B\" <<'EOF'\nbody gh pr text\nEOF\n"
-                    "git push -u origin HEAD && gh pr create --body-file \"$B\" | tail -1"):
+                    "git push -u origin HEAD && gh pr create --body-file \"$B\""):
             with self.subTest(cmd=cmd):
                 recs, _ = run(post(cmd, out))
                 self.assertEqual([(r["pr"], r["source"]) for r in recs],
@@ -98,7 +98,9 @@ class TestRecords(unittest.TestCase):
                          ("echo $(gh pr view 9 --json url) && gh pr create --fill", url),
                          ("cat " + url.strip() + " && gh pr create --fill", url),
                          ("cd x && gh pr create --repo a/b --dry-run", url),
-                         ("gh pr create --fill; cat notes.md", url)):
+                         ("gh pr create --fill; cat notes.md", url),
+                         ("cd x && gh pr create --fill | tail -3",
+                          "a pull request for branch \"b\" into branch \"main\" already exists:\n" + url)):
             with self.subTest(cmd=cmd):
                 self.assertEqual(run(post(cmd, out))[0], [])
 
