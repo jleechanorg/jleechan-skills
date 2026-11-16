@@ -190,6 +190,9 @@ class NativeHumanSteeringTests(unittest.TestCase):
         self.assertEqual(unknown([dict(branch, event_id="a")], [dict(p, repo="Example/Repo") for p in self.prs]), [1, 1, 1])
         self.assertEqual(unknown([dict(branch, event_id="h", commit_hash="sha-pr6")]), [1, 1, 1])  # a session SHA is not confirmation
         self.assertEqual(unknown([dict(branch, event_id="c", pr_binding={"pr": "example/repo#6"})]), [0, 0, 0])
+        spelled = [dict(self.prs[0], repo="Example/Repo"), dict(self.prs[0], repo="EXAMPLE/REPO")]  # two listed spellings of #5
+        self.assertEqual(unknown([override, dict(override, timestamp="2026-10-12T10:00:01Z", original_associated_pr="example/repo#5")],
+                                 spelled), [1, 1, 1, 1])  # each listed spelling, plus the named ones
 
     def test_unassigned_and_ambiguous_records_remain_visible_in_coverage(self):
         result = aggregate_native_human_steering(

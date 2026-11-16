@@ -354,6 +354,11 @@ class FlowTests(unittest.TestCase):
     def stage(label, at):
         return {"repo": "acme/app", "pr_number": 1, "event": "labeled", "label": label, "createdAt": at}
 
+    def test_mid_pr_is_unknown_when_the_final_stage_is_known_but_undated(self):
+        row = self.steer_row(["2026-11-01T13:00:00Z"], [self.stage("stage:1-coding", "2026-11-01T10:00:00Z")],
+                             record={"legacy_stage": "stage:5-final-approval"}, merged_at_utc="2026-11-01T15:00:00Z")
+        self.assertIsNone(row["human"]["mid_pr"])
+
     def test_mid_pr_is_unknown_for_candidate_only_or_conflicting_summary_rows(self):
         stages = [self.stage("stage:1-coding", "2026-11-01T10:00:00Z"), self.stage("stage:5-final-approval", "2026-11-01T12:00:00Z")]
         self.assertEqual(self.steer_row([], stages)["human"]["mid_pr"], 0)

@@ -272,7 +272,7 @@ def _mid_pr(metric, flow, cutoff, history_from, history_to):
         return None
     start, end = _instant(flow["started_at"]), _instant(flow["final_at"])
     merged = _instant(str(metric.get("merged_at_utc")))
-    if end is None and merged and (not cutoff or merged <= _instant(cutoff)):
+    if end is None and merged and not flow["reached_final"] and (not cutoff or merged <= _instant(cutoff)):  # known final, unknown time: unknown
         end = merged
     observed_from, observed_to = _instant(history_from), _instant(history_to)
     if end is None or start >= end or not observed_from or observed_from > start or not observed_to or observed_to < end:

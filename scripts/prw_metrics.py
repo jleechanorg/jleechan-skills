@@ -4219,7 +4219,7 @@ def aggregate_native_human_steering(
         for i in items:
             repo_i, branch_i = safe_repo(i.get("repository") or i.get("repository_url")), i.get("git_branch") or i.get("branch")
             prs |= {e[0] for (r, b), es in branch_index.items() for e in es if b == branch_i and (repo_i is None or r.lower() == repo_i.lower())}
-        return prs
+        return prs | {k for k in pr_rows if k.lower() in {pr.lower() for pr in prs}}  # every listed spelling of a named PR
 
     for event in human_records or []:
         if not isinstance(event, dict):
