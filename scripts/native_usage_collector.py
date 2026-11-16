@@ -123,7 +123,7 @@ def _export_source_quality(path, start, cutoff):
         return result
     result["status"] = status
     for key in ("roots_requested", "roots_available", "missing_roots", "files_scanned",
-                "duplicate_files", "malformed_lines", "read_errors"):
+                "duplicate_files", "malformed_lines", "read_errors", "undated_records"):
         value = data.get(key)
         if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
             result[key] = value
@@ -137,7 +137,8 @@ def _export_source_quality(path, start, cutoff):
         if not source_start or not source_end:
             result["status"] = "UNKNOWN"
         elif (source_start > start or source_end < cutoff or result.get("missing_roots", 0)
-              or result.get("malformed_lines", 0) or result.get("read_errors", 0)):
+              or result.get("malformed_lines", 0) or result.get("read_errors", 0)
+              or result.get("undated_records", 0)):
             result["status"] = "PARTIAL"
     return result
 
@@ -243,6 +244,8 @@ def load_normalized_history(path, cutoff, days=14, annotation_path=None):
                     stats["human_unannotated"] += (
                         record.get("origin_status") == "unverified_candidate"
                     )
+    if stats["undated_records"] and stats["source_exports"][0]["status"] == "COMPLETE":  # an undated record cannot be placed in time
+        stats["source_exports"][0]["status"] = "PARTIAL"
     return {
         "usage_records": usage,
         "human_records": humans,
@@ -846,7 +849,7 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
     if not stats["roots_available"]:
         stats["status"] = "FAILED"
     else:
-        stats["status"] = "PARTIAL" if errors or entire_parser else "COMPLETE"
+        stats["status"] = "PARTIAL" if errors or entire_parser or stats["undated_records"] else "COMPLETE"
     stats["window_start"], stats["window_end"] = format_iso_utc(start), format_iso_utc(cutoff)
     if state_conn:
         state_conn.close()
