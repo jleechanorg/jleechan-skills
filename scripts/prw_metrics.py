@@ -4219,7 +4219,10 @@ def aggregate_native_human_steering(
             coverage["automated_excluded_messages"] += 1
             continue
         verified = any(i.get("actor_kind") == "human" or i.get("origin_status") == "verified_human" for i in items)
-        if disputed is not None:  # unconfirmed for every named PR; no copy's fields decide counting
+        if disputed is not None:  # unconfirmed for every PR a copy names or its repository and branch could match
+            for i in items:
+                repo_i, branch_i = safe_repo(i.get("repository") or i.get("repository_url")), i.get("git_branch") or i.get("branch")
+                disputed |= {e[0] for e in (branch_index.get((repo_i, branch_i), []) if repo_i else branch_only_index.get(branch_i, []))} if isinstance(branch_i, str) else set()
             for pr in disputed:
                 ensure_direct_row(pr)
                 pr_rows[pr]["_unconfirmed"] += verified

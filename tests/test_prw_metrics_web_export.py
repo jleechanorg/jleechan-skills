@@ -452,6 +452,44 @@ class FlowTests(unittest.TestCase):
                              cutoff="2026-11-01T11:00:00Z", record={"legacy_stage": "stage:5-final-approval"})
         self.assertFalse(row["flow"]["reached_final"])
 
+    @unittest.skipUnless(shutil.which("node"), "node is not installed")
+    def test_disputed_branch_prompt_leaves_one_shot_unknown_in_either_order(self):
+        import prw_metrics
+
+        def copy(n, kind):
+            return {"event_id": f"b{n}", "provider": "codex", "timestamp": "2026-11-01T11:00:00Z",
+                    "actor_kind": "human", "origin_status": "verified_human", "repository": "acme/app",
+                    "git_branch": f"feature/{n}", "message_kind": kind}
+        prs = [{"repo": "acme/app", "number": n, "headRefName": f"feature/{n}", "state": "MERGED",
+                "createdAt": "2026-11-01T08:00:00Z", "mergedAt": "2026-11-01T13:00:00Z"} for n in (1, 2, 3)]
+        for flip in (False, True):
+            records = []
+            for n in (1, 2, 3):
+                pair = [copy(n, "status_request"), copy(n, "new_requirement/domain_judgment")]
+                records += [{"event_id": f"p{n}", "provider": "codex", "timestamp": "2026-11-01T09:00:00Z",
+                             "actor_kind": "human", "origin_status": "verified_human",
+                             "pr_binding": {"pr": f"acme/app#{n}"}}] + (pair[::-1] if flip else pair)
+            agg = {r["pr"]: r for r in prw_metrics.aggregate_native_human_steering(
+                records, prs, window_start="2026-10-01T00:00:00Z", window_end="2026-12-01T00:00:00Z",
+                source_stats={"status": "COMPLETE"})["per_pr"]}
+            q = query([metric(n, human_coverage_status="OBSERVED_SCOPE_ONLY", raw_verified_human_message_count=2,
+                              confirmed_verified_at=json.dumps(agg[f"acme/app#{n}"]["confirmed_verified_at"]),
+                              unconfirmed_verified_messages=agg[f"acme/app#{n}"]["unconfirmed_verified_messages"])
+                       for n in (1, 2, 3)])
+            timeline = [dict(self.stage(label, at), pr_number=n) for n in (1, 2, 3) for label, at in
+                        (("stage:1-coding", "2026-11-01T10:00:00Z"), ("stage:5-final-approval", "2026-11-01T12:00:00Z"))]
+            summary = {"usage_summary": {"coverage": {"native_source": {
+                "status": "COMPLETE", "window_start": "2026-10-01T00:00:00Z", "window_end": "2026-12-01T00:00:00Z"}}}}
+            rows = export.build_snapshot(summary, q, [{"repo": "acme/app", "number": n} for n in (1, 2, 3)],
+                                         timeline=timeline)["prs"]
+            self.assertEqual([r["human"]["mid_pr"] for r in rows], [None, None, None])
+            script = ("const S=require(process.argv[1]);"
+                      "console.log(JSON.stringify(S.oneShot(JSON.parse(require('fs').readFileSync(0,'utf8'))).rate))")
+            out = subprocess.run(["node", "-e", script, str(REPO / "web" / "prw-dashboard" / "stats.js")],
+                                 input=json.dumps(rows), capture_output=True, text=True, timeout=60, check=True)
+            rate = json.loads(out.stdout)
+            self.assertEqual([rate["n"], rate["ones"], rate["unknown"]], [0, 0, 3])
+
     def test_mid_pr_is_unknown_without_confirmed_times(self):
         q = query([metric(1, human_coverage_status="OBSERVED_SCOPE_ONLY")])
         row = export.build_snapshot({}, q, [{"repo": "acme/app", "number": 1, "stage_transitions": [

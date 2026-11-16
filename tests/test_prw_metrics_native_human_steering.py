@@ -625,6 +625,22 @@ class DuplicateCopyReconciliationTests(unittest.TestCase):
         self.assertEqual(rows[0]["unconfirmed_verified_messages"], 1)
         self.assertEqual(rows[0]["confirmed_verified_at"], [])
 
+    def test_disputed_branch_matched_copies_stay_unconfirmed_in_either_order(self):
+        def copy(**extra):
+            return {"event_id": "b", "provider": "codex", "timestamp": "2026-10-02T06:00:00Z",
+                    "actor_kind": "human", "origin_status": "verified_human", **extra}
+        pairs = (
+            (copy(repository="example/repo", git_branch="t9", message_kind="status_request"),
+             copy(repository="example/repo", git_branch="t9", message_kind="new_requirement/domain_judgment")),
+            (copy(repository="example/repo", git_branch="other"), copy(repository="example/repo", git_branch="t9")),
+            (copy(git_branch="t9", message_kind="status_request"), copy(git_branch="t9")),
+        )
+        for a, b in pairs:
+            for records in ([a, b], [b, a]):
+                row = self._row(records)
+                self.assertEqual(row["unconfirmed_verified_messages"], 1, records)
+                self.assertEqual(row["confirmed_verified_at"], [], records)
+
     def test_key_order_does_not_dispute_equivalent_copies(self):
         a = self._copy(origin_status="verified_human")
         b = dict(reversed(list(a.items())))
