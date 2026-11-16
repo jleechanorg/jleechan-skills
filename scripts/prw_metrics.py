@@ -4364,6 +4364,9 @@ def aggregate_native_human_steering(
                     coverage["branch_only_messages"] += 1
                 elif len(branch_all) > 1:
                     coverage["ambiguous_branch_messages"] += 1
+            if association is None and verified:  # ambiguous branch: unknown, unbound, for every plausible PR
+                for key in {k for k, _ in all_candidates} or ({k for k, _ in branch_all} if repository is None and branch and at else set()):
+                    pr_rows[key]["_unconfirmed"] += 1
 
         role = event.get("episode_role")
         quality_label = event.get("quality_label")

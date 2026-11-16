@@ -641,6 +641,20 @@ class DuplicateCopyReconciliationTests(unittest.TestCase):
                 self.assertEqual(row["unconfirmed_verified_messages"], 1, records)
                 self.assertEqual(row["confirmed_verified_at"], [], records)
 
+    def test_ambiguous_branch_prompt_is_unconfirmed_for_every_plausible_pr(self):
+        prs = [{**self.PR, "number": n} for n in (9, 10, 11)]
+        prompt = {"event_id": "amb", "provider": "codex", "timestamp": "2026-10-02T06:00:00Z",
+                  "actor_kind": "human", "origin_status": "verified_human", "git_branch": "t9"}
+        for extra in ({"repository": "example/repo"}, {}):
+            result = aggregate_native_human_steering(
+                [{**prompt, **extra}], prs, window_start="2026-09-01T00:00:00Z",
+                window_end="2026-11-01T00:00:00Z")
+            self.assertEqual(result["coverage"]["ambiguous_branch_messages"], 1, extra)
+            for row in result["per_pr"]:
+                self.assertEqual(row["unconfirmed_verified_messages"], 1, (extra, row["pr"]))
+                self.assertEqual(row["confirmed_verified_at"], [], (extra, row["pr"]))
+                self.assertEqual(row["raw_verified_messages"], 0, (extra, row["pr"]))
+
     def test_key_order_does_not_dispute_equivalent_copies(self):
         a = self._copy(origin_status="verified_human")
         b = dict(reversed(list(a.items())))
