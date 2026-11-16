@@ -243,7 +243,7 @@ def load_normalized_history(path, cutoff, days=14, annotation_path=None):
                     stats["human_unannotated"] += (
                         record.get("origin_status") == "unverified_candidate"
                     )
-    if stats["undated_records"]:  # an undated record cannot be placed in time, so the export is not a complete observation
+    if stats["undated_records"] and stats["source_exports"][0]["status"] == "COMPLETE":  # an undated record cannot be placed in time
         stats["source_exports"][0]["status"] = "PARTIAL"
     return {
         "usage_records": usage,

@@ -132,11 +132,13 @@ class NativeUsageCollectorTests(unittest.TestCase):
         self.assertEqual(data["stats"]["undated_records"], 1)
         self.assertEqual(data["stats"]["status"], "PARTIAL")
         dated = dict(record_type="human", event_id="e1", provider="openai", timestamp="2026-11-02T10:00:00Z")
-        for records, expected in (([dated], "COMPLETE"), ([dated, dict(dated, timestamp=None)], "PARTIAL")):
-            export = self.base / f"replay-{expected}.jsonl"
+        undated = dict(dated, timestamp=None)
+        for records, receipt, expected in (([dated], "COMPLETE", "COMPLETE"), ([dated, undated], "COMPLETE", "PARTIAL"),
+                                           ([dated, undated], "FAILED", "FAILED")):
+            export = self.base / f"replay-{receipt}-{expected}.jsonl"
             export.write_text("".join(json.dumps(r) + "\n" for r in records), encoding="utf-8")
             Path(str(export) + ".stats.json").write_text(json.dumps({
-                "status": "COMPLETE", "malformed_lines": 0, "read_errors": 0,
+                "status": receipt, "malformed_lines": 0, "read_errors": 0,
                 "window_start": "2026-10-26T00:00:00Z", "window_end": "2026-11-10T00:00:00Z",
             }), encoding="utf-8")
             replay = load_normalized_history(export, self.cutoff, days=14)
