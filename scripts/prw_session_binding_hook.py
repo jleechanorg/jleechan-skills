@@ -20,6 +20,7 @@ SHA_RE = re.compile(r"[0-9a-fA-F]{7,64}")
 PR_URL_RE = re.compile(r"github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/pull/([0-9]+)")
 PR_URL_FULL_RE = re.compile(r"(?:https?://)?github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/pull/([0-9]+)/?")
 HEREDOC_RE = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1[^\n]*\n.*?(?:\n[ \t]*\2[ \t]*(?=\n|$)|\Z)", re.S)
+GH_WORD_RE = re.compile(r"(?<![\w./-])gh\s")
 SEP_CHARS = set(";&|()\n")
 SHELLS = {"bash", "sh", "zsh", "dash", "ksh", "fish"}
 MAX_BYTES = 1024
@@ -134,6 +135,24 @@ def _classify(seg):
     return None
 
 
+def _sole_gh_create(command, segs, seps):
+    """The `gh pr create` segment when it is the only gh invocation and the last command.
+
+    A command that itself names a PR URL could echo it, and a later command could
+    print an unrelated one. A pipe after the create also hides its exit status, so
+    gh's "already exists: <URL>" error would look like a created PR, and after
+    `||` an earlier command's output can stand in for a create that never ran.
+    """
+    gh_segs = [s for s in segs if s[0] == "gh"]
+    text = HEREDOC_RE.sub("\n", command)
+    if (len(gh_segs) != 1 or segs[-1] is not gh_segs[0] or "/pull/" in text
+            or len(GH_WORD_RE.findall(text)) != 1
+            or any(s not in ("&&", ";", "\0", "") for s in seps)):
+        return None
+    c = _classify(gh_segs[0])
+    return gh_segs[0] if c and c[1] == "create" else None
+
+
 def _clean_git(info):
     out = {}
     if not isinstance(info, dict):
@@ -185,19 +204,23 @@ def records_for(payload, runtime, git, now=None):
         return []
     output = _output_text(resp)
 
-    # Coverage is a deliberate lower bound: only one simple command (no other
-    # command, condition, grouping, assignment, alias, path or substitution)
-    # counts, and a PR is bound only from a fully qualified URL, never from a
-    # number or from gh's repository resolution.
-    if "`" in command or "$(" in command:
-        return []
+    # Coverage is a deliberate lower bound. A PR is bound only from a fully
+    # qualified URL in the output, never from a number or gh's repository
+    # resolution. Either the command is one simple gh/git command, or it is a
+    # chain in which exactly one `gh` invocation exists and it is `pr create`.
     try:
         segs, seps, grouped = _segments(command)
     except ValueError:
         return []
-    if len(segs) != 1 or grouped or seps[0] not in ("", ";", "\0"):
-        return []
-    seg = segs[0]
+    chained = _sole_gh_create(command, segs, seps)
+    if chained:
+        seg = chained
+    else:
+        if "`" in command or "$(" in command:
+            return []
+        if len(segs) != 1 or grouped or seps[0] not in ("", ";", "\0"):
+            return []
+        seg = segs[0]
     if any("<" in a or ">" in a for a in seg):
         return []
     c = _classify(seg) if seg[0] in ("gh", "git") else None
@@ -205,8 +228,6 @@ def records_for(payload, runtime, git, now=None):
         return []
     tool, verb, args, cdir = c
     if tool == "gh":
-        if seg[1] != "pr" or any(a in ("-R", "--repo") or a.startswith("--repo=") for a in args):
-            return []
         if verb == "create":
             if {"--dry-run", "--web", "-w", "--help", "-h"} & set(args):
                 return []
@@ -215,6 +236,8 @@ def records_for(payload, runtime, git, now=None):
                 return []
             pr, source = urls.pop(), "gh_pr_create"
         elif verb == "checkout":
+            if any(a in ("-R", "--repo") or a.startswith("--repo=") for a in args):
+                return []
             # Exactly `gh pr checkout <URL>`: any flag (--help, --detach, -b) may
             # mean no checkout or a detached one.
             m = PR_URL_FULL_RE.fullmatch(args[0]) if len(args) == 1 else None

@@ -125,6 +125,11 @@ export PRW_METRICS_TELEMETRY_DIR="${PRW_METRICS_TELEMETRY_DIR:-$PRW_METRICS_ROAD
 export PRW_METRICS_STALE_HOURS="${PRW_METRICS_STALE_HOURS:-4.5}"
 export PRW_METRICS_PUBLISH="${PRW_METRICS_PUBLISH:-1}"
 
+# The dashboard page (web/prw-dashboard, served by launchd/org.prw.dashboard.plist.template)
+# fetches dashboard.json from the directory it serves.
+DASHBOARD_JSON="${PRW_METRICS_DASHBOARD_JSON:-$HOME/.local/share/prw-dashboard/current/dashboard.json}"
+FAILURE_MARKER="$PRW_METRICS_STATE_DIR/last_failure.json"
+
 echo "Starting PRW metrics collection at $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 
 set +e
@@ -153,6 +158,7 @@ else
   python3 "$REPO_DIR/scripts/prw_metrics.py" \
     --roadmap-repo "$PRW_METRICS_ROADMAP_REPO" \
     --state-dir "$PRW_METRICS_STATE_DIR" \
+    --dashboard-json "$DASHBOARD_JSON" \
     ${telem_args[@]+"${telem_args[@]}"} \
     ${history_args[@]+"${history_args[@]}"}
 fi
@@ -161,9 +167,31 @@ set -e
 
 if [[ $STATUS -eq 0 ]]; then
   date +%s > "$LAST_SUCCESS_FILE"
+  rm -f "$FAILURE_MARKER" "$(dirname "$DASHBOARD_JSON")/last_failure.json"
+  if [[ -f "$DASHBOARD_JSON" ]]; then
+    for _asset in index.html app.js stats.js styles.css; do
+      cp "$REPO_DIR/web/prw-dashboard/$_asset" "$(dirname "$DASHBOARD_JSON")/$_asset" || true
+    done
+  fi
+  # Scheduled skill-invocation measure: non-fatal; skipped until the counter supports --state-dir.
+  _skill_counter="${PRW_METRICS_SKILL_COUNTER:-$REPO_DIR/.claude/skills/command-research/scripts/count_command_usage_unified.py}"
+  if [[ -f "$_skill_counter" ]] && [[ "$(python3 "$_skill_counter" --help 2>&1 || true)" == *--state-dir* ]]; then
+    python3 "$_skill_counter" --skills --days 7 --json --state-dir "$PRW_METRICS_STATE_DIR/skill-usage" >/dev/null \
+      || echo "WARN: skill usage measurement failed (non-fatal)" >&2
+  fi
   echo "PRW metrics collection succeeded at $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
   exit 0
 else
   echo "ERROR: PRW metrics collection failed with exit status $STATUS" >&2
+  # Visible-stale marker: a dead collector otherwise leaves no trace (bd-9uu7).
+  _now_iso="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  printf '{"epoch": %s, "exit_status": %s, "time_utc": "%s", "reason": "collector exited non-zero"}\n' \
+    "$(date +%s)" "$STATUS" "$_now_iso" > "$FAILURE_MARKER" || true
+  [[ -d "$(dirname "$DASHBOARD_JSON")" ]] && cp "$FAILURE_MARKER" "$(dirname "$DASHBOARD_JSON")/last_failure.json" || true
+  if [[ -n "${SLACK_WEBHOOK_URL:-}" ]]; then
+    curl -sS --max-time 10 -X POST -H 'Content-type: application/json' \
+      --data "{\"text\": \"PRW metrics collection failed (exit $STATUS) at $_now_iso\"}" \
+      "$SLACK_WEBHOOK_URL" >/dev/null 2>&1 || true
+  fi
   exit $STATUS
 fi
