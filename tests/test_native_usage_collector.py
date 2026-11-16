@@ -150,6 +150,23 @@ class NativeUsageCollectorTests(unittest.TestCase):
             replay = load_normalized_history(export, self.cutoff, days=14)
             self.assertEqual(replay["stats"]["source_exports"][0]["status"], "PARTIAL")
 
+    def test_history_window_keeps_subseconds_in_collection_receipt_and_replay(self):
+        cutoff = datetime(2026, 11, 9, 10, 0, 0, 750000, tzinfo=timezone.utc)
+        self._write(self.codex, "rollout.jsonl", [
+            {"type": "response_item", "timestamp": "2026-11-02T10:00:00Z",
+             "payload": {"id": "p-1", "role": "user", "content": "dated"}},
+        ])
+        data = collect_native_history([self.codex], cutoff=cutoff, days=14)
+        window = ("2026-10-26T10:00:00.750000Z", "2026-11-09T10:00:00.750000Z")
+        self.assertEqual((data["stats"]["window_start"], data["stats"]["window_end"]), window)
+        export = self.base / "precise.jsonl"
+        write_normalized_history(export, data["export_records"])
+        Path(str(export) + ".stats.json").write_text(json.dumps(data["stats"]), encoding="utf-8")
+        replay = load_normalized_history(export, cutoff, days=14)["stats"]
+        self.assertEqual((replay["window_start"], replay["window_end"]), window)
+        source = replay["source_exports"][0]
+        self.assertEqual((source["status"], source["window_start"], source["window_end"]), ("COMPLETE",) + window)
+
     def test_conflicting_response_observation_remains_unknown_not_first_priced(self):
         self._write(self.codex, "rollout.jsonl", [
             {"type": "turn_context", "payload": {"turn_id": "turn-a", "model": "fixture-codex-model"}},
