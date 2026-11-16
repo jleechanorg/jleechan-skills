@@ -141,6 +141,10 @@ th button { border: 0; background: none; padding: 0; min-height: 0; font-weight:
 th button:hover { text-decoration: underline; }
 .mini { font-size: 12.5px; }
 .mini td, .mini th { padding: 4px 8px; }
+@media (max-width: 720px) {
+  #c-wow .mini td.num, #c-wow .mini th.num { white-space: normal; }
+  #c-wow .mini td, #c-wow .mini th { padding: 4px; }
+}
 
 .table-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; align-items: flex-start; margin-bottom: 8px; }
 .actions { display: flex; flex-wrap: wrap; gap: 6px; }

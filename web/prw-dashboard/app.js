@@ -136,14 +136,12 @@
     ribbon.appendChild(h("span", null, ["Annotation freshness ", h("b", { text: annotation.status || "UNKNOWN" })]));
     $("scope-line").textContent = data.prs.length.toLocaleString("en-US") + " pull requests in this snapshot across " + data.repositories.length +
       " repositories, " + fmtTime(data.window_start, false) + " to " + fmtTime(data.window_end || data.data_through, false) + ".";
-    var banner = $("banner");
-    if (data.fixture) {
-      banner.hidden = false;
-      banner.textContent = "Synthetic fixture: " + data.fixture + " These are not real measurements.";
-    } else if (stale) {
-      banner.hidden = false;
-      banner.textContent = "This snapshot is marked " + data.status + ". Figures reflect data through " + (fmtTime(data.data_through) || "an unknown time") + ", not the present.";
-    } else banner.hidden = true;
+    var banner = $("banner"), failure = lastFailure, notes = [];
+    if (failure && Date.parse(failure.time_utc) > Date.parse(data.generated_at)) notes.push("The last scheduled collection failed at " + fmtTime(failure.time_utc) + " (exit " + failure.exit_status + "). This snapshot has not been refreshed since.");
+    if (data.fixture) notes.push("Synthetic fixture: " + data.fixture + " These are not real measurements.");
+    if (stale) notes.push("This snapshot is marked " + data.status + ". Figures reflect data through " + (fmtTime(data.data_through) || "an unknown time") + ", not the present.");
+    banner.hidden = !notes.length;
+    banner.textContent = notes.join(" ");
   }
 
   // ---------- cards ----------
@@ -178,7 +176,7 @@
         detail: sample(t.rate, "reached final") + (t.rate.ok ? "" : " (needs " + min + "+)") }),
       tile({ label: "Human steers per PR, median / p90", value: t.steers.ok ? t.steers.p50 + " / " + t.steers.p90 : null, naText: na,
         detail: sample(t.steers, "reached final") + (t.steers.ok ? "" : " (needs " + min + "+)") }),
-      tile({ label: "Start to final stage, median / p90", value: t.minutes.ok ? minutes(t.minutes.p50) + " / " + minutes(t.minutes.p90) : null, naText: na,
+      tile({ label: "First recorded stage to final stage, median / p90", value: t.minutes.ok ? minutes(t.minutes.p50) + " / " + minutes(t.minutes.p90) : null, naText: na,
         detail: sample(t.minutes, "reached final") + (t.minutes.ok ? "" : " (needs " + min + "+)") }),
       tile({ label: "Reached final stage vs started", value: t.counts.ok ? t.counts.reached.toLocaleString("en-US") + " of " + t.counts.started.toLocaleString("en-US") : null, naText: na,
         detail: "n = " + t.counts.started.toLocaleString("en-US") + " started · unknown: " + t.counts.unknown.toLocaleString("en-US") + (t.counts.ok ? "" : " (needs " + min + "+)") }),
@@ -689,6 +687,7 @@
 
   // ---------- render ----------
   var current = { rows: [], agg: null };
+  var lastFailure = null; // optional last_failure.json beside the snapshot; absent or unreadable means none
   function render() {
     var f = currentFilter(), rows = S.filterPrs(data.prs, f), agg = S.aggregate(rows, f);
     current = { rows: rows, agg: agg };
@@ -735,6 +734,15 @@
 
   fetch(DATA_URL, { cache: "no-store" })
     .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
-    .then(start)
+    .then(function (d) {
+      start(d);
+      return fetch("last_failure.json", { cache: "no-store" })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .catch(function () { return null; })
+        .then(function (m) {
+          lastFailure = m && typeof m === "object" ? m : null;
+          if (lastFailure && data) renderHeader();
+        });
+    })
     .catch(function (err) { fail("Could not load " + DATA_URL + " (" + err.message + "). Nothing is shown rather than stale or partial figures."); });
 })();
