@@ -123,7 +123,7 @@ def _export_source_quality(path, start, cutoff):
         return result
     result["status"] = status
     for key in ("roots_requested", "roots_available", "missing_roots", "files_scanned",
-                "duplicate_files", "malformed_lines", "read_errors"):
+                "duplicate_files", "malformed_lines", "read_errors", "undated_records"):
         value = data.get(key)
         if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
             result[key] = value
@@ -137,7 +137,8 @@ def _export_source_quality(path, start, cutoff):
         if not source_start or not source_end:
             result["status"] = "UNKNOWN"
         elif (source_start > start or source_end < cutoff or result.get("missing_roots", 0)
-              or result.get("malformed_lines", 0) or result.get("read_errors", 0)):
+              or result.get("malformed_lines", 0) or result.get("read_errors", 0)
+              or result.get("undated_records", 0)):
             result["status"] = "PARTIAL"
     return result
 

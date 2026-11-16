@@ -143,6 +143,12 @@ class NativeUsageCollectorTests(unittest.TestCase):
             }), encoding="utf-8")
             replay = load_normalized_history(export, self.cutoff, days=14)
             self.assertEqual(replay["stats"]["source_exports"][0]["status"], expected)
+        export = self.base / "written.jsonl"  # writer-to-replay round trip, including a receipt the old writer marked COMPLETE
+        write_normalized_history(export, data["export_records"])
+        for receipt in (data["stats"], dict(data["stats"], status="COMPLETE")):
+            Path(str(export) + ".stats.json").write_text(json.dumps(receipt), encoding="utf-8")
+            replay = load_normalized_history(export, self.cutoff, days=14)
+            self.assertEqual(replay["stats"]["source_exports"][0]["status"], "PARTIAL")
 
     def test_conflicting_response_observation_remains_unknown_not_first_priced(self):
         self._write(self.codex, "rollout.jsonl", [
