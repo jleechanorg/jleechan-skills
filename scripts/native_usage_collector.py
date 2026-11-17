@@ -1,5 +1,6 @@
 """Recover native usage and prompt metadata from explicit history roots."""
 import argparse
+import contextlib
 import fcntl
 import hashlib
 import io
@@ -114,15 +115,14 @@ def _window_iso(value):  # full precision: a window rounded to the second claims
     return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z") if value else None
 
 
-class _GenerationLock:  # one export/receipt pair at a time: writers exclusive, replay shared; locks the directory, creates nothing
-    def __init__(self, path, mode):
-        self.fd = os.open(Path(path).resolve().parent, os.O_RDONLY)
-        fcntl.flock(self.fd, mode)
-
-    def close(self):  # also runs when an error unwinds past the holder
-        self.fd = os.close(self.fd) if self.fd is not None else None
-
-    __del__ = close
+@contextlib.contextmanager
+def _generation_lock(export, mode):  # one export/receipt pair at a time: writers exclusive, replay shared
+    descriptor = os.open(export.parent, os.O_RDONLY)  # the real directory holding the export; creates nothing
+    try:
+        fcntl.flock(descriptor, mode)
+        yield
+    finally:
+        os.close(descriptor)
 
 
 def _hashed_lines(stream, digest):  # hash every byte read; split on LF, CRLF or a lone CR, as text mode did
@@ -193,8 +193,8 @@ def load_normalized_history(path, cutoff, days=14, annotation_path=None):
     )
     annotations = _load_replay_annotations(annotation_path)
     seen_usage, digest = set(), hashlib.sha256()  # hash exactly the bytes parsed, streamed from one open file
-    lock = _GenerationLock(path, fcntl.LOCK_SH)  # held until the receipt is read, so the pair is one generation
-    with Path(path).open("rb") as stream:
+    path = Path(path).resolve()  # a symlinked export is read, locked and receipted at its real location
+    with _generation_lock(path, fcntl.LOCK_SH), path.open("rb") as stream:  # held until the receipt is read
         for line_number, raw in enumerate(_hashed_lines(stream, digest), 1):
             line = raw.decode("utf-8")
             if not line.strip():
@@ -268,8 +268,7 @@ def load_normalized_history(path, cutoff, days=14, annotation_path=None):
                     stats["human_unannotated"] += (
                         record.get("origin_status") == "unverified_candidate"
                     )
-    stats["source_exports"] = [_export_source_quality(path, digest.hexdigest(), start, cutoff)]
-    lock.close()
+        stats["source_exports"] = [_export_source_quality(path, digest.hexdigest(), start, cutoff)]
     if stats["undated_records"] and stats["source_exports"][0]["status"] == "COMPLETE":  # an undated record cannot be placed in time
         stats["source_exports"][0]["status"] = "PARTIAL"
     return {
@@ -281,24 +280,26 @@ def load_normalized_history(path, cutoff, days=14, annotation_path=None):
 
 
 def write_normalized_history(path, records, stats=None):
-    target = Path(path)
+    target = Path(path).resolve()  # publish at a symlink's real location, keeping the link
     target.parent.mkdir(parents=True, exist_ok=True)
     body = "".join(json.dumps(row, sort_keys=True) + "\n" for row in records).encode("utf-8")
     receipt = Path(str(target) + ".stats.json")  # a receipt names the exact export bytes it describes
     # The receipt goes first: an interrupted publication leaves a hash mismatch (UNKNOWN), never an old claim.
-    lock = _GenerationLock(target, fcntl.LOCK_EX)  # a second writer waits, so the pair comes from one scan
-    for file, data in ((receipt, None if stats is None else (json.dumps(dict(
-            stats, export_sha256=hashlib.sha256(body).hexdigest()), sort_keys=True, indent=2) + "\n").encode("utf-8")), (target, body)):
-        if data is None:
-            file.unlink(missing_ok=True)
-            continue
-        temporary = file.with_name(f".{file.name}.{os.getpid()}.tmp")
-        mode = file.stat().st_mode & 0o777 if file.exists() else 0o600  # never widen an existing file's permissions
-        with os.fdopen(os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "wb") as handle:
-            handle.write(data)
-        os.chmod(temporary, mode)
-        os.replace(temporary, file)  # readers see the old file or the new one, never a partial write
-    lock.close()
+    with _generation_lock(target, fcntl.LOCK_EX):  # a second writer waits, so the pair comes from one scan
+        for file, data in ((receipt, None if stats is None else (json.dumps(dict(
+                stats, export_sha256=hashlib.sha256(body).hexdigest()), sort_keys=True, indent=2) + "\n").encode("utf-8")), (target, body)):
+            if data is None:
+                file.unlink(missing_ok=True)
+                continue
+            temporary = file.with_name(f".{file.name}.{os.getpid()}.tmp")
+            mode = file.stat().st_mode & 0o777 if file.exists() else 0o600  # never widen an existing file's permissions
+            try:
+                with os.fdopen(os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "wb") as handle:
+                    handle.write(data)
+                os.chmod(temporary, mode)
+                os.replace(temporary, file)  # readers see the old file or the new one, never a partial write
+            finally:
+                temporary.unlink(missing_ok=True)
 
 
 def run_entire_parser(parser_argv, agent, source_bytes):

@@ -172,7 +172,7 @@ class NativeUsageCollectorTests(unittest.TestCase):
 
         def rewrite_after_open(path, *args, **kwargs):  # a writer starts replacing the export right after replay opens it
             stream = original_open(path, *args, **kwargs)
-            if path == export and not writers:
+            if path.resolve() == export.resolve() and not writers:
                 writers.append(threading.Thread(target=write_normalized_history,
                                                 args=(export, [], dict(stats, status="PARTIAL"))))
                 writers[0].start()
@@ -213,6 +213,32 @@ class NativeUsageCollectorTests(unittest.TestCase):
             complete.join(5)
         replay = load_normalized_history(export, self.cutoff, days=14)
         self.assertEqual(replay["stats"]["source_exports"][0]["status"], "COMPLETE")  # the last whole pair wins
+
+    def test_a_symlinked_export_is_published_and_locked_at_its_real_location(self):
+        dated = dict(record_type="human", event_id="e1", provider="openai", timestamp="2026-11-02T10:00:00Z")
+        stats = {"status": "COMPLETE", "window_start": "2026-10-26T00:00:00Z", "window_end": "2026-11-10T00:00:00Z"}
+        real_dir, link_dir = self.base / "real", self.base / "links"
+        real_dir.mkdir()
+        link_dir.mkdir()
+        link = link_dir / "export.jsonl"
+        link.symlink_to(real_dir / "export.jsonl")
+        write_normalized_history(link, [dated], stats)
+        self.assertTrue(link.is_symlink())  # the link is kept; both files sit beside the real export
+        self.assertTrue((real_dir / "export.jsonl.stats.json").exists())
+        self.assertEqual(load_normalized_history(link, self.cutoff, days=14)["stats"]["source_exports"][0]["status"], "COMPLETE")
+
+    def test_a_failed_replay_releases_its_lock_before_the_caller_handles_the_error(self):
+        import fcntl
+        export = self.base / "broken.jsonl"
+        export.write_text("not json\n", encoding="utf-8")
+        try:
+            load_normalized_history(export, self.cutoff, days=14)
+        except ValueError:
+            descriptor = os.open(self.base, os.O_RDONLY)
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)  # raises if replay still held its lock
+            finally:
+                os.close(descriptor)
 
     def test_replay_accepts_lone_carriage_return_line_endings(self):
         rows = [dict(record_type="human", event_id=f"e{i}", provider="openai", timestamp="2026-11-02T10:00:00Z") for i in (1, 2)]
