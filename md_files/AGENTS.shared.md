@@ -211,6 +211,16 @@ Inspect upstream behavior before modifying a fork; prefer configuration or plugi
 
 Fix the prompt, schema, or instruction first before adding backend protection, fallback, clamp, sanitizer, retry, or suppression; complete the root-cause-first and any required ZFC workflow before adding such protection. Full procedure: `~/.claude/skills/root-cause-first/SKILL.md`.
 
+### Unmandated enforcement gates
+
+Before adding any guard, validator, ledger, cap, or fail-closed check — including "to satisfy a review finding" — name its authority in one line: an explicit user instruction, a spec the user wrote or approved, or a named policy `file:line`. Your own earlier commit, a spec or design another agent wrote, and a reviewer's preference or finding are not authority.
+
+- **Unrequested user-visible behaviour is the same defect.** A wait, gate, loading or failure screen, retry, timer, expiry, fallback or new default that the user's ask does not name needs that ask quoted, or it is listed for the user as unrequested before merge. When a review finding or your own capture shows a problem the ask does not cover, narrow or remove your change or put it to the user; never resolve it by adding more such behaviour (2026-11-15: worldai_frontend #690 shipped an unrequested startup settings gate, failure screen and expiry this way, ten days after this rule existed).
+- **Enforcement never outranks the deliverable.** More machinery is not more rigor. A fail-closed layer needs a named authority or it does not ship, and it must not be able to block authorized work. A guard stack larger than the change it guards is itself the defect (measured 2026-11-03: 93 changed product lines under 2,713 lines of unrequested budget/ledger guards; four defects in that stack, not the product, blocked every real run for a day).
+- **No irreversible state without a resume path.** Host-local one-shot locks (exclusive-create ledgers, consumed permits) ship with a documented resume/override or not at all. Permanent local state plus no resume turns one fixable defect into a dead lane.
+- **A guard's own tests never prove the deliverable.** Prove that one authorized real run still completes end to end. Passing assertions over the guard prove only the guard.
+- **Spend is user-only (§ Escalate only what only the user can do).** An agent-authored spend guard is convenience, never the authorization boundary: a live user grant authorizes the spend even when local machinery refuses. Never present such machinery as the user's decision, and never cite it as a reason you cannot act.
+
 ## Ponytail — lazy senior dev mode
 
 Before writing code and during `/cs` (`/code-standards`) and `/advice` reviews, load `~/.claude/skills/ponytail/SKILL.md` (`/ponytail`); reuse existing pipelines or delete dead paths before adding the minimum new code. Reject parallel-module duplication, post-hoc undo / mutate-then-reverse-diff machinery, and additive compensator accretion across review rounds.
