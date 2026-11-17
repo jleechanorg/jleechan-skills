@@ -998,6 +998,25 @@ class TestPRWMetricsQueries(unittest.TestCase):
                                     timeline=timeline)["prs"][0]
         self.assertEqual(row["human"]["mid_pr"], 1)
 
+    def test_a_fractional_cutoff_keeps_a_final_stage_entered_just_before_it(self):
+        from scripts import prw_metrics_web_export as export
+
+        cutoff = "2026-11-04T12:00:00.750000Z"
+        prs = [{"repo": "example/repo", "number": 5, "state": "OPEN", "createdAt": "2026-11-04T08:00:00Z"}]
+        events = [{"event_id": "m", "provider": "anthropic", "timestamp": "2026-11-04T10:30:00Z",
+                   "origin_status": "verified_human", "pr_binding": {"pr": "example/repo#5"}}]
+        human_summary = aggregate_native_human_steering(events, prs, window_start="2026-10-21T12:00:00.750000Z",
+                                                        window_end=cutoff, source_stats={"status": "COMPLETE"})
+        result = run_query(events_path=[], pr_snapshots_path=prs, human_summary_path=human_summary, snapshot_at_utc=cutoff)
+        self.assertEqual(result["snapshot_at_utc"], cutoff)
+        timeline = [{"repo": "example/repo", "pr_number": 5, "event": "labeled", "label": label, "createdAt": at}
+                    for label, at in (("stage:1-coding", "2026-11-04T10:00:00Z"),
+                                      ("stage:5-final-approval", "2026-11-04T12:00:00.500Z"))]
+        window = {"status": "COMPLETE", "window_start": "2026-10-21T12:00:00.750000Z", "window_end": cutoff}
+        row = export.build_snapshot({"usage_summary": {"coverage": {"native_source": window}}}, result,
+                                    [{"repo": "example/repo", "number": 5}], timeline=timeline)["prs"][0]
+        self.assertEqual((row["flow"]["reached_final"], row["human"]["mid_pr"]), (True, 1))
+
     def test_subsecond_prompt_after_stage_start_counts_from_raw_native_history(self):
         from datetime import datetime, timezone
         from scripts import prw_metrics_web_export as export

@@ -206,6 +206,10 @@ class NativeHumanSteeringTests(unittest.TestCase):
                  "effective_associated_pr": "example/repo#5", "effective_association_confidence": "REVIEWED_CONTEXT"}
         rows = aggregate_native_human_steering([clash], self.prs, **window)["per_pr"]
         self.assertEqual([(r["raw_verified_messages"], r["unconfirmed_verified_messages"]) for r in rows], [(0, 1), (0, 1), (0, 0)])
+        sparse = dict(clash, event_id="s", pr_binding={"pr": "example/repo#5"}, effective_associated_pr="example/repo#5",
+                      context_associated_pr="example/repo#6")  # a reviewed override that did not restate the effective field
+        rows = aggregate_native_human_steering([sparse], self.prs, **window)["per_pr"]
+        self.assertEqual([(r["confirmed_verified_at"], r["unconfirmed_verified_messages"]) for r in rows], [([], 1), ([], 1), ([], 0)])
         verified_outside = dict(candidate, event_id="v", timestamp="2026-09-20T10:00:00Z", origin_status="verified_human")
         rows = aggregate_native_human_steering([dict(candidate, event_id="v"), verified_outside], self.prs, **window)["per_pr"]
         self.assertEqual([(r["raw_verified_messages"], r["unconfirmed_verified_messages"]) for r in rows], [(0, 0), (0, 1), (0, 0)])

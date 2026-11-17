@@ -4210,9 +4210,6 @@ def aggregate_native_human_steering(
         if isinstance(item, dict) and item.get("event_id"):
             copies.setdefault((item.get("provider"), item["event_id"]), []).append(item)
 
-    def named_context_pr(i):
-        return i.get("effective_associated_pr") or i.get("context_associated_pr") or i.get("original_associated_pr")
-
     def implicated(items):  # every PR the copies name or whose repository (any casing) and branch they match
         prs = {pr for i in items for pr in ((i.get("pr_binding") or {}).get("pr") if isinstance(i.get("pr_binding"), dict) else None, i.get(
             "effective_associated_pr"), i.get("context_associated_pr"), i.get("original_associated_pr")) if _safe_pr_id(pr)}
@@ -4285,8 +4282,10 @@ def aggregate_native_human_steering(
             association = direct_pr
             ensure_direct_row(association)
             confidence, basis, association_kind = "EXPLICIT", "reviewed_direct_pr_binding", "direct"
-            other = named_context_pr(event)
-            clash = context_decision in ("confirm_original", "override", "context_associated") and _safe_pr_id(other) and other != direct_pr
+            reviewed = [event.get("effective_associated_pr"), event.get("context_associated_pr")] + (
+                [event.get("original_associated_pr")] if context_decision == "confirm_original" else [])  # every reviewed field
+            clash = context_decision in ("confirm_original", "override", "context_associated") and any(
+                _safe_pr_id(pr) and pr != direct_pr for pr in reviewed)
             if clash or context_decision in context_unassigned:  # contradictory evidence: bound to and confirmed for no PR
                 association, confidence = None, None
         elif context_decision in context_unassigned:
@@ -5286,7 +5285,7 @@ def main():
         query_summary = run_query(
             events_path=usage_summary["query_events"] if usage_summary else [],
             pr_snapshots_path=query_prs or [],
-            snapshot_at_utc=format_iso_utc(cutoff_dt),
+            snapshot_at_utc=cutoff_dt.isoformat().replace("+00:00", "Z"),  # full precision: stage entries compare against it
             human_summary_path=summary_data.get("human_summary"),
             rate_catalog_path=args.scenario_catalog,
             duckdb_memory_limit=args.query_memory_limit,
