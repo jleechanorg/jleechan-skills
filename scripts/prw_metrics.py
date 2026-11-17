@@ -797,7 +797,7 @@ def _upload_window(window, files, prefix):
                 uploaded = _gcs("cp", "--no-clobber", f"--custom-metadata=raw_sha256={digest}", zst, uri)
                 if uploaded.returncode != 0:
                     error = uploaded.stderr.decode("utf-8", "replace").strip()
-                    if "412" not in error:
+                    if not re.search(r"\bHTTPError\s+412\b", error, re.IGNORECASE):
                         raise TelemetryStoreError(f"window {window} {name}: {error}")
                     found = _stored_object(uri)
                     if found is None or found[0] != digest:

@@ -39,7 +39,7 @@ if args[:3] == ["storage", "objects", "describe"]:
         if os.environ.get("FAKE_GCS_RACE_UPLOAD") == "unreadable":
             sys.stderr.write("ERROR: HTTP 403 Permission denied\n")
             sys.exit(1)
-        if os.environ.get("FAKE_GCS_RACE_UPLOAD") == "matching":
+        if os.environ.get("FAKE_GCS_RACE_UPLOAD") in ("matching", "unrelated412"):
             import subprocess
             os.makedirs(os.path.dirname(k), exist_ok=True)
             raw = os.environ["FAKE_GCS_RACE_RAW"].encode()
@@ -66,11 +66,14 @@ elif args[:2] == ["storage", "cp"]:
             sys.stderr.write("ERROR: injected upload failure\n")
             sys.exit(1)
         if os.environ.get("FAKE_GCS_RACE_UPLOAD") == "absent":
-            sys.stderr.write("ERROR: HTTP 412 Precondition Failed\n")
+            sys.stderr.write("ERROR: (gcloud.storage.cp) HTTPError 412: Precondition Failed\n")
             sys.exit(1)
         k = key(dst)
         if "--no-clobber" in args and os.path.exists(k + ".bin"):
-            sys.stderr.write("ERROR: HTTP 412 Precondition Failed\n")
+            if os.environ.get("FAKE_GCS_RACE_UPLOAD") == "unrelated412":
+                sys.stderr.write("ERROR: (gcloud.storage.cp) request trace 412xyz: injected unrelated failure\n")
+                sys.exit(1)
+            sys.stderr.write("ERROR: (gcloud.storage.cp) HTTPError 412: Precondition Failed\n")
             sys.exit(1)
         shutil.copy(src, k + ".bin")
         json.dump(meta, open(k + ".json", "w"))
@@ -287,6 +290,14 @@ class UploadTests(GcsCase):
         self.assertEqual(self.raw_of(entries[0]["uri"]), raw.encode())
         self.assertEqual(json.loads(self.obj(entries[0]["uri"]).with_suffix(".json").read_text()),
                          {"raw_sha256": digest})
+
+    def test_unrelated_error_with_412_in_request_text_is_not_a_race(self):
+        raw = "race winner\n"
+        digest = sha(raw)
+        os.environ.update(FAKE_GCS_RACE_UPLOAD="unrelated412", FAKE_GCS_RACE_RAW=raw,
+                          FAKE_GCS_RACE_SHA=digest)
+        with self.assertRaisesRegex(m.TelemetryStoreError, "request trace 412xyz"):
+            m._upload_window(WIN, {"usage_events.jsonl": raw}, PREFIX)
 
     def test_no_clobber_412_with_mismatched_or_unreadable_object_fails(self):
         raw = "race winner\n"
