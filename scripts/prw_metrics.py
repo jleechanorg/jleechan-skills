@@ -797,7 +797,9 @@ def _upload_window(window, files, prefix):
                 uploaded = _gcs("cp", "--no-clobber", f"--custom-metadata=raw_sha256={digest}", zst, uri)
                 if uploaded.returncode != 0:
                     error = uploaded.stderr.decode("utf-8", "replace").strip()
-                    if not re.search(r"\bHTTPError\s+412\b", error, re.IGNORECASE):
+                    # The installed gcloud SDK formats GcsPreconditionFailedError
+                    # with its reason and message, omitting the numeric status.
+                    if not re.search(r"(?:^|\)\s)Precondition Failed:", error, re.IGNORECASE):
                         raise TelemetryStoreError(f"window {window} {name}: {error}")
                     found = _stored_object(uri)
                     if found is None or found[0] != digest:

@@ -66,14 +66,14 @@ elif args[:2] == ["storage", "cp"]:
             sys.stderr.write("ERROR: injected upload failure\n")
             sys.exit(1)
         if os.environ.get("FAKE_GCS_RACE_UPLOAD") == "absent":
-            sys.stderr.write("ERROR: (gcloud.storage.cp) HTTPError 412: Precondition Failed\n")
+            sys.stderr.write("ERROR: (gcloud.storage.cp) Precondition Failed: At least one of the pre-conditions you specified did not hold.\n")
             sys.exit(1)
         k = key(dst)
         if "--no-clobber" in args and os.path.exists(k + ".bin"):
             if os.environ.get("FAKE_GCS_RACE_UPLOAD") == "unrelated412":
                 sys.stderr.write("ERROR: (gcloud.storage.cp) request trace 412xyz: injected unrelated failure\n")
                 sys.exit(1)
-            sys.stderr.write("ERROR: (gcloud.storage.cp) HTTPError 412: Precondition Failed\n")
+            sys.stderr.write("ERROR: (gcloud.storage.cp) Precondition Failed: At least one of the pre-conditions you specified did not hold.\n")
             sys.exit(1)
         shutil.copy(src, k + ".bin")
         json.dump(meta, open(k + ".json", "w"))
