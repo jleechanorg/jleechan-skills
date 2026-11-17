@@ -35,10 +35,11 @@ def key(uri):
     return os.path.join(root, "objects", uri[5:].replace("/", "__"))
 if args[:3] == ["storage", "objects", "describe"]:
     k = key(args[3])
+    if (os.environ.get("FAKE_GCS_RACE_UPLOAD") == "unreadable_after_412"
+            and os.path.exists(k + ".bin")):
+        sys.stderr.write("ERROR: HTTP 403 Permission denied\n")
+        sys.exit(1)
     if not os.path.exists(k + ".bin"):
-        if os.environ.get("FAKE_GCS_RACE_UPLOAD") == "unreadable":
-            sys.stderr.write("ERROR: HTTP 403 Permission denied\n")
-            sys.exit(1)
         if os.environ.get("FAKE_GCS_RACE_UPLOAD") in ("matching", "unrelated412"):
             import subprocess
             os.makedirs(os.path.dirname(k), exist_ok=True)
@@ -69,6 +70,9 @@ elif args[:2] == ["storage", "cp"]:
             sys.stderr.write("ERROR: (gcloud.storage.cp) Precondition Failed: At least one of the pre-conditions you specified did not hold.\n")
             sys.exit(1)
         k = key(dst)
+        if os.environ.get("FAKE_GCS_RACE_UPLOAD") == "unreadable_after_412":
+            shutil.copy(src, k + ".bin")
+            json.dump(meta, open(k + ".json", "w"))
         if "--no-clobber" in args and os.path.exists(k + ".bin"):
             if os.environ.get("FAKE_GCS_RACE_UPLOAD") == "unrelated412":
                 sys.stderr.write("ERROR: (gcloud.storage.cp) request trace 412xyz: injected unrelated failure\n")
@@ -315,10 +319,23 @@ class UploadTests(GcsCase):
 
         # A 412 with no readable winner remains an error.
         os.environ.pop("FAKE_GCS_FAIL_UPLOAD_N", None)
-        for mode, expected in (("absent", "HTTP 412"), ("unreadable", "HTTP 403")):
-            os.environ["FAKE_GCS_RACE_UPLOAD"] = mode
-            with self.assertRaisesRegex(m.TelemetryStoreError, expected):
-                m._upload_window(WIN, {"usage_events.jsonl": f"{mode} race\n"}, PREFIX)
+        os.environ["FAKE_GCS_RACE_UPLOAD"] = "absent"
+        with self.assertRaisesRegex(m.TelemetryStoreError, "HTTP 412"):
+            m._upload_window(WIN, {"usage_events.jsonl": "absent race\n"}, PREFIX)
+
+    def test_no_clobber_412_with_unreadable_winner_fails_during_verification(self):
+        raw = "unreadable race winner\n"
+        digest = sha(raw)
+        os.environ.update(FAKE_GCS_RACE_UPLOAD="unreadable_after_412", FAKE_GCS_RACE_RAW=raw,
+                          FAKE_GCS_RACE_SHA=digest)
+        upload_count, describe_count = len(self.uploads()), sum(
+            call[:3] == ["storage", "objects", "describe"] for call in self.calls())
+        with self.assertRaisesRegex(m.TelemetryStoreError, "cannot describe.*HTTP 403"):
+            m._upload_window(WIN, {"usage_events.jsonl": raw}, PREFIX)
+        self.assertEqual(len(self.uploads()) - upload_count, 1)
+        describes = [call for call in self.calls() if call[:3] == ["storage", "objects", "describe"]]
+        self.assertEqual(len(describes) - describe_count, 2)
+        self.assertTrue(self.obj(key_path(PREFIX, digest)).exists())
 
 
 class PublishTests(GcsCase):
