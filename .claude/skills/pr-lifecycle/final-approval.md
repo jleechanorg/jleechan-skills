@@ -6,8 +6,9 @@ Keep the selected route's quorum, reviewer-class caps, and all stronger
 repository, human, external-only and specialist requirements. A route already
 eligible for direct static review needs no external-attempt exception.
 Otherwise, at most one eligible cold native static source vote may fill an
-open source seat only after the authorized external lanes are genuinely
-unavailable. Use [advice](../advice/SKILL.md) for eligibility and ordering and
+open source seat only after counting valid external votes and establishing
+that all remaining applicable authorized external lanes that could fill that
+seat are genuinely unavailable. Use [advice](../advice/SKILL.md) for eligibility and ordering and
 [static-review](../static-review/SKILL.md) for cold full-coverage review. Do
 not count the driver, a repeated instance of an already-counted seat, a
 partial or stale vote, or a review that reached a blocking finding. Findings remain review evidence, even when the vote does not count.
@@ -56,8 +57,12 @@ before review. The frozen ledger must link the candidate's authoritative
 the live closing obligation and same-candidate CI rerun events without rewriting
 frozen claims. Compute the UTF-8 body digest by removing only the following complete blocks, including
 their marker lines, when present:
-- The exact current receipt between `<!-- pr-final-stamp:begin -->` and
-  `<!-- pr-final-stamp:end -->`. The receipt is verified separately.
+- Only the attributed final reviewer receipt between
+  `<!-- pr-final-stamp:begin -->` and `<!-- pr-final-stamp:end -->`. The
+  closeout driver verifies the excluded payload byte-for-byte against the
+  original reviewer-channel receipt and verifies its recorded SHA256 and
+  attribution. Extra text, a different receipt, or missing attribution
+  invalidates the projection.
 - The generated final-stage status between `<!-- pr-final-stage:begin -->` and
   `<!-- pr-final-stage:end -->`. The block contains only one line,
   `Final status: WITHHELD` or `Final status: FINAL_READY`. Reject other content.

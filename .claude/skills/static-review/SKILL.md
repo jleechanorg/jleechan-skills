@@ -220,8 +220,9 @@ missing public fields alone do not make the account unverified. Static identity
 is its type, harness and actual model; preserve any stronger user/repository
 requirement.
 
-Static attempts have a 600-second end-to-end deadline; other advice attempts
-use advice §3. The orchestrator records queue/return and cleanup, not the model.
+Static attempts have a 600-second end-to-end deadline except the distinct
+[closing final-approval seat](#closing-review-boundary), which uses the
+applicable lifecycle deadline. Other advice attempts use advice §3. The orchestrator records queue/return and cleanup, not the model.
 Reuse completed coverage only under pr-lifecycle's claim/delta/phase rule
 ([review-routing](../pr-lifecycle/review-routing.md#sha-binding-rule-critical--applies-to-every-gate-in-this-chain));
 reaffirmation is not another vote. When that record is partially applicable

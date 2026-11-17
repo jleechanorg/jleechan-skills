@@ -98,7 +98,9 @@ For a multi-seat PR source route governed by
 hold the native static seat in item 5 until all applicable external lanes,
 including web in item 6, are exhausted as that rule defines. Keep the other
 seats in their ordinary order. The held static seat is not a viable earlier
-tier for purposes of admitting web. This narrow exception does not reorder
+tier for purposes of admitting web. It never authorizes disclosure: record
+an unapproved web route as unavailable with its authorization boundary, and
+do not upload the packet to exhaust it. This narrow exception does not reorder
 standalone advice, existing direct static routes, or stronger outside-only gates.
 
 Check which outside routes are authorized at the start, not after the CLI seats fail. A seat that withholds because
