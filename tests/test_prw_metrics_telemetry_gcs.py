@@ -100,6 +100,9 @@ class GcsCase(unittest.TestCase):
             (self.bin / name).write_text(body)
             (self.bin / name).chmod(0o755)
         (self.bin / "git").symlink_to("/usr/bin/git")  # skip the slow user-level git wrapper
+        self.minpath = self.tmp / "minbin"  # a PATH with git only: no zstd, no gcloud
+        self.minpath.mkdir()
+        (self.minpath / "git").symlink_to("/usr/bin/git")
         patcher = mock.patch.dict(os.environ, {
             "PATH": f"{self.bin}{os.pathsep}{os.environ['PATH']}",
             "PRW_METRICS_GCLOUD": str(self.bin / "gcloud"),
@@ -401,7 +404,7 @@ class PublishTests(GcsCase):
         self.assertIn("retained_sources.json", {e["name"] for e in self.index()["files"]})
 
     def test_missing_zstd_is_a_clear_prerequisite_error(self):  # T6c
-        os.environ["PATH"] = f"{self.tmp / 'nobin'}{os.pathsep}/usr/bin{os.pathsep}/bin"
+        os.environ["PATH"] = str(self.minpath)
         self.assertIsNone(shutil.which("zstd"))
         with self.assertRaisesRegex(m.TelemetryStoreError, "missing prerequisite: zstd"):
             m._upload_window(WIN, {"usage_events.jsonl": "x\n"}, PREFIX)
@@ -419,7 +422,7 @@ class PublishTests(GcsCase):
         self.assertEqual(m._gcloud_bin(), str(explicit))
         del os.environ["PRW_METRICS_GCLOUD"]
         self.assertEqual(m._gcloud_bin(), str(self.bin / "gcloud"))  # PATH
-        os.environ["PATH"] = "/usr/bin:/bin"
+        os.environ["PATH"] = str(self.minpath)
         with self.assertRaisesRegex(m.TelemetryStoreError, "missing prerequisite: gcloud"):
             m._gcloud_bin()
         sdk = self.home / "google-cloud-sdk" / "bin"
@@ -493,7 +496,7 @@ class ReadTests(GcsCase):
         self.assertFalse(issubclass(m.TelemetryStoreError, (OSError, subprocess.SubprocessError)))
         for label, env in (("gcloud failing", {"PRW_METRICS_GCLOUD": "/usr/bin/false"}),
                            ("gcloud missing", {"PRW_METRICS_GCLOUD": str(self.tmp / "nope")}),
-                           ("zstd missing", {"PATH": f"{self.tmp / 'nobin'}{os.pathsep}/usr/bin:/bin"})):
+                           ("zstd missing", {"PATH": str(self.minpath)})):
             with self.subTest(label), mock.patch.dict(os.environ, env):
                 with self.assertRaises(m.TelemetryStoreError):
                     m.Collector().collect_all(roadmap_repo=str(self.local), offline=True)
