@@ -1163,6 +1163,27 @@ class TestPRWMetricsQueries(unittest.TestCase):
         replayed = replay["human_records"] + disputing_copies(replay["human_records"], replay["outside_human_records"])
         self.assertEqual(sorted(h["timestamp"] for h in replayed), sorted(h["timestamp"] for h in live["human_records"]))
 
+    def test_a_copy_outside_one_hosts_window_disputes_the_other_hosts_message(self):
+        from datetime import datetime, timezone
+        from scripts.native_usage_collector import (collect_native_history, disputing_copies, load_normalized_history,
+                                                    write_normalized_history)
+
+        row = {"type": "user", "uuid": "u-1", "userType": "human", "sessionId": "s",
+               "message": {"role": "user", "content": [{"type": "text", "text": "prompt"}]}}
+        cutoff = datetime(2026, 11, 9, 10, 0, tzinfo=timezone.utc)  # window starts 2026-10-26T10:00Z
+        replays = []
+        for host, at in (("mac", "2026-11-01T10:00:00Z"), ("linux", "2026-10-26T09:00:00Z")):
+            root = self.root / host
+            root.mkdir()
+            (root / "s.jsonl").write_text(json.dumps(dict(row, timestamp=at)) + "\n", encoding="utf-8")
+            live = collect_native_history([root], cutoff=cutoff, days=14)
+            write_normalized_history(self.root / f"{host}.jsonl", live["export_records"], live["stats"])
+            replays.append(load_normalized_history(self.root / f"{host}.jsonl", cutoff, days=14))
+        humans = [h for r in replays for h in r["human_records"]]
+        humans += disputing_copies(humans, [h for r in replays for h in r["outside_human_records"]])
+        self.assertEqual(sorted(h["timestamp"] for h in humans), ["2026-10-26T09:00:00Z", "2026-11-01T10:00:00Z"])
+        self.assertEqual([r["stats"]["source_exports"][0]["status"] for r in replays], ["COMPLETE", "COMPLETE"])
+
     def test_metric_cohorts_separate_direct_and_low_request_observations(self):
         event = self._event(
             "sha256:low-request", "example-org/repo-alpha#1",

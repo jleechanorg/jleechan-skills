@@ -906,9 +906,8 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
     else:
         stats["status"] = "PARTIAL" if errors or entire_parser or stats["undated_records"] else "COMPLETE"
     stats["window_start"], stats["window_end"] = _window_iso(start), _window_iso(cutoff)
-    disputing = disputing_copies(humans, outside_humans)  # exported too, so a replay sees the same evidence
-    humans += disputing
-    exported += [dict(r, record_type="human") for r in disputing]
+    humans += disputing_copies(humans, outside_humans)
+    exported += [dict(r, record_type="human") for r in outside_humans]  # every outside copy: another export may hold its inside twin
     if state_conn:
         state_conn.close()
     return dict(usage_records=usage, human_records=humans, export_records=exported,
