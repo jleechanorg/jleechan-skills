@@ -36,6 +36,17 @@ def key(uri):
 if args[:3] == ["storage", "objects", "describe"]:
     k = key(args[3])
     if not os.path.exists(k + ".bin"):
+        if os.environ.get("FAKE_GCS_RACE_UPLOAD") == "unreadable":
+            sys.stderr.write("ERROR: HTTP 403 Permission denied\n")
+            sys.exit(1)
+        if os.environ.get("FAKE_GCS_RACE_UPLOAD") == "matching":
+            import subprocess
+            os.makedirs(os.path.dirname(k), exist_ok=True)
+            raw = os.environ["FAKE_GCS_RACE_RAW"].encode()
+            compressed = subprocess.run([os.environ["REAL_ZSTD"], "-q", "-c"],
+                                        input=raw, capture_output=True, check=True).stdout
+            open(k + ".bin", "wb").write(compressed)
+            json.dump({{"raw_sha256": os.environ["FAKE_GCS_RACE_SHA"]}}, open(k + ".json", "w"))
         sys.stderr.write("ERROR: (gcloud.storage.objects.describe) HTTPError 404: No such object\n")
         sys.exit(1)
     print(json.dumps({{"size": os.path.getsize(k + ".bin"), "custom_fields": json.load(open(k + ".json"))}}))
@@ -54,9 +65,13 @@ elif args[:2] == ["storage", "cp"]:
         if os.environ.get("FAKE_GCS_FAIL_UPLOAD_N") == str(n):
             sys.stderr.write("ERROR: injected upload failure\n")
             sys.exit(1)
+        if os.environ.get("FAKE_GCS_RACE_UPLOAD") == "absent":
+            sys.stderr.write("ERROR: HTTP 412 Precondition Failed\n")
+            sys.exit(1)
         k = key(dst)
         if "--no-clobber" in args and os.path.exists(k + ".bin"):
-            sys.exit(0)
+            sys.stderr.write("ERROR: HTTP 412 Precondition Failed\n")
+            sys.exit(1)
         shutil.copy(src, k + ".bin")
         json.dump(meta, open(k + ".json", "w"))
     else:
@@ -110,8 +125,10 @@ class GcsCase(unittest.TestCase):
             "PRW_METRICS_TELEMETRY_BUCKET": BUCKET})
         patcher.start()
         self.addCleanup(patcher.stop)
-        for var in ("PRW_METRICS_TELEMETRY_REF", "FAKE_GCS_FAIL_UPLOAD_N", "ZSTD_WRAP_LEVEL"):
+        for var in ("PRW_METRICS_TELEMETRY_REF", "FAKE_GCS_FAIL_UPLOAD_N", "ZSTD_WRAP_LEVEL",
+                    "FAKE_GCS_RACE_UPLOAD", "FAKE_GCS_RACE_RAW", "FAKE_GCS_RACE_SHA"):
             os.environ.pop(var, None)
+        os.environ["REAL_ZSTD"] = REAL_ZSTD
         shard = mock.patch.object(m, "USAGE_SHARD_BYTES", 1500)
         shard.start()
         self.addCleanup(shard.stop)
@@ -260,6 +277,38 @@ class UploadTests(GcsCase):
         with self.assertRaises(m.TelemetryStoreError):
             m._upload_window(WIN, {"usage_events.jsonl": wrong}, PREFIX)
 
+    def test_no_clobber_412_accepts_only_matching_object_metadata(self):
+        raw = "race winner\n"
+        digest = sha(raw)
+        os.environ.update(FAKE_GCS_RACE_UPLOAD="matching", FAKE_GCS_RACE_RAW=raw,
+                          FAKE_GCS_RACE_SHA=digest)
+        entries = m._upload_window(WIN, {"usage_events.jsonl": raw}, PREFIX)
+        self.assertEqual(entries[0]["sha256"], digest)
+        self.assertEqual(self.raw_of(entries[0]["uri"]), raw.encode())
+        self.assertEqual(json.loads(self.obj(entries[0]["uri"]).with_suffix(".json").read_text()),
+                         {"raw_sha256": digest})
+
+    def test_no_clobber_412_with_mismatched_or_unreadable_object_fails(self):
+        raw = "race winner\n"
+        os.environ.update(FAKE_GCS_RACE_UPLOAD="matching", FAKE_GCS_RACE_RAW=raw,
+                          FAKE_GCS_RACE_SHA="0" * 64)
+        with self.assertRaisesRegex(m.TelemetryStoreError, "stored object does not match"):
+            m._upload_window(WIN, {"usage_events.jsonl": raw}, PREFIX)
+
+        # An unrelated upload error must not be treated as a no-clobber race.
+        for key in ("FAKE_GCS_RACE_UPLOAD", "FAKE_GCS_RACE_RAW", "FAKE_GCS_RACE_SHA"):
+            os.environ.pop(key, None)
+        os.environ["FAKE_GCS_FAIL_UPLOAD_N"] = str(len(self.uploads()) + 1)
+        with self.assertRaisesRegex(m.TelemetryStoreError, "injected upload failure"):
+            m._upload_window(WIN, {"usage_events.jsonl": "unrelated failure\n"}, PREFIX)
+
+        # A 412 with no readable winner remains an error.
+        os.environ.pop("FAKE_GCS_FAIL_UPLOAD_N", None)
+        for mode, expected in (("absent", "HTTP 412"), ("unreadable", "HTTP 403")):
+            os.environ["FAKE_GCS_RACE_UPLOAD"] = mode
+            with self.assertRaisesRegex(m.TelemetryStoreError, expected):
+                m._upload_window(WIN, {"usage_events.jsonl": f"{mode} race\n"}, PREFIX)
+
 
 class PublishTests(GcsCase):
     def test_publish_with_bucket_swaps_window_blobs_for_index_keeps_root_files(self):  # T2
@@ -403,6 +452,28 @@ class PublishTests(GcsCase):
         self.assertFalse(result["committed"])
         self.assertIn("run the one-shot backfill", result["reason"])
         self.assertEqual(self.main_sha(), head)
+
+    def test_existing_index_read_failure_aborts_without_commit(self):
+        self.assertTrue(self.publish(count=9)["committed"])
+        head = self.main_sha()
+        index_path = f"{IDX}/{WIN}.json"
+        index_before = self.show(index_path)
+        real_run = subprocess.run
+
+        def failing_index_read(argv, *args, **kwargs):
+            if isinstance(argv, list) and len(argv) >= 4 and argv[:2] == ["git", "-C"] \
+                    and argv[2] == str(self.local) and argv[3] == "show" \
+                    and argv[-1].endswith(f":{index_path}"):
+                return subprocess.CompletedProcess(argv, 1, stdout="", stderr=b"injected read failure")
+            return real_run(argv, *args, **kwargs)
+
+        with mock.patch.object(m.subprocess, "run", failing_index_read):
+            result = self.publish(count=5)
+        self.assertEqual(result["action"], "BLOCKED", result)
+        self.assertFalse(result["committed"])
+        self.assertIn("injected read failure", result["reason"])
+        self.assertEqual(self.main_sha(), head)
+        self.assertEqual(self.show(index_path), index_before)
 
     def test_index_is_rendered_against_the_repinned_parent(self):  # T3d (retry loop)
         self.assertTrue(self.publish(count=9)["committed"])
