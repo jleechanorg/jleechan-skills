@@ -820,7 +820,7 @@ def _validate_index(doc):
     match = _BUCKET_PREFIX_RE.fullmatch(str(doc.get("bucket_prefix")))
     if not match:
         bad("bucket_prefix")
-    prefix = _bucket_prefix() or f"gs://{match.group(1)}/prw/telemetry"
+    prefix = match.group(0)
     for entry in doc["files"]:
         name, digest = (entry.get("name"), entry.get("sha256")) if isinstance(entry, dict) else (None, None)
         if (not isinstance(name, str) or "/" in name or "\\" in name or ".." in name
@@ -833,6 +833,13 @@ def _validate_index(doc):
     if len({entry["name"] for entry in doc["files"]}) != len(doc["files"]):
         bad("duplicate names")
     return window, doc["files"]
+
+
+def _parse_index(text, label):
+    try:
+        return json.loads(text)
+    except ValueError as exc:
+        raise TelemetryStoreError(f"invalid telemetry index {label}: {exc}") from exc
 
 
 def _fetch_raw(entry):
@@ -926,7 +933,7 @@ def export_published_telemetry(roadmap_repo, dest_dir, ref=None, fetch=False, in
             blob = git("show", f"{ref}:{rel}")
             if blob.returncode != 0:
                 raise TelemetryStoreError(f"cannot read telemetry index {rel}")
-            doc = json.loads(blob.stdout)
+            doc = _parse_index(blob.stdout, rel)
             if _validate_index(doc)[0] != stem:
                 raise TelemetryStoreError(f"telemetry index {rel} names another window")
             docs[stem] = doc
@@ -2047,20 +2054,41 @@ class Collector:
             for k, v in retained.get("sources", {}).items():
                 remember_prior_source(k, v)
 
+        def absorb_published():
+            # Root files, then every published window oldest first across git blobs and
+            # indexes (later sources win), one indexed window on disk at a time; an explicit
+            # --telemetry-dir that holds a window takes precedence over its index.
+            legacy_tmp = tempfile.mkdtemp(prefix="prw_legacy_")
+            try:
+                legacy = set()
+                for d in retained_telemetry_dirs(published_tmp):
+                    if os.path.realpath(d) != os.path.realpath(published_tmp):
+                        window = os.path.basename(d)
+                        os.makedirs(os.path.join(legacy_tmp, window))
+                        os.rename(d, os.path.join(legacy_tmp, window, window))
+                        legacy.add(window)
+                absorb(published_tmp)
+                explicit = {os.path.basename(d) for d in retained_telemetry_dirs(telemetry_dir)
+                            if os.path.realpath(d) != os.path.realpath(telemetry_dir)}
+                for window in sorted(legacy | (set(indexed) - explicit)):
+                    if window in legacy:
+                        absorb(os.path.join(legacy_tmp, window))
+                        continue
+                    window_tmp = tempfile.mkdtemp(prefix="prw_window_")
+                    try:
+                        _materialise_window(indexed[window], os.path.join(window_tmp, window))
+                        absorb(window_tmp)
+                    finally:
+                        shutil.rmtree(window_tmp, ignore_errors=True)
+            finally:
+                shutil.rmtree(legacy_tmp, ignore_errors=True)
+
         try:
             for t_dir in candidate_telem_dirs:
-                absorb(t_dir)
-            # Index-covered windows load one at a time, oldest first; an explicit
-            # --telemetry-dir that holds the window takes precedence over its index.
-            explicit = {os.path.basename(d) for d in retained_telemetry_dirs(telemetry_dir)
-                        if os.path.realpath(d) != os.path.realpath(telemetry_dir)}
-            for window in sorted(set(indexed) - explicit):
-                window_tmp = tempfile.mkdtemp(prefix="prw_window_")
-                try:
-                    _materialise_window(indexed[window], os.path.join(window_tmp, window))
-                    absorb(window_tmp)
-                finally:
-                    shutil.rmtree(window_tmp, ignore_errors=True)
+                if indexed and t_dir == published_tmp:
+                    absorb_published()
+                else:
+                    absorb(t_dir)
         finally:
             if published_tmp:
                 shutil.rmtree(published_tmp, ignore_errors=True)
@@ -5092,7 +5120,7 @@ class Publisher:
                         if shown.returncode != 0 and legacy:
                             raise TelemetryStoreError(
                                 f"window {window} has legacy blobs and no index; run the one-shot backfill")
-                        previous = _validate_index(json.loads(shown.stdout))[1] if shown.returncode == 0 else []
+                        previous = _validate_index(_parse_index(shown.stdout, index_rel))[1] if shown.returncode == 0 else []
                         fresh = {entry["name"]: entry for entry in uploaded[window]}
                         usage, summary = any(map(_usage_file, fresh)), any(map(_summary_candidate, fresh))
                         entries = [entry for entry in previous if entry["name"] not in fresh

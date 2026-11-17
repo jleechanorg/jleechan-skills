@@ -299,6 +299,22 @@ class PublishTests(GcsCase):
         self.assertIn(f"window {WIN} has an index but no bucket configured", result["reason"])
         self.assertEqual(self.main_sha(), head)
 
+    def test_publish_after_backfill_drops_legacy_blobs_keeps_backfilled_entries(self):  # T7b
+        self.seed_legacy(WIN, {"retained_sources.json": "{}",
+                               "usage_events.jsonl": self.usage_line("legacy")})
+        commit = self.git(self.local, "rev-parse", "HEAD").strip()
+        path = self.local / IDX / f"{WIN}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(m.backfill_window_index(str(self.local), commit, WIN, BUCKET))
+        self.git(self.local, "add", str(path))
+        self.git(self.local, "commit", "-qm", "backfilled index")
+        self.git(self.local, "push", "-q", "origin", "main")
+        self.assertTrue([p for p in self.tree() if p.startswith(f"{TEL}/{WIN}/")])
+        result = self.publish(count=5)
+        self.assertTrue(result["committed"], result)
+        self.assertFalse([p for p in self.tree() if p.startswith(f"{TEL}/{WIN}/")])
+        self.assertIn("retained_sources.json", {e["name"] for e in self.index()["files"]})
+
     def test_unsanitizable_file_blocks_before_upload(self):  # T2b
         result = m.publish_dashboard(
             "# D\n", str(self.local), verify_private_fn=lambda _: True,
@@ -488,6 +504,14 @@ class ReadTests(GcsCase):
         self.assertEqual([e["request_id"] for e in lazy["usage_events"]],
                          [e["request_id"] for e in merged["usage_events"]])
 
+    def test_mixed_layouts_load_oldest_first_so_newer_sources_win(self):  # T4d
+        def sources(day):
+            return json.dumps({"example/repo": {"status": "COMPLETE", "cutoff": f"2026-11-{day}T00:00:00Z"}})
+        self.commit_index("20261102", {"retained_sources.json": sources("02")})
+        self.seed_legacy("20261103", {"retained_sources.json": sources("03")})
+        loaded = m.Collector(repos=["example/repo"]).collect_all(roadmap_repo=str(self.local), offline=True)
+        self.assertEqual(loaded["sources"]["example/repo"]["cutoff"], "2026-11-03T00:00:00Z")
+
     def test_materialisation_failure_is_not_swallowed_and_does_not_fall_back_to_stale_copy(self):  # T4b
         self.published(count=5)
         stale = self.local / TEL / WIN
@@ -559,11 +583,9 @@ class ReadTests(GcsCase):
                 self.assert_rejected(self.doc(prefix=prefix, uri="gs://x/y"))
         self.assert_rejected(self.doc(uri=f"{PREFIX}/sha256/bb/{'a' * 64}.zst"))
         self.assert_rejected(self.doc(uri=f"gs://elsewhere/prw/telemetry/sha256/aa/{'a' * 64}.zst"))
-        os.environ["PRW_METRICS_TELEMETRY_BUCKET"] = "other"  # override applies to the expected uri
-        self.assert_rejected(self.doc())
-        valid = self.doc(uri=key_path("gs://other/prw/telemetry", "a" * 64))
+        os.environ["PRW_METRICS_TELEMETRY_BUCKET"] = "other"  # reads use the bucket the index names
         with self.assertRaises(ValueError):  # passes validation, then fails fetching (nothing uploaded)
-            m._materialise_window(valid, str(self.tmp / "dest2"))
+            m._materialise_window(self.doc(), str(self.tmp / "dest2"))
         self.assertTrue(self.downloads())
 
     def test_telemetry_ref_option_selects_legacy_commit(self):  # T6d
