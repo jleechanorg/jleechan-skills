@@ -9,7 +9,7 @@ A lightweight, automated metrics collector and renderer that publishes a single,
 4. Granular, per-attempt handoff waiting delays and strict time semantics (distinguishing operation elapsed, active wall time union, agent effort sum, and non-waste residuals).
 5. Human interaction and episode annotations (`good`, `bad`, `mixed`, `unknown`) with channel coverage auditing.
 6. An actionable Open PR Attention Table that connects open PRs to their earliest unmet required obligations, accountable owners, active job handles, and receipt links.
-7. Private telemetry retention under `dashboards/prw/telemetry/` in `<org>/roadmap`, enabling deterministic study readback and historical reconstruction when local Scratch directories are rotated.
+7. Private telemetry retention in `<org>/roadmap` (window data lives in GCS via `dashboards/prw/telemetry-index/<window>.json`; root files stay in `dashboards/prw/telemetry/`), enabling deterministic study readback and historical reconstruction when local Scratch directories are rotated.
 
 ---
 
@@ -38,7 +38,7 @@ A lightweight, automated metrics collector and renderer that publishes a single,
   creation-to-merge p50/p90/p99 for the complete 14-day merged cohort, split into
   all merges, merges within 7 days, and backlog merges over 7 days. Show each
   cohort's sample size.
-- **Private Telemetry Retention**: Sanitized event/episode records, collected PR records, timeline events, handoff receipts and per-source cutoffs (fixed fields only; PR bodies, raw message text, transcripts, excerpts and error strings are never retained) are stored under `dashboards/prw/telemetry/<window_slug>/` in `<org>/roadmap`, ensuring deterministic audit studies and dashboard rebuilds even after local host Scratch is cleared.
+- **Private Telemetry Retention**: Sanitized event/episode records, collected PR records, timeline events, handoff receipts and per-source cutoffs (fixed fields only; PR bodies, raw message text, transcripts, excerpts and error strings are never retained) are stored per `<window_slug>` (window data lives in GCS via `dashboards/prw/telemetry-index/<window>.json`; root files stay in `dashboards/prw/telemetry/`; objects are content-addressed by raw sha256), ensuring deterministic audit studies and dashboard rebuilds even after local host Scratch is cleared.
 
 ### 3.2 Time Semantics & Active Work Model
 - **Per-Attempt Timestamps**: Timestamp subtraction for review handoff intervals (`review_requested_at` to `actual_review_started_at`) must be computed strictly within the same review attempt. Timestamps from different attempts are never combined.
@@ -100,7 +100,7 @@ The dashboard must cleanly surface operational states in the header and tables:
 ### 3.6 Scheduling & Publication
 - **Calendar Intervals**: Scheduled via `launchd` in 4-hour calendar slots at `00:17`, `04:17`, `08:17`, `12:17`, `16:17`, `20:17` local time, writing all timestamps in UTC.
 - **State and Lock Directories**: After configuration is loaded, create the effective state directory and lock-file parent required for collection.
-- **Scoped Publication**: Publishes strictly to `dashboards/prw/README.md` and `dashboards/prw/telemetry/` in private `roadmap` using standard fast-forward git pushes with remote-head reconciliation. Never uses force-push.
+- **Scoped Publication**: Publishes strictly to `dashboards/prw/README.md`, `dashboards/prw/telemetry/` and `dashboards/prw/telemetry-index/` in private `roadmap` (window objects go to the private telemetry bucket first; a failed upload blocks the publication) using standard fast-forward git pushes with remote-head reconciliation. Never uses force-push.
 - **Atomic Failure Handling**: On API or script failure, the existing dashboard is preserved; no partial or empty Markdown commit is published.
 
 ---
@@ -241,7 +241,7 @@ See [User Story: PRW Metrics Dashboard](../user-stories/prw-metrics-dashboard.md
 | **Accidental Credential Leakage** | Critical | Sourcing profile and ambient `gh` CLI credentials only. Zero tokens, passwords, or personal hostnames in plists, scripts, or tracked Markdown files. |
 | **Merge / Git Publication Conflict** | Medium | The publisher fetches the remote `roadmap` branch, attempts a clean fast-forward rebase, reconciles only `dashboards/prw/README.md` and telemetry files, and fails safely without force-pushing. |
 | **Misleading Idle Accusations** | High | Clear visual and lexical separation between stage dwell (elapsed calendar time) and eligible unattended delay. Residual duration (`elapsed - active`) is explicitly defined as non-waste. Unobserved telemetry is strictly displayed as `UNKNOWN (telemetry coverage 0%)`. |
-| **Telemetry Loss Across Host Rotations** | Medium | Sanitized event logs (fixed scalar fields) and receipts are committed under `dashboards/prw/telemetry/` in `<org>/roadmap`, guaranteeing reproducible audit studies and deterministic rebuilds even when local Scratch is rotated. |
+| **Telemetry Loss Across Host Rotations** | Medium | Sanitized event logs (fixed scalar fields) and receipts are retained in `<org>/roadmap` and its telemetry bucket (window data lives in GCS via `dashboards/prw/telemetry-index/<window>.json`; root files stay in `dashboards/prw/telemetry/`), guaranteeing reproducible audit studies and deterministic rebuilds even when local Scratch is rotated. |
 | **Subjective Human Intervention Scoring** | Medium | Grounded in four strict semantic categories authored by model/human evaluation with cited evidence rationales, origin metadata checks (excluding bots), cross-annotator calibration, and explicit preservation of `unassigned` task episodes. |
 | **Host Sleep / Network Interruption** | Low | If the host is asleep or offline during a scheduled slot, the job runs on next wake; the previous dashboard remains intact and is explicitly stamped with its prior cutoff and `STALE` status. |
 

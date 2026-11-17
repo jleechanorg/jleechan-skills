@@ -121,7 +121,8 @@ fi
 
 export PRW_METRICS_STATE_DIR
 export PRW_METRICS_ROADMAP_REPO
-export PRW_METRICS_TELEMETRY_DIR="${PRW_METRICS_TELEMETRY_DIR:-$PRW_METRICS_ROADMAP_REPO/dashboards/prw/telemetry}"
+# No default: an explicit directory outranks the published index, so a stale local copy must not shadow it.
+export PRW_METRICS_TELEMETRY_DIR="${PRW_METRICS_TELEMETRY_DIR:-}"
 export PRW_METRICS_STALE_HOURS="${PRW_METRICS_STALE_HOURS:-4.5}"
 export PRW_METRICS_PUBLISH="${PRW_METRICS_PUBLISH:-1}"
 

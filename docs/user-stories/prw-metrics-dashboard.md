@@ -60,7 +60,7 @@ After implementing the PRW Metrics Dashboard:
      - Concrete next action and accountable owner.
      - Active job handle and wake condition (or explicit hold reason).
      - Elapsed waiting duration and direct links to attempt receipts.
-  8. **Reconstruct Historical Studies Deterministically**: Query retained private telemetry under `dashboards/prw/telemetry/` in `<org>/roadmap` to reproduce multi-week audit studies even after host Scratch directories are cleared.
+  8. **Reconstruct Historical Studies Deterministically**: Query retained private telemetry in `<org>/roadmap` (window data lives in GCS via `dashboards/prw/telemetry-index/<window>.json`; root files stay in `dashboards/prw/telemetry/`) to reproduce multi-week audit studies even after host Scratch directories are cleared.
   9. **Observe Explicit Status and Data Quality States**:
      - `FRESH`: Dashboard refreshed within the standard 4-hour schedule.
      - `STALE`: Prior collection snapshot cleanly preserved when collection was delayed (e.g. machine sleep or offline period), with the last successful collection timestamp prominently shown.
@@ -110,8 +110,8 @@ The operator inspects the **Human Interaction & Episode Breakdown** section:
 
 ### Scenario 6: Deterministic Audit Study from Retained Private Telemetry
 The platform tech lead conducts a 14-day delivery retrospective:
-- Although local developer machines rotated their `/tmp` and Scratch workspaces over the past two weeks, all underlying observational telemetry JSON files and attempt receipts were committed under `dashboards/prw/telemetry/` in `<org>/roadmap`.
-- The tech lead executes a local replay script pointing to `dashboards/prw/telemetry/2026-10-24_2026-11-07/`.
+- Although local developer machines rotated their `/tmp` and Scratch workspaces over the past two weeks, all underlying observational telemetry JSON files and attempt receipts were retained in `<org>/roadmap` (window data lives in GCS via `dashboards/prw/telemetry-index/<window>.json`; root files stay in `dashboards/prw/telemetry/`).
+- The tech lead executes a local replay script pointing at the published ref (`--telemetry-ref` selects a recorded generation).
 - The script deterministically reproduces the exact dashboard tables, median cycle times, and handoff delay distributions, verifying that the published metrics are 100% auditable and reproducible.
 
 ---
@@ -120,4 +120,4 @@ The platform tech lead conducts a 14-day delivery retrospective:
 
 - **No Personal Identifiers**: The dashboard source code and documentation contain zero machine usernames, personal directory paths (`$HOME` or `@HOME@` placeholders only), private email addresses, tailnet IPs, or personal hostnames.
 - **No Embedded Credentials**: Authentication relies on existing ambient CLI access; no GitHub tokens or secrets are stored in plist templates or rendered Markdown.
-- **Private Roadmap Target**: The rendered dashboard and underlying telemetry are published strictly to the private `roadmap` repository (`dashboards/prw/README.md` and `dashboards/prw/telemetry/`) via scoped fast-forward commits, with zero public exposure.
+- **Private Roadmap Target**: The rendered dashboard and underlying telemetry are published strictly to the private `roadmap` repository (`dashboards/prw/README.md`, `dashboards/prw/telemetry/` and `dashboards/prw/telemetry-index/`) via scoped fast-forward commits, with zero public exposure.

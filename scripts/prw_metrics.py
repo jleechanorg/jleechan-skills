@@ -717,14 +717,206 @@ def retained_telemetry_dirs(root):
     return dirs
 
 
-def export_published_telemetry(roadmap_repo, dest_dir, ref="refs/remotes/origin/main", fetch=False):
+TELEMETRY_INDEX_RELDIR = "dashboards/prw/telemetry-index"
+_SHA256_RE = re.compile(r"[0-9a-f]{64}")
+_BUCKET_RE = re.compile(r"[a-z0-9._-]+")
+_BUCKET_PREFIX_RE = re.compile(r"gs://([a-z0-9._-]+)/prw/telemetry")
+
+
+class TelemetryStoreError(ValueError):
+    """Object-store failure; not an OSError/SubprocessError so no reader swallows it."""
+
+
+def _gcloud_bin():
+    sdk = os.path.expanduser("~/google-cloud-sdk/bin/gcloud")
+    found = os.environ.get("PRW_METRICS_GCLOUD") or shutil.which("gcloud") \
+        or (sdk if os.access(sdk, os.X_OK) else None)
+    if not found:
+        raise TelemetryStoreError("missing prerequisite: gcloud")
+    return found
+
+
+def _run_tool(argv, **kwargs):
+    try:
+        return subprocess.run(argv, capture_output=True, timeout=600, **kwargs)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise TelemetryStoreError(f"{os.path.basename(argv[0])} failed: {exc}") from exc
+
+
+def _zstd(*args):
+    exe = shutil.which("zstd")
+    if not exe:
+        raise TelemetryStoreError("missing prerequisite: zstd")
+    return _run_tool([exe, "-q", *args])
+
+
+def _gcs(*args):
+    return _run_tool([_gcloud_bin(), "storage", *args])
+
+
+def _bucket_prefix():
+    bucket = os.environ.get("PRW_METRICS_TELEMETRY_BUCKET")
+    if bucket and not _BUCKET_RE.fullmatch(bucket):
+        raise TelemetryStoreError("invalid PRW_METRICS_TELEMETRY_BUCKET")
+    return f"gs://{bucket}/prw/telemetry" if bucket else None
+
+
+def _object_uri(prefix, digest):
+    return f"{prefix}/sha256/{digest[:2]}/{digest}.zst"
+
+
+def _stored_object(uri):
+    """(raw_sha256 metadata, compressed size) of an object, or None when it does not exist."""
+    proc = _gcs("objects", "describe", uri, "--format=json")
+    if proc.returncode != 0:
+        err = proc.stderr.decode("utf-8", "replace")
+        if any(token in err.lower() for token in ("404", "no such object", "not found")):
+            return None
+        raise TelemetryStoreError(f"cannot describe {uri}: {err.strip()}")
+    meta = json.loads(proc.stdout)
+    return (meta.get("custom_fields") or {}).get("raw_sha256"), int(meta.get("size") or 0)
+
+
+def _upload_window(window, files, prefix):
+    """Upload each file once under its raw-content key; returns the index entries for the window."""
+    entries = []
+    for name in sorted(files):
+        raw = files[name] if isinstance(files[name], bytes) else files[name].encode("utf-8")
+        digest = hashlib.sha256(raw).hexdigest()
+        uri = _object_uri(prefix, digest)
+        found = _stored_object(uri)
+        if found is None:
+            with tempfile.TemporaryDirectory(prefix="prw_upload_") as tmp:
+                src, zst = os.path.join(tmp, "raw"), os.path.join(tmp, "raw.zst")
+                with open(src, "wb") as f:
+                    f.write(raw)
+                for proc in (_zstd("-19", "-f", "-o", zst, src),
+                             _gcs("cp", "--no-clobber", f"--custom-metadata=raw_sha256={digest}", zst, uri)):
+                    if proc.returncode != 0:
+                        raise TelemetryStoreError(
+                            f"window {window} {name}: {proc.stderr.decode('utf-8', 'replace').strip()}")
+                found = _stored_object(uri)
+        if found is None or found[0] != digest:
+            raise TelemetryStoreError(f"window {window} {name}: stored object does not match {digest}")
+        entries.append({"name": name, "bytes": len(raw), "sha256": digest, "zst_bytes": found[1], "uri": uri})
+    return entries
+
+
+def _index_document(window, entries, prefix, cutoff):
+    return {"schema": 1, "window": window, "bucket_prefix": prefix, "cutoff": cutoff,
+            "files": sorted(entries, key=lambda entry: entry["name"])}
+
+
+def _validate_index(doc):
+    """Check an index before anything is written or fetched; returns (window, entries)."""
+    def bad(why):
+        raise TelemetryStoreError(f"invalid telemetry index: {why}")
+
+    if not isinstance(doc, dict) or doc.get("schema") != 1 or not isinstance(doc.get("files"), list):
+        bad("schema")
+    window = doc.get("window")
+    if not isinstance(window, str) or not _SLUG_RE.fullmatch(window):
+        bad("window")
+    match = _BUCKET_PREFIX_RE.fullmatch(str(doc.get("bucket_prefix")))
+    if not match:
+        bad("bucket_prefix")
+    prefix = match.group(0)
+    for entry in doc["files"]:
+        name, digest = (entry.get("name"), entry.get("sha256")) if isinstance(entry, dict) else (None, None)
+        if (not isinstance(name, str) or "/" in name or "\\" in name or ".." in name
+                or not _telemetry_file(name)):
+            bad(f"name {name!r}")
+        if not isinstance(digest, str) or not _SHA256_RE.fullmatch(digest):
+            bad("sha256")
+        if entry.get("uri") != _object_uri(prefix, digest) or not isinstance(entry.get("bytes"), int):
+            bad(f"uri for {name}")
+    if len({entry["name"] for entry in doc["files"]}) != len(doc["files"]):
+        bad("duplicate names")
+    return window, doc["files"]
+
+
+def _parse_index(text, label):
+    try:
+        return json.loads(text)
+    except ValueError as exc:
+        raise TelemetryStoreError(f"invalid telemetry index {label}: {exc}") from exc
+
+
+def _fetch_raw(entry):
+    """Raw bytes of one entry from the .zst cache or the bucket, verified against its sha256."""
+    cache = os.path.join(os.path.expanduser("~/.cache/prw-metrics/telemetry"), entry["sha256"] + ".zst")
+
+    def decode(path):
+        proc = _zstd("-d", "-c", path)
+        raw = proc.stdout
+        ok = (proc.returncode == 0 and len(raw) == entry["bytes"]
+              and hashlib.sha256(raw).hexdigest() == entry["sha256"])
+        return raw if ok else None
+
+    if os.path.exists(cache):
+        raw = decode(cache)
+        if raw is not None:
+            return raw
+        os.unlink(cache)
+    os.makedirs(os.path.dirname(cache), exist_ok=True)
+    tmp = f"{cache}.{os.getpid()}.tmp"
+    try:
+        proc = _gcs("cp", entry["uri"], tmp)
+        if proc.returncode != 0:
+            raise TelemetryStoreError(f"cannot fetch {entry['uri']}: {proc.stderr.decode('utf-8', 'replace').strip()}")
+        raw = decode(tmp)
+        if raw is None:
+            raise TelemetryStoreError(f"hash mismatch for {entry['uri']}")
+        os.replace(tmp, cache)
+        return raw
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+
+def _materialise_window(doc, window_dir):
+    """Write one indexed window's files into window_dir; on any failure nothing is left behind."""
+    _, entries = _validate_index(doc)
+    os.makedirs(window_dir, exist_ok=True)
+    try:
+        for entry in entries:
+            with open(os.path.join(window_dir, entry["name"]), "wb") as f:
+                f.write(_fetch_raw(entry))
+    except BaseException:
+        shutil.rmtree(window_dir, ignore_errors=True)
+        raise
+
+
+def backfill_window_index(repo_path, commit, window, bucket):
+    """One-shot backfill: upload a window's pre-migration git blobs unchanged; return its index text."""
+    prefix = f"gs://{bucket}/prw/telemetry"
+    base = f"{TELEMETRY_RELDIR}/{window}"
+
+    def git(*args):
+        return subprocess.run(["git", "-C", repo_path, *args], capture_output=True, check=True).stdout
+
+    names = [os.path.basename(p) for p in git("ls-tree", "-r", "--name-only", commit, "--", base + "/")
+             .decode("utf-8").splitlines()]
+    files = {name: git("show", f"{commit}:{base}/{name}") for name in names}
+    cutoff = git("log", "-1", "--format=%cI", commit, "--", base).decode("utf-8").strip()
+    doc = _index_document(window, _upload_window(window, files, prefix), prefix, cutoff)
+    _validate_index(doc)
+    return json.dumps(doc, indent=2) + "\n"
+
+
+def export_published_telemetry(roadmap_repo, dest_dir, ref=None, fetch=False, indexes=None):
     """
     Copy the telemetry tree of the PUBLISHED ref into dest_dir via git plumbing (no checkout, working
-    tree untouched). Returns True when the ref exists and held telemetry files.
+    tree untouched). Windows that a telemetry-index covers are materialised from the object store
+    (or, when `indexes` is a dict, only collected there so the caller loads them one at a time).
+    Returns True when the ref exists and held telemetry files.
     """
+    ref = ref or os.environ.get("PRW_METRICS_TELEMETRY_REF") or "refs/remotes/origin/main"
+
     def git(*args):
         return subprocess.run(["git", "-C", roadmap_repo, *args], capture_output=True, timeout=60)
 
+    docs = {}
     try:
         if fetch:
             git("fetch", "-q", "origin", "main")
@@ -733,11 +925,26 @@ def export_published_telemetry(roadmap_repo, dest_dir, ref="refs/remotes/origin/
         listing = git("ls-tree", "-r", "--name-only", ref, "--", TELEMETRY_RELDIR)
         if listing.returncode != 0:
             return False
+        for rel in git("ls-tree", "-r", "--name-only", ref, "--", TELEMETRY_INDEX_RELDIR) \
+                .stdout.decode("utf-8").splitlines():
+            stem, ext = os.path.splitext(os.path.basename(rel))
+            if ext != ".json" or not _SLUG_RE.fullmatch(stem):
+                continue
+            blob = git("show", f"{ref}:{rel}")
+            if blob.returncode != 0:
+                raise TelemetryStoreError(f"cannot read telemetry index {rel}")
+            doc = _parse_index(blob.stdout, rel)
+            if _validate_index(doc)[0] != stem:
+                raise TelemetryStoreError(f"telemetry index {rel} names another window")
+            docs[stem] = doc
         exported = False
+        depth = len(TELEMETRY_RELDIR.split("/"))
         for rel in listing.stdout.decode("utf-8").splitlines():
             parts = rel.split("/")
             if ".." in parts or not _telemetry_file(os.path.basename(rel)):
                 continue
+            if len(parts) > depth + 1 and parts[depth] in docs:
+                continue  # an index-covered window is read from its index only
             blob = git("show", f"{ref}:{rel}")
             if blob.returncode != 0:
                 if _usage_candidate(os.path.basename(rel)) or _summary_candidate(os.path.basename(rel)):
@@ -748,9 +955,14 @@ def export_published_telemetry(roadmap_repo, dest_dir, ref="refs/remotes/origin/
             with open(out_path, "wb") as f:
                 f.write(blob.stdout)
             exported = True
-        return exported
     except (OSError, subprocess.SubprocessError):
         return False
+    if indexes is not None:
+        indexes.update(docs)
+    else:
+        for window, doc in docs.items():
+            _materialise_window(doc, os.path.join(dest_dir, window))
+    return exported or bool(docs)
 
 
 def _sanitize_retained_sources(sources):
@@ -1641,7 +1853,7 @@ class Collector:
             "handoff_records": handoffs,
         }
 
-    def load_retained_telemetry(self, telemetry_dir=None, roadmap_repo=None):
+    def load_retained_telemetry(self, telemetry_dir=None, roadmap_repo=None, telemetry_ref=None):
         """
         Load retained private telemetry store from roadmap repo or custom telemetry directory.
         Reconstructs pilot_events, human_episodes, calibration_audit, and retention_manifest.
@@ -1650,7 +1862,7 @@ class Collector:
         if not target_dir and roadmap_repo:
             published = tempfile.mkdtemp(prefix="prw_published_")
             try:
-                if export_published_telemetry(roadmap_repo, published):
+                if export_published_telemetry(roadmap_repo, published, ref=telemetry_ref):
                     return self.load_retained_telemetry(telemetry_dir=published)
             finally:
                 shutil.rmtree(published, ignore_errors=True)
@@ -1741,6 +1953,7 @@ class Collector:
         telemetry_dir=None,
         roadmap_repo=None,
         receipts_dir=None,
+        telemetry_ref=None,
     ):
         """
         Collect PRs, timeline, and handoffs from live GitHub API and/or cached scratch/state.
@@ -1777,10 +1990,17 @@ class Collector:
         if telemetry_dir:
             candidate_telem_dirs.append(telemetry_dir)
         published_tmp = None
+        indexed = {}
         if roadmap_repo:
             # Readback consumes the PUBLISHED ref; the working tree is only a fallback.
             published_tmp = tempfile.mkdtemp(prefix="prw_published_")
-            if export_published_telemetry(roadmap_repo, published_tmp, fetch=not offline):
+            try:
+                published = export_published_telemetry(
+                    roadmap_repo, published_tmp, ref=telemetry_ref, fetch=not offline, indexes=indexed)
+            except BaseException:
+                shutil.rmtree(published_tmp, ignore_errors=True)
+                raise
+            if published:
                 candidate_telem_dirs.append(published_tmp)
             else:
                 candidate_telem_dirs.append(os.path.join(roadmap_repo, "dashboards", "prw", "telemetry"))
@@ -1800,10 +2020,19 @@ class Collector:
         retention_manifest = {}
 
         seen_telem_dirs = set()
-        for t_dir in candidate_telem_dirs:
+
+        def seed_retained_prs(prs):
+            # Retained collections seed the same caches scratch state does; scratch (loaded next) wins.
+            for p in reversed(prs):
+                r = p.get("repo")
+                if r and (not self.repos or r in self.repos):
+                    retained_prs_by_repo.setdefault(r, []).append(self.normalize_pr_record(p))
+
+        def absorb(t_dir, pr_chunks=None):
+            nonlocal calibration_audit, retention_manifest
             real = os.path.realpath(t_dir) if t_dir else None
             if not real or real in seen_telem_dirs or not retained_telemetry_dirs(t_dir):
-                continue
+                return
             seen_telem_dirs.add(real)
             retained = self.load_retained_telemetry(telemetry_dir=t_dir)
             for ev in retained.get("pilot_events", []):
@@ -1822,18 +2051,55 @@ class Collector:
                     retained_usage_rates.append(rate)
             calibration_audit = retained.get("calibration_audit") or calibration_audit
             retention_manifest = retained.get("retention_manifest") or retention_manifest
-            # Retained collections seed the same caches scratch state does; scratch (loaded next) wins.
-            for p in reversed(retained.get("prs", [])):
-                r = p.get("repo")
-                if r and (not self.repos or r in self.repos):
-                    retained_prs_by_repo.setdefault(r, []).append(self.normalize_pr_record(p))
+            if pr_chunks is None:
+                seed_retained_prs(retained.get("prs", []))
+            else:
+                pr_chunks.extend(retained.get("prs", []))
             cached_timeline.extend(retained.get("timeline", []))
             cached_handoffs.extend(retained.get("handoff_records", []))
             for k, v in retained.get("sources", {}).items():
                 remember_prior_source(k, v)
 
-        if published_tmp:
-            shutil.rmtree(published_tmp, ignore_errors=True)
+        def absorb_published():
+            # Root files, then every published window oldest first across git blobs and
+            # indexes (later sources win), one indexed window on disk at a time; an explicit
+            # --telemetry-dir that holds a window takes precedence over its index.
+            # PR snapshots are seeded once across all windows, so ties keep the newest window's.
+            legacy_tmp, pr_chunks = tempfile.mkdtemp(prefix="prw_legacy_"), []
+            try:
+                legacy = set()
+                for d in retained_telemetry_dirs(published_tmp):
+                    if os.path.realpath(d) != os.path.realpath(published_tmp):
+                        window = os.path.basename(d)
+                        os.makedirs(os.path.join(legacy_tmp, window))
+                        os.rename(d, os.path.join(legacy_tmp, window, window))
+                        legacy.add(window)
+                absorb(published_tmp, pr_chunks)
+                explicit = {os.path.basename(d) for d in retained_telemetry_dirs(telemetry_dir)
+                            if os.path.realpath(d) != os.path.realpath(telemetry_dir)}
+                for window in sorted(legacy | (set(indexed) - explicit)):
+                    if window in legacy:
+                        absorb(os.path.join(legacy_tmp, window), pr_chunks)
+                        continue
+                    window_tmp = tempfile.mkdtemp(prefix="prw_window_")
+                    try:
+                        _materialise_window(indexed[window], os.path.join(window_tmp, window))
+                        absorb(window_tmp, pr_chunks)
+                    finally:
+                        shutil.rmtree(window_tmp, ignore_errors=True)
+                seed_retained_prs(pr_chunks)
+            finally:
+                shutil.rmtree(legacy_tmp, ignore_errors=True)
+
+        try:
+            for t_dir in candidate_telem_dirs:
+                if indexed and t_dir == published_tmp:
+                    absorb_published()
+                else:
+                    absorb(t_dir)
+        finally:
+            if published_tmp:
+                shutil.rmtree(published_tmp, ignore_errors=True)
 
         # 1. Attempt loading from state_dir or input_dir
         for directory in (state_dir, input_dir):
@@ -4772,9 +5038,32 @@ class Publisher:
                     "reason": "Normalized dashboard content matches origin/main; avoided needless commit.",
                 }
 
+        # Window files go to the object store first, outside the retry loop: an upload
+        # failure blocks the publication instead of being retried or half-committed.
+        window_files = {}
+        for path, content in telemetry_staged_files.items():
+            if os.path.dirname(path) != TELEMETRY_RELDIR:
+                window = os.path.dirname(path)[len(TELEMETRY_RELDIR) + 1:]
+                window_files.setdefault(window, {})[os.path.basename(path)] = content
+        uploaded, prefix = {}, None
+        try:
+            prefix = _bucket_prefix()
+            if prefix:
+                for window, files in sorted(window_files.items()):
+                    if not _SLUG_RE.fullmatch(window):
+                        raise TelemetryStoreError(f"invalid telemetry window: {window!r}")
+                    uploaded[window] = _upload_window(window, files, prefix)
+        except TelemetryStoreError as exc:
+            return {"action": "BLOCKED", "committed": False, "reason": f"Telemetry upload failed: {exc}"}
+        if prefix:
+            telemetry_staged_files = {path: content for path, content in telemetry_staged_files.items()
+                                      if os.path.dirname(path) == TELEMETRY_RELDIR}
+        index_cutoff = format_iso_utc(datetime.now(timezone.utc))
+
         # Scoped publication using an isolated GIT_INDEX_FILE
         # NEVER touches working tree files or unstaged changes.
         for attempt in range(max_retries):
+            staged = dict(telemetry_staged_files)
             # Fetch origin main to ensure current head
             subprocess.run(["git", "-C", self.repo_path, "fetch", "origin", "main"], capture_output=True)
 
@@ -4821,6 +5110,38 @@ class Publisher:
                                     check=True, capture_output=True, text=True, env=env,
                                 )
 
+                    # Index-covered windows: the index replaces the window's blobs. It is rendered
+                    # against this attempt's parent, so a concurrent writer's sticky files survive.
+                    for window in sorted(window_files):
+                        index_rel = f"{TELEMETRY_INDEX_RELDIR}/{window}.json"
+                        shown = subprocess.run(
+                            ["git", "-C", self.repo_path, "show", f"{parent_sha}:{index_rel}"],
+                            capture_output=True, text=True, env=env)
+                        if not prefix:
+                            if shown.returncode == 0:
+                                raise TelemetryStoreError(f"window {window} has an index but no bucket configured")
+                            continue
+                        legacy = subprocess.run(
+                            ["git", "-C", self.repo_path, "ls-tree", "-r", "--name-only", parent_sha, "--",
+                             f"{TELEMETRY_RELDIR}/{window}/"],
+                            check=True, capture_output=True, text=True, env=env).stdout.splitlines()
+                        if shown.returncode != 0 and legacy:
+                            raise TelemetryStoreError(
+                                f"window {window} has legacy blobs and no index; run the one-shot backfill")
+                        previous = _validate_index(_parse_index(shown.stdout, index_rel))[1] if shown.returncode == 0 else []
+                        fresh = {entry["name"]: entry for entry in uploaded[window]}
+                        usage, summary = any(map(_usage_file, fresh)), any(map(_summary_candidate, fresh))
+                        entries = [entry for entry in previous if entry["name"] not in fresh
+                                   and not (usage and _usage_file(entry["name"]))
+                                   and not (summary and _summary_candidate(entry["name"]))]
+                        document = _index_document(window, entries + list(fresh.values()), prefix, index_cutoff)
+                        _validate_index(document)
+                        staged[index_rel] = json.dumps(document, indent=2) + "\n"
+                        for path in legacy:
+                            subprocess.run(
+                                ["git", "-C", self.repo_path, "update-index", "--force-remove", "--", path],
+                                check=True, capture_output=True, text=True, env=env)
+
                     # 3. Hash new markdown blob
                     hash_proc = subprocess.run(
                         ["git", "-C", self.repo_path, "hash-object", "-w", "--stdin"],
@@ -4852,7 +5173,7 @@ class Publisher:
                     )
 
                     # 5. Stage any telemetry bundle files into the same atomic commit
-                    for t_relpath, t_content in telemetry_staged_files.items():
+                    for t_relpath, t_content in staged.items():
                         t_hash_proc = subprocess.run(
                             ["git", "-C", self.repo_path, "hash-object", "-w", "--stdin"],
                             input=t_content,
@@ -4926,6 +5247,8 @@ class Publisher:
                         # Remote advanced concurrently; retry
                         continue
 
+                except TelemetryStoreError as e:
+                    return {"action": "BLOCKED", "committed": False, "reason": str(e)}
                 except subprocess.CalledProcessError as e:
                     if attempt == max_retries - 1:
                         return {
@@ -4993,6 +5316,7 @@ def main():
     parser.add_argument("--output", help="Optional output path for rendered Markdown")
     parser.add_argument("--dashboard-json", help="Optional output path for the compact web-dashboard snapshot (requires query metrics)")
     parser.add_argument("--publish", action="store_true", default=os.environ.get("PRW_METRICS_PUBLISH", "").lower() in ("1", "true"), help="Publish dashboard to roadmap repo")
+    parser.add_argument("--telemetry-ref", default=os.environ.get("PRW_METRICS_TELEMETRY_REF"), help="Git ref to read published telemetry from (default: refs/remotes/origin/main)")
     parser.add_argument("--roadmap-repo", default=os.environ.get("PRW_METRICS_ROADMAP_REPO"), help="Path to local clone of roadmap repo")
     parser.add_argument("--telemetry-dir", default=os.environ.get("PRW_METRICS_TELEMETRY_DIR"), help="Path to telemetry directory containing pilot_events.jsonl, etc.")
     parser.add_argument("--receipts-dir", default=os.environ.get("PRW_METRICS_RECEIPTS_DIR"), help="Path to directory containing task receipts (run.stats.json, start_*.json, completion_*.json)")
@@ -5193,6 +5517,7 @@ def main():
         telemetry_dir=args.telemetry_dir,
         roadmap_repo=args.roadmap_repo,
         receipts_dir=args.receipts_dir,
+        telemetry_ref=args.telemetry_ref,
     )
     prs = collected["prs"]
     timeline = collected["timeline"]
