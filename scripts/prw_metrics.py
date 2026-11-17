@@ -799,7 +799,11 @@ def _upload_window(window, files, prefix):
                     error = uploaded.stderr.decode("utf-8", "replace").strip()
                     # The installed gcloud SDK formats GcsPreconditionFailedError
                     # with its reason and message, omitting the numeric status.
-                    if not re.search(r"(?:^|\)\s)Precondition Failed:", error, re.IGNORECASE):
+                    sdk_precondition = re.search(
+                        r"(?:^|\)\s)Precondition Failed:", error, re.IGNORECASE)
+                    gcloud_http_412 = re.search(
+                        r"(?:^|\n)[.]*ERROR:\s+HTTPError 412:", error, re.IGNORECASE)
+                    if not (sdk_precondition or gcloud_http_412):
                         raise TelemetryStoreError(f"window {window} {name}: {error}")
                     found = _stored_object(uri)
                     if found is None or found[0] != digest:

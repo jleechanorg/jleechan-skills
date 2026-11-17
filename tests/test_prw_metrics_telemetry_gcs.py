@@ -40,7 +40,7 @@ if args[:3] == ["storage", "objects", "describe"]:
         sys.stderr.write("ERROR: HTTP 403 Permission denied\n")
         sys.exit(1)
     if not os.path.exists(k + ".bin"):
-        if os.environ.get("FAKE_GCS_RACE_UPLOAD") in ("matching", "unrelated412"):
+        if os.environ.get("FAKE_GCS_RACE_UPLOAD") in ("matching", "unrelated412", "numeric412"):
             import subprocess
             os.makedirs(os.path.dirname(k), exist_ok=True)
             raw = os.environ["FAKE_GCS_RACE_RAW"].encode()
@@ -68,6 +68,9 @@ elif args[:2] == ["storage", "cp"]:
             sys.exit(1)
         if os.environ.get("FAKE_GCS_RACE_UPLOAD") == "absent":
             sys.stderr.write("ERROR: (gcloud.storage.cp) Precondition Failed: At least one of the pre-conditions you specified did not hold.\n")
+            sys.exit(1)
+        if os.environ.get("FAKE_GCS_RACE_UPLOAD") == "numeric412":
+            sys.stderr.write("Copying " + src + " to " + dst + "\n..........ERROR: HTTPError 412: At least one of the pre-conditions you specified did not hold.\n")
             sys.exit(1)
         k = key(dst)
         if os.environ.get("FAKE_GCS_RACE_UPLOAD") == "unreadable_after_412":
@@ -294,6 +297,15 @@ class UploadTests(GcsCase):
         self.assertEqual(self.raw_of(entries[0]["uri"]), raw.encode())
         self.assertEqual(json.loads(self.obj(entries[0]["uri"]).with_suffix(".json").read_text()),
                          {"raw_sha256": digest})
+
+    def test_no_clobber_numeric_http_412_accepts_matching_object_metadata(self):
+        raw = "numeric race winner\n"
+        digest = sha(raw)
+        os.environ.update(FAKE_GCS_RACE_UPLOAD="numeric412", FAKE_GCS_RACE_RAW=raw,
+                          FAKE_GCS_RACE_SHA=digest)
+        entries = m._upload_window(WIN, {"usage_events.jsonl": raw}, PREFIX)
+        self.assertEqual(entries[0]["sha256"], digest)
+        self.assertEqual(self.raw_of(entries[0]["uri"]), raw.encode())
 
     def test_unrelated_error_with_412_in_request_text_is_not_a_race(self):
         raw = "race winner\n"
