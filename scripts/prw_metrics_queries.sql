@@ -360,6 +360,10 @@ SELECT
         AS verified_initial_human_message_count,
     TRY_CAST(json_extract_string(person.value, '$.verified_followup_messages') AS BIGINT)
         AS verified_followup_human_message_count,
+    CAST(json_extract(person.value, '$.confirmed_verified_at') AS VARCHAR)
+        AS confirmed_verified_at,
+    TRY_CAST(json_extract_string(person.value, '$.unconfirmed_verified_messages') AS BIGINT)
+        AS unconfirmed_verified_messages,
     TRY_CAST(json_extract_string(person.value, '$.followup_episodes') AS BIGINT)
         AS reviewed_followup_episode_count,
     TRY_CAST(json_extract_string(person.value, '$.episodes_by_quality.good') AS BIGINT)
@@ -420,6 +424,10 @@ SELECT
               AND MIN(human_coverage_status) = 'OBSERVED_SCOPE_ONLY'
               AND COUNT(DISTINCT reviewed_followup_episode_count) <= 1
         THEN MIN(reviewed_followup_episode_count) END AS reviewed_followup_episode_count,
+    CASE WHEN COUNT(DISTINCT confirmed_verified_at) <= 1
+        THEN MIN(confirmed_verified_at) END AS confirmed_verified_at,
+    CASE WHEN COUNT(DISTINCT unconfirmed_verified_messages) <= 1
+        THEN MIN(unconfirmed_verified_messages) END AS unconfirmed_verified_messages,
     CASE WHEN COUNT(DISTINCT good_episode_count) <= 1
         THEN MIN(good_episode_count) END AS good_episode_count,
     CASE WHEN COUNT(DISTINCT bad_episode_count) <= 1
@@ -675,6 +683,8 @@ SELECT
     h.verified_initial_human_message_count,
     h.verified_followup_human_message_count,
     h.reviewed_followup_episode_count,
+    h.confirmed_verified_at,
+    h.unconfirmed_verified_messages,
     h.good_episode_count,
     h.bad_episode_count,
     h.mixed_episode_count,

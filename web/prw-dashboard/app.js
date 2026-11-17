@@ -175,7 +175,7 @@
       tile({ label: "One-shot rate (0 human steers)", value: t.rate.ok ? t.rate.ones + " of " + t.rate.n + " · " + t.rate.pct.toFixed(0) + "%" : null, naText: na,
         detail: sample(t.rate, "reached final") + (t.rate.ok ? "" : " (needs " + min + "+)") }),
       tile({ label: "Human steers per PR, median / p90", value: t.steers.ok ? t.steers.p50 + " / " + t.steers.p90 : null, naText: na,
-        detail: sample(t.steers, "reached final") + (t.steers.ok ? "" : " (needs " + min + "+)") }),
+        detail: "verified messages after the first recorded stage and before the final stage · " + sample(t.steers, "reached final") + (t.steers.ok ? "" : " (needs " + min + "+)") }),
       tile({ label: "First recorded stage to final stage, median / p90", value: t.minutes.ok ? minutes(t.minutes.p50) + " / " + minutes(t.minutes.p90) : null, naText: na,
         detail: sample(t.minutes, "reached final") + (t.minutes.ok ? "" : " (needs " + min + "+)") }),
       tile({ label: "Reached final stage vs started", value: t.counts.ok ? t.counts.reached.toLocaleString("en-US") + " of " + t.counts.started.toLocaleString("en-US") : null, naText: na,

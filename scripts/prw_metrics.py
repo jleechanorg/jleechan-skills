@@ -419,6 +419,8 @@ SUMMARY_SCHEMA = {
             "followup_episodes": _SC,
             "episodes_by_quality": {key: _SC for key in ("good", "bad", "mixed", "unknown")},
             "association_basis": [_SC], "association_confidence": _SC,
+            "confirmed_verified_at": [_SC],
+            "unconfirmed_verified_messages": _SC,
         }],
     },
     "usage_summary": {
@@ -4101,7 +4103,7 @@ def aggregate_native_human_steering(
             "association_basis": set(), "coverage_status": "UNKNOWN",
             "association_confidence": "UNKNOWN", "_episode_labels": {},
             "_nudge_episode_ids": set(), "_assigned_observations": 0,
-            "_confidences": set(),
+            "_confidences": set(), "_confirmed_at": [], "_unconfirmed": 0,
         }
 
     listed = set()
@@ -4203,6 +4205,19 @@ def aggregate_native_human_steering(
         "unassigned_no_single_pr": "no_single_pr_unassigned_messages",
     }
 
+    copies = {}  # (provider, event_id) -> every copy; disagreeing copies are unconfirmed
+    for item in human_records or []:
+        if isinstance(item, dict) and item.get("event_id"):
+            copies.setdefault((item.get("provider"), item["event_id"]), []).append(item)
+
+    def implicated(items):  # every PR the copies name or whose repository (any casing) and branch they match
+        prs = {pr for i in items for pr in ((i.get("pr_binding") or {}).get("pr") if isinstance(i.get("pr_binding"), dict) else None, i.get(
+            "effective_associated_pr"), i.get("context_associated_pr"), i.get("original_associated_pr")) if _safe_pr_id(pr)}
+        for i in items:
+            repo_i, branch_i = safe_repo(i.get("repository") or i.get("repository_url")), i.get("git_branch") or i.get("branch")
+            prs |= {e[0] for (r, b), es in branch_index.items() for e in es if b == branch_i and (repo_i is None or r.lower() == repo_i.lower())}
+        return prs | {k for k in pr_rows if k.lower() in {pr.lower() for pr in prs}}  # every listed spelling of a named PR
+
     for event in human_records or []:
         if not isinstance(event, dict):
             continue
@@ -4213,14 +4228,24 @@ def aggregate_native_human_steering(
             continue
         if event_id:
             seen.add(identity)
+        items = copies.get(identity, [event])
         at = parsed_time(event.get("timestamp"))
-        if at is None or (start and at < start) or (end and at >= end):
+        def in_window(i):  # an outside copy is evidence of a dispute, never of verification
+            t = parsed_time(i.get("timestamp"))
+            return t is not None and not ((start and t < start) or (end and t >= end))
+        if not any(in_window(i) for i in items):
             continue
-        actor_kind = event.get("actor_kind")
-        if actor_kind == "automated_watch" or event.get("origin_status") == "excluded_automated":
+        def automated(i):
+            return i.get("actor_kind") == "automated_watch" or i.get("origin_status") == "excluded_automated"
+        if all(automated(i) for i in items):
             coverage["automated_excluded_messages"] += 1
             continue
-        verified = actor_kind == "human" or event.get("origin_status") == "verified_human"
+        human = [i.get("actor_kind") == "human" or i.get("origin_status") == "verified_human" for i in items]
+        verified = any(h for h, i in zip(human, items) if in_window(i))
+        disputed = len({json.dumps({k: v for k, v in i.items() if k not in ("source_fingerprint", "source_id")}, sort_keys=True, default=str) for i in items}) > 1
+        if disputed:
+            event = {**event, "pr_binding": None, "context_pr_decision": "unassigned_multi_pr",  # copies disagree: bind none
+                     "message_kind": None, "human_nudge_eligible": None, "score": None, "episode_id": None}
         coverage["verified_messages" if verified else "candidate_messages"] += 1
         if event.get("branch_source") == "cached_repository_map":
             coverage["repository_map_resolved_events"] += 1
@@ -4257,6 +4282,12 @@ def aggregate_native_human_steering(
             association = direct_pr
             ensure_direct_row(association)
             confidence, basis, association_kind = "EXPLICIT", "reviewed_direct_pr_binding", "direct"
+            reviewed = [event.get("effective_associated_pr"), event.get("context_associated_pr")] + (
+                [event.get("original_associated_pr")] if context_decision == "confirm_original" else [])  # every reviewed field
+            clash = context_decision in ("confirm_original", "override", "context_associated") and any(
+                _safe_pr_id(pr) and pr != direct_pr for pr in reviewed)
+            if clash or context_decision in context_unassigned:  # contradictory evidence: bound to and confirmed for no PR
+                association, confidence = None, None
         elif context_decision in context_unassigned:
             coverage["reviewed_unassigned_messages"] += 1
             coverage[context_unassigned[context_decision]] += 1
@@ -4351,6 +4382,11 @@ def aggregate_native_human_steering(
                 elif len(branch_all) > 1:
                     coverage["ambiguous_branch_messages"] += 1
 
+        confirmed = association_kind in ("direct", "context") and confidence in ("EXPLICIT", "REVIEWED_CONTEXT")
+        for pr in implicated(items) if (verified or disputed and any(human)) and not confirmed else ():  # unknown, never zero
+            ensure_direct_row(pr)
+            pr_rows[pr]["_unconfirmed"] += 1
+
         role = event.get("episode_role")
         quality_label = event.get("quality_label")
         if isinstance(quality_label, str):
@@ -4391,6 +4427,8 @@ def aggregate_native_human_steering(
         row["_confidences"].add(confidence)
         if verified:
             row["raw_verified_messages"] += 1
+            if confirmed:  # branch matches and low-confidence context are heuristics, not confirmed steering
+                row["_confirmed_at"].append(at.isoformat().replace("+00:00", "Z"))
             field = {
                 "direct": "direct_verified_messages",
                 "context": "context_associated_verified_messages",
@@ -4452,6 +4490,8 @@ def aggregate_native_human_steering(
         row["association_basis"] = sorted(row["association_basis"])
         row.pop("_episode_labels", None)
         row.pop("_assigned_observations", None)
+        row["confirmed_verified_at"] = sorted(row.pop("_confirmed_at"))
+        row["unconfirmed_verified_messages"] = row.pop("_unconfirmed")
     return {"coverage": coverage, "per_pr": [pr_rows[key] for key in sorted(pr_rows)]}
 
 
@@ -5049,13 +5089,13 @@ def main():
         try:
             from scripts.native_usage_collector import (
                 collect_native_history,
-                load_normalized_history,
+                load_normalized_history, disputing_copies,
                 write_normalized_history, enrich_replay_state, write_nudge_packets,
             )
         except ModuleNotFoundError:
             from native_usage_collector import (
                 collect_native_history,
-                load_normalized_history,
+                load_normalized_history, disputing_copies,
                 write_normalized_history, enrich_replay_state, write_nudge_packets,
             )
         if args.repository_map:
@@ -5086,6 +5126,7 @@ def main():
                 "usage_records": [], "human_records": [], "export_records": [],
                 "stats": None,
             }
+            outside_humans = []
             for replay_path in args.history_replay:
                 replay = load_normalized_history(
                     replay_path, cutoff=history_cutoff, days=args.days,
@@ -5093,6 +5134,7 @@ def main():
                 )
                 for key in ("usage_records", "human_records", "export_records"):
                     history_data[key].extend(replay[key])
+                outside_humans.extend(replay["outside_human_records"])
                 if history_data["stats"] is None:
                     history_data["stats"] = replay["stats"]
                 else:
@@ -5101,6 +5143,7 @@ def main():
                             history_data["stats"][key].extend(value)
                         elif isinstance(value, int) and not isinstance(value, bool):
                             history_data["stats"][key] += value
+            history_data["human_records"] += disputing_copies(history_data["human_records"], outside_humans)
             quality = [item["status"] for item in history_data["stats"]["source_exports"]]
             history_data["stats"]["source_quality"] = next(
                 (status for status in ("FAILED", "PARTIAL", "UNKNOWN", "COMPLETE") if status in quality),
@@ -5242,7 +5285,7 @@ def main():
         query_summary = run_query(
             events_path=usage_summary["query_events"] if usage_summary else [],
             pr_snapshots_path=query_prs or [],
-            snapshot_at_utc=format_iso_utc(cutoff_dt),
+            snapshot_at_utc=cutoff_dt.isoformat().replace("+00:00", "Z"),  # full precision: stage entries compare against it
             human_summary_path=summary_data.get("human_summary"),
             rate_catalog_path=args.scenario_catalog,
             duckdb_memory_limit=args.query_memory_limit,

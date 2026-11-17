@@ -166,6 +166,11 @@ def _export_source_quality(path, export_sha256, start, cutoff):
     return result
 
 
+def disputing_copies(humans, outside):  # an out-of-window copy is kept only as evidence against an in-window one
+    inside = {(r.get("provider"), r.get("event_id")) for r in humans}
+    return [r for r in outside if (r.get("provider"), r.get("event_id")) in inside]
+
+
 def load_normalized_history(path, cutoff, days=14, annotation_path=None):
     """Replay a typed normalized export without reopening native history sources."""
     if isinstance(cutoff, datetime) and cutoff.tzinfo:
@@ -192,7 +197,7 @@ def load_normalized_history(path, cutoff, days=14, annotation_path=None):
         window_start=_window_iso(start), window_end=_window_iso(cutoff),
     )
     annotations = _load_replay_annotations(annotation_path)
-    seen_usage, digest = set(), hashlib.sha256()  # hash exactly the bytes parsed, streamed from one open file
+    seen_usage, digest, outside_humans = set(), hashlib.sha256(), []  # hash exactly the bytes parsed, streamed from one open file
     path = Path(path).resolve()  # a symlinked export is read, locked and receipted at its real location
     with _generation_lock(path, fcntl.LOCK_SH), path.open("rb") as stream:  # held until the receipt is read
         for line_number, raw in enumerate(_hashed_lines(stream, digest), 1):
@@ -235,6 +240,8 @@ def load_normalized_history(path, cutoff, days=14, annotation_path=None):
                 continue
             if not start <= at < cutoff:
                 stats["outside_window_records"] += 1
+                outside_humans += [record] if record["record_type"] == "human" and all(
+                    isinstance(record.get(k), str) for k in ("provider", "event_id")) else []  # identity must be hashable
                 continue
             exported.append(record)
             if record["record_type"] == "usage":
@@ -274,6 +281,7 @@ def load_normalized_history(path, cutoff, days=14, annotation_path=None):
     return {
         "usage_records": usage,
         "human_records": humans,
+        "outside_human_records": outside_humans,
         "export_records": exported,
         "stats": stats,
     }
@@ -598,7 +606,7 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
     if session_bindings:
         session_index, join_stats = _load_session_bindings(session_bindings)
         stats.update(join_stats, session_bound_usage_records=0)
-    usage, humans, exported, packet_records, seen_files, seen_usage = [], [], [], [], set(), set()
+    usage, humans, exported, packet_records, seen_files, seen_usage, outside_humans = [], [], [], [], set(), set(), []
     for root in history_roots:
         root = Path(root)
         if not root.exists():
@@ -738,8 +746,9 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                         if at is None:
                             stats["undated_records"] += 1
                             continue
-                        if not start <= at < cutoff:
-                            stats["outside_window_records"] += 1
+                        outside = not start <= at < cutoff  # an outside human copy is kept only to dispute an inside one
+                        stats["outside_window_records"] += outside
+                        if outside and (claude_usage or codex_usage or entire_parser):
                             continue
                         provider = "openai" if codex_usage or codex_user else "anthropic"
                         source_identity = "source:" + hashlib.sha256(identity.encode()).hexdigest()
@@ -848,6 +857,9 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                                 annotation = next((annotations[alias] for alias in aliases if alias in annotations), None)
                             if annotation is not None:
                                 _apply_replay_annotation(record, annotation)
+                            if outside:
+                                outside_humans.append(record)
+                                continue
                             automated = (
                                 record.get("actor_kind") == "automated_watch"
                                 or record.get("origin_status") == "excluded_automated"
@@ -874,6 +886,7 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                             stats["undated_records"] += 1
                         elif not start <= at < cutoff:
                             stats["outside_window_records"] += 1
+                            outside_humans.append(record)
                         else:
                             humans.append(record)
                             exported.append(dict(record))
@@ -893,6 +906,8 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
     else:
         stats["status"] = "PARTIAL" if errors or entire_parser or stats["undated_records"] else "COMPLETE"
     stats["window_start"], stats["window_end"] = _window_iso(start), _window_iso(cutoff)
+    humans += disputing_copies(humans, outside_humans)
+    exported += [dict(r, record_type="human") for r in outside_humans]  # every outside copy: another export may hold its inside twin
     if state_conn:
         state_conn.close()
     return dict(usage_records=usage, human_records=humans, export_records=exported,

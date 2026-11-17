@@ -143,7 +143,7 @@
 
   /**
    * Headline "one-shot" figures over the given rows. Reached final = a final-stage entry (or label) was
-   * recorded; started = any stage evidence. Steers = verified follow-up human messages; an unknown steer
+   * recorded; started = any stage evidence. Steers = verified human messages strictly between the first recorded stage and the final stage (human.mid_pr); an unknown steer
    * count or an unusable start-to-final interval is excluded and counted as unknown, never zero.
    * Below MIN_TILE_N observations a tile reports ok:false and no figure.
    */
@@ -151,9 +151,9 @@
     var started = rows.filter(function (pr) { return pr.flow; });
     var reached = started.filter(function (pr) { return pr.flow.reached_final; });
     var steerRows = reached.filter(function (pr) {
-      return pr.human && pr.human.coverage_status !== "CANDIDATE_ONLY" && typeof pr.human.followup === "number";
+      return pr.human && pr.human.coverage_status !== "CANDIDATE_ONLY" && typeof pr.human.mid_pr === "number";
     });
-    var steers = steerRows.map(function (pr) { return pr.human.followup; });
+    var steers = steerRows.map(function (pr) { return pr.human.mid_pr; });
     var minutes = [];
     reached.forEach(function (pr) {
       var a = ms(pr.flow.started_at), b = ms(pr.flow.final_at);
