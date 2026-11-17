@@ -19,14 +19,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 try:
-    from scripts.prw_metrics import MetricsAggregator, _project_summary, _scrub_secrets
+    from scripts.prw_metrics import MetricsAggregator, _project_summary, _scrub_secrets, normalize_stage_label
 except ModuleNotFoundError:
-    from prw_metrics import MetricsAggregator, _project_summary, _scrub_secrets
+    from prw_metrics import MetricsAggregator, _project_summary, _scrub_secrets, normalize_stage_label
 
 SCHEMA_VERSION = 1
 
 _TS = re.compile(
-    r"^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})(?:\.\d+)?(Z|[+-]\d{2}(?::?\d{2})?)?$"
+    r"^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2}(?:\.\d+)?)(Z|[+-]\d{2}(?::?\d{2})?)?$"
 )
 
 
@@ -47,7 +47,7 @@ def to_utc_iso(value):
         parsed = datetime.fromisoformat(f"{day}T{clock}{zone}")
     except ValueError:
         return None
-    return parsed.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return parsed.astimezone(timezone.utc).replace(tzinfo=None).isoformat() + "Z"  # subseconds kept for ordering
 
 
 def _number(value):
@@ -130,9 +130,7 @@ def _handoffs(record):
         start, end = to_utc_iso(_first(record, start_fields)), to_utc_iso(_first(record, end_fields))
         if not start or not end:
             continue
-        seconds = (
-            datetime.strptime(end, "%Y-%m-%dT%H:%M:%SZ") - datetime.strptime(start, "%Y-%m-%dT%H:%M:%SZ")
-        ).total_seconds()
+        seconds = (_instant(end) - _instant(start)).total_seconds()
         if seconds >= 0:  # an end before its start is a recording conflict, not a duration
             intervals[key] = seconds
     return intervals or None
@@ -156,36 +154,45 @@ def _stage_events_by_pr(timeline):
     return by_pr
 
 
-def _flow(record, stage_events=None):
+def _flow(record, stage_events=None, cutoff=None):
     """Whether the PR reached the final stage, and when /prw started and the final stage began.
 
     Entries come from the PR's stage transitions and from stage label events in the timeline.
     Start is the earliest recorded stage entry; final is the first entry into the final stage.
     Without any stage evidence the answer is unknown (None), not "never reached".
+    Entries after the snapshot cutoff are ignored, and legacy aliases are normalized first.
     """
     record = record if isinstance(record, dict) else {}
-    starts, finals = [], []
+    starts, finals, late_final = [], [], False
     for when, label in stage_events or []:
+        if cutoff and _instant(when) > _instant(cutoff):
+            late_final = late_final or normalize_stage_label(label) == FINAL_STAGE
+            continue
         starts.append(when)
-        if label == FINAL_STAGE:
+        if normalize_stage_label(label) == FINAL_STAGE:
             finals.append(when)
     for transition in record.get("stage_transitions") or []:
         if not isinstance(transition, dict):
             continue
         entered = to_utc_iso(_first(transition, ("entered_at", "start_at", "start")))
-        if entered:
+        if entered and cutoff and _instant(entered) > _instant(cutoff):
+            late_final = late_final or normalize_stage_label(transition.get("stage") or transition.get("label") or transition.get("name")) == FINAL_STAGE
+        elif entered:
             starts.append(entered)
-            if (transition.get("stage") or transition.get("label")) == FINAL_STAGE:
+            if normalize_stage_label(transition.get("stage") or transition.get("label") or transition.get("name")) == FINAL_STAGE:
                 finals.append(entered)
     label = record.get("legacy_stage")
+    label = normalize_stage_label(label) if isinstance(label, str) else label
     label_final = label == FINAL_STAGE
     has_stage_label = isinstance(label, str) and label.startswith("stage:")
     if not starts and not has_stage_label:
         return None
+    # A dated final entry after the cutoff outranks an untimed current label.
+    reached = bool(finals) or (label_final and not late_final)
     return {
-        "reached_final": bool(finals) or label_final,
-        "started_at": min(starts) if starts else None,
-        "final_at": min(finals) if finals else None,
+        "reached_final": reached,
+        "started_at": min(starts, key=_instant) if starts else None,
+        "final_at": min(finals, key=_instant) if finals else None,
     }
 
 
@@ -249,7 +256,33 @@ def _scenarios_by_pr(rows):
     return grouped
 
 
-def _pr_row(metric, record, scenario, stage_events=None):
+def _instant(value):
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed.astimezone(timezone.utc) if parsed.tzinfo else None
+
+
+def _mid_pr(metric, flow, cutoff, history_from, history_to):
+    if (_count(metric.get("unconfirmed_verified_messages")) != 0 or metric.get("human_summary_conflict")
+            or metric.get("human_coverage_status") == "CANDIDATE_ONLY" or not flow or not flow["started_at"]):
+        return None
+    start, end = _instant(flow["started_at"]), _instant(flow["final_at"])
+    merged = _instant(str(metric.get("merged_at_utc")))
+    if end is None and merged and not flow["reached_final"] and (not cutoff or merged <= _instant(cutoff)):  # known final, unknown time: unknown
+        end = merged
+    observed_from, observed_to = _instant(history_from), _instant(history_to)
+    if end is None or start >= end or not observed_from or observed_from > start or not observed_to or observed_to < end:
+        return None
+    raw = metric.get("confirmed_verified_at")  # the query layer decodes JSON arrays
+    times = [_instant(t) for t in raw] if isinstance(raw, list) else [None]
+    return None if None in times else sum(start < t < end for t in times)
+
+
+def _pr_row(metric, record, scenario, stage_events=None, cutoff=None, history_from=None, history_to=None):
     repository = metric.get("repository")
     number = _count(metric.get("pr_number"))
     record = record or {}
@@ -288,6 +321,7 @@ def _pr_row(metric, record, scenario, stage_events=None):
             "total": direct_total,
             "requests": _count(metric.get("direct_usage_observation_count")),
         }
+    flow = _flow(record, stage_events, cutoff)
     human = None
     if metric.get("human_coverage_status") not in (None, "UNKNOWN"):
         human = {
@@ -296,6 +330,7 @@ def _pr_row(metric, record, scenario, stage_events=None):
             "verified_messages": _count(metric.get("raw_verified_human_message_count")),
             "initial": _count(metric.get("verified_initial_human_message_count")),
             "followup": _count(metric.get("verified_followup_human_message_count")),
+            "mid_pr": _mid_pr(metric, flow, cutoff, history_from, history_to),
             "branch_candidates": _count(metric.get("branch_associated_candidates")),
             "episodes": {
                 label: _count(metric.get(f"{label}_episode_count"))
@@ -328,7 +363,7 @@ def _pr_row(metric, record, scenario, stage_events=None):
         "human": human,
         "human_coverage_status": metric.get("human_coverage_status"),
         "handoffs": _handoffs(record),
-        "flow": _flow(record, stage_events),
+        "flow": flow,
         "active_s": _number(metric.get("observed_active_wall_seconds")),
         "agent_effort_s": _number(metric.get("agent_effort_seconds")),
         "eligible_idle_s": _number(metric.get("eligible_idle_seconds")),
@@ -421,12 +456,17 @@ def build_snapshot(summary_data, query_summary, prs, *, generated_at=None, code_
     index = _index_prs(prs)
     scenarios = _scenarios_by_pr(query_summary.get("catalog_scenario_pr_metrics"))
     stage_events = _stage_events_by_pr(timeline)
+    cutoff = to_utc_iso(query_summary.get("snapshot_at_utc"))
+    native = ((summary_data.get("usage_summary") or {}).get("coverage") or {}).get("native_source")
+    # Only a COMPLETE native history (or a replay whose upstream exports are all COMPLETE) shows that an interval inside its window was observed.
+    complete = isinstance(native, dict) and (native.get("status") == "COMPLETE" or (native.get("status") == "REPLAYED" and native.get("source_quality") == "COMPLETE"))
+    history_from, history_to = (native.get("window_start"), native.get("window_end")) if complete else (None, None)
     rows = []
     for metric in query_summary.get("pr_metrics") or []:
         if not isinstance(metric, dict) or _count(metric.get("pr_number")) is None:
             continue
         key = _pr_key(metric.get("repository"), _count(metric.get("pr_number")))
-        rows.append(_pr_row(metric, index.get(key), scenarios.get(key), stage_events.get(key)))
+        rows.append(_pr_row(metric, index.get(key), scenarios.get(key), stage_events.get(key), cutoff, history_from, history_to))
     rows.sort(key=lambda row: (row["repo"] or "", row["number"]))
     cohorts = [_cohort_row(row) for row in query_summary.get("metric_cohorts") or [] if isinstance(row, dict)]
     usage = summary_data.get("usage_summary") if isinstance(summary_data.get("usage_summary"), dict) else {}
@@ -496,7 +536,7 @@ def main():
         return json.loads(Path(path).read_text(encoding="utf-8")) if path else None
 
     snapshot = build_snapshot(
-        load(args.summary), load(args.query), load(args.prs), code_version=args.code_version
+        load(args.summary), load(args.query), load(args.prs), code_version=args.code_version,
     )
     write_snapshot(args.output, snapshot)
     print(f"Wrote {len(snapshot['prs'])} PR rows to {args.output}")

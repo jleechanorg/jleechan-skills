@@ -256,7 +256,9 @@ class ByteIdentityTests(SessionBindingCollectorBase):
                 [sys.executable, str(script), "--history-root", str(self.root),
                  "--cutoff", "2026-11-09T12:00:00Z", "--output", str(out)],
                 check=True, capture_output=True, text=True, timeout=60, env=env, cwd=self.tmp.name)
-            return out.read_bytes(), Path(str(out) + ".stats.json").read_bytes()
+            receipt = json.loads(Path(str(out) + ".stats.json").read_text(encoding="utf-8"))
+            receipt.pop("export_sha256", None)  # the current receipt also names the export bytes it describes
+            return out.read_bytes(), receipt
 
         old = run(pin_dir / "pin_collector.py", Path(self.tmp.name) / "old.jsonl")
         new = run(REPO / "scripts" / "native_usage_collector.py", Path(self.tmp.name) / "new.jsonl")

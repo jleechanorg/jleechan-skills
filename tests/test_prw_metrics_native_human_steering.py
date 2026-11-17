@@ -5,10 +5,15 @@ import re
 import tempfile
 import unittest
 
-from scripts.prw_metrics import DashboardRenderer, Publisher, aggregate_native_human_steering
+from scripts.prw_metrics import DashboardRenderer, Publisher, _project_summary, aggregate_native_human_steering
 
 
 class NativeHumanSteeringTests(unittest.TestCase):
+    def test_summary_projection_keeps_confirmed_message_times(self):
+        times = ["2026-11-01T10:30:00Z"]
+        summary = {"human_summary": {"per_pr": [{"pr": "acme/app#1", "confirmed_verified_at": times}]}}
+        self.assertEqual(_project_summary(summary)["human_summary"]["per_pr"][0]["confirmed_verified_at"], times)
+
     def setUp(self):
         self.prs = [
             {
@@ -129,6 +134,85 @@ class NativeHumanSteeringTests(unittest.TestCase):
         self.assertEqual(rows["example/repo#6"]["raw_verified_messages"], 0)
         self.assertEqual(rows["example/repo#7"]["raw_verified_messages"], 0)
         self.assertEqual(rows["example/repo#6"]["coverage_status"], "UNKNOWN")
+
+    def test_explicit_bindings_with_different_repository_casing_count_for_the_listed_pr(self):
+        base = {"provider": "claude", "timestamp": "2026-10-05T10:00:00Z", "origin_status": "verified_human"}
+        events = [
+            dict(base, event_id="direct", pr_binding={"pr": "Example/Repo#5"}),
+            dict(base, event_id="context", context_pr_decision="override", original_associated_pr="EXAMPLE/repo#5",
+                 context_associated_pr="Example/Repo#6", effective_associated_pr="Example/Repo#6",
+                 effective_association_confidence="REVIEWED_CONTEXT"),
+        ]
+        result = aggregate_native_human_steering(
+            events, self.prs, window_start="2026-10-01T00:00:00Z", window_end="2026-10-20T00:00:00Z",
+            source_stats=self.stats,
+        )
+        rows = {row["pr"]: row for row in result["per_pr"]}
+        self.assertEqual(set(rows), {"example/repo#5", "example/repo#6", "example/repo#7"})
+        self.assertEqual(rows["example/repo#5"]["direct_verified_messages"], 1)
+        self.assertEqual(rows["example/repo#6"]["context_associated_verified_messages"], 1)
+
+    def test_bindings_are_not_respelled_when_the_list_is_ambiguous_or_the_id_is_a_lookalike(self):
+        stale = dict(self.prs[0], repo="Example/Repo", closedAt=None, state="OPEN")  # a stale cached copy of #5
+        closed = dict(self.prs[2], repo="Example/Repo", number=9, createdAt="2026-01-01T00:00:00Z",
+                      closedAt="2026-01-02T00:00:00Z")  # outside the window
+        kelvin = dict(self.prs[0], repo="k-dev/board", number=3)
+        base = {"provider": "claude", "origin_status": "verified_human", "timestamp": "2026-10-05T10:00:00Z"}
+        events = [
+            dict(base, event_id="mixed", pr_binding={"pr": "EXAMPLE/repo#5"}),
+            dict(base, event_id="exact", pr_binding={"pr": "example/repo#6"}),
+            dict(base, event_id="outside", pr_binding={"pr": "example/repo#9"}),
+            dict(base, event_id="kelvin", pr_binding={"pr": "\u212a-dev/board#3"}),
+        ]
+        window = dict(window_start="2026-10-01T00:00:00Z", window_end="2026-10-20T00:00:00Z", source_stats=self.stats)
+        rows = {r["pr"]: r["direct_verified_messages"] for r in aggregate_native_human_steering(
+            events, self.prs + [stale, closed, kelvin], **window)["per_pr"]}
+        self.assertEqual(rows["example/repo#5"], 0)  # two listed spellings: never choose between them
+        self.assertEqual(rows["Example/Repo#5"], 0)
+        self.assertEqual(rows["example/repo#6"], 1)
+        self.assertEqual(rows["Example/Repo#9"], 1)  # a listed PR outside the window is still the same PR
+        self.assertEqual(rows["k-dev/board#3"], 0)
+
+    def test_a_message_not_confirmed_for_one_pr_leaves_every_plausible_pr_unknown(self):
+        base = {"provider": "claude", "origin_status": "verified_human", "timestamp": "2026-10-12T10:00:00Z"}
+        branch = dict(base, repository="example/repo", git_branch="topic")
+        override = dict(base, event_id="d", context_pr_decision="override", original_associated_pr="example/repo#5",
+                        effective_associated_pr="example/repo#6", effective_association_confidence="REVIEWED_CONTEXT")
+
+        def unknown(events, prs=self.prs):
+            result = aggregate_native_human_steering(events, prs, window_start="2026-10-01T00:00:00Z",
+                                                     window_end="2026-10-20T00:00:00Z", source_stats=self.stats)
+            return [r["unconfirmed_verified_messages"] for r in result["per_pr"]]
+
+        self.assertEqual(unknown([override, dict(override, timestamp="2026-10-12T10:00:01Z")]), [1, 1, 0])  # disputed copies
+        self.assertEqual(unknown([dict(base, event_id="m", context_pr_decision="unassigned_multi_pr",
+                                       original_associated_pr="example/repo#5")]), [1, 0, 0])
+        self.assertEqual(unknown([dict(branch, event_id="a")], [dict(p, repo="Example/Repo") for p in self.prs]), [1, 1, 1])
+        self.assertEqual(unknown([dict(branch, event_id="h", commit_hash="sha-pr6")]), [1, 1, 1])  # a session SHA is not confirmation
+        self.assertEqual(unknown([dict(branch, event_id="c", pr_binding={"pr": "example/repo#6"})]), [0, 0, 0])
+        spelled = [dict(self.prs[0], repo="Example/Repo"), dict(self.prs[0], repo="EXAMPLE/REPO")]  # two listed spellings of #5
+        self.assertEqual(unknown([override, dict(override, timestamp="2026-10-12T10:00:01Z", original_associated_pr="example/repo#5")],
+                                 spelled), [1, 1, 1, 1])  # each listed spelling, plus the named ones
+
+    def test_outside_or_contradicting_evidence_never_adds_verified_counts(self):
+        window = dict(window_start="2026-10-01T00:00:00Z", window_end="2026-10-20T00:00:00Z", source_stats=self.stats)
+        candidate = {"event_id": "c", "provider": "claude", "timestamp": "2026-10-12T10:00:00Z",
+                     "origin_status": "unverified_candidate", "pr_binding": {"pr": "example/repo#6"}}
+        result = aggregate_native_human_steering([candidate, dict(candidate, timestamp="2026-10-25T10:00:00Z",
+                                                                  origin_status="verified_human")], self.prs, **window)
+        self.assertEqual((result["coverage"]["verified_messages"], result["coverage"]["candidate_messages"]), (0, 1))
+        clash = {"event_id": "x", "provider": "claude", "timestamp": "2026-10-12T10:00:00Z", "origin_status": "verified_human",
+                 "pr_binding": {"pr": "example/repo#6"}, "context_pr_decision": "override",
+                 "effective_associated_pr": "example/repo#5", "effective_association_confidence": "REVIEWED_CONTEXT"}
+        rows = aggregate_native_human_steering([clash], self.prs, **window)["per_pr"]
+        self.assertEqual([(r["raw_verified_messages"], r["unconfirmed_verified_messages"]) for r in rows], [(0, 1), (0, 1), (0, 0)])
+        sparse = dict(clash, event_id="s", pr_binding={"pr": "example/repo#5"}, effective_associated_pr="example/repo#5",
+                      context_associated_pr="example/repo#6")  # a reviewed override that did not restate the effective field
+        rows = aggregate_native_human_steering([sparse], self.prs, **window)["per_pr"]
+        self.assertEqual([(r["confirmed_verified_at"], r["unconfirmed_verified_messages"]) for r in rows], [([], 1), ([], 1), ([], 0)])
+        verified_outside = dict(candidate, event_id="v", timestamp="2026-09-20T10:00:00Z", origin_status="verified_human")
+        rows = aggregate_native_human_steering([dict(candidate, event_id="v"), verified_outside], self.prs, **window)["per_pr"]
+        self.assertEqual([(r["raw_verified_messages"], r["unconfirmed_verified_messages"]) for r in rows], [(0, 0), (0, 1), (0, 0)])
 
     def test_unassigned_and_ambiguous_records_remain_visible_in_coverage(self):
         result = aggregate_native_human_steering(
@@ -371,6 +455,84 @@ class NativeHumanSteeringTests(unittest.TestCase):
         self.assertEqual(result["coverage"]["multi_pr_unassigned_messages"], 1)
         self.assertEqual(result["coverage"]["human_nudge_messages"], 1)
 
+    def test_direct_binding_contradicting_unassigned_decision_is_unconfirmed(self):
+        event = {
+            "event_id": "conflict", "provider": "claude", "timestamp": "2026-10-05T10:00:00Z",
+            "origin_status": "verified_human", "actor_kind": "human",
+            "repository": "example/repo", "pr_binding": {"pr": "example/repo#5"},
+            "context_pr_decision": "unassigned_multi_pr",
+        }
+        result = aggregate_native_human_steering(
+            [event], self.prs,
+            window_start="2026-10-01T00:00:00Z", window_end="2026-10-20T00:00:00Z",
+            source_stats=self.stats,
+        )
+        pr5 = next(row for row in result["per_pr"] if row["pr"] == "example/repo#5")
+        self.assertEqual(pr5["unconfirmed_verified_messages"], 1)
+        self.assertEqual(pr5["confirmed_verified_at"], [])
+
+    def test_direct_binding_contradicting_reviewed_override_is_unconfirmed_for_both_prs(self):
+        event = {
+            "event_id": "two-pr-conflict", "provider": "claude", "timestamp": "2026-10-05T10:00:00Z",
+            "origin_status": "verified_human", "actor_kind": "human",
+            "repository": "example/repo", "pr_binding": {"pr": "example/repo#5"},
+            "context_pr_decision": "override", "context_associated_pr": "example/repo#6",
+            "effective_associated_pr": "example/repo#6", "effective_association_confidence": "REVIEWED_CONTEXT",
+        }
+        result = aggregate_native_human_steering(
+            [event], self.prs,
+            window_start="2026-10-01T00:00:00Z", window_end="2026-10-20T00:00:00Z",
+            source_stats=self.stats,
+        )
+        rows = {row["pr"]: row for row in result["per_pr"]}
+        for pr in ("example/repo#5", "example/repo#6"):
+            self.assertEqual(rows[pr]["unconfirmed_verified_messages"], 1, pr)
+            self.assertEqual(rows[pr]["confirmed_verified_at"], [], pr)
+
+    def test_duplicate_events_disagreeing_on_decision_or_timestamp_are_unconfirmed_in_any_order(self):
+        base = {
+            "event_id": "dup2", "provider": "claude", "timestamp": "2026-10-05T10:00:00Z",
+            "origin_status": "verified_human", "actor_kind": "human",
+            "repository": "example/repo", "pr_binding": {"pr": "example/repo#5"},
+        }
+        variants = (
+            {"context_pr_decision": "unassigned_multi_pr"},
+            {"timestamp": "2026-10-04T10:00:00Z"},
+        )
+        for change in variants:
+            for pair in ([base, {**base, **change}], [{**base, **change}, base]):
+                result = aggregate_native_human_steering(
+                    pair, self.prs, window_start="2026-10-01T00:00:00Z",
+                    window_end="2026-10-20T00:00:00Z", source_stats=self.stats,
+                )
+                row = next(r for r in result["per_pr"] if r["pr"] == "example/repo#5")
+                self.assertEqual(row["unconfirmed_verified_messages"], 1, (change, pair))
+                self.assertEqual(row["confirmed_verified_at"], [], (change, pair))
+
+    def test_duplicate_events_disagreeing_on_pr_are_unconfirmed_for_both_in_any_order(self):
+        def record(pr):
+            return {
+                "event_id": "dup", "provider": "claude", "timestamp": "2026-10-05T10:00:00Z",
+                "origin_status": "verified_human", "actor_kind": "human",
+                "repository": "example/repo", "pr_binding": {"pr": pr},
+            }
+        for pair in ([record("example/repo#5"), record("example/repo#6")],
+                     [record("example/repo#6"), record("example/repo#5")]):
+            result = aggregate_native_human_steering(
+                pair, self.prs, window_start="2026-10-01T00:00:00Z", window_end="2026-10-20T00:00:00Z",
+                source_stats=self.stats,
+            )
+            rows = {row["pr"]: row for row in result["per_pr"]}
+            for pr in ("example/repo#5", "example/repo#6"):
+                self.assertEqual(rows[pr]["unconfirmed_verified_messages"], 1, pr)
+                self.assertEqual(rows[pr]["confirmed_verified_at"], [], pr)
+        same = aggregate_native_human_steering(
+            [record("example/repo#5"), record("example/repo#5")], self.prs,
+            window_start="2026-10-01T00:00:00Z", window_end="2026-10-20T00:00:00Z", source_stats=self.stats,
+        )
+        pr5 = next(row for row in same["per_pr"] if row["pr"] == "example/repo#5")
+        self.assertEqual(pr5["confirmed_verified_at"], ["2026-10-05T10:00:00Z"])
+
     def test_context_override_uses_effective_pr_and_separates_nudge_categories(self):
         event = {
             "event_id": "context-override", "provider": "claude", "timestamp": "2026-10-05T10:00:00Z",
@@ -487,3 +649,95 @@ class NativeHumanSteeringTests(unittest.TestCase):
         self.assertEqual(row["human_nudge_messages"], 1)
         self.assertEqual(result["coverage"]["unassigned_nudge_episodes"], 1)
         self.assertEqual(result["coverage"]["human_nudge_messages"], 2)
+
+
+class ConfirmedHumanTimesTests(unittest.TestCase):
+    def test_only_directly_bound_messages_export_their_times(self):
+        pr = {"repo": "example/repo", "number": 9, "headRefName": "t9", "state": "MERGED",
+              "createdAt": "2026-10-01T00:00:00Z", "mergedAt": "2026-10-04T00:00:00Z"}
+        bound = {"event_id": "b", "provider": "codex", "timestamp": "2026-10-02T06:00:00Z",
+                 "origin_status": "verified_human", "pr_binding": {"pr": "example/repo#9"}, "source_fingerprint": "b"}
+        branch_only = {"event_id": "h", "provider": "codex", "timestamp": "2026-10-02T07:00:00Z",
+                       "origin_status": "verified_human", "git_branch": "t9", "source_fingerprint": "h"}
+        row = aggregate_native_human_steering(
+            [branch_only, bound], [pr], window_start="2026-09-01T00:00:00Z",
+            window_end="2026-11-01T00:00:00Z")["per_pr"][0]
+        self.assertEqual(row["raw_verified_messages"], 2)
+        self.assertEqual(row["confirmed_verified_at"], ["2026-10-02T06:00:00Z"])
+
+    def test_low_confidence_context_and_branch_only_are_unconfirmed_and_times_keep_precision(self):
+        pr = {"repo": "example/repo", "number": 9, "headRefName": "t9", "state": "MERGED",
+              "createdAt": "2026-10-01T00:00:00Z", "mergedAt": "2026-10-04T00:00:00Z"}
+        bound = {"event_id": "b", "provider": "codex", "timestamp": "2026-10-02T06:00:00.250Z",
+                 "origin_status": "verified_human", "pr_binding": {"pr": "example/repo#9"}, "source_fingerprint": "b"}
+        low = {"event_id": "l", "provider": "codex", "timestamp": "2026-10-02T07:00:00Z",
+               "origin_status": "verified_human", "context_pr_decision": "override",
+               "effective_associated_pr": "example/repo#9",
+               "effective_association_confidence": "LOW_BEST_EFFORT_CONTEXT", "source_fingerprint": "l"}
+        branch_only = {"event_id": "h", "provider": "codex", "timestamp": "2026-10-02T08:00:00Z",
+                       "origin_status": "verified_human", "git_branch": "t9", "source_fingerprint": "h"}
+        row = aggregate_native_human_steering(
+            [branch_only, low, bound], [pr], window_start="2026-09-01T00:00:00Z",
+            window_end="2026-11-01T00:00:00Z")["per_pr"][0]
+        self.assertEqual(row["confirmed_verified_at"], ["2026-10-02T06:00:00.250000Z"])
+        self.assertEqual(row["unconfirmed_verified_messages"], 2)
+
+
+class DuplicateCopyReconciliationTests(unittest.TestCase):
+    PR = {"repo": "example/repo", "number": 9, "headRefName": "t9", "state": "MERGED",
+          "createdAt": "2026-10-01T00:00:00Z", "mergedAt": "2026-10-04T00:00:00Z"}
+
+    def _row(self, records):
+        return aggregate_native_human_steering(
+            records, [self.PR], window_start="2026-09-01T00:00:00Z",
+            window_end="2026-11-01T00:00:00Z")["per_pr"][0]
+
+    def _copy(self, **extra):
+        return {"event_id": "e", "provider": "codex", "timestamp": "2026-10-02T06:00:00Z",
+                "pr_binding": {"pr": "example/repo#9"}, **extra}
+
+    def test_human_and_automated_copies_agree_in_either_order(self):
+        human = self._copy(actor_kind="human", origin_status="verified_human")
+        auto = self._copy(actor_kind="automated_watch", origin_status="excluded_automated")
+        rows = [self._row([human, auto]), self._row([auto, human])]
+        self.assertEqual(rows[0], rows[1])
+        self.assertEqual(rows[0]["unconfirmed_verified_messages"], 1)
+        self.assertEqual(rows[0]["confirmed_verified_at"], [])
+
+    def test_disputed_branch_matched_copies_stay_unconfirmed_in_either_order(self):
+        def copy(**extra):
+            return {"event_id": "b", "provider": "codex", "timestamp": "2026-10-02T06:00:00Z",
+                    "actor_kind": "human", "origin_status": "verified_human", **extra}
+        pairs = (
+            (copy(repository="example/repo", git_branch="t9", message_kind="status_request"),
+             copy(repository="example/repo", git_branch="t9", message_kind="new_requirement/domain_judgment")),
+            (copy(repository="example/repo", git_branch="other"), copy(repository="example/repo", git_branch="t9")),
+            (copy(git_branch="t9", message_kind="status_request"), copy(git_branch="t9")),
+        )
+        for a, b in pairs:
+            for records in ([a, b], [b, a]):
+                row = self._row(records)
+                self.assertEqual(row["unconfirmed_verified_messages"], 1, records)
+                self.assertEqual(row["confirmed_verified_at"], [], records)
+
+    def test_ambiguous_branch_prompt_is_unconfirmed_for_every_plausible_pr(self):
+        prs = [{**self.PR, "number": n} for n in (9, 10, 11)]
+        prompt = {"event_id": "amb", "provider": "codex", "timestamp": "2026-10-02T06:00:00Z",
+                  "actor_kind": "human", "origin_status": "verified_human", "git_branch": "t9"}
+        for extra in ({"repository": "example/repo"}, {}):
+            result = aggregate_native_human_steering(
+                [{**prompt, **extra}], prs, window_start="2026-09-01T00:00:00Z",
+                window_end="2026-11-01T00:00:00Z")
+            self.assertEqual(result["coverage"]["ambiguous_branch_messages"], 1, extra)
+            for row in result["per_pr"]:
+                self.assertEqual(row["unconfirmed_verified_messages"], 1, (extra, row["pr"]))
+                self.assertEqual(row["confirmed_verified_at"], [], (extra, row["pr"]))
+                self.assertEqual(row["raw_verified_messages"], 0, (extra, row["pr"]))
+
+    def test_key_order_does_not_dispute_equivalent_copies(self):
+        a = self._copy(origin_status="verified_human")
+        b = dict(reversed(list(a.items())))
+        b["pr_binding"] = {"pr": "example/repo#9"}
+        row = self._row([a, b])
+        self.assertEqual(row["unconfirmed_verified_messages"], 0)
+        self.assertEqual(row["confirmed_verified_at"], ["2026-10-02T06:00:00Z"])

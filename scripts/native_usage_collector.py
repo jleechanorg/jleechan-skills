@@ -1,5 +1,7 @@
 """Recover native usage and prompt metadata from explicit history roots."""
 import argparse
+import contextlib
+import fcntl
 import hashlib
 import io
 import json
@@ -109,37 +111,64 @@ def _load_replay_annotations(path):
     return annotations
 
 
-def _export_source_quality(path, start, cutoff):
-    """Retain only source-quality fields from an export's companion receipt."""
+def _window_iso(value):  # full precision: a window rounded to the second claims time it never observed
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z") if value else None
+
+
+@contextlib.contextmanager
+def _generation_lock(export, mode):  # one export/receipt pair at a time: writers exclusive, replay shared
+    descriptor = os.open(export.parent, os.O_RDONLY)  # the real directory holding the export; creates nothing
+    try:
+        fcntl.flock(descriptor, mode)
+        yield
+    finally:
+        os.close(descriptor)
+
+
+def _hashed_lines(stream, digest):  # hash every byte read; split on LF, CRLF or a lone CR, as text mode did
+    for raw in stream:
+        digest.update(raw)
+        pieces = raw.replace(b"\r\n", b"\n").replace(b"\r", b"\n").split(b"\n")
+        yield from pieces[:-1] if pieces[-1] == b"" else pieces
+
+
+def _export_source_quality(path, export_sha256, start, cutoff):
+    """Retain only source-quality fields from an export's companion receipt, if it names the bytes replay read."""
     result = {"status": "UNKNOWN"}
     try:
         data = json.loads(Path(str(path) + ".stats.json").read_text(encoding="utf-8"))
     except (OSError, ValueError, UnicodeError):
         return result
-    if not isinstance(data, dict):
+    if not isinstance(data, dict) or data.get("export_sha256") != export_sha256:  # stale or unbound receipt
         return result
     status = data.get("status")
     if status not in ("COMPLETE", "PARTIAL", "FAILED"):
         return result
     result["status"] = status
     for key in ("roots_requested", "roots_available", "missing_roots", "files_scanned",
-                "duplicate_files", "malformed_lines", "read_errors"):
+                "duplicate_files", "malformed_lines", "read_errors", "undated_records"):
         value = data.get(key)
         if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
             result[key] = value
     for key in ("window_start", "window_end"):
         value = _parse_utc_instant(data.get(key))
         if value:
-            result[key] = format_iso_utc(value)
+            result[key] = _window_iso(value)
     if status == "COMPLETE":
         source_start = _parse_utc_instant(result.get("window_start"))
         source_end = _parse_utc_instant(result.get("window_end"))
         if not source_start or not source_end:
             result["status"] = "UNKNOWN"
         elif (source_start > start or source_end < cutoff or result.get("missing_roots", 0)
-              or result.get("malformed_lines", 0) or result.get("read_errors", 0)):
+              or result.get("malformed_lines", 0) or result.get("read_errors", 0)
+              or result.get("undated_records", 0)):
             result["status"] = "PARTIAL"
     return result
+
+
+def disputing_copies(humans, outside):  # an out-of-window copy is kept only as evidence against an in-window one
+    inside = {(r.get("provider"), r.get("event_id")) for r in humans}
+    return [r for r in outside if (r.get("provider"), r.get("event_id")) in inside]
 
 
 def load_normalized_history(path, cutoff, days=14, annotation_path=None):
@@ -165,13 +194,14 @@ def load_normalized_history(path, cutoff, days=14, annotation_path=None):
         runtime_coverage=(
             "Claude and Codex normalized export; source roots were not reopened"
         ),
-        window_start=format_iso_utc(start), window_end=format_iso_utc(cutoff),
+        window_start=_window_iso(start), window_end=_window_iso(cutoff),
     )
-    stats["source_exports"] = [_export_source_quality(path, start, cutoff)]
     annotations = _load_replay_annotations(annotation_path)
-    seen_usage = set()
-    with Path(path).open(encoding="utf-8") as stream:
-        for line_number, line in enumerate(stream, 1):
+    seen_usage, digest, outside_humans = set(), hashlib.sha256(), []  # hash exactly the bytes parsed, streamed from one open file
+    path = Path(path).resolve()  # a symlinked export is read, locked and receipted at its real location
+    with _generation_lock(path, fcntl.LOCK_SH), path.open("rb") as stream:  # held until the receipt is read
+        for line_number, raw in enumerate(_hashed_lines(stream, digest), 1):
+            line = raw.decode("utf-8")
             if not line.strip():
                 continue
             try:
@@ -210,6 +240,8 @@ def load_normalized_history(path, cutoff, days=14, annotation_path=None):
                 continue
             if not start <= at < cutoff:
                 stats["outside_window_records"] += 1
+                outside_humans += [record] if record["record_type"] == "human" and all(
+                    isinstance(record.get(k), str) for k in ("provider", "event_id")) else []  # identity must be hashable
                 continue
             exported.append(record)
             if record["record_type"] == "usage":
@@ -243,18 +275,39 @@ def load_normalized_history(path, cutoff, days=14, annotation_path=None):
                     stats["human_unannotated"] += (
                         record.get("origin_status") == "unverified_candidate"
                     )
+        stats["source_exports"] = [_export_source_quality(path, digest.hexdigest(), start, cutoff)]
+    if stats["undated_records"] and stats["source_exports"][0]["status"] == "COMPLETE":  # an undated record cannot be placed in time
+        stats["source_exports"][0]["status"] = "PARTIAL"
     return {
         "usage_records": usage,
         "human_records": humans,
+        "outside_human_records": outside_humans,
         "export_records": exported,
         "stats": stats,
     }
 
 
-def write_normalized_history(path, records):
-    target = Path(path)
+def write_normalized_history(path, records, stats=None):
+    target = Path(path).resolve()  # publish at a symlink's real location, keeping the link
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text("".join(json.dumps(row, sort_keys=True) + "\n" for row in records), encoding="utf-8")
+    body = "".join(json.dumps(row, sort_keys=True) + "\n" for row in records).encode("utf-8")
+    receipt = Path(str(target) + ".stats.json")  # a receipt names the exact export bytes it describes
+    # The receipt goes first: an interrupted publication leaves a hash mismatch (UNKNOWN), never an old claim.
+    with _generation_lock(target, fcntl.LOCK_EX):  # a second writer waits, so the pair comes from one scan
+        for file, data in ((receipt, None if stats is None else (json.dumps(dict(
+                stats, export_sha256=hashlib.sha256(body).hexdigest()), sort_keys=True, indent=2) + "\n").encode("utf-8")), (target, body)):
+            if data is None:
+                file.unlink(missing_ok=True)
+                continue
+            temporary = file.with_name(f".{file.name}.{os.getpid()}.tmp")
+            mode = file.stat().st_mode & 0o777 if file.exists() else 0o600  # never widen an existing file's permissions
+            try:
+                with os.fdopen(os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "wb") as handle:
+                    handle.write(data)
+                os.chmod(temporary, mode)
+                os.replace(temporary, file)  # readers see the old file or the new one, never a partial write
+            finally:
+                temporary.unlink(missing_ok=True)
 
 
 def run_entire_parser(parser_argv, agent, source_bytes):
@@ -425,7 +478,7 @@ def _entire_records(rows, source_fingerprint, source_id, session_id, provider,
             candidates.append((index, row, blocks, text, native_id, timestamp, event_id))
     result, packet = [], []
     for index, row, blocks, user_text, native_id, timestamp, event_id in candidates:
-        normalized_timestamp = format_iso_utc(timestamp) if timestamp else None
+        normalized_timestamp = timestamp.isoformat().replace("+00:00", "Z") if timestamp else None  # keep subseconds
         native_evidence = matched_native_evidence(row, blocks)
         native_human = native_evidence is not None and native_evidence["verified"]
         record = {
@@ -553,7 +606,7 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
     if session_bindings:
         session_index, join_stats = _load_session_bindings(session_bindings)
         stats.update(join_stats, session_bound_usage_records=0)
-    usage, humans, exported, packet_records, seen_files, seen_usage = [], [], [], [], set(), set()
+    usage, humans, exported, packet_records, seen_files, seen_usage, outside_humans = [], [], [], [], set(), set(), []
     for root in history_roots:
         root = Path(root)
         if not root.exists():
@@ -693,14 +746,15 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                         if at is None:
                             stats["undated_records"] += 1
                             continue
-                        if not start <= at < cutoff:
-                            stats["outside_window_records"] += 1
+                        outside = not start <= at < cutoff  # an outside human copy is kept only to dispute an inside one
+                        stats["outside_window_records"] += outside
+                        if outside and (claude_usage or codex_usage or entire_parser):
                             continue
                         provider = "openai" if codex_usage or codex_user else "anthropic"
                         source_identity = "source:" + hashlib.sha256(identity.encode()).hexdigest()
                         namespace = session or _usage_label(row.get("sessionId")) or source_identity
                         turn = _usage_label(payload.get("turn_id"))
-                        common = dict(timestamp=format_iso_utc(at), provider=provider,
+                        common = dict(timestamp=at.isoformat().replace("+00:00", "Z"), provider=provider,  # keep subseconds
                                       session_id=namespace, turn_id=turn, source_fingerprint=fingerprint)
                         if codex_usage or codex_user:
                             git_metadata = _git_metadata(row, payload, repository_map)
@@ -803,6 +857,9 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                                 annotation = next((annotations[alias] for alias in aliases if alias in annotations), None)
                             if annotation is not None:
                                 _apply_replay_annotation(record, annotation)
+                            if outside:
+                                outside_humans.append(record)
+                                continue
                             automated = (
                                 record.get("actor_kind") == "automated_watch"
                                 or record.get("origin_status") == "excluded_automated"
@@ -829,6 +886,7 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                             stats["undated_records"] += 1
                         elif not start <= at < cutoff:
                             stats["outside_window_records"] += 1
+                            outside_humans.append(record)
                         else:
                             humans.append(record)
                             exported.append(dict(record))
@@ -846,8 +904,10 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
     if not stats["roots_available"]:
         stats["status"] = "FAILED"
     else:
-        stats["status"] = "PARTIAL" if errors or entire_parser else "COMPLETE"
-    stats["window_start"], stats["window_end"] = format_iso_utc(start), format_iso_utc(cutoff)
+        stats["status"] = "PARTIAL" if errors or entire_parser or stats["undated_records"] else "COMPLETE"
+    stats["window_start"], stats["window_end"] = _window_iso(start), _window_iso(cutoff)
+    humans += disputing_copies(humans, outside_humans)
+    exported += [dict(r, record_type="human") for r in outside_humans]  # every outside copy: another export may hold its inside twin
     if state_conn:
         state_conn.close()
     return dict(usage_records=usage, human_records=humans, export_records=exported,
@@ -878,10 +938,9 @@ def main():
     data = collect_native_history(args.history_root, cutoff=cutoff, days=args.days, annotation_path=args.annotations, state_db=args.state_db,
                                   session_bindings=args.session_bindings,
                                   entire_parser=args.entire_parser, entire_agent=args.entire_agent)
-    write_normalized_history(args.output, data["export_records"])
+    write_normalized_history(args.output, data["export_records"], data["stats"])
     if args.nudge_packets:
         write_nudge_packets(args.nudge_packets, data["nudge_packet_events"])
-    Path(args.output + ".stats.json").write_text(json.dumps(data["stats"], sort_keys=True, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(data["stats"], sort_keys=True))
     if data["stats"]["status"] == "FAILED":
         raise SystemExit(1)

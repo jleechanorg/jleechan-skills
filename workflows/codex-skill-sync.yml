@@ -9,16 +9,14 @@ on:
     types: [opened, ready_for_review, reopened, synchronize]
     paths:
       - ".claude/skills/**"
-      - ".codex/skills/**"
-      - "scripts/sync_codex_claude_skills.py"
+      - "scripts/install_shared_skills.py"
       - ".github/workflows/codex-skill-sync.yml"
   push:
     branches:
       - main
     paths:
       - ".claude/skills/**"
-      - ".codex/skills/**"
-      - "scripts/sync_codex_claude_skills.py"
+      - "scripts/install_shared_skills.py"
       - ".github/workflows/codex-skill-sync.yml"
 
 permissions:
@@ -26,11 +24,8 @@ permissions:
 
 jobs:
   check:
-    name: Codex skill symlink drift
-    # GitHub-hosted by explicit user exception: checkout + a Python symlink-
-    # drift check only, no secrets beyond the default GITHUB_TOKEN. Same
-    # convention as the ping-coderabbit and doc-size-check precedents.
-    runs-on: ubuntu-latest
+    name: Shared skill inventory drift
+    runs-on: ${{ fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted"]') }}
     timeout-minutes: 5
     steps:
       - name: Checkout
@@ -38,11 +33,5 @@ jobs:
         with:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.sha }}
 
-      - name: Verify Claude skills are exposed to Codex
-        run: |
-          python3 scripts/sync_codex_claude_skills.py --scope project
-          if [ -n "$(git status --porcelain -- .codex/skills)" ]; then
-            git status --short -- .codex/skills
-            echo "Codex skill mirror drift detected. Run scripts/sync_codex_claude_skills.py and commit the result."
-            exit 1
-          fi
+      - name: Verify shared skill inventory matches canonical packages
+        run: python3 scripts/install_shared_skills.py --check

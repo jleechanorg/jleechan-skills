@@ -8,9 +8,9 @@ from decimal import Decimal
 from pathlib import Path
 
 try:
-    from scripts.prw_metrics import format_iso_utc, parse_iso_utc
+    from scripts.prw_metrics import parse_iso_utc
 except ModuleNotFoundError:
-    from prw_metrics import format_iso_utc, parse_iso_utc
+    from prw_metrics import parse_iso_utc
 
 
 def _load_jsonl_table(connection, table_name, path):
@@ -321,6 +321,10 @@ def _catalog_scenario_summary(catalog_path, connection):
     return rows, cohort_rows
 
 
+def _precise(instant):  # full precision: a cutoff rounded down drops stage entries that precede it
+    return instant.isoformat().replace("+00:00", "Z")
+
+
 def run_query(
     *,
     events_path,
@@ -370,7 +374,7 @@ def run_query(
             "CREATE TEMP TABLE prw_query_parameters AS "
             "SELECT CAST(? AS TIMESTAMPTZ) AS snapshot_at_utc, "
             "CAST(? AS TIMESTAMPTZ) AS window_start_utc",
-            [format_iso_utc(cutoff), format_iso_utc(cutoff - timedelta(days=14))],
+            [_precise(cutoff), _precise(cutoff - timedelta(days=14))],
         )
         query_file = Path(sql_path) if sql_path else Path(__file__).with_name(
             "prw_metrics_queries.sql"
@@ -380,8 +384,8 @@ def run_query(
             rate_catalog_path, connection
         )
         return {
-            "snapshot_at_utc": format_iso_utc(cutoff),
-            "window_start_utc": format_iso_utc(cutoff - timedelta(days=14)),
+            "snapshot_at_utc": _precise(cutoff),
+            "window_start_utc": _precise(cutoff - timedelta(days=14)),
             "query_method": (
                 "DuckDB quantile_disc; canonical events deduplicated upstream"
             ),

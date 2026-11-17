@@ -188,7 +188,7 @@ test("a PR with zero verified steering messages is not counted as having verifie
 
 function flowPr(n, o = {}) {
   const row = pr(n);
-  if (o.followup !== undefined) row.human = { verified_messages: o.followup + 1, followup: o.followup };
+  if (o.followup !== undefined) row.human = { verified_messages: o.followup + 1, followup: o.followup + 7, mid_pr: o.followup };
   if (o.flow !== undefined) row.flow = o.flow;
   else if (o.min !== undefined) row.flow = { reached_final: true, started_at: iso(T0), final_at: iso(T0 + o.min * 60e3) };
   return row;

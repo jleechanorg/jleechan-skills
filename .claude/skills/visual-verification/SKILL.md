@@ -159,6 +159,17 @@ Correct behavior:
 3. Report observed content and any tool-derived analysis separately.
 4. If no supported route can inspect the image, report that limitation without making a visual claim.
 
+## Comparing two versions: blind A/B, measure first, stall rule
+
+When a change is meant to look better (a walk cycle, a sprite, a room), judge it against the version it replaces before anyone is asked to look. Adapted from Meng To's game workflow (`MengTo/Skills` `game-dev-combat-animation`, `workflow-score-to-target`; `achimala/dream-loop`; both MIT).
+
+1. **Measure the old version first.** Record the numbers that can be measured on both versions from the same camera (stride per direction, foot slide against travel, figure height, frame count) before changing anything. A number is evidence; it is not acceptance.
+2. **Blind A/B.** Render old and new from the same camera and framing. Name them X and Y in an order the judge cannot infer, with identical titles. Give a fresh subagent that did not build it only the two sheets and the checklist; ask, per item, X, Y or same, a confidence of 1–3, and the frame numbers that decided it. Use two such judges when the result matters and keep the less favourable verdict. Unblind afterwards.
+3. **Check every judge claim against full-resolution frames.** Thumbnails and contact sheets mislead judges; a claim not visible at full resolution is dropped.
+4. **Stall rule.** If two rounds bring no clear win for the new version, or the same defect is named twice, stop tweaking: change the approach, and if that also fails, report the attempts and ask.
+
+A judge's verdict is a filter before a human sees the work, never the human's acceptance, and never a substitute for the all-frame review above.
+
 ## Sprite Quality Claims
 
 For sprite quality evaluations, use `/sprite-eval` when its current definition is available. Do not make sprite quality claims without actual visual inspection through a working tool.

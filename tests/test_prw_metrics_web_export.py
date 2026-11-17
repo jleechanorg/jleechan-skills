@@ -272,6 +272,22 @@ class FlowTests(unittest.TestCase):
         ]})["flow"]
         self.assertEqual(flow, {"reached_final": True, "started_at": "2026-11-01T09:30:00Z", "final_at": "2026-11-01T12:00:00Z"})
 
+    def test_events_after_snapshot_cutoff_are_ignored(self):
+        record = dict(repo="acme/app", number=1, stage_transitions=[
+            {"stage": "stage:1-coding", "entered_at": "2026-11-01T10:00:00Z"},
+            {"stage": "stage:5-final-approval", "entered_at": "2026-11-03T10:00:00Z"},
+        ])
+        q = query([metric(1)])
+        q["snapshot_at_utc"] = "2026-11-02T00:00:00Z"
+        flow = export.build_snapshot({}, q, [record])["prs"][0]["flow"]
+        self.assertEqual(flow, {"reached_final": False, "started_at": "2026-11-01T10:00:00Z", "final_at": None})
+
+    def test_legacy_alias_and_start_key_are_normalized(self):
+        flow = self.snapshot_row({"stage_transitions": [
+            {"label": "stage:4-ci-undraft", "start": "2026-11-01T10:00:00Z"},
+        ], "legacy_stage": "stage:5-final-approval"})["flow"]
+        self.assertEqual(flow, {"reached_final": True, "started_at": "2026-11-01T10:00:00Z", "final_at": None})
+
     def test_first_entry_into_final_is_used(self):
         flow = self.snapshot_row({"stage_transitions": [
             {"stage": "stage:5-final-approval", "start_at": "2026-11-01T14:00:00Z"},
@@ -321,6 +337,176 @@ class FlowTests(unittest.TestCase):
                                  verified_initial_human_message_count=1, verified_followup_human_message_count=0)
         self.assertEqual(zero["human"]["followup"], 0)
         self.assertIsNone(self.snapshot_row(None)["human"])
+
+    def steer_row(self, times, timeline, cutoff=None, record=None, history_from="2026-10-01T00:00:00Z",
+                  history_to="2026-12-01T00:00:00Z", native_status="COMPLETE", source_quality=None, **extra):
+        extra.setdefault("unconfirmed_verified_messages", 0)
+        extra.setdefault("human_coverage_status", "OBSERVED_SCOPE_ONLY")
+        q = query([metric(1, raw_verified_human_message_count=len(times), confirmed_verified_at=times, **extra)])
+        if cutoff:
+            q["snapshot_at_utc"] = cutoff
+        summary = {"usage_summary": {"coverage": {"native_source": {"status": native_status, "window_start": history_from,
+                                                                    "window_end": history_to,
+                                                                    "source_quality": source_quality}}}}
+        return export.build_snapshot(summary, q, [dict(record or {}, repo="acme/app", number=1)], timeline=timeline)["prs"][0]
+
+    @staticmethod
+    def stage(label, at):
+        return {"repo": "acme/app", "pr_number": 1, "event": "labeled", "label": label, "createdAt": at}
+
+    def test_mid_pr_is_unknown_when_the_final_stage_is_known_but_undated(self):
+        row = self.steer_row(["2026-11-01T13:00:00Z"], [self.stage("stage:1-coding", "2026-11-01T10:00:00Z")],
+                             record={"legacy_stage": "stage:5-final-approval"}, merged_at_utc="2026-11-01T15:00:00Z")
+        self.assertIsNone(row["human"]["mid_pr"])
+
+    def test_mid_pr_is_unknown_for_candidate_only_or_conflicting_summary_rows(self):
+        stages = [self.stage("stage:1-coding", "2026-11-01T10:00:00Z"), self.stage("stage:5-final-approval", "2026-11-01T12:00:00Z")]
+        self.assertEqual(self.steer_row([], stages)["human"]["mid_pr"], 0)
+        self.assertIsNone(self.steer_row([], stages, human_coverage_status="CANDIDATE_ONLY")["human"]["mid_pr"])
+        self.assertIsNone(self.steer_row([], stages, human_summary_conflict=True)["human"]["mid_pr"])
+
+    def test_mid_pr_uses_timeline_stage_events(self):
+        row = self.steer_row(["2026-11-01T10:30:00Z", "2026-11-01T09:00:00Z", "2026-11-01T12:00:00Z"],
+                             [self.stage("stage:1-coding", "2026-11-01T10:00:00Z"),
+                              self.stage("stage:5-final-approval", "2026-11-01T12:00:00Z")])
+        self.assertEqual(row["human"]["mid_pr"], 1)
+
+    def test_mid_pr_is_unknown_when_final_is_after_snapshot_cutoff(self):
+        row = self.steer_row(["2026-11-01T09:00:00Z"],
+                             [self.stage("stage:1-coding", "2026-11-01T10:00:00Z"),
+                              self.stage("stage:5-final-approval", "2026-11-01T12:00:00Z")],
+                             cutoff="2026-11-01T11:00:00Z", record={"legacy_stage": "stage:5-final-approval"})
+        self.assertIsNone(row["flow"]["final_at"])
+        self.assertIsNone(row["human"]["mid_pr"])
+
+    def test_mid_pr_is_unknown_when_only_the_final_stage_is_recorded(self):
+        row = self.steer_row(["2026-11-01T10:30:00Z"],
+                             [self.stage("stage:5-final-approval", "2026-11-01T12:00:00Z")])
+        self.assertIsNone(row["human"]["mid_pr"])
+
+    def test_mid_pr_is_unknown_with_unconfirmed_branch_only_messages(self):
+        row = self.steer_row([], [self.stage("stage:1-coding", "2026-11-01T10:00:00Z"),
+                                  self.stage("stage:5-final-approval", "2026-11-01T12:00:00Z")],
+                             unconfirmed_verified_messages=1)
+        self.assertIsNone(row["human"]["mid_pr"])
+
+    def test_mid_pr_is_unknown_when_history_starts_after_the_pr_started(self):
+        timeline = [self.stage("stage:1-coding", "2026-11-01T10:00:00Z"),
+                    self.stage("stage:5-final-approval", "2026-11-01T12:00:00Z")]
+        self.assertIsNone(self.steer_row([], timeline, history_from="2026-11-01T11:00:00Z")["human"]["mid_pr"])
+        self.assertEqual(self.steer_row([], timeline, history_from="2026-11-01T10:00:00Z")["human"]["mid_pr"], 0)
+
+    def test_mid_pr_is_unknown_when_the_timestamp_container_is_not_an_array(self):
+        timeline = [self.stage("stage:1-coding", "2026-11-01T10:00:00Z"),
+                    self.stage("stage:5-final-approval", "2026-11-01T12:00:00Z")]
+        for bad in ({}, "text"):
+            self.assertIsNone(self.steer_row(bad, timeline)["human"]["mid_pr"])
+
+    def test_mid_pr_is_unknown_when_native_history_is_not_complete(self):
+        timeline = [self.stage("stage:1-coding", "2026-11-01T10:00:00Z"),
+                    self.stage("stage:5-final-approval", "2026-11-01T12:00:00Z")]
+        for status in ("PARTIAL", "FAILED", None):
+            self.assertIsNone(self.steer_row([], timeline, native_status=status)["human"]["mid_pr"])
+
+    def test_stage_endpoints_and_cutoff_keep_subsecond_precision(self):
+        late = self.steer_row(["2026-11-01T10:00:00.250Z"],
+                              [self.stage("stage:1-coding", "2026-11-01T10:00:00.750Z"),
+                               self.stage("stage:5-final-approval", "2026-11-01T12:00:00Z")])
+        self.assertEqual(late["human"]["mid_pr"], 0)
+        early = self.steer_row(["2026-11-01T12:00:00.250Z"],
+                               [self.stage("stage:1-coding", "2026-11-01T10:00:00Z"),
+                                self.stage("stage:5-final-approval", "2026-11-01T12:00:00.750Z")])
+        self.assertEqual(early["human"]["mid_pr"], 1)
+        cut = self.steer_row([], [self.stage("stage:1-coding", "2026-11-01T10:00:00Z"),
+                                  self.stage("stage:5-final-approval", "2026-11-01T12:00:00.750Z")],
+                             cutoff="2026-11-01T12:00:00.250Z")
+        self.assertIsNone(cut["flow"]["final_at"])
+
+    def test_mid_pr_accepts_replay_only_when_upstream_exports_are_complete(self):
+        timeline = [self.stage("stage:1-coding", "2026-11-01T10:00:00Z"),
+                    self.stage("stage:5-final-approval", "2026-11-01T12:00:00Z")]
+        times = ["2026-11-01T11:00:00Z"]
+        self.assertEqual(self.steer_row(times, timeline, native_status="REPLAYED", source_quality="COMPLETE")["human"]["mid_pr"], 1)
+        for quality in ("PARTIAL", "UNKNOWN", None):
+            self.assertIsNone(self.steer_row(times, timeline, native_status="REPLAYED", source_quality=quality)["human"]["mid_pr"])
+
+    def test_mid_pr_is_unknown_when_any_confirmed_timestamp_is_malformed(self):
+        timeline = [self.stage("stage:1-coding", "2026-11-01T10:00:00Z"),
+                    self.stage("stage:5-final-approval", "2026-11-01T12:00:00Z")]
+        for times in (["not-a-time"], ["2026-11-01T11:00:00Z", "garbage"], [None]):
+            self.assertIsNone(self.steer_row(times, timeline)["human"]["mid_pr"])
+
+    def test_mid_pr_is_unknown_without_a_bounded_history_window(self):
+        timeline = [self.stage("stage:1-coding", "2026-11-01T10:00:00Z"),
+                    self.stage("stage:5-final-approval", "2026-11-01T12:00:00Z")]
+        self.assertIsNone(self.steer_row([], timeline, history_from=None)["human"]["mid_pr"])
+        self.assertIsNone(self.steer_row([], timeline, history_to=None)["human"]["mid_pr"])
+        self.assertIsNone(self.steer_row([], timeline, history_to="2026-11-01T11:00:00Z")["human"]["mid_pr"])
+
+    def test_mid_pr_compares_full_precision_instants(self):
+        row = self.steer_row(["2026-11-01T10:00:00.250Z"],
+                             [self.stage("stage:1-coding", "2026-11-01T10:00:00Z"),
+                              self.stage("stage:5-final-approval", "2026-11-01T12:00:00Z")])
+        self.assertEqual(row["human"]["mid_pr"], 1)
+
+    def test_mid_pr_ends_at_merge_when_no_final_stage_and_merge_precedes_cutoff(self):
+        timeline = [self.stage("stage:1-coding", "2026-11-01T10:00:00Z")]
+        merged = {"merged_at_utc": "2026-11-01 12:00:00+00:00"}
+        row = self.steer_row(["2026-11-01T11:00:00Z", "2026-11-01T13:00:00Z"], timeline, **merged)
+        self.assertEqual(row["human"]["mid_pr"], 1)
+        late = self.steer_row(["2026-11-01T11:00:00Z"], timeline, cutoff="2026-11-01T11:30:00Z", **merged)
+        self.assertIsNone(late["human"]["mid_pr"])
+
+    def test_untimed_final_label_does_not_count_when_dated_final_is_after_cutoff(self):
+        row = self.steer_row([], [self.stage("stage:1-coding", "2026-11-01T10:00:00Z"),
+                                  self.stage("stage:5-final-approval", "2026-11-01T12:00:00Z")],
+                             cutoff="2026-11-01T11:00:00Z", record={"legacy_stage": "stage:5-final-approval"})
+        self.assertFalse(row["flow"]["reached_final"])
+
+    @unittest.skipUnless(shutil.which("node"), "node is not installed")
+    def test_disputed_branch_prompt_leaves_one_shot_unknown_in_either_order(self):
+        import prw_metrics
+
+        def copy(n, kind):
+            return {"event_id": f"b{n}", "provider": "codex", "timestamp": "2026-11-01T11:00:00Z",
+                    "actor_kind": "human", "origin_status": "verified_human", "repository": "acme/app",
+                    "git_branch": f"feature/{n}", "message_kind": kind}
+        prs = [{"repo": "acme/app", "number": n, "headRefName": f"feature/{n}", "state": "MERGED",
+                "createdAt": "2026-11-01T08:00:00Z", "mergedAt": "2026-11-01T13:00:00Z"} for n in (1, 2, 3)]
+        for flip in (False, True):
+            records = []
+            for n in (1, 2, 3):
+                pair = [copy(n, "status_request"), copy(n, "new_requirement/domain_judgment")]
+                records += [{"event_id": f"p{n}", "provider": "codex", "timestamp": "2026-11-01T09:00:00Z",
+                             "actor_kind": "human", "origin_status": "verified_human",
+                             "pr_binding": {"pr": f"acme/app#{n}"}}] + (pair[::-1] if flip else pair)
+            agg = {r["pr"]: r for r in prw_metrics.aggregate_native_human_steering(
+                records, prs, window_start="2026-10-01T00:00:00Z", window_end="2026-12-01T00:00:00Z",
+                source_stats={"status": "COMPLETE"})["per_pr"]}
+            q = query([metric(n, human_coverage_status="OBSERVED_SCOPE_ONLY", raw_verified_human_message_count=2,
+                              confirmed_verified_at=agg[f"acme/app#{n}"]["confirmed_verified_at"],
+                              unconfirmed_verified_messages=agg[f"acme/app#{n}"]["unconfirmed_verified_messages"])
+                       for n in (1, 2, 3)])
+            timeline = [dict(self.stage(label, at), pr_number=n) for n in (1, 2, 3) for label, at in
+                        (("stage:1-coding", "2026-11-01T10:00:00Z"), ("stage:5-final-approval", "2026-11-01T12:00:00Z"))]
+            summary = {"usage_summary": {"coverage": {"native_source": {
+                "status": "COMPLETE", "window_start": "2026-10-01T00:00:00Z", "window_end": "2026-12-01T00:00:00Z"}}}}
+            rows = export.build_snapshot(summary, q, [{"repo": "acme/app", "number": n} for n in (1, 2, 3)],
+                                         timeline=timeline)["prs"]
+            self.assertEqual([r["human"]["mid_pr"] for r in rows], [None, None, None])
+            script = ("const S=require(process.argv[1]);"
+                      "console.log(JSON.stringify(S.oneShot(JSON.parse(require('fs').readFileSync(0,'utf8'))).rate))")
+            out = subprocess.run(["node", "-e", script, str(REPO / "web" / "prw-dashboard" / "stats.js")],
+                                 input=json.dumps(rows), capture_output=True, text=True, timeout=60, check=True)
+            rate = json.loads(out.stdout)
+            self.assertEqual([rate["n"], rate["ones"], rate["unknown"]], [0, 0, 3])
+
+    def test_mid_pr_is_unknown_without_confirmed_times(self):
+        q = query([metric(1, human_coverage_status="OBSERVED_SCOPE_ONLY")])
+        row = export.build_snapshot({}, q, [{"repo": "acme/app", "number": 1, "stage_transitions": [
+            {"stage": "stage:1-coding", "entered_at": "2026-11-01T10:00:00Z"},
+            {"stage": "stage:5-final-approval", "entered_at": "2026-11-01T12:00:00Z"}]}])["prs"][0]
+        self.assertIsNone(row["human"]["mid_pr"])
 
 
 @unittest.skipUnless(shutil.which("node"), "node is not installed")

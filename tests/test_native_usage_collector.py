@@ -1,15 +1,18 @@
 """Deterministic metadata-only acquisition from explicit native history roots."""
 
+import hashlib
 import json
+import os
 import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from datetime import datetime, timezone
 from pathlib import Path
 
 from scripts.native_usage_collector import (
-    collect_native_history, load_normalized_history, write_normalized_history,
+    collect_native_history, disputing_copies, load_normalized_history, write_normalized_history,
 )
 from scripts.prw_metrics import (
     _sanitize_usage_event_record,
@@ -104,6 +107,201 @@ class NativeUsageCollectorTests(unittest.TestCase):
         encoded = json.dumps(data["export_records"], sort_keys=True)
         self.assertNotIn(secret, encoded)
         self.assertNotIn(str(self.codex), encoded)
+
+    def test_human_record_timestamps_keep_fractional_seconds(self):
+        rows = [
+            {"type": "turn_context", "timestamp": "2026-10-28T09:00:00Z",
+             "payload": {"turn_id": "turn-a", "model": "fixture-codex-model"}},
+            {"type": "response_item", "timestamp": "2026-10-28T09:00:01.250Z",
+             "payload": {"id": "prompt-1", "turn_id": "turn-a", "role": "user",
+                         "content": [{"type": "input_text", "text": "first"}]}},
+            {"type": "response_item", "timestamp": "2026-10-28T09:00:02Z",
+             "payload": {"id": "prompt-2", "turn_id": "turn-a", "role": "user",
+                         "content": [{"type": "input_text", "text": "second"}]}},
+        ]
+        self._write(self.codex, "2026/11/rollout.jsonl", rows)
+        data = collect_native_history([self.codex], cutoff=self.cutoff, days=14)
+        self.assertEqual(sorted(h["timestamp"] for h in data["human_records"]),
+                         ["2026-10-28T09:00:01.250000Z", "2026-10-28T09:00:02Z"])
+
+    def test_undated_records_make_collection_and_replay_incomplete(self):
+        rows = [
+            {"type": "response_item", "timestamp": "2026-11-02T10:00:00Z",
+             "payload": {"id": "p-1", "role": "user", "content": "dated"}},
+            {"type": "response_item", "payload": {"id": "p-2", "role": "user", "content": "undated"}},
+        ]
+        self._write(self.codex, "rollout.jsonl", rows)
+        data = collect_native_history([self.codex], cutoff=self.cutoff, days=14)
+        self.assertEqual(data["stats"]["undated_records"], 1)
+        self.assertEqual(data["stats"]["status"], "PARTIAL")
+        dated = dict(record_type="human", event_id="e1", provider="openai", timestamp="2026-11-02T10:00:00Z")
+        undated = dict(dated, timestamp=None)
+        for records, receipt, expected in (([dated], "COMPLETE", "COMPLETE"), ([dated, undated], "COMPLETE", "PARTIAL"),
+                                           ([dated, undated], "FAILED", "FAILED")):
+            export = self.base / f"replay-{receipt}-{expected}.jsonl"
+            export.write_text("".join(json.dumps(r) + "\n" for r in records), encoding="utf-8")
+            Path(str(export) + ".stats.json").write_text(json.dumps({
+                "status": receipt, "malformed_lines": 0, "read_errors": 0,
+                "window_start": "2026-10-26T00:00:00Z", "window_end": "2026-11-10T00:00:00Z",
+                "export_sha256": hashlib.sha256(export.read_bytes()).hexdigest(),
+            }), encoding="utf-8")
+            replay = load_normalized_history(export, self.cutoff, days=14)
+            self.assertEqual(replay["stats"]["source_exports"][0]["status"], expected)
+        export = self.base / "written.jsonl"  # writer-to-replay round trip, including a receipt the old writer marked COMPLETE
+        for receipt in (data["stats"], dict(data["stats"], status="COMPLETE")):
+            write_normalized_history(export, data["export_records"], receipt)
+            replay = load_normalized_history(export, self.cutoff, days=14)
+            self.assertEqual(replay["stats"]["source_exports"][0]["status"], "PARTIAL")
+
+    def test_a_receipt_describes_only_the_export_bytes_it_was_written_with(self):
+        dated = dict(record_type="human", event_id="e1", provider="openai", timestamp="2026-11-02T10:00:00Z")
+        stats = {"status": "COMPLETE", "window_start": "2026-10-26T00:00:00Z", "window_end": "2026-11-10T00:00:00Z"}
+        export = self.base / "rewritten.jsonl"
+        status = lambda: load_normalized_history(export, self.cutoff, days=14)["stats"]["source_exports"][0]["status"]
+        write_normalized_history(export, [dated, dict(dated, event_id="e2")], stats)
+        self.assertEqual(status(), "COMPLETE")
+        export.write_text(json.dumps(dated) + "\n", encoding="utf-8")  # rewritten beside its old receipt
+        self.assertEqual(status(), "UNKNOWN")
+        write_normalized_history(export, [dated])  # rewritten without a receipt removes the old one
+        self.assertFalse(Path(str(export) + ".stats.json").exists())
+        Path(str(export) + ".stats.json").write_text(json.dumps(stats), encoding="utf-8")  # a receipt with no export hash
+        self.assertEqual(status(), "UNKNOWN")
+        write_normalized_history(export, [dated], stats)
+        import threading
+        original_open, writers = Path.open, []
+
+        def rewrite_after_open(path, *args, **kwargs):  # a writer starts replacing the export right after replay opens it
+            stream = original_open(path, *args, **kwargs)
+            if path.resolve() == export.resolve() and not writers:
+                writers.append(threading.Thread(target=write_normalized_history,
+                                                args=(export, [], dict(stats, status="PARTIAL"))))
+                writers[0].start()
+                writers[0].join(0.3)
+            return stream
+
+        with unittest.mock.patch.object(Path, "open", rewrite_after_open):
+            replay = load_normalized_history(export, self.cutoff, days=14)
+        writers[0].join(5)
+        self.assertEqual((replay["stats"]["source_exports"][0]["status"], len(replay["human_records"])), ("COMPLETE", 1))
+        self.assertEqual(load_normalized_history(export, self.cutoff, days=14)["stats"]["source_exports"][0]["status"], "PARTIAL")
+        self.assertEqual(sorted(p.name for p in self.base.iterdir() if p.name.startswith(".")), [])  # no temporary left
+
+    def test_two_writers_never_leave_a_receipt_from_one_scan_beside_another_scans_export(self):
+        import threading
+        dated = dict(record_type="human", event_id="e1", provider="openai", timestamp="2026-11-02T10:00:00Z")
+        stats = {"status": "COMPLETE", "window_start": "2026-10-26T00:00:00Z", "window_end": "2026-11-10T00:00:00Z"}
+        export = self.base / "shared.jsonl"
+        original_replace, paused, resume = os.replace, threading.Event(), threading.Event()
+
+        def pause_partial_writer_between_files(src, dst):
+            original_replace(src, dst)
+            if threading.current_thread().name == "partial" and str(dst).endswith(".stats.json"):
+                paused.set()
+                resume.wait(5)
+
+        with unittest.mock.patch("os.replace", pause_partial_writer_between_files):
+            partial = threading.Thread(name="partial", target=write_normalized_history,
+                                       args=(export, [dated], dict(stats, status="PARTIAL")))
+            partial.start()
+            paused.wait(5)
+            complete = threading.Thread(target=write_normalized_history, args=(export, [dated], stats))
+            complete.start()  # must wait for the partial writer's whole pair
+            complete.join(0.5)
+            self.assertTrue(complete.is_alive())
+            resume.set()
+            partial.join(5)
+            complete.join(5)
+        replay = load_normalized_history(export, self.cutoff, days=14)
+        self.assertEqual(replay["stats"]["source_exports"][0]["status"], "COMPLETE")  # the last whole pair wins
+
+    def test_a_symlinked_export_is_published_and_locked_at_its_real_location(self):
+        dated = dict(record_type="human", event_id="e1", provider="openai", timestamp="2026-11-02T10:00:00Z")
+        stats = {"status": "COMPLETE", "window_start": "2026-10-26T00:00:00Z", "window_end": "2026-11-10T00:00:00Z"}
+        real_dir, link_dir = self.base / "real", self.base / "links"
+        real_dir.mkdir()
+        link_dir.mkdir()
+        link = link_dir / "export.jsonl"
+        link.symlink_to(real_dir / "export.jsonl")
+        write_normalized_history(link, [dated], stats)
+        self.assertTrue(link.is_symlink())  # the link is kept; both files sit beside the real export
+        self.assertTrue((real_dir / "export.jsonl.stats.json").exists())
+        self.assertEqual(load_normalized_history(link, self.cutoff, days=14)["stats"]["source_exports"][0]["status"], "COMPLETE")
+
+    def test_a_failed_replay_releases_its_lock_before_the_caller_handles_the_error(self):
+        import fcntl
+        export = self.base / "broken.jsonl"
+        export.write_text("not json\n", encoding="utf-8")
+        try:
+            load_normalized_history(export, self.cutoff, days=14)
+        except ValueError:
+            descriptor = os.open(self.base, os.O_RDONLY)
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)  # raises if replay still held its lock
+            finally:
+                os.close(descriptor)
+
+    def test_replay_accepts_lone_carriage_return_line_endings(self):
+        rows = [dict(record_type="human", event_id=f"e{i}", provider="openai", timestamp="2026-11-02T10:00:00Z") for i in (1, 2)]
+        export = self.base / "cr.jsonl"
+        export.write_bytes(b"".join(json.dumps(r).encode() + b"\r" for r in rows))
+        self.assertEqual(len(load_normalized_history(export, self.cutoff, days=14)["human_records"]), 2)
+
+    def test_republishing_an_export_keeps_it_private_and_publishes_the_receipt_first(self):
+        dated = dict(record_type="human", event_id="e1", provider="openai", timestamp="2026-11-02T10:00:00Z")
+        stats = {"status": "COMPLETE", "window_start": "2026-10-26T00:00:00Z", "window_end": "2026-11-10T00:00:00Z"}
+        export, receipt = self.base / "private.jsonl", self.base / "private.jsonl.stats.json"
+        write_normalized_history(export, [dated], stats)
+        self.assertEqual([oct(f.stat().st_mode & 0o777) for f in (export, receipt)], ["0o600", "0o600"])
+        os.chmod(export, 0o640)
+        write_normalized_history(export, [dated], stats)
+        self.assertEqual([oct(f.stat().st_mode & 0o777) for f in (export, receipt)], ["0o640", "0o600"])
+        original_replace = os.replace
+        published = []
+
+        def interrupt_after_first(src, dst):
+            if published:
+                raise OSError("interrupted")
+            published.append(dst)
+            original_replace(src, dst)
+
+        with unittest.mock.patch("os.replace", interrupt_after_first), self.assertRaises(OSError):
+            write_normalized_history(export, [dated], dict(stats, status="PARTIAL"))  # same bytes, a partial scan
+        replay = load_normalized_history(export, self.cutoff, days=14)
+        self.assertEqual(replay["stats"]["source_exports"][0]["status"], "PARTIAL")
+
+    def test_history_window_keeps_subseconds_in_collection_receipt_and_replay(self):
+        cutoff = datetime(2026, 11, 9, 10, 0, 0, 750000, tzinfo=timezone.utc)
+        self._write(self.codex, "rollout.jsonl", [
+            {"type": "response_item", "timestamp": "2026-11-02T10:00:00Z",
+             "payload": {"id": "p-1", "role": "user", "content": "dated"}},
+        ])
+        data = collect_native_history([self.codex], cutoff=cutoff, days=14)
+        window = ("2026-10-26T10:00:00.750000Z", "2026-11-09T10:00:00.750000Z")
+        self.assertEqual((data["stats"]["window_start"], data["stats"]["window_end"]), window)
+        export = self.base / "precise.jsonl"
+        write_normalized_history(export, data["export_records"], data["stats"])
+        replay = load_normalized_history(export, cutoff, days=14)["stats"]
+        self.assertEqual((replay["window_start"], replay["window_end"]), window)
+        source = replay["source_exports"][0]
+        self.assertEqual((source["status"], source["window_start"], source["window_end"]), ("COMPLETE",) + window)
+
+    def test_replay_keeps_out_of_window_copies_only_as_evidence_against_in_window_events(self):
+        cutoff = datetime(2026, 11, 9, 10, 0, tzinfo=timezone.utc)  # window starts 2026-10-26T10:00Z
+        human = dict(record_type="human", provider="openai", origin_status="verified_human")
+        exports = {"mac": [dict(human, event_id="shared", timestamp="2026-11-01T10:00:00Z")],
+                   "linux": [dict(human, event_id="shared", timestamp="2026-10-26T09:00:00Z"),  # disputes the mac copy
+                             dict(human, event_id="alone", timestamp="2026-10-26T09:00:00Z")]}
+        replays = []
+        for name, rows in exports.items():
+            export = self.base / f"{name}.jsonl"
+            export.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+            replays.append(load_normalized_history(export, cutoff, days=14))
+        self.assertEqual([len(r["human_records"]) for r in replays], [1, 0])
+        self.assertEqual(replays[1]["stats"]["outside_window_records"], 2)
+        humans = [h for r in replays for h in r["human_records"]]
+        outside = [h for r in replays for h in r["outside_human_records"]]
+        self.assertEqual([(h["event_id"], h["timestamp"]) for h in disputing_copies(humans, outside)],
+                         [("shared", "2026-10-26T09:00:00Z")])
 
     def test_conflicting_response_observation_remains_unknown_not_first_priced(self):
         self._write(self.codex, "rollout.jsonl", [
@@ -532,6 +730,7 @@ class ReplaySourceQualityTests(unittest.TestCase):
                 "status": "PARTIAL", "malformed_lines": 76, "read_errors": 2,
                 "files_scanned": 23, "window_start": "2026-10-26T00:00:00Z",
                 "window_end": "2026-11-09T00:00:00Z", "secret_path": "/secret/private",
+                "export_sha256": hashlib.sha256(b"").hexdigest(),
             }), encoding="utf-8")
             cutoff = datetime(2026, 11, 9, tzinfo=timezone.utc)
             partial = load_normalized_history(path, cutoff=cutoff)["stats"]
@@ -554,7 +753,7 @@ class ReplaySourceQualityTests(unittest.TestCase):
             Path(str(partial) + ".stats.json").write_text(json.dumps({
                 "status": "PARTIAL", "malformed_lines": 76, "read_errors": 0,
                 "window_start": "2026-10-26T00:00:00Z", "window_end": "2026-11-09T00:00:00Z",
-                "secret_path": "/private/secret",
+                "secret_path": "/private/secret", "export_sha256": hashlib.sha256(partial.read_bytes()).hexdigest(),
             }), encoding="utf-8")
             output = root / "report.md"
             cmd = [sys.executable, "scripts/prw_metrics.py", "--offline", "--history-replay", str(partial), "--history-replay", str(missing), "--cutoff", "2026-11-09T00:00:00Z", "--output", str(output)]

@@ -973,6 +973,236 @@ class TestPRWMetricsQueries(unittest.TestCase):
         self.assertIn("| example/repo#6 | 1 | 1 | 0 |", human_table)
         self.assertIn("| example/repo#7 | UNKNOWN | UNKNOWN | UNKNOWN |", human_table)
 
+    def test_confirmed_times_survive_the_query_into_the_mid_pr_count(self):
+        from scripts import prw_metrics_web_export as export
+
+        prs = [{"repo": "example/repo", "number": 5, "state": "MERGED", "createdAt": "2026-11-04T08:00:00Z",
+                "mergedAt": "2026-11-04T13:00:00Z", "closedAt": "2026-11-04T13:00:00Z"}]
+        events = [
+            {"event_id": f"m{i}", "provider": "anthropic", "timestamp": at, "origin_status": "verified_human",
+             "pr_binding": {"pr": "example/repo#5"}}
+            for i, at in enumerate(("2026-11-04T09:00:00Z", "2026-11-04T10:30:00.250Z"))
+        ]
+        window = {"window_start": "2026-10-26T00:00:00Z", "window_end": self.CUTOFF}
+        human_summary = aggregate_native_human_steering(
+            events, prs, window_start=window["window_start"], window_end=self.CUTOFF,
+            source_stats={"status": "COMPLETE"},
+        )
+        result = run_query(events_path=[], pr_snapshots_path=prs, human_summary_path=human_summary,
+                           snapshot_at_utc=self.CUTOFF)
+        timeline = [{"repo": "example/repo", "pr_number": 5, "event": "labeled", "label": label, "createdAt": at}
+                    for label, at in (("stage:1-coding", "2026-11-04T10:00:00Z"),
+                                      ("stage:5-final-approval", "2026-11-04T12:00:00Z"))]
+        summary = {"usage_summary": {"coverage": {"native_source": {"status": "COMPLETE", **window}}}}
+        row = export.build_snapshot(summary, result, [{"repo": "example/repo", "number": 5}],
+                                    timeline=timeline)["prs"][0]
+        self.assertEqual(row["human"]["mid_pr"], 1)
+
+    def test_a_fractional_cutoff_keeps_a_final_stage_entered_just_before_it(self):
+        from scripts import prw_metrics_web_export as export
+
+        cutoff = "2026-11-04T12:00:00.750000Z"
+        prs = [{"repo": "example/repo", "number": 5, "state": "OPEN", "createdAt": "2026-11-04T08:00:00Z"}]
+        events = [{"event_id": "m", "provider": "anthropic", "timestamp": "2026-11-04T10:30:00Z",
+                   "origin_status": "verified_human", "pr_binding": {"pr": "example/repo#5"}}]
+        human_summary = aggregate_native_human_steering(events, prs, window_start="2026-10-21T12:00:00.750000Z",
+                                                        window_end=cutoff, source_stats={"status": "COMPLETE"})
+        result = run_query(events_path=[], pr_snapshots_path=prs, human_summary_path=human_summary, snapshot_at_utc=cutoff)
+        self.assertEqual(result["snapshot_at_utc"], cutoff)
+        timeline = [{"repo": "example/repo", "pr_number": 5, "event": "labeled", "label": label, "createdAt": at}
+                    for label, at in (("stage:1-coding", "2026-11-04T10:00:00Z"),
+                                      ("stage:5-final-approval", "2026-11-04T12:00:00.500Z"))]
+        window = {"status": "COMPLETE", "window_start": "2026-10-21T12:00:00.750000Z", "window_end": cutoff}
+        row = export.build_snapshot({"usage_summary": {"coverage": {"native_source": window}}}, result,
+                                    [{"repo": "example/repo", "number": 5}], timeline=timeline)["prs"][0]
+        self.assertEqual((row["flow"]["reached_final"], row["human"]["mid_pr"]), (True, 1))
+
+    def test_subsecond_prompt_after_stage_start_counts_from_raw_native_history(self):
+        from datetime import datetime, timezone
+        from scripts import prw_metrics_web_export as export
+        from scripts.native_usage_collector import collect_native_history
+
+        root = self.root / "codex-root"
+        root.mkdir()
+        (root / "rollout.jsonl").write_text("".join(json.dumps(row) + "\n" for row in [
+            {"type": "response_item", "timestamp": "2026-11-04T10:00:00.250Z",
+             "payload": {"id": "p-1", "role": "user", "content": "in flight"}},
+        ]), encoding="utf-8")
+        cutoff = datetime(2026, 11, 9, 3, 34, tzinfo=timezone.utc)
+        first = collect_native_history([root], cutoff=cutoff, days=14)
+        sidecar = self.root / "annotations.jsonl"
+        sidecar.write_text(json.dumps({
+            "event_id": first["human_records"][0]["event_id"], "human_origin": "verified_human",
+            "pr_binding": {"pr": "example/repo#5", "method": "direct", "weight": "1"},
+        }) + "\n", encoding="utf-8")
+        history = collect_native_history([root], cutoff=cutoff, days=14, annotation_path=sidecar)
+        prs = [{"repo": "example/repo", "number": 5, "state": "MERGED", "createdAt": "2026-11-04T08:00:00Z",
+                "mergedAt": "2026-11-04T13:00:00Z", "closedAt": "2026-11-04T13:00:00Z"}]
+        human_summary = aggregate_native_human_steering(
+            history["human_records"], prs, window_start=history["stats"]["window_start"],
+            window_end=history["stats"]["window_end"], source_stats=history["stats"],
+        )
+        result = run_query(events_path=[], pr_snapshots_path=prs, human_summary_path=human_summary,
+                           snapshot_at_utc=self.CUTOFF)
+        timeline = [{"repo": "example/repo", "pr_number": 5, "event": "labeled", "label": label, "createdAt": at}
+                    for label, at in (("stage:1-coding", "2026-11-04T10:00:00Z"),
+                                      ("stage:5-final-approval", "2026-11-04T12:00:00Z"))]
+        summary = {"usage_summary": {"coverage": {"native_source": history["stats"]}}}
+        row = export.build_snapshot(summary, result, [{"repo": "example/repo", "number": 5}],
+                                    timeline=timeline)["prs"][0]
+        self.assertEqual(row["human"]["mid_pr"], 1)
+
+    def test_undated_prompt_in_raw_native_history_leaves_mid_pr_unknown(self):
+        from datetime import datetime, timezone
+        from scripts import prw_metrics_web_export as export
+        from scripts.native_usage_collector import collect_native_history
+
+        root = self.root / "codex-root"
+        root.mkdir()
+        (root / "rollout.jsonl").write_text("".join(json.dumps(row) + "\n" for row in [
+            {"type": "response_item", "timestamp": "2026-11-04T09:00:00Z",
+             "payload": {"id": "p-0", "role": "user", "content": "before the stage"}},
+            {"type": "response_item", "payload": {"id": "p-1", "role": "user", "content": "undated"}},
+        ]), encoding="utf-8")
+        cutoff = datetime(2026, 11, 9, 3, 34, tzinfo=timezone.utc)
+        first = collect_native_history([root], cutoff=cutoff, days=14)
+        sidecar = self.root / "annotations.jsonl"
+        sidecar.write_text(json.dumps({
+            "event_id": first["human_records"][0]["event_id"], "human_origin": "verified_human",
+            "pr_binding": {"pr": "example/repo#5", "method": "direct", "weight": "1"},
+        }) + "\n", encoding="utf-8")
+        history = collect_native_history([root], cutoff=cutoff, days=14, annotation_path=sidecar)
+        prs = [{"repo": "example/repo", "number": 5, "state": "MERGED", "createdAt": "2026-11-04T08:00:00Z",
+                "mergedAt": "2026-11-04T13:00:00Z", "closedAt": "2026-11-04T13:00:00Z"}]
+        human_summary = aggregate_native_human_steering(
+            history["human_records"], prs, window_start=history["stats"]["window_start"],
+            window_end=history["stats"]["window_end"], source_stats=history["stats"],
+        )
+        result = run_query(events_path=[], pr_snapshots_path=prs, human_summary_path=human_summary,
+                           snapshot_at_utc=self.CUTOFF)
+        timeline = [{"repo": "example/repo", "pr_number": 5, "event": "labeled", "label": label, "createdAt": at}
+                    for label, at in (("stage:1-coding", "2026-11-04T10:00:00Z"),
+                                      ("stage:5-final-approval", "2026-11-04T12:00:00Z"))]
+        summary = {"usage_summary": {"coverage": {"native_source": history["stats"]}}}
+        row = export.build_snapshot(summary, result, [{"repo": "example/repo", "number": 5}],
+                                    timeline=timeline)["prs"][0]
+        self.assertIsNone(row["human"]["mid_pr"])
+
+    def _mid_pr_from_raw_history(self, prompts, cutoff, binding, stages):
+        from scripts import prw_metrics_web_export as export
+        from scripts.native_usage_collector import collect_native_history
+
+        root = self.root / "codex-root"
+        root.mkdir()
+        (root / "rollout.jsonl").write_text("".join(json.dumps(
+            {"type": "response_item", "timestamp": at, "payload": {"id": f"p-{i}", "role": "user", "content": "prompt"}}
+        ) + "\n" for i, at in enumerate(prompts)), encoding="utf-8")
+        first = collect_native_history([root], cutoff=cutoff, days=14)
+        sidecar = self.root / "annotations.jsonl"
+        sidecar.write_text("".join(json.dumps({
+            "event_id": record["event_id"], "human_origin": "verified_human",
+            "pr_binding": {"pr": binding, "method": "direct", "weight": "1"},
+        }) + "\n" for record in first["human_records"]), encoding="utf-8")
+        history = collect_native_history([root], cutoff=cutoff, days=14, annotation_path=sidecar)
+        prs = [{"repo": "example/repo", "number": 5, "state": "MERGED", "createdAt": stages[0],
+                "mergedAt": stages[1], "closedAt": stages[1]}]
+        human_summary = aggregate_native_human_steering(
+            history["human_records"], prs, window_start=history["stats"]["window_start"],
+            window_end=history["stats"]["window_end"], source_stats=history["stats"],
+        )
+        result = run_query(events_path=[], pr_snapshots_path=prs, human_summary_path=human_summary,
+                           snapshot_at_utc=history["stats"]["window_end"])
+        timeline = [{"repo": "example/repo", "pr_number": 5, "event": "labeled", "label": label, "createdAt": at}
+                    for label, at in zip(("stage:1-coding", "stage:5-final-approval"), stages)]
+        summary = {"usage_summary": {"coverage": {"native_source": history["stats"]}}}
+        return export.build_snapshot(summary, result, [{"repo": "example/repo", "number": 5}],
+                                     timeline=timeline)["prs"][0]["human"]["mid_pr"]
+
+    def test_stage_starting_before_a_subsecond_history_window_leaves_mid_pr_unknown(self):
+        from datetime import datetime, timezone
+
+        cutoff = datetime(2026, 11, 9, 10, 0, 0, 750000, tzinfo=timezone.utc)  # history starts 2026-10-26T10:00:00.750
+        self.assertIsNone(self._mid_pr_from_raw_history(
+            ["2026-10-26T10:00:00.250Z", "2026-10-26T12:00:00Z"], cutoff, "example/repo#5",  # only the second is in the window
+            ("2026-10-26T10:00:00Z", "2026-10-26T12:00:00Z")))
+
+    def test_binding_with_different_repository_casing_counts_mid_pr(self):
+        from datetime import datetime, timezone
+
+        cutoff = datetime(2026, 11, 9, 3, 34, tzinfo=timezone.utc)
+        self.assertEqual(self._mid_pr_from_raw_history(
+            ["2026-11-04T10:30:00Z"], cutoff, "Example/Repo#5", ("2026-11-04T10:00:00Z", "2026-11-04T12:00:00Z")), 1)
+
+    def test_an_out_of_window_copy_with_another_binding_leaves_both_prs_unknown(self):
+        from datetime import datetime, timezone
+        from scripts.native_usage_collector import disputing_copies, load_normalized_history
+
+        cutoff = datetime(2026, 11, 9, 10, 0, tzinfo=timezone.utc)  # replay window starts 2026-10-26T10:00Z
+        human = dict(record_type="human", provider="openai", origin_status="verified_human", event_id="e")
+        prs = [{"repo": "example/repo", "number": n, "state": "MERGED", "createdAt": "2026-10-27T08:00:00Z",
+                "mergedAt": "2026-11-02T13:00:00Z", "closedAt": "2026-11-02T13:00:00Z"} for n in (1, 2)]
+
+        def per_pr(linux_rows):
+            replays = []
+            for name, rows in (("mac", [dict(human, timestamp="2026-11-01T10:00:00Z", pr_binding={"pr": "example/repo#1"})]),
+                               ("linux", linux_rows)):
+                export = self.root / f"{name}.jsonl"
+                export.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+                replays.append(load_normalized_history(export, cutoff, days=14))
+            humans = [h for r in replays for h in r["human_records"]]
+            humans += disputing_copies(humans, [h for r in replays for h in r["outside_human_records"]])
+            summary = aggregate_native_human_steering(humans, prs, window_start=replays[0]["stats"]["window_start"],
+                                                      window_end=replays[0]["stats"]["window_end"], source_stats={"status": "COMPLETE"})
+            return [(r["confirmed_verified_at"], r["unconfirmed_verified_messages"]) for r in summary["per_pr"]]
+
+        outside = dict(human, timestamp="2026-10-26T09:00:00Z", pr_binding={"pr": "example/repo#2"})
+        self.assertEqual(per_pr([outside]), [([], 1), ([], 1)])  # a dispute, not an extra prompt
+        self.assertEqual(per_pr([dict(outside, event_id="other")]), [(["2026-11-01T10:00:00Z"], 0), ([], 0)])
+        self.assertEqual(per_pr([dict(outside, provider=["openai"])]), [(["2026-11-01T10:00:00Z"], 0), ([], 0)])
+
+    def test_direct_collection_and_its_replay_agree_on_a_copy_disputed_across_the_window(self):
+        from datetime import datetime, timezone
+        from scripts.native_usage_collector import (collect_native_history, disputing_copies, load_normalized_history,
+                                                    write_normalized_history)
+
+        root = self.root / "claude-root"
+        (root / "a").mkdir(parents=True)
+        (root / "b").mkdir()
+        row = {"type": "user", "uuid": "u-1", "userType": "human", "sessionId": "s",
+               "message": {"role": "user", "content": [{"type": "text", "text": "prompt"}]}}
+        (root / "a" / "s.jsonl").write_text(json.dumps(dict(row, timestamp="2026-11-01T10:00:00Z")) + "\n", encoding="utf-8")
+        (root / "b" / "s.jsonl").write_text(json.dumps(dict(row, timestamp="2026-10-26T09:00:00Z")) + "\n", encoding="utf-8")
+        cutoff = datetime(2026, 11, 9, 10, 0, tzinfo=timezone.utc)  # window starts 2026-10-26T10:00Z
+        live = collect_native_history([root], cutoff=cutoff, days=14)
+        self.assertEqual(sorted(h["timestamp"] for h in live["human_records"]), ["2026-10-26T09:00:00Z", "2026-11-01T10:00:00Z"])
+        self.assertEqual((live["stats"]["human_candidates"], live["stats"]["outside_window_records"]), (1, 1))
+        export = self.root / "mac.jsonl"
+        write_normalized_history(export, live["export_records"])
+        replay = load_normalized_history(export, cutoff, days=14)
+        replayed = replay["human_records"] + disputing_copies(replay["human_records"], replay["outside_human_records"])
+        self.assertEqual(sorted(h["timestamp"] for h in replayed), sorted(h["timestamp"] for h in live["human_records"]))
+
+    def test_a_copy_outside_one_hosts_window_disputes_the_other_hosts_message(self):
+        from datetime import datetime, timezone
+        from scripts.native_usage_collector import (collect_native_history, disputing_copies, load_normalized_history,
+                                                    write_normalized_history)
+
+        row = {"type": "user", "uuid": "u-1", "userType": "human", "sessionId": "s",
+               "message": {"role": "user", "content": [{"type": "text", "text": "prompt"}]}}
+        cutoff = datetime(2026, 11, 9, 10, 0, tzinfo=timezone.utc)  # window starts 2026-10-26T10:00Z
+        replays = []
+        for host, at in (("mac", "2026-11-01T10:00:00Z"), ("linux", "2026-10-26T09:00:00Z")):
+            root = self.root / host
+            root.mkdir()
+            (root / "s.jsonl").write_text(json.dumps(dict(row, timestamp=at)) + "\n", encoding="utf-8")
+            live = collect_native_history([root], cutoff=cutoff, days=14)
+            write_normalized_history(self.root / f"{host}.jsonl", live["export_records"], live["stats"])
+            replays.append(load_normalized_history(self.root / f"{host}.jsonl", cutoff, days=14))
+        humans = [h for r in replays for h in r["human_records"]]
+        humans += disputing_copies(humans, [h for r in replays for h in r["outside_human_records"]])
+        self.assertEqual(sorted(h["timestamp"] for h in humans), ["2026-10-26T09:00:00Z", "2026-11-01T10:00:00Z"])
+        self.assertEqual([r["stats"]["source_exports"][0]["status"] for r in replays], ["COMPLETE", "COMPLETE"])
+
     def test_metric_cohorts_separate_direct_and_low_request_observations(self):
         event = self._event(
             "sha256:low-request", "example-org/repo-alpha#1",

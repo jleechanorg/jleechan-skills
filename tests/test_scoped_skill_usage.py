@@ -6,7 +6,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from scripts.audit_command_skill_usage import audit, digest
-from tests.test_command_skill_usage_audit import build_audit_fixture
+from test_command_skill_usage_audit import build_audit_fixture
 
 
 class ScopedSkillUsageTest(unittest.TestCase):
