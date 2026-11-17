@@ -592,8 +592,14 @@ class PRWMetricsSchedulerTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, f"Script failed: {result.stderr}")
         self.assertTrue(output_file.exists())
         captured = output_file.read_text(encoding="utf-8")
-        self.assertIn(f"TELEMETRY_DIR={self.scratch_dir}/dashboards/prw/telemetry", captured)
+        # No default directory: an explicit one would outrank the published telemetry index.
+        self.assertIn("TELEMETRY_DIR=\n", captured)
         self.assertIn("STALE_HOURS=4.5", captured)
+        explicit = subprocess.run(
+            ["bash", str(RUN_SCRIPT)], capture_output=True, text=True, check=False,
+            env={**env, "PRW_METRICS_TELEMETRY_DIR": "/explicit/dir"})
+        self.assertEqual(explicit.returncode, 0, explicit.stderr)
+        self.assertIn("TELEMETRY_DIR=/explicit/dir", output_file.read_text(encoding="utf-8"))
 
     def test_run_script_collector_path_with_absent_telemetry_dir_under_system_bash(self):
         """The collector invocation must not trip `set -u` on an empty array (bash 3.2) when the telemetry dir is absent."""
