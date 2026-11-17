@@ -69,10 +69,13 @@ their marker lines, when present:
 
 Markers must each occupy a whole line. Duplicate, nested or unmatched markers
 invalidate the projection. Title and labels are separate from body bytes.
-Before freeze, write substantive Stage 5 body prose with the owner and the
-remaining action as a closing checkpoint, not a second live status. Any
-change to the covered prose, ledger or evidence requires fresh applicable final
-review. Any PR-body update to publish or withdraw readiness or its receipt
+Before freeze, record the owner and remaining action as a substantive closing
+checkpoint, not a second live status. Use Stage 5 prose only in opted-in
+repositories; otherwise use the applicable generic phase. During
+final closeout the linked record and generated status satisfy the general
+stage and ledger synchronization requirements for these live fields. Do not
+rewrite the covered checkpoint to show a transition. Any change to covered
+prose, ledger or evidence requires fresh applicable final review. Any PR-body update to publish or withdraw readiness or its receipt
 must use a conditional edit, true block-level update, or verified exclusive
 write ownership until readback; an unguarded whole-body replacement is not
 safe even with post-write verification. If none is available, preserve the
@@ -94,8 +97,17 @@ Head or material base, claim, governing route, evidence, prompt or receipts
 changes, a withdrawn vote, a blocking finding, or a failing required check
 invalidate readiness. A successful rerun of the same required check at the
 unchanged candidate can retain the stamp only if the required check set and
-all results still pass; append the new event in the linked closeout task record.
-A pending, failed or missing required check prevents readiness.
+all effective gate results remain satisfied; append the new event in the
+linked closeout task record.
+
+Apply the governing [CI definition](../pr-green-definition/SKILL.md), including
+its already-authorized no-CI or backlogged local-equivalent exception when
+every precondition holds and no stronger rule forbids it. Bind any exception
+reason, live state, current-head original local proof when required, and
+published receipt to the stamp and both closeout readbacks. An exception is
+not a hosted CI pass and is not inferred from absent checks. A failed check
+invalidates readiness; a pending or missing required check not covered by a
+qualifying documented exception prevents readiness.
 
 Applicable UI proof must be inspected directly in the actual rendered media,
 and each image or playable video that the selected route requires must be
@@ -107,5 +119,10 @@ exemption is recorded with its reason; do not manufacture media.
 
 The stamp is the last technical gate, not merge authorization. For a PR that
 introduces or changes this policy, run the candidate workflow in shadow from
-the pinned source read-only, without changing PR or repository state, but enforce the already-governing sensitive-review route independently in parallel. Use the stricter result. This policy cannot grant authority for its
-own adoption.
+the pinned source read-only without changing PR or repository state. Assess
+scenario outcomes and expected conditional writes/readbacks, and label any
+omitted side effect as not exercised, not a live stamp or `FINAL_READY`.
+A genuine new blocker in shadow withholds readiness. Separately enforce the
+already-governing sensitive-review route and explicit user requirements for
+actual adoption, including live publication when required. A brief shadow
+simulation cannot waive those gates or authorize its own adoption.
