@@ -1,5 +1,6 @@
 """Recover native usage and prompt metadata from explicit history roots."""
 import argparse
+import fcntl
 import hashlib
 import io
 import json
@@ -113,6 +114,24 @@ def _window_iso(value):  # full precision: a window rounded to the second claims
     return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z") if value else None
 
 
+class _GenerationLock:  # one export/receipt pair at a time: writers exclusive, replay shared; locks the directory, creates nothing
+    def __init__(self, path, mode):
+        self.fd = os.open(Path(path).resolve().parent, os.O_RDONLY)
+        fcntl.flock(self.fd, mode)
+
+    def close(self):  # also runs when an error unwinds past the holder
+        self.fd = os.close(self.fd) if self.fd is not None else None
+
+    __del__ = close
+
+
+def _hashed_lines(stream, digest):  # hash every byte read; split on LF, CRLF or a lone CR, as text mode did
+    for raw in stream:
+        digest.update(raw)
+        pieces = raw.replace(b"\r\n", b"\n").replace(b"\r", b"\n").split(b"\n")
+        yield from pieces[:-1] if pieces[-1] == b"" else pieces
+
+
 def _export_source_quality(path, export_sha256, start, cutoff):
     """Retain only source-quality fields from an export's companion receipt, if it names the bytes replay read."""
     result = {"status": "UNKNOWN"}
@@ -174,9 +193,9 @@ def load_normalized_history(path, cutoff, days=14, annotation_path=None):
     )
     annotations = _load_replay_annotations(annotation_path)
     seen_usage, digest = set(), hashlib.sha256()  # hash exactly the bytes parsed, streamed from one open file
+    lock = _GenerationLock(path, fcntl.LOCK_SH)  # held until the receipt is read, so the pair is one generation
     with Path(path).open("rb") as stream:
-        for line_number, raw in enumerate(stream, 1):
-            digest.update(raw)
+        for line_number, raw in enumerate(_hashed_lines(stream, digest), 1):
             line = raw.decode("utf-8")
             if not line.strip():
                 continue
@@ -250,6 +269,7 @@ def load_normalized_history(path, cutoff, days=14, annotation_path=None):
                         record.get("origin_status") == "unverified_candidate"
                     )
     stats["source_exports"] = [_export_source_quality(path, digest.hexdigest(), start, cutoff)]
+    lock.close()
     if stats["undated_records"] and stats["source_exports"][0]["status"] == "COMPLETE":  # an undated record cannot be placed in time
         stats["source_exports"][0]["status"] = "PARTIAL"
     return {
@@ -266,6 +286,7 @@ def write_normalized_history(path, records, stats=None):
     body = "".join(json.dumps(row, sort_keys=True) + "\n" for row in records).encode("utf-8")
     receipt = Path(str(target) + ".stats.json")  # a receipt names the exact export bytes it describes
     # The receipt goes first: an interrupted publication leaves a hash mismatch (UNKNOWN), never an old claim.
+    lock = _GenerationLock(target, fcntl.LOCK_EX)  # a second writer waits, so the pair comes from one scan
     for file, data in ((receipt, None if stats is None else (json.dumps(dict(
             stats, export_sha256=hashlib.sha256(body).hexdigest()), sort_keys=True, indent=2) + "\n").encode("utf-8")), (target, body)):
         if data is None:
@@ -277,6 +298,7 @@ def write_normalized_history(path, records, stats=None):
             handle.write(data)
         os.chmod(temporary, mode)
         os.replace(temporary, file)  # readers see the old file or the new one, never a partial write
+    lock.close()
 
 
 def run_entire_parser(parser_argv, agent, source_bytes):

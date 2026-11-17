@@ -167,18 +167,58 @@ class NativeUsageCollectorTests(unittest.TestCase):
         Path(str(export) + ".stats.json").write_text(json.dumps(stats), encoding="utf-8")  # a receipt with no export hash
         self.assertEqual(status(), "UNKNOWN")
         write_normalized_history(export, [dated], stats)
-        original_open = Path.open
+        import threading
+        original_open, writers = Path.open, []
 
-        def rewrite_after_open(path, *args, **kwargs):  # a writer replaces the export right after replay opens it
+        def rewrite_after_open(path, *args, **kwargs):  # a writer starts replacing the export right after replay opens it
             stream = original_open(path, *args, **kwargs)
-            if path == export:
-                write_normalized_history(export, [], dict(stats, status="PARTIAL"))
+            if path == export and not writers:
+                writers.append(threading.Thread(target=write_normalized_history,
+                                                args=(export, [], dict(stats, status="PARTIAL"))))
+                writers[0].start()
+                writers[0].join(0.3)
             return stream
 
         with unittest.mock.patch.object(Path, "open", rewrite_after_open):
             replay = load_normalized_history(export, self.cutoff, days=14)
-        self.assertEqual((replay["stats"]["source_exports"][0]["status"], len(replay["human_records"])), ("UNKNOWN", 1))
+        writers[0].join(5)
+        self.assertEqual((replay["stats"]["source_exports"][0]["status"], len(replay["human_records"])), ("COMPLETE", 1))
+        self.assertEqual(load_normalized_history(export, self.cutoff, days=14)["stats"]["source_exports"][0]["status"], "PARTIAL")
         self.assertEqual(sorted(p.name for p in self.base.iterdir() if p.name.startswith(".")), [])  # no temporary left
+
+    def test_two_writers_never_leave_a_receipt_from_one_scan_beside_another_scans_export(self):
+        import threading
+        dated = dict(record_type="human", event_id="e1", provider="openai", timestamp="2026-11-02T10:00:00Z")
+        stats = {"status": "COMPLETE", "window_start": "2026-10-26T00:00:00Z", "window_end": "2026-11-10T00:00:00Z"}
+        export = self.base / "shared.jsonl"
+        original_replace, paused, resume = os.replace, threading.Event(), threading.Event()
+
+        def pause_partial_writer_between_files(src, dst):
+            original_replace(src, dst)
+            if threading.current_thread().name == "partial" and str(dst).endswith(".stats.json"):
+                paused.set()
+                resume.wait(5)
+
+        with unittest.mock.patch("os.replace", pause_partial_writer_between_files):
+            partial = threading.Thread(name="partial", target=write_normalized_history,
+                                       args=(export, [dated], dict(stats, status="PARTIAL")))
+            partial.start()
+            paused.wait(5)
+            complete = threading.Thread(target=write_normalized_history, args=(export, [dated], stats))
+            complete.start()  # must wait for the partial writer's whole pair
+            complete.join(0.5)
+            self.assertTrue(complete.is_alive())
+            resume.set()
+            partial.join(5)
+            complete.join(5)
+        replay = load_normalized_history(export, self.cutoff, days=14)
+        self.assertEqual(replay["stats"]["source_exports"][0]["status"], "COMPLETE")  # the last whole pair wins
+
+    def test_replay_accepts_lone_carriage_return_line_endings(self):
+        rows = [dict(record_type="human", event_id=f"e{i}", provider="openai", timestamp="2026-11-02T10:00:00Z") for i in (1, 2)]
+        export = self.base / "cr.jsonl"
+        export.write_bytes(b"".join(json.dumps(r).encode() + b"\r" for r in rows))
+        self.assertEqual(len(load_normalized_history(export, self.cutoff, days=14)["human_records"]), 2)
 
     def test_republishing_an_export_keeps_it_private_and_publishes_the_receipt_first(self):
         dated = dict(record_type="human", event_id="e1", provider="openai", timestamp="2026-11-02T10:00:00Z")
