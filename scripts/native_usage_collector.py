@@ -1,5 +1,7 @@
 """Recover native usage and prompt metadata from explicit history roots."""
 import argparse
+import contextlib
+import fcntl
 import hashlib
 import io
 import json
@@ -113,14 +115,31 @@ def _window_iso(value):  # full precision: a window rounded to the second claims
     return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z") if value else None
 
 
-def _export_source_quality(path, start, cutoff):
-    """Retain only source-quality fields from an export's companion receipt."""
+@contextlib.contextmanager
+def _generation_lock(export, mode):  # one export/receipt pair at a time: writers exclusive, replay shared
+    descriptor = os.open(export.parent, os.O_RDONLY)  # the real directory holding the export; creates nothing
+    try:
+        fcntl.flock(descriptor, mode)
+        yield
+    finally:
+        os.close(descriptor)
+
+
+def _hashed_lines(stream, digest):  # hash every byte read; split on LF, CRLF or a lone CR, as text mode did
+    for raw in stream:
+        digest.update(raw)
+        pieces = raw.replace(b"\r\n", b"\n").replace(b"\r", b"\n").split(b"\n")
+        yield from pieces[:-1] if pieces[-1] == b"" else pieces
+
+
+def _export_source_quality(path, export_sha256, start, cutoff):
+    """Retain only source-quality fields from an export's companion receipt, if it names the bytes replay read."""
     result = {"status": "UNKNOWN"}
     try:
         data = json.loads(Path(str(path) + ".stats.json").read_text(encoding="utf-8"))
     except (OSError, ValueError, UnicodeError):
         return result
-    if not isinstance(data, dict):
+    if not isinstance(data, dict) or data.get("export_sha256") != export_sha256:  # stale or unbound receipt
         return result
     status = data.get("status")
     if status not in ("COMPLETE", "PARTIAL", "FAILED"):
@@ -172,11 +191,12 @@ def load_normalized_history(path, cutoff, days=14, annotation_path=None):
         ),
         window_start=_window_iso(start), window_end=_window_iso(cutoff),
     )
-    stats["source_exports"] = [_export_source_quality(path, start, cutoff)]
     annotations = _load_replay_annotations(annotation_path)
-    seen_usage = set()
-    with Path(path).open(encoding="utf-8") as stream:
-        for line_number, line in enumerate(stream, 1):
+    seen_usage, digest = set(), hashlib.sha256()  # hash exactly the bytes parsed, streamed from one open file
+    path = Path(path).resolve()  # a symlinked export is read, locked and receipted at its real location
+    with _generation_lock(path, fcntl.LOCK_SH), path.open("rb") as stream:  # held until the receipt is read
+        for line_number, raw in enumerate(_hashed_lines(stream, digest), 1):
+            line = raw.decode("utf-8")
             if not line.strip():
                 continue
             try:
@@ -248,6 +268,7 @@ def load_normalized_history(path, cutoff, days=14, annotation_path=None):
                     stats["human_unannotated"] += (
                         record.get("origin_status") == "unverified_candidate"
                     )
+        stats["source_exports"] = [_export_source_quality(path, digest.hexdigest(), start, cutoff)]
     if stats["undated_records"] and stats["source_exports"][0]["status"] == "COMPLETE":  # an undated record cannot be placed in time
         stats["source_exports"][0]["status"] = "PARTIAL"
     return {
@@ -258,10 +279,27 @@ def load_normalized_history(path, cutoff, days=14, annotation_path=None):
     }
 
 
-def write_normalized_history(path, records):
-    target = Path(path)
+def write_normalized_history(path, records, stats=None):
+    target = Path(path).resolve()  # publish at a symlink's real location, keeping the link
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text("".join(json.dumps(row, sort_keys=True) + "\n" for row in records), encoding="utf-8")
+    body = "".join(json.dumps(row, sort_keys=True) + "\n" for row in records).encode("utf-8")
+    receipt = Path(str(target) + ".stats.json")  # a receipt names the exact export bytes it describes
+    # The receipt goes first: an interrupted publication leaves a hash mismatch (UNKNOWN), never an old claim.
+    with _generation_lock(target, fcntl.LOCK_EX):  # a second writer waits, so the pair comes from one scan
+        for file, data in ((receipt, None if stats is None else (json.dumps(dict(
+                stats, export_sha256=hashlib.sha256(body).hexdigest()), sort_keys=True, indent=2) + "\n").encode("utf-8")), (target, body)):
+            if data is None:
+                file.unlink(missing_ok=True)
+                continue
+            temporary = file.with_name(f".{file.name}.{os.getpid()}.tmp")
+            mode = file.stat().st_mode & 0o777 if file.exists() else 0o600  # never widen an existing file's permissions
+            try:
+                with os.fdopen(os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "wb") as handle:
+                    handle.write(data)
+                os.chmod(temporary, mode)
+                os.replace(temporary, file)  # readers see the old file or the new one, never a partial write
+            finally:
+                temporary.unlink(missing_ok=True)
 
 
 def run_entire_parser(parser_argv, agent, source_bytes):
@@ -885,10 +923,9 @@ def main():
     data = collect_native_history(args.history_root, cutoff=cutoff, days=args.days, annotation_path=args.annotations, state_db=args.state_db,
                                   session_bindings=args.session_bindings,
                                   entire_parser=args.entire_parser, entire_agent=args.entire_agent)
-    write_normalized_history(args.output, data["export_records"])
+    write_normalized_history(args.output, data["export_records"], data["stats"])
     if args.nudge_packets:
         write_nudge_packets(args.nudge_packets, data["nudge_packet_events"])
-    Path(args.output + ".stats.json").write_text(json.dumps(data["stats"], sort_keys=True, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(data["stats"], sort_keys=True))
     if data["stats"]["status"] == "FAILED":
         raise SystemExit(1)
