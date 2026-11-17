@@ -37,8 +37,7 @@ That contract is retired because it contradicted the canonical lifecycle:
   evidence-derived earliest-unmet-stage routing.
 
 Do not reconstruct the phases from memory or from an older copy of this file.
-The canonical terminal goal is `FINAL_READY`, and merging remains separately
-authorized.
+By default drive through the canonical terminal goal, `FINAL_READY`, unless the user explicitly names an earlier checkpoint. Merging remains separately authorized.
 
 If `pr-workflow-manager` or `pr-lifecycle` is unavailable, report the missing
 dependency rather than falling back to the retired phases.

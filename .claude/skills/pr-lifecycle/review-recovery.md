@@ -14,6 +14,10 @@ The Markdown instruction-only route in [review-routing.md](review-routing.md#mar
 
 `/wa` (`/web-advice`) is optional, never an implicit lifecycle gate: run it only when requested or separately authorized, and keep its real verdict if it runs. Existing standing authorization and any governing workflow that requires /wa still apply. Neither optional review permits ignoring a known correctness or safety blocker.
 
+## Cold independent source substitution
+
+Use the [audited static source fallback](final-approval.md#source-votes-when-external-lanes-are-blocked) when its conditions hold. It is an independent vote, unlike the driver's progress-only path below; it preserves route quorum and reviewer-class caps.
+
 ## Self-review fallback when independent votes cannot be obtained
 
 A missing reviewer vote never ends the work. Use this fallback once every seat in [advice's order of attempts](../advice/reviewer-selection.md#order-of-attempts-for-a-missing-vote) has an attempt receipt or an evidenced skip reason and the independent votes countable at the head are still fewer than the selected route requires. Quota, missing login, timeout, a vendor failure, `WITHHELD` for coverage and a non-countable approval all qualify; "not attempted" does not. A competent blocking finding from any attempt still means `NOT APPROVED` and is fixed first.
