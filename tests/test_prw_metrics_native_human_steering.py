@@ -206,6 +206,9 @@ class NativeHumanSteeringTests(unittest.TestCase):
                  "effective_associated_pr": "example/repo#5", "effective_association_confidence": "REVIEWED_CONTEXT"}
         rows = aggregate_native_human_steering([clash], self.prs, **window)["per_pr"]
         self.assertEqual([(r["raw_verified_messages"], r["unconfirmed_verified_messages"]) for r in rows], [(0, 1), (0, 1), (0, 0)])
+        verified_outside = dict(candidate, event_id="v", timestamp="2026-09-20T10:00:00Z", origin_status="verified_human")
+        rows = aggregate_native_human_steering([dict(candidate, event_id="v"), verified_outside], self.prs, **window)["per_pr"]
+        self.assertEqual([(r["raw_verified_messages"], r["unconfirmed_verified_messages"]) for r in rows], [(0, 0), (0, 1), (0, 0)])
 
     def test_unassigned_and_ambiguous_records_remain_visible_in_coverage(self):
         result = aggregate_native_human_steering(

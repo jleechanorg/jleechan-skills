@@ -4243,8 +4243,10 @@ def aggregate_native_human_steering(
         if all(automated(i) for i in items):
             coverage["automated_excluded_messages"] += 1
             continue
-        verified = any(i.get("actor_kind") == "human" or i.get("origin_status") == "verified_human" for i in items if in_window(i))
-        if len({json.dumps({k: v for k, v in i.items() if k not in ("source_fingerprint", "source_id")}, sort_keys=True, default=str) for i in items}) > 1:
+        human = [i.get("actor_kind") == "human" or i.get("origin_status") == "verified_human" for i in items]
+        verified = any(h for h, i in zip(human, items) if in_window(i))
+        disputed = len({json.dumps({k: v for k, v in i.items() if k not in ("source_fingerprint", "source_id")}, sort_keys=True, default=str) for i in items}) > 1
+        if disputed:
             event = {**event, "pr_binding": None, "context_pr_decision": "unassigned_multi_pr",  # copies disagree: bind none
                      "message_kind": None, "human_nudge_eligible": None, "score": None, "episode_id": None}
         coverage["verified_messages" if verified else "candidate_messages"] += 1
@@ -4382,7 +4384,7 @@ def aggregate_native_human_steering(
                     coverage["ambiguous_branch_messages"] += 1
 
         confirmed = association_kind in ("direct", "context") and confidence in ("EXPLICIT", "REVIEWED_CONTEXT")
-        for pr in implicated(items) if verified and not confirmed else ():  # unknown, never zero, for every plausible PR
+        for pr in implicated(items) if (verified or disputed and any(human)) and not confirmed else ():  # unknown, never zero
             ensure_direct_row(pr)
             pr_rows[pr]["_unconfirmed"] += 1
 
