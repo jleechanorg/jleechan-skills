@@ -315,6 +315,20 @@ class PublishTests(GcsCase):
         self.assertFalse([p for p in self.tree() if p.startswith(f"{TEL}/{WIN}/")])
         self.assertIn("retained_sources.json", {e["name"] for e in self.index()["files"]})
 
+    def test_malformed_parent_index_blocks_publish(self):  # T2e
+        path = self.local / IDX / f"{WIN}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{not json")
+        self.git(self.local, "add", str(path))
+        self.git(self.local, "commit", "-qm", "garbage index")
+        self.git(self.local, "push", "-q", "origin", "main")
+        head = self.main_sha()
+        result = self.publish(count=5)
+        self.assertEqual(result["action"], "BLOCKED", result)
+        self.assertFalse(result["committed"])
+        self.assertIn("invalid telemetry index", result["reason"])
+        self.assertEqual(self.main_sha(), head)
+
     def test_unsanitizable_file_blocks_before_upload(self):  # T2b
         result = m.publish_dashboard(
             "# D\n", str(self.local), verify_private_fn=lambda _: True,
@@ -511,6 +525,15 @@ class ReadTests(GcsCase):
         self.seed_legacy("20261103", {"retained_sources.json": sources("03")})
         loaded = m.Collector(repos=["example/repo"]).collect_all(roadmap_repo=str(self.local), offline=True)
         self.assertEqual(loaded["sources"]["example/repo"]["cutoff"], "2026-11-03T00:00:00Z")
+
+    def test_mixed_layouts_keep_newest_window_pr_snapshot_on_tied_timestamps(self):  # T4e
+        def pr(title):
+            return json.dumps({"repo": "example/repo", "number": 7, "title": title, "state": "OPEN",
+                               "updatedAt": "2026-11-02T00:00:00Z"}) + "\n"
+        self.commit_index("20261102", {"retained_prs.jsonl": pr("old")})
+        self.seed_legacy("20261103", {"retained_prs.jsonl": pr("new")})
+        loaded = m.Collector(repos=["example/repo"]).collect_all(roadmap_repo=str(self.local), offline=True)
+        self.assertEqual([p["title"] for p in loaded["prs"] if p["number"] == 7], ["new"])
 
     def test_materialisation_failure_is_not_swallowed_and_does_not_fall_back_to_stale_copy(self):  # T4b
         self.published(count=5)

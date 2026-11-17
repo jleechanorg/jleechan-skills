@@ -2021,7 +2021,14 @@ class Collector:
 
         seen_telem_dirs = set()
 
-        def absorb(t_dir):
+        def seed_retained_prs(prs):
+            # Retained collections seed the same caches scratch state does; scratch (loaded next) wins.
+            for p in reversed(prs):
+                r = p.get("repo")
+                if r and (not self.repos or r in self.repos):
+                    retained_prs_by_repo.setdefault(r, []).append(self.normalize_pr_record(p))
+
+        def absorb(t_dir, pr_chunks=None):
             nonlocal calibration_audit, retention_manifest
             real = os.path.realpath(t_dir) if t_dir else None
             if not real or real in seen_telem_dirs or not retained_telemetry_dirs(t_dir):
@@ -2044,11 +2051,10 @@ class Collector:
                     retained_usage_rates.append(rate)
             calibration_audit = retained.get("calibration_audit") or calibration_audit
             retention_manifest = retained.get("retention_manifest") or retention_manifest
-            # Retained collections seed the same caches scratch state does; scratch (loaded next) wins.
-            for p in reversed(retained.get("prs", [])):
-                r = p.get("repo")
-                if r and (not self.repos or r in self.repos):
-                    retained_prs_by_repo.setdefault(r, []).append(self.normalize_pr_record(p))
+            if pr_chunks is None:
+                seed_retained_prs(retained.get("prs", []))
+            else:
+                pr_chunks.extend(retained.get("prs", []))
             cached_timeline.extend(retained.get("timeline", []))
             cached_handoffs.extend(retained.get("handoff_records", []))
             for k, v in retained.get("sources", {}).items():
@@ -2058,7 +2064,8 @@ class Collector:
             # Root files, then every published window oldest first across git blobs and
             # indexes (later sources win), one indexed window on disk at a time; an explicit
             # --telemetry-dir that holds a window takes precedence over its index.
-            legacy_tmp = tempfile.mkdtemp(prefix="prw_legacy_")
+            # PR snapshots are seeded once across all windows, so ties keep the newest window's.
+            legacy_tmp, pr_chunks = tempfile.mkdtemp(prefix="prw_legacy_"), []
             try:
                 legacy = set()
                 for d in retained_telemetry_dirs(published_tmp):
@@ -2067,19 +2074,20 @@ class Collector:
                         os.makedirs(os.path.join(legacy_tmp, window))
                         os.rename(d, os.path.join(legacy_tmp, window, window))
                         legacy.add(window)
-                absorb(published_tmp)
+                absorb(published_tmp, pr_chunks)
                 explicit = {os.path.basename(d) for d in retained_telemetry_dirs(telemetry_dir)
                             if os.path.realpath(d) != os.path.realpath(telemetry_dir)}
                 for window in sorted(legacy | (set(indexed) - explicit)):
                     if window in legacy:
-                        absorb(os.path.join(legacy_tmp, window))
+                        absorb(os.path.join(legacy_tmp, window), pr_chunks)
                         continue
                     window_tmp = tempfile.mkdtemp(prefix="prw_window_")
                     try:
                         _materialise_window(indexed[window], os.path.join(window_tmp, window))
-                        absorb(window_tmp)
+                        absorb(window_tmp, pr_chunks)
                     finally:
                         shutil.rmtree(window_tmp, ignore_errors=True)
+                seed_retained_prs(pr_chunks)
             finally:
                 shutil.rmtree(legacy_tmp, ignore_errors=True)
 
