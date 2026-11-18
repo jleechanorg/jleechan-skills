@@ -69,6 +69,7 @@ def _apply_replay_annotation(record, annotation):
             value = annotation[key]
             if value is None or _safe_pr_id(value):
                 record[key] = value
+    association_applied = False
     if "association_scope" in annotation:
         scope = annotation["association_scope"]
         prs = annotation.get("associated_prs")
@@ -81,6 +82,7 @@ def _apply_replay_annotation(record, annotation):
                 and ((scope == "single" and len(prs) == 1) or (scope == "multi" and len(prs) >= 2)
                      or (scope in ("global", "unknown") and not prs))):
             record.update(association_scope=scope, associated_prs=prs, association_evidence=evidence)
+            association_applied = True
     if annotation.get("message_kind") in {
         "initial_task", "new_requirement/domain_judgment", "status_request",
         "continuation/followthrough_nudge", "teammate_message",
@@ -107,7 +109,11 @@ def _apply_replay_annotation(record, annotation):
             record.pop(key, None)
         record.update(association_scope="unknown", associated_prs=[], association_evidence=[])
     elif any(key in annotation and annotation[key] is None for key in ("context_pr_decision", "pr_binding")):
-        record.update(association_scope="unknown", associated_prs=[], association_evidence=[])
+        saved_legacy_multi = (annotation.get("context_pr_decision") == "unassigned_multi_pr"
+                              and annotation.get("pr_binding", 1) is None
+                              and association_applied and scope == "multi")
+        if not saved_legacy_multi:
+            record.update(association_scope="unknown", associated_prs=[], association_evidence=[])
 
 
 def _load_replay_annotations(path):
