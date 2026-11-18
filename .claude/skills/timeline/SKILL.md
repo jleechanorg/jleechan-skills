@@ -14,7 +14,8 @@ Before the Gantt, use the rendered `subtitle` for a concise, zero-context overvi
 ## Build
 
 1. **Re-pin live state first.** Immediately before drawing, re-read git SHAs, `gh pr checks`, and lane status from their sources; never copy them from earlier prose. Snapshot time is absolute with timezone (`2026-10-04 12:55 PDT`).
-2. **Schedule for maximum parallelism, from true dependencies, not list order.** A step starts when what it truly waits on is done.
+2. **Give each in-flight PR its own visible row.** For a timeline covering multiple PRs, first inventory the tracked open PRs. Add at least one numbered row for every PR. Put its PR number and verified current stage in the row name, and bind the current head SHA, user outcome, next executable action, exact blocker or dependency, owner and estimate in the row details. Never collapse several PRs into one broad lane row or replace their rows with a count. Use separate rows for independent work when needed. Shared-lane rows may supplement the PR rows, with each affected PR and dependency named. List completed PRs separately in the done section with the PR number and outcome.
+3. **Schedule for maximum parallelism, from true dependencies, not list order.** A step starts when what it truly waits on is done.
    - Read-only review or verification never blocks a reversible step (push, CI start); run them side by side.
    - Start the longest pole first.
    - Show work handed to other lanes (subagents, CLI delegates, the dot) as its own row, labelled with the owner.
