@@ -20,17 +20,17 @@ workflow; `${CLAUDE_HOME:-$HOME/.claude}/commands/code-standards.md` is a thin d
 
 `${CLAUDE_HOME:-$HOME/.claude}/skills/ponytail/SKILL.md` is the canonical mirror of
 [ponytail/.github/copilot-instructions.md](https://github.com/DietrichGebert/ponytail/blob/main/.github/copilot-instructions.md).
-The same skill is mirrored at `~/.codex/skills/ponytail/SKILL.md` for Codex.
+Codex discovers the same canonical skill via its `${AGENTS_HOME:-$HOME/.agents}/skills/ponytail` symlink (never `~/.codex/skills/`).
 
 ## Lanes dispatched
 
 1. **Ponytail** — the lazy-senior-dev seven-rung ladder: no rewriting code that
    exists in-tree, no new dependency when stdlib or installed packages cover
-   it, no unrequested abstractions. Reject single-case allowlists (`{"model-x"}`)
-   that gate a general protocol/transport fix while leaving sibling and future
-   models/routes on a broken default; require variation gating by capability and
-   delete superseded paths. Mark intentional simplifications with a `ponytail:`
-   comment.
+   it, no unrequested abstractions. Reject unverified single-case allowlists (`{"model-x"}`)
+   that gate a demonstrated shared protocol/transport fix while leaving sibling and future
+   models/routes on a broken default (genuine supported capability differences and
+   evidence-based staged rollouts remain valid); delete superseded paths. Mark
+   intentional simplifications with a `ponytail:` comment.
 2. **ZFC** — no keyword/regex/heuristic routing in application code. Delegate
    semantic decisions to a model.
 3. **ZFC leveling** — for level-up work, the model picks the target level (do
@@ -38,8 +38,12 @@ The same skill is mirrored at `~/.codex/skills/ponytail/SKILL.md` for Codex.
 4. **Root-cause-first** — run the skill in review-only mode: check that the
    upstream prompt/schema/agent was considered first and accept backend
    enforcement only as a narrow, logged invariant with proof and a one-line
-   named authority (user ask, spec, or `file:line`), resume/override path for
-   host-local locks, and end-to-end deliverable proof. Report findings; do not
+   named authority citing an explicit user instruction, a spec the user wrote or
+   approved, or a governing policy `file:line` (never another agent's design or
+   a reviewer's preference/finding), a resume/override path for host-local locks,
+   and end-to-end deliverable proof; flag unrequested user-visible waits, gates,
+   retries, timers, expiries, fallbacks, or defaults unless quoted from the user's
+   ask or disclosed before merge. Report findings; do not
    launch `/llm-first`, `/backend-first`, experiments, or edits.
 
 ## Workflow
