@@ -73,7 +73,7 @@ def _apply_replay_annotation(record, annotation):
         scope = annotation["association_scope"]
         prs = annotation.get("associated_prs")
         evidence = annotation.get("association_evidence")
-        if (scope in {"single", "multi", "global", "unknown"}
+        if (isinstance(scope, str) and scope in {"single", "multi", "global", "unknown"}
                 and isinstance(prs, list) and all(_safe_pr_id(pr) for pr in prs)
                 and isinstance(evidence, list)
                 and all(item in ("conversation", "session_binding", "git_context", "prior_review") for item in evidence)

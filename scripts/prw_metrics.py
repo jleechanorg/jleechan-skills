@@ -4497,6 +4497,9 @@ def aggregate_native_human_steering(
         prs = {pr for i in items for pr in ((i.get("pr_binding") or {}).get("pr") if isinstance(i.get("pr_binding"), dict) else None, i.get(
             "effective_associated_pr"), i.get("context_associated_pr"), i.get("original_associated_pr")) if _safe_pr_id(pr)}
         for i in items:
+            memberships = i.get("associated_prs")
+            if isinstance(memberships, list):
+                prs.update(pr for pr in memberships if _safe_pr_id(pr))
             repo_i, branch_i = safe_repo(i.get("repository") or i.get("repository_url")), i.get("git_branch") or i.get("branch")
             prs |= {e[0] for (r, b), es in branch_index.items() for e in es if b == branch_i and (repo_i is None or r.lower() == repo_i.lower())}
         return prs | {k for k in pr_rows if k.lower() in {pr.lower() for pr in prs}}  # every listed spelling of a named PR
