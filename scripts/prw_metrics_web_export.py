@@ -409,7 +409,7 @@ def _gaps(rows, coverage):
         "Public-list-price scenario only, never invoiced spend. Rows with unpriced token buckets "
         "show a known-component subtotal, which is a lower bound.")
     add("human", "Human steering per PR", have(lambda r: r["human"] and r["human"]["verified_messages"]),
-        "Counts verified-human messages bound to one PR. Branch-only and ambiguous candidates are not counted.")
+        "Counts verified-human messages per selected PR; multi-PR messages can appear on each. Branch-only and ambiguous candidates are not counted.")
     add("active", "Observed active time", have(lambda r: r["active_s"] is not None),
         "Needs timed operation telemetry; elapsed minus active is a residual, not wasted time.")
     add("idle", "Eligible idle time", have(lambda r: r["eligible_idle_s"] is not None),
