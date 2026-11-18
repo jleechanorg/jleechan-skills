@@ -2774,8 +2774,6 @@ class TestRetentionRoundTripInvariant(unittest.TestCase):
             self.assertEqual(missing, set(), "%s keys read but not retained" % kind)
 
 
-if __name__ == "__main__":
-    unittest.main()
 class TestDriverOwnershipProjection(unittest.TestCase):
     REPO = "example-org/repo-alpha"
     HEAD = "a" * 40
@@ -2865,6 +2863,29 @@ class TestDriverOwnershipProjection(unittest.TestCase):
         self.assertIn("Review Return to Pickup", dashboard)
         self.assertIn("Wake to Pickup", dashboard)
 
+    def test_fifteen_minute_collected_fixture_projects_five_plus_three_minutes(self):
+        start = datetime(2026, 11, 11, 10, 15, tzinfo=timezone.utc)
+        end = start + timedelta(minutes=15)
+        records = self._collect(self._fixture()[:6])
+        result = MetricsAggregator(cutoff_dt=end).compute_driver_ownership_metrics(
+            {"repo": self.REPO, "number": 7, "headRefOid": self.HEAD}, records, start, end,
+        )
+        self.assertEqual(result, {
+            "status": "COMPLETE", "unattended_sec_lower_bound": 480.0,
+            "unknown_sec": 0.0, "coverage": 1.0,
+        })
+        paired, _ = MetricsAggregator().adapt_transition_event_receipts(
+            records, [{"repo": self.REPO, "number": 7, "headRefOid": self.HEAD}],
+        )
+        durations = {
+            event["name"]: MetricsAggregator().compute_interval_duration(
+                event["start_at"], event["end_at"],
+            )["duration_sec"]
+            for event in paired
+        }
+        self.assertEqual(durations["review_return -> next_substantive_action"], 180.0)
+        self.assertEqual(durations["wake_fired -> next_substantive_action"], 120.0)
+
     def test_incomplete_or_mismatched_evidence_is_not_ranked(self):
         cutoff = datetime(2026, 11, 18, 10, 15, tzinfo=timezone.utc)
         aggregator = MetricsAggregator(cutoff_dt=cutoff)
@@ -2884,6 +2905,65 @@ class TestDriverOwnershipProjection(unittest.TestCase):
                 result = aggregator.compute_driver_ownership_metrics(pr, rows, cutoff - timedelta(days=7), cutoff)
                 self.assertNotEqual(result["status"], "COMPLETE")
 
+    def test_identity_ownership_and_same_time_conflicts_leave_coverage_unknown(self):
+        cutoff = datetime(2026, 11, 18, 10, 15, tzinfo=timezone.utc)
+        start = cutoff - timedelta(days=7)
+        aggregator = MetricsAggregator(cutoff_dt=cutoff)
+        pr = {"repo": self.REPO, "number": 7, "headRefOid": self.HEAD}
+        base = self._collect(self._fixture())
+
+        missing_identity = json.loads(json.dumps(base))
+        for event in missing_identity:
+            event.pop("attempt_number", None)
+            event.pop("obligation_id", None)
+            if isinstance(event.get("continuity_receipt"), dict):
+                event["continuity_receipt"].pop("attempt_number", None)
+                event["continuity_receipt"].pop("obligation_id", None)
+        missing_metrics = aggregator.compute_driver_ownership_metrics(pr, missing_identity, start, cutoff)
+        self.assertNotEqual(missing_metrics["status"], "COMPLETE")
+        self.assertEqual(missing_metrics["coverage"], 0.0)
+
+        unrelated_owner = json.loads(json.dumps(base))
+        unrelated_owner[1]["continuity_receipt"]["owner_id"] = "unrelated-driver"
+        owner_metrics = aggregator.compute_driver_ownership_metrics(pr, unrelated_owner, start, cutoff)
+        self.assertNotEqual(owner_metrics["status"], "COMPLETE")
+        self.assertGreater(owner_metrics["unknown_sec"], 0.0)
+
+        simultaneous = json.loads(json.dumps(base))
+        simultaneous[1]["occurred_at"] = simultaneous[0]["occurred_at"]
+        simultaneous[1]["preceding_event_id"] = "unlinked-event"
+        simultaneous[1]["continuity_from_event_id"] = "unlinked-event"
+        contradictory = aggregator.compute_driver_ownership_metrics(pr, simultaneous, start, cutoff)
+        self.assertNotEqual(contradictory["status"], "COMPLETE")
+        self.assertGreater(contradictory["unknown_sec"], 0.0)
+
+    def test_head_change_and_malformed_wake_deadline_leave_unknown_spans(self):
+        cutoff = datetime(2026, 11, 18, 10, 15, tzinfo=timezone.utc)
+        start = cutoff - timedelta(days=7)
+        aggregator = MetricsAggregator(cutoff_dt=cutoff)
+        pr = {"repo": self.REPO, "number": 7, "headRefOid": self.HEAD}
+        base = self._collect(self._fixture())
+
+        changed_head = json.loads(json.dumps(base))
+        changed_head[1]["candidate_sha"] = "b" * 40
+        changed_head[1]["continuity_receipt"]["candidate_sha"] = "b" * 40
+        changed_head[2]["sequence"] = 3
+        changed_head[2]["preceding_event_id"] = changed_head[1]["event_id"]
+        changed_head[2]["continuity_from_event_id"] = changed_head[1]["event_id"]
+        changed_head[2]["continuity_receipt"]["covers_from"] = changed_head[1]["occurred_at"]
+        changed_metrics = aggregator.compute_driver_ownership_metrics(pr, changed_head, start, cutoff)
+        self.assertNotEqual(changed_metrics["status"], "COMPLETE")
+        self.assertGreater(changed_metrics["unknown_sec"], 0.0)
+
+        malformed_wait = json.loads(json.dumps(base))
+        malformed_wait[0].update(
+            state="verified_wait", result_receipt=None, wait_reason="review_pending",
+            wake_trigger="review result", wake_due_at="not-a-time",
+        )
+        invalid_wait = aggregator.compute_driver_ownership_metrics(pr, malformed_wait, start, cutoff)
+        self.assertNotEqual(invalid_wait["status"], "COMPLETE")
+        self.assertGreater(invalid_wait["unknown_sec"], 0.0)
+
     def test_wait_expiry_is_unknown_pause_is_zero_and_full_execution_measures_zero(self):
         cutoff = datetime(2026, 11, 18, 10, 15, tzinfo=timezone.utc)
         start = cutoff - timedelta(days=7)
@@ -2891,13 +2971,13 @@ class TestDriverOwnershipProjection(unittest.TestCase):
         pr = {"repo": self.REPO, "number": 7, "headRefOid": self.HEAD}
         rows = self._collect(self._fixture())
         paused = [dict(row) for row in rows]
-        paused[0].update(state="paused", wait_reason="operator pause")
+        paused[0].update(state="paused", wait_reason="operator_pause")
         pause_metrics = aggregator.compute_driver_ownership_metrics(pr, paused, start, cutoff)
         self.assertEqual(pause_metrics["status"], "COMPLETE")
         self.assertEqual(pause_metrics["unattended_sec_lower_bound"], 360.0)
         waiting = json.loads(json.dumps(rows))
         waiting[0].update(
-            state="verified_wait", wait_reason="review running", job_id="job-1",
+            state="verified_wait", wait_reason="review_running", job_id="job-1",
             wake_due_at=format_iso_utc(start + timedelta(minutes=2)),
         )
         waiting[1]["occurred_at"] = format_iso_utc(start + timedelta(minutes=4))
@@ -2905,11 +2985,42 @@ class TestDriverOwnershipProjection(unittest.TestCase):
         expiry_metrics = aggregator.compute_driver_ownership_metrics(pr, waiting, start, cutoff)
         self.assertEqual(expiry_metrics["status"], "PARTIAL")
         self.assertGreaterEqual(expiry_metrics["unknown_sec"], 120.0)
-        executing = [dict(row, state="executing", worker_id="worker-1") for row in rows]
+        executing = [
+            dict(row, event_type="execution_observed", state="executing", worker_id="worker-1")
+            for row in rows
+        ]
         zero_metrics = aggregator.compute_driver_ownership_metrics(pr, executing, start, cutoff)
         self.assertEqual(zero_metrics["status"], "COMPLETE")
         self.assertEqual(zero_metrics["unattended_sec_lower_bound"], 0.0)
         self.assertEqual(zero_metrics["unknown_sec"], 0.0)
+
+    def test_pickup_accepts_worker_started_and_rejects_unproved_or_conflicting_start(self):
+        aggregator = MetricsAggregator()
+        pr = {"repo": self.REPO, "number": 7, "headRefOid": self.HEAD}
+        events = self._collect(self._fixture())
+        worker_start = json.loads(json.dumps(events))
+        worker_start[5]["event_type"] = "worker_started"
+        pairs, stats = aggregator.adapt_transition_event_receipts(worker_start, [pr])
+        review_pickup = next(row for row in pairs if row["name"] == "review_return -> next_substantive_action")
+        self.assertEqual(
+            aggregator.compute_interval_duration(review_pickup["start_at"], review_pickup["end_at"])["duration_sec"],
+            180.0,
+        )
+        self.assertGreater(stats["receipt_pairs"], 0)
+
+        paused_start = json.loads(json.dumps(events))
+        paused_start[5].update(
+            state="paused", wait_reason="operator_pause", worker_id=None,
+            result_receipt=None,
+        )
+        paused_pairs, _ = aggregator.adapt_transition_event_receipts(paused_start, [pr])
+        self.assertFalse(any(row["name"] == "review_return -> next_substantive_action" for row in paused_pairs))
+
+        conflicting_start = json.loads(json.dumps(events))
+        conflicting_start.append(dict(events[5], result_receipt="different-proof"))
+        conflicting_pairs, conflict_stats = aggregator.adapt_transition_event_receipts(conflicting_start, [pr])
+        self.assertEqual(conflict_stats["receipt_event_conflicts"], 1)
+        self.assertFalse(any(row["name"] == "review_return -> next_substantive_action" for row in conflicting_pairs))
 
     def test_duplicate_delivery_is_idempotent_and_missing_feed_is_unknown(self):
         cutoff = datetime(2026, 11, 18, 10, 15, tzinfo=timezone.utc)
@@ -2927,6 +3038,29 @@ class TestDriverOwnershipProjection(unittest.TestCase):
         self.assertEqual(out_of_order["unattended_sec_lower_bound"], 480.0)
         missing = aggregator.compute_driver_ownership_metrics(pr, [], cutoff - timedelta(days=7), cutoff)
         self.assertEqual(missing["status"], "UNKNOWN")
+
+    def test_published_receipt_replay_preserves_nested_attempt_identity(self):
+        cutoff = datetime(2026, 11, 18, 10, 15, tzinfo=timezone.utc)
+        start = cutoff - timedelta(days=7)
+        aggregator = MetricsAggregator(cutoff_dt=cutoff)
+        pr = {"repo": self.REPO, "number": 7, "headRefOid": self.HEAD}
+        records = self._collect(self._fixture())
+        expected = aggregator.compute_driver_ownership_metrics(pr, records, start, cutoff)
+        with tempfile.TemporaryDirectory() as publisher_dir:
+            bundle = Publisher(repo_path=publisher_dir).write_telemetry_bundle(
+                {"w2_bounds": [format_iso_utc(start), format_iso_utc(cutoff)]},
+                handoff_records=records,
+            )
+        retained_text = next(
+            value for key, value in bundle.items() if key.endswith("retained_handoffs.jsonl")
+        )
+        replayed = [json.loads(line) for line in retained_text.splitlines() if line.strip()]
+        self.assertEqual(
+            replayed[1]["continuity_receipt"]["attempt_number"], 1
+        )
+        self.assertEqual(
+            aggregator.compute_driver_ownership_metrics(pr, replayed, start, cutoff), expected
+        )
 
     def test_partial_window_shows_verified_lower_bound_without_ranking(self):
         cutoff = datetime(2026, 11, 18, 10, 15, tzinfo=timezone.utc)
@@ -2948,3 +3082,32 @@ class TestDriverOwnershipProjection(unittest.TestCase):
         self.assertEqual(row["ownership_unattended_sec_lower_bound"], 480.0)
         self.assertGreater(row["ownership_unknown_sec"], 0.0)
         self.assertIn("Verified Unattended Lower Bound", DashboardRenderer().render(summary))
+
+    def test_open_pr_pickup_durations_are_limited_to_displayed_candidate(self):
+        cutoff = datetime(2026, 11, 18, 10, 15, tzinfo=timezone.utc)
+        rows = []
+        for event in self._fixture():
+            row = dict(event, candidate_sha="b" * 40)
+            if isinstance(event.get("continuity_receipt"), dict):
+                row["continuity_receipt"] = dict(event["continuity_receipt"], candidate_sha="b" * 40)
+            rows.append(row)
+        receipts = self._collect(rows)
+        pr = {
+            "repo": self.REPO, "number": 7, "state": "OPEN", "headRefOid": self.HEAD,
+            "createdAt": "2026-11-10T00:00:00Z", "updatedAt": "2026-11-11T10:00:00Z",
+            "url": "https://github.com/example-org/repo-alpha/pull/7", "labels": [],
+        }
+        summary = MetricsAggregator(cutoff_dt=cutoff).aggregate_full_dataset(
+            [pr], handoff_records=receipts,
+            handoff_receipt_stats={"status": "COMPLETE", "files_scanned": 1},
+            sources={"github": {"status": "COMPLETE", "cutoff": format_iso_utc(cutoff)}},
+            now_dt=cutoff,
+        )
+        row = summary["open_prs_unknown_idle"][0]
+        self.assertEqual(row["ownership_status"], "UNKNOWN")
+        self.assertEqual(row["review_return_to_pickup_median_sec"], "UNKNOWN")
+        self.assertEqual(row["wake_to_pickup_median_sec"], "UNKNOWN")
+
+
+if __name__ == "__main__":
+    unittest.main()
