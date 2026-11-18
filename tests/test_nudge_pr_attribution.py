@@ -322,3 +322,38 @@ def test_equivalent_multi_membership_order_does_not_dispute():
     summary = aggregate_native_human_steering(records, [], window_start="2026-10-01T00:00:00Z", window_end="2026-10-20T00:00:00Z")
     assert summary["coverage"]["human_nudge_messages"] == 1
     assert [row["human_nudge_messages"] for row in summary["per_pr"]] == [1, 1]
+
+
+def test_same_annotation_retractions_override_competing_associations():
+    conflicts = [
+        {"association_scope": None, "pr_binding": {"pr": "example/repo#1"}},
+        {"pr_binding": None, "association_scope": "single", "associated_prs": ["example/repo#1"], "association_evidence": ["conversation"]},
+        {"context_pr_decision": None, "association_scope": "single", "associated_prs": ["example/repo#1"], "association_evidence": ["conversation"]},
+    ]
+    for annotation in conflicts:
+        record = {"event_id": "e", "timestamp": "2026-10-10T00:00:00Z", "actor_kind": "human",
+                  "message_kind": "continuation/followthrough_nudge", "human_nudge_eligible": True,
+                  "repository": "example/repo", "git_branch": "topic"}
+        _apply_replay_annotation(record, annotation)
+        prs = [{"repo": "example/repo", "number": 1, "headRefName": "topic", "createdAt": "2026-10-01T00:00:00Z"}]
+        result = aggregate_native_human_steering([record], prs, window_start="2026-10-01T00:00:00Z", window_end="2026-10-20T00:00:00Z")
+        assert result["coverage"]["assigned_verified_messages"] == 0
+        assert result["per_pr"][0]["human_nudge_messages"] == 0
+
+
+def test_equivalent_evidence_order_does_not_dispute():
+    base = {"event_id": "e", "provider": "codex", "timestamp": "2026-10-10T00:00:00Z", "actor_kind": "human",
+            "message_kind": "continuation/followthrough_nudge", "human_nudge_eligible": True,
+            "association_scope": "multi", "associated_prs": ["example/repo#1", "example/repo#2"]}
+    records = [dict(base, association_evidence=x) for x in (["conversation", "git_context"], ["git_context", "conversation"])]
+    result = aggregate_native_human_steering(records, [], window_start="2026-10-01T00:00:00Z", window_end="2026-10-20T00:00:00Z")
+    assert result["coverage"]["human_nudge_messages"] == 1
+    assert [r["human_nudge_messages"] for r in result["per_pr"]] == [1, 1]
+
+
+def test_legacy_four_field_array_adapter_remains_supported(tmp_path):
+    fake = tmp_path / "judge.py"
+    value = {"event_id": "e", "actor_kind": "human", "message_kind": "continuation/followthrough_nudge", "human_nudge_eligible": True}
+    fake.write_text("import sys; sys.stdin.read(); print(" + repr(json.dumps({"annotations": [value]})) + ")")
+    result = judge._judge({"events": [{"event_id": "e", "text": "continue", "context": []}]}, f"{sys.executable} {fake}", 10)
+    assert result == [value]

@@ -111,6 +111,7 @@ def _judge(packet, command, timeout):
         raise ValueError("judge response must contain annotations")
     expected_ids = set(event_ids)
     annotations = response["annotations"]
+    legacy_array = isinstance(annotations, list)
     if isinstance(annotations, dict):
         if set(annotations) != expected_ids:
             raise ValueError("judge response event IDs do not match the input packet")
@@ -128,7 +129,10 @@ def _judge(packet, command, timeout):
             raise ValueError("judge annotation is missing an event_id")
         if set(annotation) - annotation_fields:
             raise ValueError("judge annotation contains unsupported fields")
-        if not annotation_required.issubset(annotation):
+        required = annotation_required
+        if legacy_array and not {"association_scope", "associated_prs", "association_evidence"} & annotation.keys():
+            required = {"event_id", "actor_kind", "message_kind", "human_nudge_eligible"}
+        if not required.issubset(annotation):
             raise ValueError("judge annotation is missing required fields")
         for key, value in annotation.items():
             enum = annotation_properties[key].get("enum")
@@ -178,6 +182,8 @@ def _judge(packet, command, timeout):
                         and not prior.get("pr_binding") and not prior.get("associated_prs")
                         and not prior.get("prior_association")
                         and annotation.get("association_scope") == "multi")
+        if legacy_multi and output_annotation.get("pr_binding") is None:
+            output_annotation.pop("pr_binding", None)
         if not legacy_multi and (any(key in prior for key in ("context_pr_decision", "pr_binding"))
                 or prior.get("association_retracted")
                 or prior.get("prior_association")

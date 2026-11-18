@@ -4533,6 +4533,9 @@ def aggregate_native_human_steering(
             memberships = comparable.get("associated_prs")
             if isinstance(memberships, list) and all(_safe_pr_id(pr) for pr in memberships):
                 comparable["associated_prs"] = sorted(memberships)
+            evidence = comparable.get("association_evidence")
+            if isinstance(evidence, list) and all(isinstance(value, str) for value in evidence):
+                comparable["association_evidence"] = sorted(evidence)
             return json.dumps(comparable, sort_keys=True, default=str)
         disputed = len({comparison_copy(i) for i in items}) > 1
         if disputed:

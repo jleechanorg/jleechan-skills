@@ -69,8 +69,6 @@ def _apply_replay_annotation(record, annotation):
             value = annotation[key]
             if value is None or _safe_pr_id(value):
                 record[key] = value
-    if any(key in annotation and annotation[key] is None for key in ("context_pr_decision", "pr_binding")):
-        record.update(association_scope="unknown", associated_prs=[], association_evidence=[])
     if "association_scope" in annotation:
         scope = annotation["association_scope"]
         prs = annotation.get("associated_prs")
@@ -83,10 +81,6 @@ def _apply_replay_annotation(record, annotation):
                 and ((scope == "single" and len(prs) == 1) or (scope == "multi" and len(prs) >= 2)
                      or (scope in ("global", "unknown") and not prs))):
             record.update(association_scope=scope, associated_prs=prs, association_evidence=evidence)
-        elif scope is None:
-            for key in ("pr_binding", "context_pr_decision", "effective_associated_pr", "context_associated_pr", "original_associated_pr"):
-                record.pop(key, None)
-            record.update(association_scope="unknown", associated_prs=[], association_evidence=[])
     if annotation.get("message_kind") in {
         "initial_task", "new_requirement/domain_judgment", "status_request",
         "continuation/followthrough_nudge", "teammate_message",
@@ -108,6 +102,11 @@ def _apply_replay_annotation(record, annotation):
             key: binding[key] for key in ("pr", "method", "weight")
             if key in binding and isinstance(binding[key], (str, int, float))
         }
+    if any(key in annotation and annotation[key] is None
+           for key in ("association_scope", "context_pr_decision", "pr_binding")):
+        for key in ("pr_binding", "context_pr_decision", "effective_associated_pr", "context_associated_pr", "original_associated_pr"):
+            record.pop(key, None)
+        record.update(association_scope="unknown", associated_prs=[], association_evidence=[])
 
 
 def _load_replay_annotations(path):
