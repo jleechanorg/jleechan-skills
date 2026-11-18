@@ -156,10 +156,28 @@ def _judge(packet, command, timeout):
             if key in _PRESERVED_ANNOTATION_FIELDS
         })
         prior = events_by_id[annotation["event_id"]]
-        if any(key in prior for key in ("context_pr_decision", "pr_binding", "association_scope")):
+        if (any(key in prior for key in ("context_pr_decision", "pr_binding"))
+                or prior.get("association_retracted")
+                or (prior.get("review_id") and "association_scope" in prior)):
             annotation = {k: v for k, v in annotation.items() if k not in {
                 "association_scope", "associated_prs", "association_evidence"}}
         output_annotation.update(annotation)
+        prior_review = prior.get("prior_review")
+        if isinstance(prior_review, dict):
+            for key in ("actor_kind", "human_origin", "message_kind", "human_nudge_eligible"):
+                if key not in prior_review:
+                    continue
+                value = prior_review[key]
+                if key == "human_origin":
+                    allowed = ("verified_human", "unknown", "unverified_candidate", "automated_watch", "automated_watch_excluded", None)
+                else:
+                    allowed = annotation_properties[key]["enum"]
+                    if key == "actor_kind":
+                        allowed = [*allowed, None]
+                if value in allowed and (key != "human_nudge_eligible" or value is None or isinstance(value, bool)):
+                    output_annotation[key] = value
+            if "human_origin" in output_annotation and "actor_kind" not in prior_review:
+                output_annotation.pop("actor_kind", None)
         normalized.append(output_annotation)
     return normalized
 

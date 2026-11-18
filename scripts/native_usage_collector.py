@@ -25,7 +25,7 @@ else:
 def _apply_replay_annotation(record, annotation):
     actor_kind = annotation.get("actor_kind")
     human_origin = annotation.get("human_origin")
-    if actor_kind == "unknown" or human_origin in ("unknown", "unverified_candidate"):
+    if ("actor_kind" in annotation and actor_kind is None) or actor_kind == "unknown" or human_origin in ("unknown", "unverified_candidate"):
         record["actor_kind"] = "unknown"
         record["origin_status"] = "unverified_candidate"
     elif actor_kind in ("human", "automated_watch"):
@@ -549,8 +549,22 @@ def _entire_records(rows, source_fingerprint, source_id, session_id, provider,
             if neighbor_timestamp:
                 context_record["timestamp"] = format_iso_utc(neighbor_timestamp)
             context.append(context_record)
+        prior_review = {}
+        if annotation is not None and isinstance(annotation.get("review_id"), str) and annotation["review_id"]:
+            allowed = {
+                "actor_kind": ("human", "automated_watch", "unknown", None),
+                "human_origin": ("verified_human", "unknown", "unverified_candidate", "automated_watch", "automated_watch_excluded", None),
+                "message_kind": ("initial_task", "new_requirement/domain_judgment", "status_request", "continuation/followthrough_nudge", "teammate_message", "cold_reviewer_dispatch", "compaction", "merge_approval", None),
+                "human_nudge_eligible": (True, False, None),
+            }
+            prior_review = {key: annotation[key] for key, values in allowed.items()
+                            if key in annotation and annotation[key] in values
+                            and (key != "human_nudge_eligible" or annotation[key] is None or isinstance(annotation[key], bool))}
         packet.append({
             **record,
+            "prior_review": prior_review,
+            "association_retracted": bool(annotation is not None and any(
+                key in annotation and annotation[key] is None for key in ("context_pr_decision", "pr_binding"))),
             "text": user_text,
             "text_blocks": blocks,
             "text_available": row.get("content") is not None,

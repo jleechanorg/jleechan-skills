@@ -68,3 +68,45 @@ def test_reviewed_retraction_blocks_reassignment():
     result = aggregate_native_human_steering([record], prs, window_start="2026-10-01T00:00:00Z", window_end="2026-10-20T00:00:00Z")
     assert result["coverage"]["unassigned_verified_messages"] == 1
     assert result["per_pr"][0]["raw_verified_messages"] == 0
+
+
+def test_existing_actor_decisions_and_retractions_survive_readjudication(tmp_path, monkeypatch):
+    from datetime import datetime, timezone
+    from scripts import native_usage_collector as collector
+
+    source = tmp_path / "source.jsonl"
+    source.write_text(json.dumps({"type": "session_meta", "payload": {"id": "s"}}) + "\n")
+    monkeypatch.setattr(collector, "run_entire_parser", lambda *_: [
+        {"v": 1, "type": "user", "id": "e", "ts": "2026-11-13T11:59:00Z", "content": "continue"}])
+    kwargs = dict(cutoff=datetime(2026, 11, 13, 12, tzinfo=timezone.utc), days=1,
+                  entire_parser="parser", entire_agent="codex")
+    first = collector.collect_native_history([source], **kwargs)
+    event_id = first["human_records"][0]["event_id"]
+    reviews = tmp_path / "reviews.jsonl"
+    reviews.write_text(json.dumps({"event_id": event_id, "actor_kind": "human", "message_kind": None,
+                                   "human_nudge_eligible": None, "review_id": "review-1"}) + "\n")
+    event = collector.collect_native_history([source], annotation_path=reviews, **kwargs)["nudge_packet_events"][0]
+    fake = tmp_path / "judge.py"
+    result = {"annotations": [{"event_id": event_id, "actor_kind": "unknown", "message_kind": "initial_task",
+                                "human_nudge_eligible": False, "association_scope": "unknown",
+                                "associated_prs": [], "association_evidence": []}]}
+    fake.write_text("import sys\nsys.stdin.read()\nprint(" + repr(json.dumps(result)) + ")\n")
+    annotation = judge._judge({"schema_version": "human-nudge-input.v1", "events": [event]},
+                              f"{sys.executable} {fake}", 10)[0]
+    assert annotation["actor_kind"] == "human"
+    assert annotation["message_kind"] is None
+    assert annotation["human_nudge_eligible"] is None
+
+
+def test_unreviewed_unknown_can_be_reclassified_and_linked(tmp_path):
+    event = {"event_id": "e", "text": "continue PR 1", "context": [], "actor_kind": "unknown",
+             "association_scope": "unknown", "associated_prs": [], "association_evidence": []}
+    result = {"annotations": [{"event_id": "e", "actor_kind": "human",
+              "message_kind": "continuation/followthrough_nudge", "human_nudge_eligible": True,
+              "association_scope": "single", "associated_prs": ["example/repo#1"],
+              "association_evidence": ["conversation"]}]}
+    fake = tmp_path / "judge.py"
+    fake.write_text("import sys\nsys.stdin.read()\nprint(" + repr(json.dumps(result)) + ")\n")
+    output = judge._judge({"events": [event]}, f"{sys.executable} {fake}", 10)[0]
+    assert output["actor_kind"] == "human"
+    assert output["associated_prs"] == ["example/repo#1"]
