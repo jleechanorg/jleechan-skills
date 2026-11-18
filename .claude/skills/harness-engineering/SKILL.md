@@ -197,6 +197,13 @@ claims; do not rerun completed discovery, analysis or checks merely for closure.
   and append monthly `~/roadmap/learnings-YYYY-MM.md`. Follow its discovery and
   update-over-create rules, without inventing work or duplicate Beads to fill a
   checklist. Record no-change, blocked and partial outcomes as such.
+- **Publish the roadmap closure to `origin/main`.** Before reporting an
+  invocation complete, publish its scoped roadmap findings, nextsteps, activity
+  and learnings through [nextsteps roadmap publication](../nextsteps/SKILL.md#roadmap-publication).
+  Verify the intended entries on the remote branch and report the commit URL.
+  Reuse a verified publication for identical findings. Report an exact blocker
+  if publication is prohibited or unavailable. Preserve unrelated local changes,
+  explicit no-write scope, source approval and the separate Beads publisher.
 - **No implicit full sync.** Default closure does not write Claude auto-memory,
   mem0 or GitHub Issues. Only an explicit `--full` request selects nextsteps'
   full mode for this one closure, and only within the user's existing authority.
