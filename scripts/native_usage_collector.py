@@ -25,7 +25,9 @@ else:
 def _apply_replay_annotation(record, annotation):
     actor_kind = annotation.get("actor_kind")
     human_origin = annotation.get("human_origin")
-    if ("actor_kind" in annotation and actor_kind is None) or actor_kind == "unknown" or human_origin in ("unknown", "unverified_candidate"):
+    if (("actor_kind" in annotation and actor_kind is None)
+            or ("human_origin" in annotation and human_origin is None)
+            or actor_kind == "unknown" or human_origin in ("unknown", "unverified_candidate")):
         record["actor_kind"] = "unknown"
         record["origin_status"] = "unverified_candidate"
     elif actor_kind in ("human", "automated_watch"):
@@ -75,12 +77,15 @@ def _apply_replay_annotation(record, annotation):
         evidence = annotation.get("association_evidence")
         if (isinstance(scope, str) and scope in {"single", "multi", "global", "unknown"}
                 and isinstance(prs, list) and all(_safe_pr_id(pr) for pr in prs)
+                and len(set(prs)) == len(prs)
                 and isinstance(evidence, list)
                 and all(item in ("conversation", "session_binding", "git_context", "prior_review") for item in evidence)
                 and ((scope == "single" and len(prs) == 1) or (scope == "multi" and len(prs) >= 2)
                      or (scope in ("global", "unknown") and not prs))):
             record.update(association_scope=scope, associated_prs=prs, association_evidence=evidence)
         elif scope is None:
+            for key in ("pr_binding", "context_pr_decision", "effective_associated_pr", "context_associated_pr", "original_associated_pr"):
+                record.pop(key, None)
             record.update(association_scope="unknown", associated_prs=[], association_evidence=[])
     if annotation.get("message_kind") in {
         "initial_task", "new_requirement/domain_judgment", "status_request",
@@ -566,7 +571,8 @@ def _entire_records(rows, source_fingerprint, source_id, session_id, provider,
         packet.append({
             **record,
             "prior_review": prior_review,
-            "prior_association": bool(annotation is not None and "association_scope" in annotation),
+            "prior_association": bool(annotation is not None and "association_scope" in annotation
+                                      and "association_scope" in record),
             "association_retracted": bool(annotation is not None and any(
                 key in annotation and annotation[key] is None for key in ("context_pr_decision", "pr_binding"))),
             "text": user_text,

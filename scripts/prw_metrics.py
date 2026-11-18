@@ -4528,7 +4528,13 @@ def aggregate_native_human_steering(
             continue
         human = [i.get("actor_kind") == "human" or i.get("origin_status") == "verified_human" for i in items]
         verified = any(h for h, i in zip(human, items) if in_window(i))
-        disputed = len({json.dumps({k: v for k, v in i.items() if k not in ("source_fingerprint", "source_id")}, sort_keys=True, default=str) for i in items}) > 1
+        def comparison_copy(item):
+            comparable = {k: v for k, v in item.items() if k not in ("source_fingerprint", "source_id")}
+            memberships = comparable.get("associated_prs")
+            if isinstance(memberships, list) and all(_safe_pr_id(pr) for pr in memberships):
+                comparable["associated_prs"] = sorted(memberships)
+            return json.dumps(comparable, sort_keys=True, default=str)
+        disputed = len({comparison_copy(i) for i in items}) > 1
         if disputed:
             event = {**event, "pr_binding": None, "context_pr_decision": "unassigned_multi_pr",  # copies disagree: bind none
                      "message_kind": None, "human_nudge_eligible": None, "score": None, "episode_id": None,
