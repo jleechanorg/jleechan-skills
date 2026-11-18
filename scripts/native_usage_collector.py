@@ -102,10 +102,11 @@ def _apply_replay_annotation(record, annotation):
             key: binding[key] for key in ("pr", "method", "weight")
             if key in binding and isinstance(binding[key], (str, int, float))
         }
-    if any(key in annotation and annotation[key] is None
-           for key in ("association_scope", "context_pr_decision", "pr_binding")):
+    if "association_scope" in annotation and annotation["association_scope"] is None:
         for key in ("pr_binding", "context_pr_decision", "effective_associated_pr", "context_associated_pr", "original_associated_pr"):
             record.pop(key, None)
+        record.update(association_scope="unknown", associated_prs=[], association_evidence=[])
+    elif any(key in annotation and annotation[key] is None for key in ("context_pr_decision", "pr_binding")):
         record.update(association_scope="unknown", associated_prs=[], association_evidence=[])
 
 

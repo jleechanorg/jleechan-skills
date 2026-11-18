@@ -357,3 +357,39 @@ def test_legacy_four_field_array_adapter_remains_supported(tmp_path):
     fake.write_text("import sys; sys.stdin.read(); print(" + repr(json.dumps({"annotations": [value]})) + ")")
     result = judge._judge({"events": [{"event_id": "e", "text": "continue", "context": []}]}, f"{sys.executable} {fake}", 10)
     assert result == [value]
+
+
+def test_null_binding_preserves_explicit_legacy_decision_matrix():
+    cases = [("override", "example/repo#2", 1, "reviewed_context_override_messages"),
+             ("unassigned_multi_pr", None, 0, "multi_pr_unassigned_messages"),
+             ("unassigned_global_scope", None, 0, "global_scope_unassigned_messages")]
+    for decision, pr, assigned, counter in cases:
+        record = {"event_id": "e", "timestamp": "2026-10-10T00:00:00Z", "actor_kind": "human", "pr_binding": {"pr": "example/repo#1"}}
+        _apply_replay_annotation(record, {"pr_binding": None, "context_pr_decision": decision, "effective_associated_pr": pr})
+        result = aggregate_native_human_steering([record], [], window_start="2026-10-01T00:00:00Z", window_end="2026-10-20T00:00:00Z")
+        assert result["coverage"]["assigned_verified_messages"] == assigned
+        assert result["coverage"][counter] == 1
+        if pr:
+            assert next(r for r in result["per_pr"] if r["pr"] == pr)["raw_verified_messages"] == 1
+
+
+def test_legacy_multi_from_sidecar_through_collector_judge_and_replay(tmp_path, monkeypatch):
+    from datetime import datetime, timezone
+    from scripts import native_usage_collector as collector
+    source = tmp_path / "source.jsonl"
+    source.write_text(json.dumps({"type": "session_meta", "payload": {"id": "s"}}) + "\n")
+    monkeypatch.setattr(collector, "run_entire_parser", lambda *_: [{"v": 1, "type": "user", "id": "e", "ts": "2026-11-13T11:59:00Z", "content": "continue both"}])
+    kwargs = dict(cutoff=datetime(2026, 11, 13, 12, tzinfo=timezone.utc), days=1, entire_parser="parser", entire_agent="codex")
+    event_id = collector.collect_native_history([source], **kwargs)["human_records"][0]["event_id"]
+    sidecar = tmp_path / "saved.jsonl"
+    sidecar.write_text(json.dumps({"event_id": event_id, "actor_kind": "human", "message_kind": "continuation/followthrough_nudge", "human_nudge_eligible": True, "context_pr_decision": "unassigned_multi_pr", "pr_binding": None}) + "\n")
+    packet = collector.collect_native_history([source], annotation_path=sidecar, **kwargs)["nudge_packet_events"]
+    value = {"actor_kind": "human", "message_kind": "continuation/followthrough_nudge", "human_nudge_eligible": True, "association_scope": "multi", "associated_prs": ["example/repo#1", "example/repo#2"], "association_evidence": ["conversation"]}
+    fake = tmp_path / "judge.py"
+    fake.write_text("import sys; sys.stdin.read(); print(" + repr(json.dumps({"annotations": {event_id: value}})) + ")")
+    judged = judge._judge({"events": packet}, f"{sys.executable} {fake}", 10)[0]
+    record = {"event_id": event_id, "timestamp": "2026-11-13T11:59:00Z"}
+    _apply_replay_annotation(record, judged)
+    result = aggregate_native_human_steering([record], [], window_start="2026-11-13T00:00:00Z", window_end="2026-11-14T00:00:00Z")
+    assert result["coverage"]["human_nudge_messages"] == 1
+    assert [r["human_nudge_messages"] for r in result["per_pr"]] == [1, 1]
