@@ -790,12 +790,27 @@ def _upload_window(window, files, prefix):
                 src, zst = os.path.join(tmp, "raw"), os.path.join(tmp, "raw.zst")
                 with open(src, "wb") as f:
                     f.write(raw)
-                for proc in (_zstd("-19", "-f", "-o", zst, src),
-                             _gcs("cp", "--no-clobber", f"--custom-metadata=raw_sha256={digest}", zst, uri)):
-                    if proc.returncode != 0:
+                compressed = _zstd("-19", "-f", "-o", zst, src)
+                if compressed.returncode != 0:
+                    raise TelemetryStoreError(
+                        f"window {window} {name}: {compressed.stderr.decode('utf-8', 'replace').strip()}")
+                uploaded = _gcs("cp", "--no-clobber", f"--custom-metadata=raw_sha256={digest}", zst, uri)
+                if uploaded.returncode != 0:
+                    error = uploaded.stderr.decode("utf-8", "replace").strip()
+                    # The installed gcloud SDK formats GcsPreconditionFailedError
+                    # with its reason and message, omitting the numeric status.
+                    sdk_precondition = re.search(
+                        r"(?:^|\)\s)Precondition Failed:", error, re.IGNORECASE)
+                    gcloud_http_412 = re.search(
+                        r"(?:^|\n)[.]*ERROR:\s+HTTPError 412:", error, re.IGNORECASE)
+                    if not (sdk_precondition or gcloud_http_412):
+                        raise TelemetryStoreError(f"window {window} {name}: {error}")
+                    found = _stored_object(uri)
+                    if found is None or found[0] != digest:
                         raise TelemetryStoreError(
-                            f"window {window} {name}: {proc.stderr.decode('utf-8', 'replace').strip()}")
-                found = _stored_object(uri)
+                            f"window {window} {name}: stored object does not match {digest} after HTTP 412")
+                else:
+                    found = _stored_object(uri)
         if found is None or found[0] != digest:
             raise TelemetryStoreError(f"window {window} {name}: stored object does not match {digest}")
         entries.append({"name": name, "bytes": len(raw), "sha256": digest, "zst_bytes": found[1], "uri": uri})
@@ -5114,9 +5129,17 @@ class Publisher:
                     # against this attempt's parent, so a concurrent writer's sticky files survive.
                     for window in sorted(window_files):
                         index_rel = f"{TELEMETRY_INDEX_RELDIR}/{window}.json"
+                        index_paths = subprocess.run(
+                            ["git", "-C", self.repo_path, "ls-tree", "--name-only", parent_sha,
+                             "--", index_rel],
+                            check=True, capture_output=True, text=True, env=env).stdout.splitlines()
+                        index_exists = index_rel in index_paths
                         shown = subprocess.run(
                             ["git", "-C", self.repo_path, "show", f"{parent_sha}:{index_rel}"],
                             capture_output=True, text=True, env=env)
+                        if shown.returncode != 0 and index_exists:
+                            error = shown.stderr.strip() or f"git show exited {shown.returncode}"
+                            raise TelemetryStoreError(f"window {window} existing index cannot be read: {error}")
                         if not prefix:
                             if shown.returncode == 0:
                                 raise TelemetryStoreError(f"window {window} has an index but no bucket configured")
