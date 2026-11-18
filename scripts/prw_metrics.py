@@ -2508,6 +2508,10 @@ class MetricsAggregator:
             return None
         if event_type in ("worker_started", "next_action_started") and state != "executing":
             return None
+        if event_type == "worker_acknowledged" and state not in (
+            "actionable_unowned", "verified_wait",
+        ):
+            return None
         if event_type == "worker_returned" and state != "actionable_unowned":
             return None
         if event_type == "wake_fired" and state != "actionable_unowned":
@@ -2602,7 +2606,10 @@ class MetricsAggregator:
                 ordered.append((occurred, sort_sequence, None, row, None))
         ordered.sort(key=lambda item: (item[0], item[1], item[2] or ""))
 
-        conflicts.update(self._simultaneous_ownership_conflicts(ordered))
+        conflicts.update(
+            event_id
+            for _scope, event_id in self._simultaneous_ownership_conflicts(ordered)
+        )
 
         covered_sec = 0.0
         unattended_sec = 0.0
@@ -2674,14 +2681,14 @@ class MetricsAggregator:
                 )
                 by_time[(occurred, identity)].append((event_id, normalized))
         conflicts = set()
-        for observations in by_time.values():
+        for (_occurred, scope), observations in by_time.items():
             if len(observations) < 2:
                 continue
             for index, (event_id, row) in enumerate(observations):
                 for other_id, other in observations[index + 1:]:
                     if (row.get("source") == other.get("source")
                             and row.get("sequence") == other.get("sequence")):
-                        conflicts.update((event_id, other_id))
+                        conflicts.update(((scope, event_id), (scope, other_id)))
                         continue
                     identity_fields = (
                         "state", "candidate_sha", "attempt_number", "obligation_id",
@@ -2701,7 +2708,7 @@ class MetricsAggregator:
                         )
                     )
                     if not causal_pair:
-                        conflicts.update((event_id, other_id))
+                        conflicts.update(((scope, event_id), (scope, other_id)))
         return conflicts
 
     @staticmethod
@@ -2720,7 +2727,16 @@ class MetricsAggregator:
             isinstance(job_id, str) and job_id
             and job_id == left.get("job_id") == right.get("job_id")
         )
-        if owner_id and not owner_matches:
+        if "owner_id" in receipt and not owner_matches:
+            return False
+        if "job_id" in receipt and not job_matches:
+            return False
+        worker_id = receipt.get("worker_id")
+        worker_matches = (
+            isinstance(worker_id, str) and worker_id
+            and worker_id == left.get("worker_id") == right.get("worker_id")
+        )
+        if "worker_id" in receipt and not worker_matches:
             return False
         return bool(
             isinstance(receipt.get("receipt_id"), str) and receipt.get("receipt_id")
@@ -3465,15 +3481,18 @@ class MetricsAggregator:
             raw_event_id = row.get("event_id")
             event_id = _usage_label(raw_event_id)
             source_event_type = row.get("event_type")
-            event_type = {
+            event_type = ({
                 "worker_returned": "review_return",
             }.get(source_event_type, source_event_type)
+                if isinstance(source_event_type, str) else None)
             pr_id = row.get("pr_id")
+            scope = pr_id.rsplit("#", 1) if _safe_pr_id(pr_id) else None
+            event_identity = (scope[0], scope[1], event_id) if scope and event_id else None
             occurred = _parse_utc_instant(row.get("occurred_at"))
             candidate_sha = row.get("candidate_sha")
             attempt = row.get("attempt_number")
             version = row.get("schema_version")
-            if type(version) is int and version == 1 and event_id:
+            if type(version) is int and version == 1 and event_identity:
                 fingerprint_fields = (
                     "event_id", "event_type", "occurred_at", "pr_id", "candidate_sha",
                     "attempt_number", "schema_version", "obligation_id", "source", "sequence",
@@ -3495,13 +3514,13 @@ class MetricsAggregator:
                             continuity[time_field] = parsed.isoformat(timespec="auto").replace("+00:00", "Z")
                     fingerprint["continuity_receipt"] = continuity
                 fingerprint_text = json.dumps(fingerprint, sort_keys=True, separators=(",", ":"))
-                previous_fingerprint = raw_v1_fingerprints.get(event_id)
+                previous_fingerprint = raw_v1_fingerprints.get(event_identity)
                 if previous_fingerprint is not None and previous_fingerprint != fingerprint_text:
-                    conflict_ids.add(event_id)
+                    conflict_ids.add(event_identity)
                     stats["receipt_event_conflicts"] += 1
                     continue
-                raw_v1_fingerprints[event_id] = fingerprint_text
-                if event_id in conflict_ids:
+                raw_v1_fingerprints[event_identity] = fingerprint_text
+                if event_identity in conflict_ids:
                     continue
             ownership = self.validate_ownership_observation(row, pr_id) if version is not None else None
             legacy_types = {
@@ -3512,7 +3531,8 @@ class MetricsAggregator:
                 version is None and not any(
                     key in row for key in ("state", "obligation_id", "sequence", "continuity_receipt")
                 )
-                and event_id and source_event_type in legacy_types and event_type in legacy_types
+                and event_id and isinstance(source_event_type, str)
+                and source_event_type in legacy_types and event_type in legacy_types
                 and _safe_pr_id(pr_id) and occurred
                 and isinstance(candidate_sha, str)
                 and re.fullmatch(r"[0-9a-fA-F]{7,40}", candidate_sha) is not None
@@ -3532,19 +3552,21 @@ class MetricsAggregator:
             })
             if ownership:
                 normalized["continuity_receipt"] = ownership.get("continuity_receipt")
-            existing = by_id.get(event_id)
+            event_identity = (repo, number, event_id)
+            normalized["_identity_key"] = event_identity
+            existing = by_id.get(event_identity)
             if existing is not None:
                 if existing == normalized:
                     stats["receipt_duplicate_events"] += 1
                 else:
-                    conflict_ids.add(event_id)
+                    conflict_ids.add(event_identity)
                     stats["receipt_event_conflicts"] += 1
                 continue
-            by_id[event_id] = normalized
+            by_id[event_identity] = normalized
 
         groups = defaultdict(lambda: defaultdict(list))
-        for event_id, row in by_id.items():
-            if event_id in conflict_ids:
+        for event_identity, row in by_id.items():
+            if event_identity in conflict_ids:
                 continue
             stats["receipt_events_valid"] += 1
             key = (
@@ -3565,11 +3587,15 @@ class MetricsAggregator:
                     occurred, row.get("sequence", 0), row["event_id"], row, row,
                 ))
         simultaneous_conflicts = self._simultaneous_ownership_conflicts(simultaneous_input)
-        stats["receipt_event_conflicts"] += len(simultaneous_conflicts - conflict_ids)
-        conflict_ids.update(simultaneous_conflicts)
+        simultaneous_identities = set()
+        for scope, event_id in simultaneous_conflicts:
+            repo, number = scope.rsplit("#", 1)
+            simultaneous_identities.add((repo, number, event_id))
+        stats["receipt_event_conflicts"] += len(simultaneous_identities - conflict_ids)
+        conflict_ids.update(simultaneous_identities)
         clean_events_by_id = {
-            event_id: row for event_id, row in by_id.items()
-            if event_id not in conflict_ids
+            event_identity: row for event_identity, row in by_id.items()
+            if event_identity not in conflict_ids
         }
 
         pairs = []
@@ -3592,7 +3618,7 @@ class MetricsAggregator:
                     continue
                 used_ends = set()
                 for start_index, start_row in enumerate(start_rows):
-                    if start_row["event_id"] in conflict_ids:
+                    if start_row["_identity_key"] in conflict_ids:
                         continue
                     start_at = _parse_utc_instant(start_row["occurred_at"])
                     next_start_at = (
@@ -3601,7 +3627,7 @@ class MetricsAggregator:
                     )
                     candidates = [
                         event for event in end_rows
-                        if event["event_id"] not in used_ends
+                        if event["_identity_key"] not in used_ends
                         and _parse_utc_instant(event["occurred_at"]) >= start_at
                         and (next_start_at is None or _parse_utc_instant(event["occurred_at"]) < next_start_at)
                     ]
@@ -3612,13 +3638,13 @@ class MetricsAggregator:
                     if len(same_time) != 1:
                         continue
                     end_row = same_time[0]
-                    if end_row["event_id"] in conflict_ids:
+                    if end_row["_identity_key"] in conflict_ids:
                         continue
                     if start_row.get("schema_version") == 1 or end_row.get("schema_version") == 1:
                         if (start_row.get("schema_version") != 1 or end_row.get("schema_version") != 1
                                 or not self._ownership_event_follows(start_row, end_row, clean_events_by_id)):
                             continue
-                    used_ends.add(end_row["event_id"])
+                    used_ends.add(end_row["_identity_key"])
                     pair_receipt = hashlib.sha256(
                         "|".join((key[0], key[1], key[2], str(key[3]), name,
                                   start_row["event_id"], end_row["event_id"])).encode()
@@ -3629,8 +3655,8 @@ class MetricsAggregator:
                         "start_at": start_row["occurred_at"], "end_at": end_row["occurred_at"],
                         "receipt_id": "sha256:" + pair_receipt,
                     })
-                    paired_ids.add(start_row["event_id"])
-                    paired_ids.add(end_row["event_id"])
+                    paired_ids.add(start_row["_identity_key"])
+                    paired_ids.add(end_row["_identity_key"])
 
         stats["receipt_pairs"] = len(pairs)
         stats["receipt_events_unmatched"] = max(
@@ -3663,7 +3689,7 @@ class MetricsAggregator:
                     or current.get("sequence") == start_row.get("sequence") + 1
                 )
             visited.add(preceding_id)
-            previous = events_by_id.get(preceding_id)
+            previous = events_by_id.get((start_row.get("repo"), start_row.get("number"), preceding_id))
             if not previous:
                 return False
             current_time = _parse_utc_instant(current.get("occurred_at"))
@@ -3926,6 +3952,16 @@ class MetricsAggregator:
         all_closed_w2 = [p for p in filter_events_half_open(prs, "closedAt", w2_s, cutoff) if not p.get("mergedAt")]
         all_current_closed = [p for p in prs if p.get("state") == "CLOSED" and not p.get("mergedAt")]
         all_still_open = [p for p in prs if p.get("state") == "OPEN"]
+        ownership_events = handoff_records if isinstance(handoff_records, list) else []
+        if isinstance(handoff_records, dict):
+            owned_rows = handoff_records.get("records", handoff_records.get("handoffs", []))
+            ownership_events = owned_rows if isinstance(owned_rows, list) else []
+        open_pickup_pairs, _open_pickup_stats = self.adapt_transition_event_receipts(
+            ownership_events, all_still_open
+        )
+        pickup_pairs_by_pr = defaultdict(list)
+        for event in open_pickup_pairs:
+            pickup_pairs_by_pr[(event["repo"], event["number"])].append(event)
 
         for repo in repos:
             repo_prs = [p for p in prs if p.get("repo") == repo]
@@ -4076,9 +4112,6 @@ class MetricsAggregator:
         # Open PRs attention: partition into 5A (known idle) and 5B (unknown idle)
         open_prs_known = []
         open_prs_unknown = []
-        ownership_events = handoff_records if isinstance(handoff_records, list) else []
-        if isinstance(handoff_records, dict):
-            ownership_events = handoff_records.get("records", handoff_records.get("handoffs", []))
         for p in all_still_open:
             idle = self.compute_eligible_unattended_duration(p)
             created_at = parse_iso_utc(p.get("createdAt"))
@@ -4090,9 +4123,8 @@ class MetricsAggregator:
                 "review_return -> next_substantive_action": [],
                 "wake_fired -> next_substantive_action": [],
             }
-            paired_events, _ = self.adapt_transition_event_receipts(ownership_events, [p])
             current_head = p.get("headRefOid")
-            for event in paired_events:
+            for event in pickup_pairs_by_pr.get((p.get("repo"), p.get("number")), []):
                 if current_head and event.get("candidate_sha") != current_head:
                     continue
                 transition_name = event.get("name")

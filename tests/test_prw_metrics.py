@@ -2950,7 +2950,8 @@ class TestDriverOwnershipProjection(unittest.TestCase):
             for event, record in zip(simultaneous[:2], normalized)
         ]
         self.assertEqual(
-            aggregator._simultaneous_ownership_conflicts(conflict_input), {"e1", "e2"}
+            aggregator._simultaneous_ownership_conflicts(conflict_input),
+            {(f"{self.REPO}#7", "e1"), (f"{self.REPO}#7", "e2")},
         )
         contradictory = aggregator.compute_driver_ownership_metrics(pr, simultaneous, start, cutoff)
         self.assertNotEqual(contradictory["status"], "COMPLETE")
@@ -3035,6 +3036,56 @@ class TestDriverOwnershipProjection(unittest.TestCase):
         self.assertEqual(review_pickup[0]["number"], 7)
         self.assertEqual(stats["receipt_event_conflicts"], 0)
 
+        cutoff = datetime(2026, 11, 18, 10, 15, tzinfo=timezone.utc)
+        prs = [
+            {
+                "repo": self.REPO, "number": 7, "state": "OPEN", "headRefOid": self.HEAD,
+                "createdAt": "2026-11-10T00:00:00Z", "updatedAt": "2026-11-11T10:00:00Z",
+                "url": f"https://github.com/{self.REPO}/pull/7", "labels": [],
+            },
+            {
+                "repo": "other/repo", "number": 9, "state": "OPEN", "headRefOid": self.HEAD,
+                "createdAt": "2026-11-10T00:00:00Z", "updatedAt": "2026-11-11T12:00:00Z",
+                "url": "https://github.com/other/repo/pull/9", "labels": [],
+            },
+        ]
+        summary = MetricsAggregator(cutoff_dt=cutoff).aggregate_full_dataset(
+            prs, handoff_records=events + [unrelated],
+            handoff_receipt_stats={"status": "COMPLETE", "files_scanned": 1},
+            sources={"github": {"status": "COMPLETE", "cutoff": format_iso_utc(cutoff)}},
+            now_dt=cutoff,
+        )
+        pr7 = next(row for row in summary["open_prs_unknown_idle"] if row["number"] == 7)
+        self.assertEqual(pr7["review_return_to_pickup_sample_n"], 1)
+        self.assertEqual(pr7["review_return_to_pickup_median_sec"], 180.0)
+
+    def test_conflict_scope_stays_with_pr_when_another_pr_is_later(self):
+        events = self._collect(self._fixture()[:6])
+        returned = next(event for event in events if event["event_id"] == "e4")
+        conflicting = dict(
+            returned, event_id="unlinked-execution", event_type="execution_observed",
+            state="executing", worker_id="worker-1", result_receipt="conflicting-state",
+            preceding_event_id="unrelated-predecessor", continuity_from_event_id="unrelated-predecessor",
+        )
+        unrelated_later = self._event(
+            "other-later", "action_observed", "30", 7, "actionable_unowned",
+            obligation="other-obligation",
+        )
+        unrelated_later["pr_id"] = "other/repo#9"
+        unrelated_later["owner_id"] = "other-driver"
+        records = events + [conflicting, unrelated_later]
+        prs = [
+            {"repo": self.REPO, "number": 7, "headRefOid": self.HEAD},
+            {"repo": "other/repo", "number": 9, "headRefOid": self.HEAD},
+        ]
+        pairs, stats = MetricsAggregator().adapt_transition_event_receipts(records, prs)
+        self.assertEqual(stats["receipt_event_conflicts"], 2)
+        self.assertFalse(any(
+            row["name"] == "review_return -> next_substantive_action"
+            and row["number"] == 7
+            for row in pairs
+        ))
+
     def test_job_continuity_must_match_both_interval_endpoints(self):
         start = datetime(2026, 11, 11, 10, 15, tzinfo=timezone.utc)
         end = start + timedelta(minutes=15)
@@ -3080,6 +3131,59 @@ class TestDriverOwnershipProjection(unittest.TestCase):
         )
         self.assertEqual(summary["open_prs_known_idle"], [])
 
+    def test_each_supplied_continuity_identity_must_match_both_endpoints(self):
+        start = datetime(2026, 11, 11, 10, 15, tzinfo=timezone.utc)
+        end = start + timedelta(minutes=15)
+        pr = {"repo": self.REPO, "number": 7, "headRefOid": self.HEAD}
+        base = [
+            self._event("e1", "execution_observed", "00", 1, "executing"),
+            self._event("e2", "execution_observed", "15", 2, "executing", "e1"),
+        ]
+
+        owner_only = json.loads(json.dumps(base))
+        owner_result = MetricsAggregator().compute_driver_ownership_metrics(
+            pr, self._collect(owner_only), start, end,
+        )
+        self.assertEqual((owner_result["status"], owner_result["unknown_sec"]), ("COMPLETE", 0.0))
+
+        both_match = json.loads(json.dumps(base))
+        both_match[0]["job_id"] = both_match[1]["job_id"] = "job-1"
+        both_match[1]["continuity_receipt"]["job_id"] = "job-1"
+        both_match[1]["continuity_receipt"]["worker_id"] = "worker-1"
+        both_result = MetricsAggregator().compute_driver_ownership_metrics(
+            pr, self._collect(both_match), start, end,
+        )
+        self.assertEqual((both_result["status"], both_result["unknown_sec"]), ("COMPLETE", 0.0))
+
+        conflicting_worker = json.loads(json.dumps(base))
+        conflicting_worker[0]["worker_id"] = "worker-old"
+        conflicting_worker[1]["worker_id"] = "worker-new"
+        conflicting_worker[1]["continuity_receipt"]["worker_id"] = "worker-new"
+        worker_result = MetricsAggregator().compute_driver_ownership_metrics(
+            pr, self._collect(conflicting_worker), start, end,
+        )
+        self.assertEqual(worker_result["status"], "PARTIAL")
+        self.assertEqual(worker_result["unknown_sec"], 900.0)
+
+        owner_matches_job_conflicts = json.loads(json.dumps(both_match))
+        owner_matches_job_conflicts[0]["job_id"] = "old-job"
+        owner_matches_job_conflicts[1]["job_id"] = "new-job"
+        owner_matches_job_conflicts[1]["continuity_receipt"]["job_id"] = "new-job"
+        conflict_result = MetricsAggregator().compute_driver_ownership_metrics(
+            pr, self._collect(owner_matches_job_conflicts), start, end,
+        )
+        self.assertEqual(conflict_result["status"], "PARTIAL")
+        self.assertEqual(conflict_result["unknown_sec"], 900.0)
+
+        job_only = json.loads(json.dumps(both_match))
+        job_only[0]["owner_id"] = "driver-a"
+        job_only[1]["owner_id"] = "driver-b"
+        job_only[1]["continuity_receipt"].pop("owner_id")
+        job_result = MetricsAggregator().compute_driver_ownership_metrics(
+            pr, self._collect(job_only), start, end,
+        )
+        self.assertEqual((job_result["status"], job_result["unknown_sec"]), ("COMPLETE", 0.0))
+
     def test_legacy_multiple_returns_remain_ambiguous(self):
         def legacy_event(event_id, event_type, minute):
             return {
@@ -3109,6 +3213,72 @@ class TestDriverOwnershipProjection(unittest.TestCase):
         )
         self.assertFalse(any(row["name"] == "review_return -> next_substantive_action" for row in pairs))
         self.assertFalse(any(row["name"] == "wake_fired -> next_substantive_action" for row in pairs))
+
+    def test_worker_acknowledgment_cannot_override_executing_state(self):
+        start = datetime(2026, 11, 11, 10, 15, tzinfo=timezone.utc)
+        end = start + timedelta(minutes=15)
+        rows = json.loads(json.dumps(self._collect(self._fixture()[:6])))
+        rows[2].update(
+            event_type="worker_acknowledged", state="executing",
+            worker_id="worker-1", result_receipt="ack-only",
+        )
+        result = MetricsAggregator().compute_driver_ownership_metrics(
+            {"repo": self.REPO, "number": 7, "headRefOid": self.HEAD}, rows, start, end,
+        )
+        self.assertEqual(result["status"], "PARTIAL")
+        self.assertGreaterEqual(result["unattended_sec_lower_bound"], 120.0)
+        self.assertGreater(result["unknown_sec"], 0.0)
+
+    def test_acknowledgment_alone_cannot_establish_execution(self):
+        start = datetime(2026, 11, 11, 10, 15, tzinfo=timezone.utc)
+        end = start + timedelta(minutes=15)
+        rows = json.loads(json.dumps(self._collect(self._fixture()[:6])))
+        rows[2].update(
+            event_type="worker_acknowledged", state="executing",
+            worker_id="worker-1", result_receipt="ack-only",
+        )
+        result = MetricsAggregator().compute_driver_ownership_metrics(
+            {"repo": self.REPO, "number": 7, "headRefOid": self.HEAD}, rows, start, end,
+        )
+        self.assertEqual(result["status"], "PARTIAL")
+        self.assertGreater(result["unknown_sec"], 0.0)
+
+    def test_unhashable_event_type_values_do_not_crash_optional_feed(self):
+        base = self._collect(self._fixture()[:6])
+        cutoff = datetime(2026, 11, 18, 10, 15, tzinfo=timezone.utc)
+        pr = {
+            "repo": self.REPO, "number": 7, "state": "OPEN", "headRefOid": self.HEAD,
+            "createdAt": "2026-11-10T00:00:00Z", "updatedAt": "2026-11-11T10:00:00Z",
+            "url": f"https://github.com/{self.REPO}/pull/7", "labels": [],
+        }
+        for malformed_type in (["worker_returned"], {"name": "worker_returned"}):
+            with self.subTest(event_type=malformed_type):
+                event = dict(base[3], event_id=f"malformed-{len(base)}", event_type=malformed_type)
+                summary = MetricsAggregator(cutoff_dt=cutoff).aggregate_full_dataset(
+                    [pr], handoff_records=base + [event],
+                    handoff_receipt_stats={"status": "COMPLETE", "files_scanned": 1},
+                    sources={"github": {"status": "COMPLETE", "cutoff": format_iso_utc(cutoff)}},
+                    now_dt=cutoff,
+                )
+                self.assertEqual(summary["open_prs_known_idle"], [])
+
+    def test_duplicate_event_id_on_another_pr_does_not_suppress_pickup(self):
+        records = self._collect(self._fixture()[:6])
+        original_return = next(row for row in records if row["event_id"] == "e4")
+        other_pr_copy = dict(
+            original_return, pr_id="other/repo#9", owner_id="other-driver",
+        )
+        prs = [
+            {"repo": self.REPO, "number": 7, "headRefOid": self.HEAD},
+            {"repo": "other/repo", "number": 9, "headRefOid": self.HEAD},
+        ]
+        pairs, stats = MetricsAggregator().adapt_transition_event_receipts(
+            records + [other_pr_copy], prs,
+        )
+        review_pickup = [row for row in pairs if row["name"] == "review_return -> next_substantive_action"]
+        self.assertEqual(len(review_pickup), 1)
+        self.assertEqual(review_pickup[0]["number"], 7)
+        self.assertEqual(stats["receipt_event_conflicts"], 0)
 
     def test_wait_expiry_is_unknown_pause_is_zero_and_full_execution_measures_zero(self):
         cutoff = datetime(2026, 11, 18, 10, 15, tzinfo=timezone.utc)

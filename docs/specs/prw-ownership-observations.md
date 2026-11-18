@@ -109,9 +109,10 @@ The event closing an observed span sets `preceding_event_id` and
 job record. The receipt identifies its source record, exact UTC `covers_from`
 and `covers_to` boundaries, PR, candidate SHA, attempt, obligation, and an
 `owner_id` or `job_id`. Boundaries equal the prior and closing event times.
-Every identity must match both events. No local path or private transcript is
-included. A missing, malformed, mismatched, or unverifiable reference leaves
-that span unknown.
+Every supplied identity must match both events. If `worker_id` is supplied, it
+must also match both endpoints. No local path or private transcript is included.
+A missing, malformed, mismatched, or unverifiable reference leaves that span
+unknown.
 
 The collector admits ownership intervals only for schema version 1. It links
 causally adjacent events at the same PR, head, attempt and obligation, and
