@@ -75,13 +75,15 @@ If the worker does not start or exits without a result, keep the obligation open
 under the persistent driver, inspect any output and side effects, and reassign or
 start the next safe action. For portable work, measure the available host and
 use the established Linux mirror route when that host is eligible; verify that
-the remote worker actually started on the intended PR revision. Keep device-only
-work with its device owner, and have the assigned subagent own the next
-independent executable code, evidence, or status obligation on that PR without
-claiming device proof. If neither host can start eligible work, retain the PR
-under the driver's goal, identify the intended subagent as waiting for capacity,
-record both measured capacity results and the next real capacity-check handle
-and due time, and recommend waiting. A goal,
+the remote worker actually started on the intended PR revision. Keep a
+device-only action with its named device owner and record its actual completion
+handle. That obligation does not block intake on independent PRs. Assign the
+PR-specific subagent a concrete support action on the same PR, such as checking
+the returned device receipt against the claim and updating its applicability;
+the subagent must not claim device proof. If no support action can start because
+neither host meets its measured capacity threshold, retain the subagent in the
+PR goal as waiting for capacity, record both host measurements and the next real
+capacity-check handle and due time, then continue independent PR intake. A goal,
 assignment, or written wake condition alone does not satisfy the executing-owner
 or verified-wake requirement.
 
