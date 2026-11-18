@@ -21,13 +21,13 @@ Keep the behavior within the existing lifecycle and execution record. It adds no
 | Situation | Driver response |
 |---|---|
 | A browser job timed out while downloading Chromium before tests began. | Inspect the job output and runner's browser state. The timeout establishes that the journey did not reach assertions. Start one focused run when a compatible browser is available, and retain its actual handle. |
-| A batch adjudicator returns nine results for ten requested IDs. | Preserve the failed batch, identify the missing ID, and inspect input/output coverage. Compare attribution only after a qualified reference is available for the same eligible events. |
+| A scenario batch requests ten human-nudge-to-PR attributions and returns nine results. | Preserve the rejected batch and identify the missing message. Do not report accepted predictions or a gain. Compare only after a complete candidate result and independent references exist for the same eligible events. |
 | A PR reaches final approval with only merge authorization outstanding. | Record the exact head and the remaining human decision. Keep Stage 5 readiness distinct from merge authority. |
 | Two terminals mention the same PR. | Check the live PR, branch activity, and ownership record before assigning work. A repeated mention alone does not establish a second owner or a new nudge. |
 
 ## Pilot and evaluation
 
-Start with a small, manually observed pilot using already authorized PR-driving assignments. Record the assignment, repository, PR, initial stage, start time, eligible work, and source of each observation before measuring outcomes. Compare with baseline assignments matched by starting stage and type of unmet requirement where possible. Keep unmatched cases visible.
+Evaluate the current lifecycle on fixed scenarios using identical inputs and a pinned source. Record actions, deciding observations, expected evidence, and input/output hashes. Independently assess each decision, preserve baseline passes as regression cases, and link the receipt. If the baseline passes, leave instructions unchanged. If it fails, make the smallest wording change and rerun the same cases with the same model. Then start a small, manually observed pilot with authorized PR-driving assignments. Record the start, initial stage, eligible work, and sources before measuring outcomes. Compare matched assignments by starting stage and unmet-work type, choose one shared observation cutoff before comparison, and report unmatched cases.
 
 For each assignment, record time to the first independently verified requirement closure and whether it reached Stage 5 during the observation window. Include open assignments and observation duration. Separate time spent waiting for human approval, external services, and missing records. Count human nudges only when source records support their attribution, and count each message once across the cohort. Leave unknown attribution unknown.
 
