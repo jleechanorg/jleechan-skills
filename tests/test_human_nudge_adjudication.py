@@ -275,3 +275,41 @@ class HumanNudgeAdjudicationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_request_schema_requires_every_input_id_and_normalizes_keyed_response(tmp_path):
+    events = [{"event_id": f"event-{i}", "text": "continue", "context": []} for i in range(10)]
+    packet = {"schema_version": "human-nudge-input.v1", "events": events}
+    fake = tmp_path / "judge.py"
+    fake.write_text('''import json, sys
+r = json.load(sys.stdin)
+s = r["response_schema"]["properties"]["annotations"]
+ids = [e["event_id"] for e in r["packet"]["events"]]
+assert s["type"] == "object"
+assert s["additionalProperties"] is False
+assert set(s["required"]) == set(ids) == set(s["properties"])
+for item in s["properties"].values():
+    assert item["additionalProperties"] is False
+    assert "event_id" not in item["properties"]
+value = {"actor_kind":"unknown", "message_kind":None, "human_nudge_eligible":None,
+         "association_scope":"unknown", "associated_prs":[], "association_evidence":[]}
+print(json.dumps({"annotations": {key: value for key in reversed(ids)}}))
+''')
+    output = adjudication._judge(packet, f"{sys.executable} {fake}", 10)
+    assert [a["event_id"] for a in output] == [e["event_id"] for e in events]
+
+
+def test_keyed_response_missing_or_extra_id_is_rejected(tmp_path):
+    import pytest
+
+    packet = {"schema_version": "human-nudge-input.v1", "events": [
+        {"event_id": "a", "text": "one", "context": []},
+        {"event_id": "b", "text": "two", "context": []},
+    ]}
+    value = {"actor_kind": "unknown", "message_kind": None, "human_nudge_eligible": None,
+             "association_scope": "unknown", "associated_prs": [], "association_evidence": []}
+    fake = tmp_path / "judge.py"
+    for annotations in ({"a": value}, {"a": value, "b": value, "extra": value}):
+        fake.write_text("import sys; sys.stdin.read(); print(" + repr(json.dumps({"annotations": annotations})) + ")")
+        with pytest.raises(ValueError, match="event IDs do not match"):
+            adjudication._judge(packet, f"{sys.executable} {fake}", 10)

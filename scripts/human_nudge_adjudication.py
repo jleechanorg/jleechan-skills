@@ -72,6 +72,18 @@ def _judge(packet, command, timeout):
     annotation_properties = annotation_schema["properties"]
     annotation_fields = set(annotation_properties)
     annotation_required = set(annotation_schema["required"])
+    event_ids = [event["event_id"] for event in packet["events"]]
+    value_schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {key: value for key, value in annotation_properties.items() if key != "event_id"},
+        "required": [key for key in annotation_schema["required"] if key != "event_id"],
+    }
+    response_schema["properties"]["annotations"] = {
+        "type": "object", "additionalProperties": False,
+        "properties": {event_id: value_schema for event_id in event_ids},
+        "required": event_ids,
+    }
     request = {
         "prompt": (_PROMPTS / "human_nudge_adjudication.md").read_text(
             encoding="utf-8"
@@ -94,11 +106,17 @@ def _judge(packet, command, timeout):
         raise ValueError("judge response was not valid JSON") from exc
     if (
         not isinstance(response, dict)
-        or not isinstance(response.get("annotations"), list)
+        or not isinstance(response.get("annotations"), (dict, list))
     ):
-        raise ValueError("judge response must contain an annotations array")
+        raise ValueError("judge response must contain annotations")
+    expected_ids = set(event_ids)
     annotations = response["annotations"]
-    expected_ids = {event["event_id"] for event in packet["events"]}
+    if isinstance(annotations, dict):
+        if set(annotations) != expected_ids:
+            raise ValueError("judge response event IDs do not match the input packet")
+        if any(not isinstance(value, dict) or "event_id" in value for value in annotations.values()):
+            raise ValueError("judge annotation has an invalid keyed value")
+        annotations = [{"event_id": event_id, **annotations[event_id]} for event_id in event_ids]
     events_by_id = {event["event_id"]: event for event in packet["events"]}
     received_ids = []
     normalized = []
