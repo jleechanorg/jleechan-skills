@@ -22,6 +22,14 @@ else:
     from prw_metrics import _parse_utc_instant, _safe_pr_id, _usage_count, _usage_label, format_iso_utc
 
 
+RETRACTABLE_ANNOTATION_FIELDS = (
+    "actor_kind", "human_origin", "episode_id", "episode_role", "quality_label", "score_source", "review_id",
+    "context_pr_decision", "association_method", "annotation_confidence", "effective_association_confidence",
+    "original_association_basis", "original_association_confidence", "message_kind", "human_nudge_eligible",
+    "score", "pr_binding", "context_associated_pr", "effective_associated_pr", "original_associated_pr", "association_scope",
+)
+
+
 def _apply_replay_annotation(record, annotation):
     actor_kind = annotation.get("actor_kind")
     human_origin = annotation.get("human_origin")
@@ -118,7 +126,7 @@ def _apply_replay_annotation(record, annotation):
                               and isinstance(memberships, list) and len(memberships) >= 2
                               and all(_safe_pr_id(pr) for pr in memberships)
                               and len(set(memberships)) == len(memberships)
-                              and isinstance(evidence, list)
+                              and isinstance(evidence, list) and bool(evidence)
                               and all(item in ("conversation", "session_binding", "git_context", "prior_review") for item in evidence))
         if not saved_legacy_multi:
             record.update(association_scope="unknown", associated_prs=[], association_evidence=[])
@@ -585,7 +593,7 @@ def _entire_records(rows, source_fingerprint, source_id, session_id, provider,
         packet.append({
             **record,
             "prior_review": prior_review,
-            "prior_retractions": [key for key in ("association_scope", "pr_binding", "context_pr_decision")
+            "prior_retractions": [key for key in RETRACTABLE_ANNOTATION_FIELDS
                                   if annotation is not None and key in annotation and annotation[key] is None],
             "prior_association": bool(annotation is not None and "association_scope" in annotation
                                       and "association_scope" in record),

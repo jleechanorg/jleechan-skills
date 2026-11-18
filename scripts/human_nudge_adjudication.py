@@ -11,8 +11,10 @@ from pathlib import Path
 
 if __package__:
     from .prw_metrics import _safe_pr_id
+    from .native_usage_collector import RETRACTABLE_ANNOTATION_FIELDS
 else:
     from prw_metrics import _safe_pr_id
+    from native_usage_collector import RETRACTABLE_ANNOTATION_FIELDS
 
 
 _PROMPTS = Path(__file__).parent / "prompts"
@@ -193,8 +195,8 @@ def _judge(packet, command, timeout):
         output_annotation.update(annotation)
         retractions = prior.get("prior_retractions")
         if isinstance(retractions, list):
-            for key in ("association_scope", "pr_binding", "context_pr_decision"):
-                if key in retractions and not (legacy_multi and key == "pr_binding"):
+            for key in RETRACTABLE_ANNOTATION_FIELDS:
+                if key in retractions:
                     output_annotation[key] = None
         prior_review = prior.get("prior_review")
         if isinstance(prior_review, dict):
