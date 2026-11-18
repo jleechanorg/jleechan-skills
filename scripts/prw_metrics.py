@@ -4565,7 +4565,8 @@ def aggregate_native_human_steering(
         selected_associations = []
         scope = event.get("association_scope")
         selected = event.get("associated_prs")
-        if not binding and not context_decision and scope in ("single", "multi") and isinstance(selected, list):
+        if (not binding and (not context_decision or (context_decision == "unassigned_multi_pr" and scope == "multi"))
+                and scope in ("single", "multi") and isinstance(selected, list)):
             selected_associations = list(dict.fromkeys(pr for pr in selected if _safe_pr_id(pr)))
             if (scope == "single" and len(selected_associations) != 1) or (scope == "multi" and len(selected_associations) < 2):
                 selected_associations = []

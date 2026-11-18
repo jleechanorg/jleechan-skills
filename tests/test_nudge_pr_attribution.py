@@ -110,3 +110,43 @@ def test_unreviewed_unknown_can_be_reclassified_and_linked(tmp_path):
     output = judge._judge({"events": [event]}, f"{sys.executable} {fake}", 10)[0]
     assert output["actor_kind"] == "human"
     assert output["associated_prs"] == ["example/repo#1"]
+
+
+def test_legacy_multi_disposition_accepts_new_multi_memberships(tmp_path):
+    event = {"event_id": "e", "provider": "codex", "timestamp": "2026-10-10T00:00:00Z",
+             "text": "continue both PRs", "context": [], "actor_kind": "human",
+             "context_pr_decision": "unassigned_multi_pr", "context_associated_pr": None,
+             "effective_associated_pr": None, "pr_binding": None,
+             "association_retracted": True}
+    result = {"annotations": [{"event_id": "e", "actor_kind": "human",
+              "message_kind": "continuation/followthrough_nudge", "human_nudge_eligible": True,
+              "association_scope": "multi", "associated_prs": ["example/repo#1", "example/repo#2"],
+              "association_evidence": ["conversation"]}]}
+    fake = tmp_path / "judge.py"
+    fake.write_text("import sys\nsys.stdin.read()\nprint(" + repr(json.dumps(result)) + ")\n")
+    annotation = judge._judge({"events": [event]}, f"{sys.executable} {fake}", 10)[0]
+    assert annotation["associated_prs"] == ["example/repo#1", "example/repo#2"]
+    record = {"event_id": "e", "provider": "codex", "timestamp": event["timestamp"]}
+    _apply_replay_annotation(record, annotation)
+    prs = [{"repo": "example/repo", "number": n, "createdAt": "2026-10-01T00:00:00Z"} for n in (1, 2, 3)]
+    aggregate = aggregate_native_human_steering([record], prs, window_start="2026-10-01T00:00:00Z", window_end="2026-10-20T00:00:00Z")
+    assert aggregate["coverage"]["human_nudge_messages"] == 1
+    assert [r["human_nudge_messages"] for r in aggregate["per_pr"]] == [1, 1, 0]
+
+
+def test_legacy_global_and_unknown_dispositions_do_not_restore_association(tmp_path):
+    fake = tmp_path / "judge.py"
+    result = {"annotations": [{"event_id": "e", "actor_kind": "human", "message_kind": "continuation/followthrough_nudge",
+                                "human_nudge_eligible": True, "association_scope": "multi",
+                                "associated_prs": ["example/repo#1", "example/repo#2"], "association_evidence": ["conversation"]}]}
+    fake.write_text("import sys\nsys.stdin.read()\nprint(" + repr(json.dumps(result)) + ")\n")
+    for decision in ("unassigned_global_scope", "unassigned_no_single_pr"):
+        event = {"event_id": "e", "text": "continue", "context": [], "context_pr_decision": decision,
+                 "original_associated_pr": "example/repo#1", "effective_associated_pr": None}
+        annotation = judge._judge({"events": [event]}, f"{sys.executable} {fake}", 10)[0]
+        assert "associated_prs" not in annotation
+        record = {"event_id": "e", "timestamp": "2026-10-10T00:00:00Z"}
+        _apply_replay_annotation(record, annotation)
+        summary = aggregate_native_human_steering([record], [], window_start="2026-10-01T00:00:00Z", window_end="2026-10-20T00:00:00Z")
+        assert summary["coverage"]["unassigned_verified_messages"] == 1
+        assert all(row["raw_verified_messages"] == 0 for row in summary["per_pr"])

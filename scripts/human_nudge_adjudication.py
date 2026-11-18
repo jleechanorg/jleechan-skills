@@ -156,7 +156,10 @@ def _judge(packet, command, timeout):
             if key in _PRESERVED_ANNOTATION_FIELDS
         })
         prior = events_by_id[annotation["event_id"]]
-        if (any(key in prior for key in ("context_pr_decision", "pr_binding"))
+        legacy_multi = (prior.get("context_pr_decision") == "unassigned_multi_pr"
+                        and not prior.get("pr_binding") and not prior.get("associated_prs")
+                        and annotation.get("association_scope") == "multi")
+        if not legacy_multi and (any(key in prior for key in ("context_pr_decision", "pr_binding"))
                 or prior.get("association_retracted")
                 or (prior.get("review_id") and "association_scope" in prior)):
             annotation = {k: v for k, v in annotation.items() if k not in {
