@@ -18,8 +18,15 @@ Use the first sufficient option in this ladder:
 6. Prefer a simple expression when it handles the relevant cases correctly.
 7. Add only the remaining necessary code.
 
-For bugs, trace callers and fix the shared cause. Keep the diff small without
-sacrificing correctness, security, accessibility, or protection against data loss.
+For bugs, trace callers and fix the shared cause. Solve at the capability or
+category boundary and retire superseded broken defaults — never gate a shared
+protocol, transport, or parser fix behind a hardcoded single-model, single-route,
+or single-caller allowlist ("because other cases were not ablated"), stranding
+sibling and future cases on a broken path. Every new guard, validator, ledger,
+or fail-closed check requires a one-line named authority (user ask, spec, or
+`file:line`), a resume/override path for host-local locks, and end-to-end
+deliverable proof. Keep the diff small without sacrificing correctness, security,
+accessibility, or protection against data loss.
 Avoid unnecessary dependencies, abstractions, and boilerplate. Document meaningful
 limitations when deliberately simplifying a solution. Verify nontrivial behavior
 with the smallest runnable check that would detect a failure; trivial changes do

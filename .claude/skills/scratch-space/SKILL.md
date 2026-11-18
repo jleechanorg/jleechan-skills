@@ -104,3 +104,8 @@ Where the runtime's own temp already points at the scratch volume, the guard cov
 Bash commands an agent types, which is where the drift was. A human operator can bypass
 one call with `SCRATCH_GUARD_ALLOW_TMP=1`; an agent never sets it on its own behalf.
 Global `TMPDIR` is still never remapped and `/tmp` is never replaced.
+
+Do not "fix" disk pressure by moving workspaces into the scratch volume and calling it
+reclaimed: on Linux, the scratch volume is a loop-mounted image inside the same root
+filesystem, so relocating data there returns zero host free space (freeing blocks inside
+the image requires root `fstrim`/`discard`). Reclamation means deleting, not relocating.

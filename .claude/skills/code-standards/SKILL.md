@@ -26,16 +26,21 @@ The same skill is mirrored at `~/.codex/skills/ponytail/SKILL.md` for Codex.
 
 1. **Ponytail** — the lazy-senior-dev seven-rung ladder: no rewriting code that
    exists in-tree, no new dependency when stdlib or installed packages cover
-   it, no unrequested abstractions. Mark intentional simplifications with a
-   `ponytail:` comment.
+   it, no unrequested abstractions. Reject single-case allowlists (`{"model-x"}`)
+   that gate a general protocol/transport fix while leaving sibling and future
+   models/routes on a broken default; require variation gating by capability and
+   delete superseded paths. Mark intentional simplifications with a `ponytail:`
+   comment.
 2. **ZFC** — no keyword/regex/heuristic routing in application code. Delegate
    semantic decisions to a model.
 3. **ZFC leveling** — for level-up work, the model picks the target level (do
    not derive primary availability from XP thresholds).
 4. **Root-cause-first** — run the skill in review-only mode: check that the
    upstream prompt/schema/agent was considered first and accept backend
-   enforcement only as a narrow, logged invariant with proof. Report findings;
-   do not launch `/llm-first`, `/backend-first`, experiments, or edits.
+   enforcement only as a narrow, logged invariant with proof and a one-line
+   named authority (user ask, spec, or `file:line`), resume/override path for
+   host-local locks, and end-to-end deliverable proof. Report findings; do not
+   launch `/llm-first`, `/backend-first`, experiments, or edits.
 
 ## Workflow
 
