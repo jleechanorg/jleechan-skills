@@ -471,6 +471,9 @@
       human: rows.filter(function (r) { return r.human && r.human.verified_messages; }).length,
       active: rows.filter(function (r) { return typeof r.active_s === "number"; }).length,
       idle: rows.filter(function (r) { return typeof r.eligible_idle_s === "number"; }).length,
+      ownership: rows.filter(function (r) {
+        return r.ownership && r.ownership.status === "COMPLETE" && typeof r.ownership.eligible_unattended_sec === "number";
+      }).length,
       size: rows.filter(function (r) { return r.size; }).length,
       handoffs: rows.filter(function (r) { return r.handoffs; }).length,
       episodes: rows.filter(function (r) { return r.human && r.human.episodes && ((r.human.episodes.good || 0) + (r.human.episodes.bad || 0) + (r.human.episodes.mixed || 0)) > 0; }).length,
@@ -498,7 +501,10 @@
     { key: "tokens", label: "Tokens", num: true, get: function (p) { return p.usage ? p.usage.total : null; } },
     { key: "cost", label: "List price", num: true, get: function (p) { return p.cost ? p.cost.known_subtotal_usd : null; } },
     { key: "human", label: "Steering msgs", num: true, get: function (p) { return p.human ? p.human.verified_messages : null; } },
-    { key: "idle", label: "Unattended", num: true, get: function (p) { return p.eligible_idle_s; } },
+    { key: "idle", label: "Eligible idle", num: true, get: function (p) { return p.eligible_idle_s; } },
+    { key: "owner_gap", label: "Owner gap", num: true, get: function (p) {
+      return p.ownership && p.ownership.status === "COMPLETE" ? p.ownership.eligible_unattended_sec : null;
+    } },
     { key: "size", label: "Lines", num: true, get: function (p) { return p.size ? p.size.additions + p.size.deletions : null; } },
   ];
   function sortRows(rows) {
@@ -552,6 +558,7 @@
           function (v) { return (pr.cost.full_scenario_usd !== null ? "" : "≥ ") + usd(v); }),
         cell(pr.human ? pr.human.verified_messages : null, function (v) { return v.toLocaleString("en-US"); }),
         cell(pr.eligible_idle_s, S.formatDuration),
+        cell(pr.ownership && pr.ownership.status === "COMPLETE" ? pr.ownership.eligible_unattended_sec : null, S.formatDuration),
         cell(pr.size ? pr.size.additions + pr.size.deletions : null, function (v) { return v.toLocaleString("en-US"); }),
       ]));
       list.appendChild(h("li", { tabindex: 0, onclick: open, onkeydown: function (e) { if (e.key === "Enter") open(); } }, [
@@ -615,6 +622,19 @@
       h("section", null, [h("h3", { text: "Handoffs" }), pr.handoffs ? dl((data.handoff_transitions || []).map(function (t) {
         return [t.label, typeof pr.handoffs[t.key] === "number" ? S.formatDuration(pr.handoffs[t.key]) : null];
       })) : h("p", { class: "note", text: "Unavailable. No workflow transition has both ends recorded for this PR." })]),
+      h("section", null, [h("h3", { text: "PR owner gap" }), pr.ownership ? dl([
+        ["Coverage", pr.ownership.coverage === null ? null : Math.round(pr.ownership.coverage * 100) + "%"],
+        ["Verified unattended", pr.ownership.status === "COMPLETE" && pr.ownership.eligible_unattended_sec !== null
+          ? S.formatDuration(pr.ownership.eligible_unattended_sec) : null],
+        ["Verified lower bound", pr.ownership.unattended_sec_lower_bound === null
+          ? null : S.formatDuration(pr.ownership.unattended_sec_lower_bound)],
+        ["Unknown time", pr.ownership.unknown_sec === null ? null : S.formatDuration(pr.ownership.unknown_sec)],
+        ["Review return to pickup", typeof pr.ownership.review_return_to_pickup_sec === "number"
+          ? S.formatDuration(pr.ownership.review_return_to_pickup_sec) + " (n=" + pr.ownership.review_return_to_pickup_sample_n + ")" : null],
+        ["Wake to pickup", typeof pr.ownership.wake_to_pickup_sec === "number"
+          ? S.formatDuration(pr.ownership.wake_to_pickup_sec) + " (n=" + pr.ownership.wake_to_pickup_sample_n + ")" : null],
+        ["Status", pr.ownership.status],
+      ]) : h("p", { class: "note", text: "Unavailable. No versioned ownership observations were collected for this PR." })]),
       h("section", null, [h("h3", { text: "Time and size" }), dl([
         ["Active time", pr.active_s === null ? null : S.formatDuration(pr.active_s)],
         ["Agent effort", pr.agent_effort_s === null ? null : S.formatDuration(pr.agent_effort_s)],

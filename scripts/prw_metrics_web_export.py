@@ -118,6 +118,26 @@ def _first(record, fields):
     return next((record.get(field) for field in fields if record.get(field)), None)
 
 
+def _ownership_attention_by_url(summary):
+    """Index current open-PR metrics by their canonical GitHub URL."""
+    attention = {}
+    ambiguous = set()
+    for collection in ("open_prs_known_idle", "open_prs_unknown_idle"):
+        for row in summary.get(collection) or []:
+            if not isinstance(row, dict):
+                continue
+            url = row.get("url")
+            if not isinstance(url, str) or not url:
+                continue
+            if url in attention:
+                ambiguous.add(url)
+            else:
+                attention[url] = row
+    for url in ambiguous:
+        attention.pop(url, None)
+    return attention
+
+
 def _handoffs(record):
     """Seconds between observed workflow transitions. A missing endpoint leaves the interval out."""
     if not isinstance(record, dict):
@@ -282,7 +302,7 @@ def _mid_pr(metric, flow, cutoff, history_from, history_to):
     return None if None in times else sum(start < t < end for t in times)
 
 
-def _pr_row(metric, record, scenario, stage_events=None, cutoff=None, history_from=None, history_to=None):
+def _pr_row(metric, record, scenario, stage_events=None, cutoff=None, history_from=None, history_to=None, ownership=None):
     repository = metric.get("repository")
     number = _count(metric.get("pr_number"))
     record = record or {}
@@ -322,6 +342,33 @@ def _pr_row(metric, record, scenario, stage_events=None, cutoff=None, history_fr
             "requests": _count(metric.get("direct_usage_observation_count")),
         }
     flow = _flow(record, stage_events, cutoff)
+    ownership_projection = None
+    ownership_sha = ownership.get("sha") if isinstance(ownership, dict) else None
+    candidate_sha = record.get("headRefOid")
+    if (
+        isinstance(ownership_sha, str) and ownership_sha
+        and isinstance(candidate_sha, str) and candidate_sha
+        and ownership_sha == candidate_sha
+    ):
+        ownership_projection = {
+            "status": ownership.get("ownership_status"),
+            "unattended_sec_lower_bound": _number(
+                ownership.get("ownership_unattended_sec_lower_bound")
+            ),
+            "unknown_sec": _number(ownership.get("ownership_unknown_sec")),
+            "coverage": _number(ownership.get("ownership_coverage")),
+            "eligible_unattended_sec": _number(
+                ownership.get("eligible_unattended_duration_sec")
+            ),
+            "review_return_to_pickup_sec": _number(
+                ownership.get("review_return_to_pickup_median_sec")
+            ),
+            "review_return_to_pickup_sample_n": _count(
+                ownership.get("review_return_to_pickup_sample_n")
+            ),
+            "wake_to_pickup_sec": _number(ownership.get("wake_to_pickup_median_sec")),
+            "wake_to_pickup_sample_n": _count(ownership.get("wake_to_pickup_sample_n")),
+        }
     human = None
     if metric.get("human_coverage_status") not in (None, "UNKNOWN"):
         human = {
@@ -367,6 +414,7 @@ def _pr_row(metric, record, scenario, stage_events=None, cutoff=None, history_fr
         "active_s": _number(metric.get("observed_active_wall_seconds")),
         "agent_effort_s": _number(metric.get("agent_effort_seconds")),
         "eligible_idle_s": _number(metric.get("eligible_idle_seconds")),
+        "ownership": ownership_projection,
     }
 
 
@@ -414,6 +462,10 @@ def _gaps(rows, coverage):
         "Needs timed operation telemetry; elapsed minus active is a residual, not wasted time.")
     add("idle", "Eligible idle time", have(lambda r: r["eligible_idle_s"] is not None),
         "Needs an observed, authorized next action with no worker, hold or dependency.")
+    add("ownership", "PR owner gap time",
+        have(lambda r: r["ownership"] and r["ownership"]["status"] == "COMPLETE"
+             and r["ownership"]["eligible_unattended_sec"] is not None),
+        "Requires continuous ownership observations for the full window. Partial windows show a verified lower bound, unknown time and coverage.")
     add("handoffs", "Handoff timestamps", have(lambda r: r["handoffs"]),
         "Needs both ends of a workflow transition recorded. Handoff delay is elapsed time between steps; "
         "it is not by itself avoidable waiting.")
@@ -454,6 +506,7 @@ def build_snapshot(summary_data, query_summary, prs, *, generated_at=None, code_
         annotation_freshness = {"status": "UNKNOWN"}
     query_summary = query_summary if isinstance(query_summary, dict) else {}
     index = _index_prs(prs)
+    ownership_by_url = _ownership_attention_by_url(summary_data)
     scenarios = _scenarios_by_pr(query_summary.get("catalog_scenario_pr_metrics"))
     stage_events = _stage_events_by_pr(timeline)
     cutoff = to_utc_iso(query_summary.get("snapshot_at_utc"))
@@ -466,7 +519,12 @@ def build_snapshot(summary_data, query_summary, prs, *, generated_at=None, code_
         if not isinstance(metric, dict) or _count(metric.get("pr_number")) is None:
             continue
         key = _pr_key(metric.get("repository"), _count(metric.get("pr_number")))
-        rows.append(_pr_row(metric, index.get(key), scenarios.get(key), stage_events.get(key), cutoff, history_from, history_to))
+        record = index.get(key)
+        ownership = ownership_by_url.get(record.get("url")) if record else None
+        rows.append(_pr_row(
+            metric, record, scenarios.get(key), stage_events.get(key), cutoff,
+            history_from, history_to, ownership,
+        ))
     rows.sort(key=lambda row: (row["repo"] or "", row["number"]))
     cohorts = [_cohort_row(row) for row in query_summary.get("metric_cohorts") or [] if isinstance(row, dict)]
     usage = summary_data.get("usage_summary") if isinstance(summary_data.get("usage_summary"), dict) else {}

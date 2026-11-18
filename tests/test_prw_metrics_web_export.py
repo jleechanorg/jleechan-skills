@@ -89,6 +89,115 @@ class MissingIsNotZeroTests(unittest.TestCase):
         self.assertIsNone(row["active_s"])
 
 
+class OwnershipAttentionTests(unittest.TestCase):
+    def test_complete_open_pr_ownership_is_projected_by_canonical_url_and_head(self):
+        head = "a" * 40
+        attention = {
+            "repo": "acme/app", "number": 1, "url": "https://github.com/acme/app/pull/1", "sha": head,
+            "ownership_status": "COMPLETE",
+            "eligible_unattended_duration_sec": 480.0,
+            "ownership_unattended_sec_lower_bound": 480.0,
+            "ownership_unknown_sec": 0.0, "ownership_coverage": 1.0,
+            "review_return_to_pickup_median_sec": 180.0,
+            "review_return_to_pickup_sample_n": 2,
+            "wake_to_pickup_median_sec": 120.0, "wake_to_pickup_sample_n": 1,
+        }
+        prs = [{"repo": "acme/app", "number": 1, "url": "https://github.com/acme/app/pull/1",
+                "headRefOid": head}]
+        row = export.build_snapshot(
+            {"open_prs_known_idle": [attention]}, query([metric(1, pr_state="OPEN")]), prs
+        )["prs"][0]
+
+        self.assertEqual(row["ownership"], {
+            "status": "COMPLETE", "unattended_sec_lower_bound": 480.0,
+            "unknown_sec": 0.0, "coverage": 1.0, "eligible_unattended_sec": 480.0,
+            "review_return_to_pickup_sec": 180.0, "review_return_to_pickup_sample_n": 2,
+            "wake_to_pickup_sec": 120.0, "wake_to_pickup_sample_n": 1,
+        })
+        self.assertIsNone(row["handoffs"])
+        ownership_gap = next(gap for gap in export.build_snapshot(
+            {"open_prs_known_idle": [attention]}, query([metric(1, pr_state="OPEN")]), prs
+        )["gaps"] if gap["key"] == "ownership")
+        self.assertEqual(ownership_gap["observed_n"], 1)
+
+    def test_partial_and_wrong_head_ownership_remain_unknown(self):
+        head = "a" * 40
+        attention = {
+            "repo": "acme/app", "number": 1, "url": "https://github.com/acme/app/pull/1", "sha": "b" * 40,
+            "ownership_status": "PARTIAL",
+            "eligible_unattended_duration_sec": None,
+            "ownership_unattended_sec_lower_bound": 60.0,
+            "ownership_unknown_sec": 840.0, "ownership_coverage": 0.1,
+            "review_return_to_pickup_median_sec": 7.6,
+            "review_return_to_pickup_sample_n": 1,
+        }
+        prs = [{"repo": "acme/app", "number": 1, "url": "https://github.com/acme/app/pull/1", "headRefOid": head}]
+        row = export.build_snapshot(
+            {"open_prs_unknown_idle": [attention]}, query([metric(1, pr_state="OPEN")]), prs
+        )["prs"][0]
+        self.assertIsNone(row["ownership"])
+
+    def test_ambiguous_summary_url_does_not_attach_ownership(self):
+        head = "a" * 40
+        url = "https://github.com/acme/app/pull/1"
+        attention = {
+            "repo": "acme/app", "number": 1, "url": url, "sha": head,
+            "ownership_status": "COMPLETE",
+            "eligible_unattended_duration_sec": 15.0,
+            "ownership_unattended_sec_lower_bound": 15.0,
+            "ownership_unknown_sec": 0.0, "ownership_coverage": 1.0,
+        }
+        prs = [{"repo": "acme/app", "number": 1, "url": url, "headRefOid": head}]
+        summary = {
+            "open_prs_known_idle": [attention],
+            "open_prs_unknown_idle": [dict(attention, ownership_status="PARTIAL")],
+        }
+        row = export.build_snapshot(
+            summary, query([metric(1, pr_state="OPEN")]), prs
+        )["prs"][0]
+        self.assertIsNone(row["ownership"])
+
+    def test_missing_candidate_or_observation_sha_does_not_attach_ownership(self):
+        url = "https://github.com/acme/app/pull/1"
+        attention = {
+            "url": url, "sha": None, "ownership_status": "COMPLETE",
+            "eligible_unattended_duration_sec": 12.0,
+        }
+        prs = [{"repo": "acme/app", "number": 1, "url": url}]
+        row = export.build_snapshot(
+            {"open_prs_known_idle": [attention]}, query([metric(1, pr_state="OPEN")]), prs
+        )["prs"][0]
+        self.assertIsNone(row["ownership"])
+
+    def test_partial_ownership_is_kept_without_turning_unknown_into_zero(self):
+        head = "a" * 40
+        attention = {
+            "repo": "acme/app", "number": 1, "url": "https://github.com/acme/app/pull/1", "sha": head,
+            "ownership_status": "PARTIAL",
+            "eligible_unattended_duration_sec": None,
+            "ownership_unattended_sec_lower_bound": 60.0,
+            "ownership_unknown_sec": 840.0, "ownership_coverage": 0.1,
+            "review_return_to_pickup_median_sec": "UNKNOWN",
+            "review_return_to_pickup_sample_n": 0,
+            "wake_to_pickup_median_sec": 10.0, "wake_to_pickup_sample_n": 1,
+        }
+        prs = [{"repo": "acme/app", "number": 1, "url": "https://github.com/acme/app/pull/1", "headRefOid": head}]
+        row = export.build_snapshot(
+            {"open_prs_unknown_idle": [attention]}, query([metric(1, pr_state="OPEN")]), prs
+        )["prs"][0]
+        self.assertEqual(row["ownership"]["status"], "PARTIAL")
+        self.assertIsNone(row["ownership"]["eligible_unattended_sec"])
+        self.assertEqual(row["ownership"]["unattended_sec_lower_bound"], 60.0)
+        self.assertEqual(row["ownership"]["unknown_sec"], 840.0)
+        self.assertEqual(row["ownership"]["coverage"], 0.1)
+        self.assertIsNone(row["ownership"]["review_return_to_pickup_sec"])
+        self.assertEqual(row["ownership"]["review_return_to_pickup_sample_n"], 0)
+        ownership_gap = next(gap for gap in export.build_snapshot(
+            {"open_prs_unknown_idle": [attention]}, query([metric(1, pr_state="OPEN")]), prs
+        )["gaps"] if gap["key"] == "ownership")
+        self.assertEqual(ownership_gap["observed_n"], 0)
+
+
 class UsageAndCostTests(unittest.TestCase):
     def branch_metric(self):
         return metric(
