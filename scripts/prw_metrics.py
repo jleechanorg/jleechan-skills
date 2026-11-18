@@ -292,6 +292,9 @@ RETAINED_HANDOFF_FIELDS = frozenset({
     "closure_sprint_to_merge_sec", "explicit_waiting_sec", "observed_active_wall_sec",
     "observed_operation_elapsed_sec", "pr_elapsed_sec", "task_elapsed_sec", "median_sec",
     "observed_n", "total_n",
+    "schema_version", "obligation_id", "source", "sequence", "preceding_event_id", "state",
+    "owner_id", "worker_id", "job_id", "result_receipt", "wait_reason", "wake_trigger",
+    "wake_due_at", "wake_fired_at", "continuity_from_event_id", "continuity_receipt",
 })
 RETAINED_SOURCE_FIELDS = frozenset({"status", "count", "cutoff"})
 # Keys permitted inside nested structures (stage transitions, eligible intervals, label objects).
@@ -303,6 +306,8 @@ RETAINED_NESTED_KEYS = frozenset({
     "evidence_ready_at", "review_requested_at", "actual_review_started_at", "review_return_at",
     "review_returned_at", "review_completed_at", "next_substantive_action_started_at",
     "next_action_started_at",
+    "receipt_id", "covers_from", "covers_to", "pr_id", "schema_version", "obligation_id",
+    "owner_id", "worker_id", "job_id",
 })
 
 
@@ -338,6 +343,10 @@ _ATTENTION_ROW = {
     "hold_status": _SC, "job_handle": _SC, "wake_condition": _SC, "receipt_links": [_SC],
     "earliest_unmet_obligation": _SC, "potential_handoff_waiting": _SC, "quiet_time": _SC,
     "eligible_unattended_duration_sec": _SC,
+    "ownership_unattended_sec_lower_bound": _SC, "ownership_unknown_sec": _SC,
+    "ownership_coverage": _SC, "ownership_status": _SC,
+    "review_return_to_pickup_median_sec": _SC, "review_return_to_pickup_sample_n": _SC,
+    "wake_to_pickup_median_sec": _SC, "wake_to_pickup_sample_n": _SC,
 }
 # Explicit schema for every record type nested in the summary: dict = allowed keys, [spec] = list of
 # records, ("map", spec) = dynamic keys. Anything not listed is dropped at every depth.
@@ -369,7 +378,8 @@ SUMMARY_SCHEMA = {
         "name", "observed_n", "sample_n", "total_n", "median_sec", "p75_sec",
         "p50_sec", "p90_sec", "p99_sec", "status", "receipt_status",
         "receipt_events_seen", "receipt_events_valid", "receipt_pairs",
-        "receipt_events_unmatched", "receipt_parse_errors", "receipt_read_errors")}],
+        "receipt_duplicate_events", "receipt_event_conflicts", "receipt_events_unmatched",
+        "receipt_parse_errors", "receipt_read_errors", "receipt_unknown_schema_events")}],
     "open_prs_known_idle": [_ATTENTION_ROW],
     "open_prs_unknown_idle": [_ATTENTION_ROW],
     "time_semantics_pilot": [{k: _SC for k in (
@@ -1652,6 +1662,7 @@ class Collector:
         stats = {
             "status": "NOT_CONFIGURED", "files_scanned": 0, "receipt_events_seen": 0,
             "receipt_parse_errors": 0, "receipt_read_errors": 0,
+            "receipt_unknown_schema_events": 0,
         }
         if not receipts_dir:
             self.receipt_scan_stats = stats
@@ -1703,10 +1714,28 @@ class Collector:
                                 allowed = (
                                     "event_id", "event_type", "occurred_at", "observed_at",
                                     "pr_id", "candidate_sha", "attempt_number",
+                                    "schema_version", "obligation_id", "source", "sequence",
+                                    "preceding_event_id", "state", "owner_id", "worker_id",
+                                    "job_id", "result_receipt", "wait_reason", "wake_trigger",
+                                    "wake_due_at", "wake_fired_at", "continuity_from_event_id",
                                 )
                                 receipt = {
                                     key: item[key] for key in allowed if key in item
                                 }
+                                continuity = item.get("continuity_receipt")
+                                if isinstance(continuity, dict):
+                                    continuity_fields = (
+                                        "receipt_id", "covers_from", "covers_to", "pr_id",
+                                        "candidate_sha", "attempt_number", "obligation_id",
+                                        "owner_id", "worker_id", "job_id",
+                                    )
+                                    receipt["continuity_receipt"] = {
+                                        key: continuity[key]
+                                        for key in continuity_fields if key in continuity
+                                    }
+                                version = receipt.get("schema_version")
+                                if version is not None and (type(version) is not int or version != 1):
+                                    stats["receipt_unknown_schema_events"] += 1
                                 receipt["record_type"] = "transition_event"
                                 records.append(receipt)
                                 stats["receipt_events_seen"] += 1
@@ -2420,6 +2449,144 @@ class MetricsAggregator:
         total_sec = compute_disjoint_interval_union(intervals)
         return {"duration_sec": total_sec, "status": "OK"}
 
+    def compute_driver_ownership_metrics(self, pr, records, window_start, window_end):
+        """Project only causally continuous, same-obligation ownership observations."""
+        start_dt = parse_iso_utc(window_start) if isinstance(window_start, str) else window_start
+        end_dt = parse_iso_utc(window_end) if isinstance(window_end, str) else window_end
+        if not start_dt or not end_dt or end_dt <= start_dt:
+            return {"status": "UNKNOWN", "unattended_sec_lower_bound": 0.0,
+                    "unknown_sec": None, "coverage": 0.0}
+
+        pr_id = f"{pr.get('repo')}#{pr.get('number')}"
+        candidate = pr.get("headRefOid")
+        matching = [
+            row for row in records or []
+            if isinstance(row, dict) and row.get("record_type") == "transition_event"
+            and row.get("pr_id") == pr_id
+        ]
+        pr_created = parse_iso_utc(pr.get("createdAt"))
+        if pr_created:
+            matching = [
+                row for row in matching
+                if parse_iso_utc(row.get("occurred_at"))
+                and parse_iso_utc(row.get("occurred_at")) >= pr_created
+            ]
+        if candidate:
+            matching = [row for row in matching if row.get("candidate_sha") == candidate]
+        if not matching:
+            total = (end_dt - start_dt).total_seconds()
+            return {"status": "UNKNOWN", "unattended_sec_lower_bound": 0.0,
+                    "unknown_sec": total, "coverage": 0.0}
+
+        by_id = {}
+        conflicts = set()
+        for row in matching:
+            event_id = row.get("event_id")
+            if not isinstance(event_id, str) or not event_id:
+                continue
+            if type(row.get("schema_version")) is not int or row.get("schema_version") != 1:
+                conflicts.add(event_id)
+                continue
+            previous = by_id.get(event_id)
+            comparable = {key: value for key, value in row.items() if key != "observed_at"}
+            previous_comparable = (
+                {key: value for key, value in previous.items() if key != "observed_at"}
+                if previous is not None else None
+            )
+            if previous is not None and previous_comparable != comparable:
+                conflicts.add(event_id)
+            else:
+                by_id[event_id] = row
+
+        valid_states = {
+            "actionable_unowned", "executing", "verified_wait", "paused", "endpoint_reached",
+        }
+        ordered = []
+        for event_id, row in by_id.items():
+            occurred = parse_iso_utc(row.get("occurred_at"))
+            sequence = row.get("sequence")
+            if (event_id in conflicts or row.get("state") not in valid_states or not occurred
+                    or type(row.get("schema_version")) is not int or row.get("schema_version") != 1
+                    or not isinstance(row.get("source"), str) or not row.get("source")
+                    or not isinstance(sequence, int) or isinstance(sequence, bool) or sequence < 1):
+                continue
+            state = row["state"]
+            if state == "actionable_unowned" and (
+                row.get("worker_id") or row.get("job_id") or not row.get("result_receipt")
+            ):
+                continue
+            if state == "executing" and (
+                not (row.get("worker_id") or row.get("job_id")) or not row.get("result_receipt")
+            ):
+                continue
+            if state == "verified_wait" and (
+                not row.get("wait_reason")
+                or not (row.get("job_id") or (row.get("wake_trigger") and row.get("wake_due_at")))
+            ):
+                continue
+            if state == "paused" and not row.get("wait_reason"):
+                continue
+            if state == "endpoint_reached" and not row.get("result_receipt"):
+                continue
+            ordered.append((occurred, sequence if sequence is not None else 0, row))
+        ordered.sort(key=lambda item: (item[0], item[1], item[2]["event_id"]))
+
+        covered_sec = 0.0
+        unattended_sec = 0.0
+        for (left_dt, _, left), (right_dt, _, right) in zip(ordered, ordered[1:]):
+            if right_dt <= left_dt:
+                continue
+            same_scope = (
+                left.get("candidate_sha") == right.get("candidate_sha")
+                and left.get("attempt_number") == right.get("attempt_number")
+                and left.get("obligation_id") == right.get("obligation_id")
+                and right.get("preceding_event_id") == left.get("event_id")
+                and right.get("continuity_from_event_id") == left.get("event_id")
+                and (
+                    left.get("source") != right.get("source")
+                    or right.get("sequence", 0) == left.get("sequence", 0) + 1
+                )
+            )
+            receipt = right.get("continuity_receipt")
+            if not same_scope or not isinstance(receipt, dict):
+                continue
+            receipt_start = parse_iso_utc(receipt.get("covers_from"))
+            receipt_end = parse_iso_utc(receipt.get("covers_to"))
+            identity_ok = (
+                bool(receipt.get("receipt_id"))
+                and receipt.get("pr_id") == pr_id
+                and receipt.get("candidate_sha") == left.get("candidate_sha")
+                and receipt.get("attempt_number") == left.get("attempt_number")
+                and receipt.get("obligation_id") == left.get("obligation_id")
+                and (receipt.get("owner_id") or receipt.get("job_id"))
+                and receipt_start == left_dt and receipt_end == right_dt
+            )
+            if not identity_ok:
+                continue
+
+            span_start = max(left_dt, start_dt)
+            span_end = min(right_dt, end_dt)
+            if left.get("state") == "verified_wait":
+                due = parse_iso_utc(left.get("wake_due_at"))
+                if due and due < span_end:
+                    span_end = due
+            if span_end <= span_start:
+                continue
+            duration = (span_end - span_start).total_seconds()
+            covered_sec += duration
+            if left.get("state") == "actionable_unowned":
+                unattended_sec += duration
+
+        total_sec = (end_dt - start_dt).total_seconds()
+        coverage = min(1.0, covered_sec / total_sec)
+        complete = covered_sec >= total_sec - 0.001
+        return {
+            "status": "COMPLETE" if complete else "PARTIAL",
+            "unattended_sec_lower_bound": round(unattended_sec, 3),
+            "unknown_sec": 0.0 if complete else round(max(0.0, total_sec - covered_sec), 3),
+            "coverage": round(coverage, 6),
+        }
+
     def compute_lifecycle_durations(self, pr):
         """Separate closure sprint from task-to-merge."""
         m_dt = parse_iso_utc(pr.get("mergedAt"))
@@ -3121,6 +3288,7 @@ class MetricsAggregator:
             ("evidence_ready -> review_requested", "evidence_ready", "review_requested"),
             ("review_requested -> actual_review_started", "review_requested", "actual_review_started"),
             ("review_return -> next_substantive_action", "review_return", "next_action_started"),
+            ("wake_fired -> next_substantive_action", "wake_fired", "next_action_started"),
         )
         pr_keys = {
             (str(pr.get("repo")), str(pr.get("number")))
@@ -3142,7 +3310,10 @@ class MetricsAggregator:
             if not isinstance(row, dict) or row.get("record_type") != "transition_event":
                 continue
             event_id = _usage_label(row.get("event_id"))
-            event_type = row.get("event_type")
+            source_event_type = row.get("event_type")
+            event_type = {
+                "worker_returned": "review_return",
+            }.get(source_event_type, source_event_type)
             pr_id = row.get("pr_id")
             occurred = _parse_utc_instant(row.get("occurred_at"))
             candidate_sha = row.get("candidate_sha")
@@ -3150,8 +3321,12 @@ class MetricsAggregator:
             valid = (
                 event_id and event_type in {
                     "evidence_ready", "review_requested", "actual_review_started",
-                    "review_return", "next_action_started",
+                    "review_return", "worker_started", "next_action_started", "wake_fired",
                 }
+                and (
+                    row.get("schema_version") is None
+                    or (type(row.get("schema_version")) is int and row.get("schema_version") == 1)
+                )
                 and _safe_pr_id(pr_id) and occurred
                 and isinstance(candidate_sha, str)
                 and re.fullmatch(r"[0-9a-fA-F]{7,40}", candidate_sha) is not None
@@ -3162,12 +3337,18 @@ class MetricsAggregator:
                 continue
             normalized = {
                 "event_id": event_id, "event_type": event_type,
+                "source_event_type": source_event_type,
                 "repo": repo, "number": number, "candidate_sha": candidate_sha.lower(),
                 "attempt_number": attempt,
+                "schema_version": row.get("schema_version"),
+                "obligation_id": row.get("obligation_id"),
+                "source": row.get("source"), "sequence": row.get("sequence"),
+                "preceding_event_id": row.get("preceding_event_id"),
+                "state": row.get("state"), "owner_id": row.get("owner_id"),
+                "worker_id": row.get("worker_id"), "job_id": row.get("job_id"),
                 "occurred_at": occurred.isoformat(timespec="auto").replace(
                     "+00:00", "Z"
                 ),
-                "observed_at": row.get("observed_at"),
             }
             existing = by_id.get(event_id)
             if existing is not None:
@@ -3184,7 +3365,10 @@ class MetricsAggregator:
             if event_id in conflict_ids:
                 continue
             stats["receipt_events_valid"] += 1
-            key = (row["repo"], row["number"], row["candidate_sha"], row["attempt_number"])
+            key = (
+                row["repo"], row["number"], row["candidate_sha"],
+                row["attempt_number"], row.get("obligation_id"),
+            )
             groups[key][row["event_type"]].append(row)
 
         pairs = []
@@ -3243,6 +3427,7 @@ class MetricsAggregator:
             "evidence_ready -> review_requested",
             "review_requested -> actual_review_started",
             "review_return -> next_substantive_action",
+            "wake_fired -> next_substantive_action",
             "authority_ready -> merged",
             "task_accepted -> merged",
             "closure_sprint_accepted -> merged",
@@ -3302,7 +3487,8 @@ class MetricsAggregator:
                 **scan_stats,
                 **pairing_stats,
             }
-            if scan_stats.get("receipt_parse_errors") or scan_stats.get("receipt_read_errors"):
+            if (scan_stats.get("receipt_parse_errors") or scan_stats.get("receipt_read_errors")
+                    or scan_stats.get("receipt_unknown_schema_events")):
                 receipt_summary["status"] = "PARTIAL"
             expanded = []
             for rec in records_to_process:
@@ -3411,10 +3597,13 @@ class MetricsAggregator:
                 "receipt_status": receipt_summary.get("status", "NOT_CONFIGURED"),
                 "receipt_events_seen": receipt_summary.get("receipt_events_seen", 0),
                 "receipt_events_valid": receipt_summary.get("receipt_events_valid", 0),
+                "receipt_duplicate_events": receipt_summary.get("receipt_duplicate_events", 0),
+                "receipt_event_conflicts": receipt_summary.get("receipt_event_conflicts", 0),
                 "receipt_pairs": receipt_summary.get("receipt_pairs", 0),
                 "receipt_events_unmatched": receipt_summary.get("receipt_events_unmatched", 0),
                 "receipt_parse_errors": receipt_summary.get("receipt_parse_errors", 0),
                 "receipt_read_errors": receipt_summary.get("receipt_read_errors", 0),
+                "receipt_unknown_schema_events": receipt_summary.get("receipt_unknown_schema_events", 0),
             })
 
         return handoffs_data
@@ -3616,8 +3805,48 @@ class MetricsAggregator:
         # Open PRs attention: partition into 5A (known idle) and 5B (unknown idle)
         open_prs_known = []
         open_prs_unknown = []
+        ownership_events = handoff_records if isinstance(handoff_records, list) else []
+        if isinstance(handoff_records, dict):
+            ownership_events = handoff_records.get("records", handoff_records.get("handoffs", []))
         for p in all_still_open:
             idle = self.compute_eligible_unattended_duration(p)
+            created_at = parse_iso_utc(p.get("createdAt"))
+            ownership_start = max(w2_s, created_at) if created_at else w2_s
+            ownership = self.compute_driver_ownership_metrics(
+                p, ownership_events, ownership_start, cutoff
+            )
+            pickup_samples = {
+                "review_return -> next_substantive_action": [],
+                "wake_fired -> next_substantive_action": [],
+            }
+            paired_events, _ = self.adapt_transition_event_receipts(ownership_events, [p])
+            for event in paired_events:
+                transition_name = event.get("name")
+                if transition_name not in pickup_samples:
+                    continue
+                duration = self.compute_interval_duration(event.get("start_at"), event.get("end_at"))
+                if duration["status"] == "OK":
+                    pickup_samples[transition_name].append(duration["duration_sec"])
+            pickup_metrics = {
+                name: {
+                    "median": calculate_median(values) if values else "UNKNOWN",
+                    "count": len(values),
+                }
+                for name, values in pickup_samples.items()
+            }
+            has_ownership_events = any(
+                isinstance(event, dict)
+                and event.get("record_type") == "transition_event"
+                and event.get("pr_id") == f"{p.get('repo')}#{p.get('number')}"
+                and ("state" in event or "schema_version" in event)
+                for event in ownership_events
+            )
+            if has_ownership_events:
+                idle = {
+                    "duration_sec": ownership["unattended_sec_lower_bound"]
+                    if ownership["status"] == "COMPLETE" else None,
+                    "status": "OK" if ownership["status"] == "COMPLETE" else "UNKNOWN",
+                }
             stg_lbl = next(
                 (l for l in p.get("labels", []) if isinstance(l, str) and l.startswith("stage:")),
                 p.get("legacy_stage") or "stage:unknown",
@@ -3647,6 +3876,22 @@ class MetricsAggregator:
                     "wake_condition": p.get("wake_condition") or "UNKNOWN",
                     "receipt_links": p.get("receipt_links") or [],
                     "eligible_unattended_duration_sec": idle["duration_sec"],
+                    "ownership_unattended_sec_lower_bound": ownership["unattended_sec_lower_bound"],
+                    "ownership_unknown_sec": ownership["unknown_sec"],
+                    "ownership_coverage": ownership["coverage"],
+                    "ownership_status": ownership["status"],
+                    "review_return_to_pickup_median_sec": pickup_metrics[
+                        "review_return -> next_substantive_action"
+                    ]["median"],
+                    "review_return_to_pickup_sample_n": pickup_metrics[
+                        "review_return -> next_substantive_action"
+                    ]["count"],
+                    "wake_to_pickup_median_sec": pickup_metrics[
+                        "wake_fired -> next_substantive_action"
+                    ]["median"],
+                    "wake_to_pickup_sample_n": pickup_metrics[
+                        "wake_fired -> next_substantive_action"
+                    ]["count"],
                 })
             else:
                 u_dt = parse_iso_utc(p.get("updatedAt")) or parse_iso_utc(p.get("createdAt"))
@@ -3664,6 +3909,22 @@ class MetricsAggregator:
                     "job_handle": p.get("job_handle") or "UNKNOWN",
                     "wake_condition": p.get("wake_condition") or "UNKNOWN",
                     "receipt_links": p.get("receipt_links") or [],
+                    "ownership_unattended_sec_lower_bound": ownership["unattended_sec_lower_bound"],
+                    "ownership_unknown_sec": ownership["unknown_sec"],
+                    "ownership_coverage": ownership["coverage"],
+                    "ownership_status": ownership["status"],
+                    "review_return_to_pickup_median_sec": pickup_metrics[
+                        "review_return -> next_substantive_action"
+                    ]["median"],
+                    "review_return_to_pickup_sample_n": pickup_metrics[
+                        "review_return -> next_substantive_action"
+                    ]["count"],
+                    "wake_to_pickup_median_sec": pickup_metrics[
+                        "wake_fired -> next_substantive_action"
+                    ]["median"],
+                    "wake_to_pickup_sample_n": pickup_metrics[
+                        "wake_fired -> next_substantive_action"
+                    ]["count"],
                     "quiet_time": f"{quiet_hrs}h" if isinstance(quiet_hrs, (int, float)) else "UNKNOWN",
                 })
 
@@ -4003,10 +4264,16 @@ class DashboardRenderer:
         md.append("### 5A. Open PRs with Observed Eligible Unattended Duration")
         md.append("")
         if data.get("open_prs_known_idle"):
-            md.append("| PR | Head SHA | Stage | Title Status | Earliest Unmet Obligation | Actionable Next Step | Owner | Hold Status | Job Handle | Wake Condition | Receipts | Eligible Unattended Duration |")
-            md.append("|---|---|---|---|---|---|---|---|---|---|---|---|")
+            md.append("| PR | Head SHA | Stage | Title Status | Earliest Unmet Obligation | Actionable Next Step | Owner | Hold Status | Job Handle | Wake Condition | Receipts | Eligible Unattended Duration | Ownership Coverage | Unknown Minutes | Review Return to Pickup | Wake to Pickup |")
+            md.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
             for pr in data.get("open_prs_known_idle"):
-                md.append(f"| [{pr['url']}]({pr['url']}) | `{pr['sha'][:7]}` | `{pr['stage']}` | {pr.get('title_status', 'UNKNOWN')} | {pr.get('earliest_unmet_obligation', 'UNKNOWN')} | {pr['next_action']} | `{pr['owner']}` | {pr['hold_status']} | {pr.get('job_handle', 'UNKNOWN')} | {pr.get('wake_condition', 'UNKNOWN')} | {render_receipt_links(pr.get('receipt_links'))} | **{format_duration(pr['eligible_unattended_duration_sec'])}** |")
+                review_pickup = pr.get("review_return_to_pickup_median_sec")
+                wake_pickup = pr.get("wake_to_pickup_median_sec")
+                coverage = pr.get("ownership_coverage")
+                coverage_text = f"{coverage:.1%}" if isinstance(coverage, (int, float)) else "UNKNOWN"
+                review_pickup_text = format_duration(review_pickup) if isinstance(review_pickup, (int, float)) else "UNKNOWN"
+                wake_pickup_text = format_duration(wake_pickup) if isinstance(wake_pickup, (int, float)) else "UNKNOWN"
+                md.append(f"| [{pr['url']}]({pr['url']}) | `{pr['sha'][:7]}` | `{pr['stage']}` | {pr.get('title_status', 'UNKNOWN')} | {pr.get('earliest_unmet_obligation', 'UNKNOWN')} | {pr['next_action']} | `{pr['owner']}` | {pr['hold_status']} | {pr.get('job_handle', 'UNKNOWN')} | {pr.get('wake_condition', 'UNKNOWN')} | {render_receipt_links(pr.get('receipt_links'))} | **{format_duration(pr['eligible_unattended_duration_sec'])}** | {coverage_text} | {format_duration(pr.get('ownership_unknown_sec'))} | {review_pickup_text} ({pr.get('review_return_to_pickup_sample_n', 0)}) | {wake_pickup_text} ({pr.get('wake_to_pickup_sample_n', 0)}) |")
         else:
             md.append("*No open PRs currently exhibit proven eligible unattended duration.*")
         md.append("")
@@ -4015,9 +4282,15 @@ class DashboardRenderer:
         md.append("> ℹ️ **Notice**: These PRs lack fine-grained active-worker/hold-state telemetry. They are reported transparently for operator attention and are NOT ranked as idle.")
         md.append("")
         if data.get("open_prs_unknown_idle"):
-            md.append("| PR | Head SHA | Stage | Title Status | Earliest Unmet Obligation | Next Action | Owner | Hold Status | Job Handle | Wake Condition | Receipts | Potential Handoff Waiting | GitHub Quiet Time (Proxy Only) |")
-            md.append("|---|---|---|---|---|---|---|---|---|---|---|---:|---:|")
+            md.append("| PR | Head SHA | Stage | Title Status | Earliest Unmet Obligation | Next Action | Owner | Hold Status | Job Handle | Wake Condition | Receipts | Verified Unattended Lower Bound | Unknown Minutes | Coverage | Review Return to Pickup | Wake to Pickup | Potential Handoff Waiting | GitHub Quiet Time (Proxy Only) |")
+            md.append("|---|---|---|---|---|---|---|---|---|---|---|---:|---:|---:|---:|---:|---|---:|")
             for pr in data.get("open_prs_unknown_idle"):
+                review_pickup = pr.get("review_return_to_pickup_median_sec")
+                wake_pickup = pr.get("wake_to_pickup_median_sec")
+                coverage = pr.get("ownership_coverage")
+                coverage_text = f"{coverage:.1%}" if isinstance(coverage, (int, float)) else "UNKNOWN"
+                review_pickup_text = format_duration(review_pickup) if isinstance(review_pickup, (int, float)) else "UNKNOWN"
+                wake_pickup_text = format_duration(wake_pickup) if isinstance(wake_pickup, (int, float)) else "UNKNOWN"
                 md.append(
                     f"| [{pr['url']}]({pr['url']}) | `{pr['sha'][:7]}` | `{pr['stage']}` | "
                     f"{pr.get('title_status', 'UNKNOWN')} | "
@@ -4025,6 +4298,10 @@ class DashboardRenderer:
                     f"`{pr.get('owner', 'UNKNOWN')}` | {pr.get('hold_status', 'UNKNOWN')} | "
                     f"{pr.get('job_handle', 'UNKNOWN')} | {pr.get('wake_condition', 'UNKNOWN')} | "
                     f"{render_receipt_links(pr.get('receipt_links'))} | "
+                    f"{format_duration(pr.get('ownership_unattended_sec_lower_bound'))} | "
+                    f"{format_duration(pr.get('ownership_unknown_sec'))} | {coverage_text} | "
+                    f"{review_pickup_text} ({pr.get('review_return_to_pickup_sample_n', 0)}) | "
+                    f"{wake_pickup_text} ({pr.get('wake_to_pickup_sample_n', 0)}) | "
                     f"{pr.get('potential_handoff_waiting', 'UNKNOWN')} | {pr.get('quiet_time', 'UNKNOWN')} |"
                 )
         else:

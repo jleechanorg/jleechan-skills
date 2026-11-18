@@ -2776,3 +2776,175 @@ class TestRetentionRoundTripInvariant(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+class TestDriverOwnershipProjection(unittest.TestCase):
+    REPO = "example-org/repo-alpha"
+    HEAD = "a" * 40
+
+    def _event(self, event_id, event_type, at, sequence, state, preceding=None,
+               obligation="review-follow-up", candidate=None, attempt=1, **extra):
+        occurred = datetime(2026, 11, 11, 10, 15, tzinfo=timezone.utc) + timedelta(minutes=int(at))
+        row = {
+            "event_id": event_id,
+            "event_type": event_type,
+            "occurred_at": format_iso_utc(occurred),
+            "observed_at": format_iso_utc(occurred + timedelta(seconds=1)),
+            "pr_id": f"{self.REPO}#7",
+            "candidate_sha": candidate or self.HEAD,
+            "attempt_number": attempt,
+            "schema_version": 1,
+            "obligation_id": obligation,
+            "source": "driver-session",
+            "sequence": sequence,
+            "preceding_event_id": preceding,
+            "state": state,
+            "owner_id": "driver-session",
+        }
+        if state == "actionable_unowned":
+            row["result_receipt"] = f"actionable-{event_id}"
+        if state == "executing":
+            row["worker_id"] = "worker-1"
+            row["result_receipt"] = f"work-start-{event_id}"
+        if preceding:
+            previous_minute = {
+                "e1": "00", "e2": "02", "e3": "05", "e4": "12", "e5": "13", "e6": "15",
+            }[preceding]
+            row["continuity_from_event_id"] = preceding
+            row["continuity_receipt"] = {
+                "receipt_id": f"coverage-{preceding}-{event_id}",
+                "covers_from": format_iso_utc(
+                    datetime(2026, 11, 11, 10, 15, tzinfo=timezone.utc)
+                    + timedelta(minutes=int(previous_minute))
+                ),
+                "covers_to": format_iso_utc(occurred),
+                "pr_id": f"{self.REPO}#7",
+                "candidate_sha": candidate or self.HEAD,
+                "attempt_number": attempt,
+                "obligation_id": obligation,
+                "owner_id": "driver-session",
+            }
+        row.update(extra)
+        return row
+
+    def _fixture(self):
+        return [
+            self._event("e1", "action_observed", "00", 1, "actionable_unowned"),
+            self._event("e2", "worker_acknowledged", "02", 2, "actionable_unowned", "e1"),
+            self._event("e3", "worker_started", "05", 3, "executing", "e2"),
+            self._event("e4", "worker_returned", "12", 4, "actionable_unowned", "e3"),
+            self._event("e5", "wake_fired", "13", 5, "actionable_unowned", "e4"),
+            self._event("e6", "next_action_started", "15", 6, "executing", "e5"),
+            self._event("e7", "window_observed", "10080", 7, "executing", "e6"),
+        ]
+
+    def _collect(self, rows):
+        with tempfile.TemporaryDirectory() as receipts_dir:
+            path = Path(receipts_dir, "transition-events.jsonl")
+            path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+            return Collector().collect_receipts_from_dir(receipts_dir)
+
+    def test_real_collector_and_summary_project_eight_owned_observation_minutes(self):
+        cutoff = datetime(2026, 11, 18, 10, 15, tzinfo=timezone.utc)
+        receipts = self._collect(self._fixture())
+        pr = {
+            "repo": self.REPO, "number": 7, "state": "OPEN", "headRefOid": self.HEAD,
+            "createdAt": "2026-11-10T00:00:00Z", "updatedAt": "2026-11-11T10:00:00Z",
+            "url": "https://github.com/example-org/repo-alpha/pull/7", "labels": [],
+        }
+        summary = MetricsAggregator(cutoff_dt=cutoff).aggregate_full_dataset(
+            [pr], handoff_records=receipts,
+            handoff_receipt_stats={"status": "COMPLETE", "files_scanned": 1},
+            sources={"github": {"status": "COMPLETE", "cutoff": format_iso_utc(cutoff)}},
+            now_dt=cutoff,
+        )
+        ranked = summary["open_prs_known_idle"]
+        self.assertEqual(len(ranked), 1)
+        self.assertEqual(ranked[0]["eligible_unattended_duration_sec"], 480.0)
+        self.assertEqual(ranked[0]["review_return_to_pickup_median_sec"], 180.0)
+        self.assertEqual(ranked[0]["wake_to_pickup_median_sec"], 120.0)
+        dashboard = DashboardRenderer().render(summary)
+        self.assertIn("Review Return to Pickup", dashboard)
+        self.assertIn("Wake to Pickup", dashboard)
+
+    def test_incomplete_or_mismatched_evidence_is_not_ranked(self):
+        cutoff = datetime(2026, 11, 18, 10, 15, tzinfo=timezone.utc)
+        aggregator = MetricsAggregator(cutoff_dt=cutoff)
+        pr = {"repo": self.REPO, "number": 7, "headRefOid": self.HEAD}
+        base = self._collect(self._fixture())
+        scenarios = [
+            base[:-1],
+            [base[0], base[1], dict(base[2], obligation_id="different-obligation"), *base[3:]],
+            [base[0], base[1], dict(base[2], attempt_number=2), *base[3:]],
+            [base[0], base[1], base[2], dict(base[3], candidate_sha="b" * 40), *base[4:]],
+            [base[0], dict(base[1], occurred_at=base[0]["occurred_at"], state="executing"), *base[2:]],
+            [base[0], base[1], dict(base[2], sequence=5), *base[3:]],
+            [base[0], base[1], dict(base[2], schema_version=99), *base[3:]],
+        ]
+        for rows in scenarios:
+            with self.subTest(rows=[row["event_id"] for row in rows]):
+                result = aggregator.compute_driver_ownership_metrics(pr, rows, cutoff - timedelta(days=7), cutoff)
+                self.assertNotEqual(result["status"], "COMPLETE")
+
+    def test_wait_expiry_is_unknown_pause_is_zero_and_full_execution_measures_zero(self):
+        cutoff = datetime(2026, 11, 18, 10, 15, tzinfo=timezone.utc)
+        start = cutoff - timedelta(days=7)
+        aggregator = MetricsAggregator(cutoff_dt=cutoff)
+        pr = {"repo": self.REPO, "number": 7, "headRefOid": self.HEAD}
+        rows = self._collect(self._fixture())
+        paused = [dict(row) for row in rows]
+        paused[0].update(state="paused", wait_reason="operator pause")
+        pause_metrics = aggregator.compute_driver_ownership_metrics(pr, paused, start, cutoff)
+        self.assertEqual(pause_metrics["status"], "COMPLETE")
+        self.assertEqual(pause_metrics["unattended_sec_lower_bound"], 360.0)
+        waiting = json.loads(json.dumps(rows))
+        waiting[0].update(
+            state="verified_wait", wait_reason="review running", job_id="job-1",
+            wake_due_at=format_iso_utc(start + timedelta(minutes=2)),
+        )
+        waiting[1]["occurred_at"] = format_iso_utc(start + timedelta(minutes=4))
+        waiting[1]["continuity_receipt"]["covers_to"] = waiting[1]["occurred_at"]
+        expiry_metrics = aggregator.compute_driver_ownership_metrics(pr, waiting, start, cutoff)
+        self.assertEqual(expiry_metrics["status"], "PARTIAL")
+        self.assertGreaterEqual(expiry_metrics["unknown_sec"], 120.0)
+        executing = [dict(row, state="executing", worker_id="worker-1") for row in rows]
+        zero_metrics = aggregator.compute_driver_ownership_metrics(pr, executing, start, cutoff)
+        self.assertEqual(zero_metrics["status"], "COMPLETE")
+        self.assertEqual(zero_metrics["unattended_sec_lower_bound"], 0.0)
+        self.assertEqual(zero_metrics["unknown_sec"], 0.0)
+
+    def test_duplicate_delivery_is_idempotent_and_missing_feed_is_unknown(self):
+        cutoff = datetime(2026, 11, 18, 10, 15, tzinfo=timezone.utc)
+        aggregator = MetricsAggregator(cutoff_dt=cutoff)
+        pr = {"repo": self.REPO, "number": 7, "headRefOid": self.HEAD}
+        rows = self._collect(self._fixture())
+        mirrored = dict(rows[1], observed_at="2026-11-11T10:02:03Z")
+        repeated = aggregator.compute_driver_ownership_metrics(pr, rows + [mirrored], cutoff - timedelta(days=7), cutoff)
+        self.assertEqual(repeated["status"], "COMPLETE")
+        self.assertEqual(repeated["unattended_sec_lower_bound"], 480.0)
+        out_of_order = aggregator.compute_driver_ownership_metrics(
+            pr, list(reversed(rows)), cutoff - timedelta(days=7), cutoff
+        )
+        self.assertEqual(out_of_order["status"], "COMPLETE")
+        self.assertEqual(out_of_order["unattended_sec_lower_bound"], 480.0)
+        missing = aggregator.compute_driver_ownership_metrics(pr, [], cutoff - timedelta(days=7), cutoff)
+        self.assertEqual(missing["status"], "UNKNOWN")
+
+    def test_partial_window_shows_verified_lower_bound_without_ranking(self):
+        cutoff = datetime(2026, 11, 18, 10, 15, tzinfo=timezone.utc)
+        receipts = self._collect(self._fixture()[:-1])
+        pr = {
+            "repo": self.REPO, "number": 7, "state": "OPEN", "headRefOid": self.HEAD,
+            "createdAt": "2026-11-10T00:00:00Z", "updatedAt": "2026-11-11T10:00:00Z",
+            "url": "https://github.com/example-org/repo-alpha/pull/7", "labels": [],
+        }
+        summary = MetricsAggregator(cutoff_dt=cutoff).aggregate_full_dataset(
+            [pr], handoff_records=receipts,
+            handoff_receipt_stats={"status": "COMPLETE", "files_scanned": 1},
+            sources={"github": {"status": "COMPLETE", "cutoff": format_iso_utc(cutoff)}},
+            now_dt=cutoff,
+        )
+        self.assertEqual(summary["open_prs_known_idle"], [])
+        row = summary["open_prs_unknown_idle"][0]
+        self.assertEqual(row["ownership_status"], "PARTIAL")
+        self.assertEqual(row["ownership_unattended_sec_lower_bound"], 480.0)
+        self.assertGreater(row["ownership_unknown_sec"], 0.0)
+        self.assertIn("Verified Unattended Lower Bound", DashboardRenderer().render(summary))
