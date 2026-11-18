@@ -15,14 +15,14 @@ Before the Gantt, use the rendered `subtitle` for a concise, zero-context overvi
 
 1. **Re-pin live state first.** Immediately before drawing, re-read git SHAs, `gh pr checks`, and lane status from their sources; never copy them from earlier prose. Snapshot time is absolute with timezone (`2026-10-04 12:55 PDT`).
 2. **Show every tracked PR at its next state.** Inventory all PRs in scope and pin each current stage and head. For each PR with work remaining in the requested window, add at least one numbered row. Put its PR number and verified stage in the row name; bind head SHA, user outcome, next executable action, exact blocker or dependency, owner and estimate in details. List each PR already at the requested milestone individually in the done list, with its current stage and outcome. Never collapse several PRs into one broad lane row or a count. Shared-lane rows may supplement PR rows, naming every affected PR and dependency.
-3. **Schedule for maximum parallelism, from true dependencies, not list order.** A step starts when what it truly waits on is done.
+4. **Schedule for maximum parallelism, from true dependencies, not list order.** A step starts when what it truly waits on is done.
    - Read-only review or verification never blocks a reversible step (push, CI start); run them side by side.
    - Start the longest pole first.
    - Show work handed to other lanes (subagents, CLI delegates, the dot) as its own row, labelled with the owner.
    - Say in the subtitle when the plan changed because of this.
-3. **Estimates.** Each row has a start offset, a low estimate and a high estimate in minutes (`hi: null` = unknown). Color is by the HIGH estimate: green < 10 min, yellow 10–30, red 30+, grey unknown. Solid bar = low estimate; faded extension = up to high. The legend states this.
-4. **Generate, do not hand-edit HTML.** Write a JSON spec and run `${CLAUDE_HOME:-$HOME/.claude}/skills/timeline/scripts/build.py spec.json` (stdlib only; spec in a `mktemp` dir). It applies the color rule, uses the CSS in `assets/template.html`, computes the header total estimate and projected finish time, and prints the text Gantt to stdout.
-5. **Every row names its owner** (main session, lane, subagent, CLI delegate, CI) and, when the step has its own bead, that bead id. `build.py` warns on a row without an owner.
+5. **Estimates.** Each row has a start offset, a low estimate and a high estimate in minutes (`hi: null` = unknown). Color is by the HIGH estimate: green < 10 min, yellow 10–30, red 30+, grey unknown. Solid bar = low estimate; faded extension = up to high. The legend states this.
+6. **Generate, do not hand-edit HTML.** Write a JSON spec and run `${CLAUDE_HOME:-$HOME/.claude}/skills/timeline/scripts/build.py spec.json` (stdlib only; spec in a `mktemp` dir). It applies the color rule, uses the CSS in `assets/template.html`, computes the header total estimate and projected finish time, and prints the text Gantt to stdout.
+7. **Every row names its owner** (main session, lane, subagent, CLI delegate, CI) and, when the step has its own bead, that bead id. `build.py` warns on a row without an owner.
 
 ```json
 {"title": "...", "snapshot": "2026-10-04 12:55 PDT", "subtitle": "...",
