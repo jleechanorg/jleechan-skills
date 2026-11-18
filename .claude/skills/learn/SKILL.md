@@ -246,14 +246,16 @@ resolve the source by its absolute path and pass an explicit `--wiki "$WIKI"` pa
 Publish both available learning outputs to their respective `origin/main`
 branches on every run. A local commit or an open PR is an intermediate result.
 
-- **Roadmap.** Publish the scoped monthly entry directly using
-  [nextsteps roadmap publication](../nextsteps/SKILL.md#roadmap-publication).
-  Start from the current remote head, preserve unrelated checkout changes and
-  use a normal expected-head push.
+- **Roadmap.** Publish from the Git root that contains the monthly entry written
+  in Step 4. For the canonical roadmap, use
+  [nextsteps roadmap publication](../nextsteps/SKILL.md#roadmap-publication):
+  start from the remote head and use a normal expected-head push of the scoped
+  changes. For a configured alternative, follow that repository's publication
+  policy. Never switch destinations or transfer direct-push authority.
 - **Wiki.** Use the wiki-ingest PR from Step 6. Follow the resolved repository's
   publication policy. If its standing wiki-content approval applies, verify
-  eligibility, link lint, checks and mergeability at the current head, then
-  merge with `--match-head-commit`. Honor operator holds and branch protections.
+  eligibility and local validation, mark the ingest PR ready when applicable,
+  verify checks and mergeability at the current head, then merge with `--match-head-commit`. Honor operator holds and branch protections.
 - Read back the intended learning on both remote branches and report the
   commit URLs. Reuse matching remote content when already published. If either
   destination is unconfigured, unavailable, or subject to an unmet approval,

@@ -198,8 +198,11 @@ claims; do not rerun completed discovery, analysis or checks merely for closure.
   update-over-create rules, without inventing work or duplicate Beads to fill a
   checklist. Record no-change, blocked and partial outcomes as such.
 - **Publish the roadmap closure to `origin/main`.** Before reporting an
-  invocation complete, publish its scoped roadmap findings, nextsteps, activity
-  and learnings through [nextsteps roadmap publication](../nextsteps/SKILL.md#roadmap-publication).
+  invocation complete, resolve the canonical roadmap checkout at `~/roadmap`.
+  For this closure, explicitly write findings, nextsteps, daily activity and
+  learnings relative to that Git root. Retain the caller's Beads context.
+  Publish those scoped changes through
+  [nextsteps roadmap publication](../nextsteps/SKILL.md#roadmap-publication).
   Verify the intended entries on the remote branch and report the commit URL.
   Reuse a verified publication for identical findings. Report an exact blocker
   if publication is prohibited or unavailable. Preserve unrelated local changes,
