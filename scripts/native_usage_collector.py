@@ -77,7 +77,7 @@ def _apply_replay_annotation(record, annotation):
         if (isinstance(scope, str) and scope in {"single", "multi", "global", "unknown"}
                 and isinstance(prs, list) and all(_safe_pr_id(pr) for pr in prs)
                 and len(set(prs)) == len(prs)
-                and isinstance(evidence, list)
+                and isinstance(evidence, list) and (not prs or bool(evidence))
                 and all(item in ("conversation", "session_binding", "git_context", "prior_review") for item in evidence)
                 and ((scope == "single" and len(prs) == 1) or (scope == "multi" and len(prs) >= 2)
                      or (scope in ("global", "unknown") and not prs))):
@@ -585,6 +585,8 @@ def _entire_records(rows, source_fingerprint, source_id, session_id, provider,
         packet.append({
             **record,
             "prior_review": prior_review,
+            "prior_retractions": [key for key in ("association_scope", "pr_binding", "context_pr_decision")
+                                  if annotation is not None and key in annotation and annotation[key] is None],
             "prior_association": bool(annotation is not None and "association_scope" in annotation
                                       and "association_scope" in record),
             "association_retracted": bool(annotation is not None and any(

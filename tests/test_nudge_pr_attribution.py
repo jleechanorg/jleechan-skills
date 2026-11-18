@@ -253,7 +253,7 @@ def test_saved_association_and_null_retraction_survive_readjudication(tmp_path, 
     fake.write_text("import sys; sys.stdin.read(); print(" + repr(json.dumps({"annotations": {e["event_id"]: value for e in packet}})) + ")")
     result = {e["event_id"]: e for e in judge._judge({"events": packet}, f"{sys.executable} {fake}", 10)}
     assert result[ids["saved"]]["associated_prs"] == ["example/repo#1"]
-    assert result[ids["retracted"]]["association_scope"] == "unknown"
+    assert result[ids["retracted"]]["association_scope"] is None
     assert result[ids["retracted"]]["associated_prs"] == []
     assert result[ids["fresh"]]["associated_prs"] == ["example/repo#2", "example/repo#3"]
 
@@ -415,3 +415,58 @@ def test_saved_legacy_multi_memberships_survive_null_binding_end_to_end(tmp_path
     result = aggregate_native_human_steering([record], [], window_start="2026-11-13T00:00:00Z", window_end="2026-11-14T00:00:00Z")
     assert result["coverage"]["human_nudge_messages"] == 1
     assert [(r["pr"], r["human_nudge_messages"]) for r in result["per_pr"]] == [("example/repo#1", 1), ("example/repo#2", 1)]
+
+
+def test_null_scope_survives_collection_judgment_and_stale_export_replay(tmp_path, monkeypatch):
+    from datetime import datetime, timezone
+    from scripts import native_usage_collector as collector
+    source = tmp_path / "source.jsonl"
+    source.write_text(json.dumps({"type": "session_meta", "payload": {"id": "s"}}) + "\n")
+    monkeypatch.setattr(collector, "run_entire_parser", lambda *_: [{"v": 1, "type": "user", "id": "e", "ts": "2026-11-13T11:59:00Z", "content": "continue"}])
+    kwargs = dict(cutoff=datetime(2026, 11, 14, tzinfo=timezone.utc), days=1, entire_parser="parser", entire_agent="codex")
+    event_id = collector.collect_native_history([source], **kwargs)["human_records"][0]["event_id"]
+    sidecar = tmp_path / "prior.jsonl"
+    sidecar.write_text(json.dumps({"event_id": event_id, "association_scope": None}) + "\n")
+    packet = collector.collect_native_history([source], annotation_path=sidecar, **kwargs)["nudge_packet_events"]
+    value = {"actor_kind": "human", "message_kind": "continuation/followthrough_nudge", "human_nudge_eligible": True,
+             "association_scope": "single", "associated_prs": ["example/repo#2"], "association_evidence": ["conversation"]}
+    fake = tmp_path / "judge.py"
+    fake.write_text("import sys; sys.stdin.read(); print(" + repr(json.dumps({"annotations": {event_id: value}})) + ")")
+    annotation = judge._judge({"events": packet}, f"{sys.executable} {fake}", 10)[0]
+    assert "association_scope" in annotation and annotation["association_scope"] is None
+    sidecar.write_text(json.dumps(annotation) + "\n")
+    export = tmp_path / "export.jsonl"
+    for stale in ({"pr_binding": {"pr": "example/repo#1"}}, {"context_pr_decision": "override", "effective_associated_pr": "example/repo#1"}):
+        export.write_text(json.dumps({"record_type": "human", "event_id": event_id, "timestamp": "2026-11-13T11:59:00Z", "actor_kind": "human", **stale}) + "\n")
+        records = collector.load_normalized_history(export, "2026-11-14T00:00:00Z", days=1, annotation_path=sidecar)["human_records"]
+        result = aggregate_native_human_steering(records, [], window_start="2026-11-13T00:00:00Z", window_end="2026-11-14T00:00:00Z")
+        assert result["coverage"]["assigned_verified_messages"] == 0
+
+
+def test_assigned_scope_with_empty_evidence_is_not_accepted():
+    record = {"event_id": "e"}
+    _apply_replay_annotation(record, {"association_scope": "single", "associated_prs": ["example/repo#1"], "association_evidence": []})
+    assert "association_scope" not in record
+
+
+def test_partial_retraction_is_reemitted_with_legacy_override(tmp_path, monkeypatch):
+    from datetime import datetime, timezone
+    from scripts import native_usage_collector as collector
+    source = tmp_path / "source.jsonl"
+    source.write_text(json.dumps({"type": "session_meta", "payload": {"id": "s"}}) + "\n")
+    monkeypatch.setattr(collector, "run_entire_parser", lambda *_: [{"v": 1, "type": "user", "id": "e", "ts": "2026-11-13T11:59:00Z", "content": "continue"}])
+    kwargs = dict(cutoff=datetime(2026, 11, 14, tzinfo=timezone.utc), days=1, entire_parser="parser", entire_agent="codex")
+    event_id = collector.collect_native_history([source], **kwargs)["human_records"][0]["event_id"]
+    sidecar = tmp_path / "prior.jsonl"
+    sidecar.write_text(json.dumps({"event_id": event_id, "pr_binding": None, "context_pr_decision": "override", "effective_associated_pr": "example/repo#2"}) + "\n")
+    packet = collector.collect_native_history([source], annotation_path=sidecar, **kwargs)["nudge_packet_events"]
+    value = {"actor_kind": "human", "message_kind": "continuation/followthrough_nudge", "human_nudge_eligible": True, "association_scope": "unknown", "associated_prs": [], "association_evidence": []}
+    fake = tmp_path / "judge.py"
+    fake.write_text("import sys; sys.stdin.read(); print(" + repr(json.dumps({"annotations": {event_id: value}})) + ")")
+    annotation = judge._judge({"events": packet}, f"{sys.executable} {fake}", 10)[0]
+    assert "pr_binding" in annotation and annotation["pr_binding"] is None
+    record = {"event_id": event_id, "timestamp": "2026-11-13T11:59:00Z", "pr_binding": {"pr": "example/repo#1"}}
+    _apply_replay_annotation(record, annotation)
+    result = aggregate_native_human_steering([record], [], window_start="2026-11-13T00:00:00Z", window_end="2026-11-14T00:00:00Z")
+    assert result["coverage"]["assigned_verified_messages"] == 1
+    assert next(row for row in result["per_pr"] if row["pr"] == "example/repo#2")["raw_verified_messages"] == 1

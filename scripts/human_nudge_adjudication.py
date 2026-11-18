@@ -191,6 +191,11 @@ def _judge(packet, command, timeout):
             annotation = {k: v for k, v in annotation.items() if k not in {
                 "association_scope", "associated_prs", "association_evidence"}}
         output_annotation.update(annotation)
+        retractions = prior.get("prior_retractions")
+        if isinstance(retractions, list):
+            for key in ("association_scope", "pr_binding", "context_pr_decision"):
+                if key in retractions and not (legacy_multi and key == "pr_binding"):
+                    output_annotation[key] = None
         prior_review = prior.get("prior_review")
         if isinstance(prior_review, dict):
             for key in ("actor_kind", "human_origin", "message_kind", "human_nudge_eligible"):
