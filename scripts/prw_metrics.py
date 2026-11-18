@@ -2480,7 +2480,7 @@ class MetricsAggregator:
             and isinstance(attempt, int) and not isinstance(attempt, bool) and attempt > 0
             and obligation_id and source and isinstance(sequence, int)
             and not isinstance(sequence, bool) and sequence > 0
-            and owner_id and state in states
+            and owner_id and isinstance(state, str) and state in states
         ):
             return None
 
@@ -2591,11 +2591,15 @@ class MetricsAggregator:
             row = event["normalized"] or event["row"]
             occurred = _parse_utc_instant(row.get("occurred_at"))
             if occurred:
-                ordered.append((occurred, row.get("sequence") or 0, event_id, row, event["normalized"]))
+                sequence = row.get("sequence")
+                sort_sequence = sequence if isinstance(sequence, int) and not isinstance(sequence, bool) else 0
+                ordered.append((occurred, sort_sequence, event_id, row, event["normalized"]))
         for row in untimed:
             occurred = _parse_utc_instant(row.get("occurred_at"))
             if occurred:
-                ordered.append((occurred, row.get("sequence") or 0, None, row, None))
+                sequence = row.get("sequence")
+                sort_sequence = sequence if isinstance(sequence, int) and not isinstance(sequence, bool) else 0
+                ordered.append((occurred, sort_sequence, None, row, None))
         ordered.sort(key=lambda item: (item[0], item[1], item[2] or ""))
 
         conflicts.update(self._simultaneous_ownership_conflicts(ordered))
@@ -2665,7 +2669,10 @@ class MetricsAggregator:
         by_time = defaultdict(list)
         for occurred, _sequence, event_id, _raw, normalized in ordered:
             if event_id and normalized:
-                by_time[occurred].append((event_id, normalized))
+                identity = normalized.get("pr_id") or (
+                    f"{normalized.get('repo')}#{normalized.get('number')}"
+                )
+                by_time[(occurred, identity)].append((event_id, normalized))
         conflicts = set()
         for observations in by_time.values():
             if len(observations) < 2:
@@ -2709,7 +2716,10 @@ class MetricsAggregator:
             and owner_id == left.get("owner_id") == right.get("owner_id")
         )
         job_id = receipt.get("job_id")
-        job_matches = isinstance(job_id, str) and job_id in (left.get("job_id"), right.get("job_id"))
+        job_matches = (
+            isinstance(job_id, str) and job_id
+            and job_id == left.get("job_id") == right.get("job_id")
+        )
         if owner_id and not owner_matches:
             return False
         return bool(
@@ -3574,6 +3584,12 @@ class MetricsAggregator:
                     (event for event_type in end_types for event in by_type.get(event_type, [])),
                     key=lambda event: (_parse_utc_instant(event["occurred_at"]), event["sequence"] if isinstance(event.get("sequence"), int) else 0),
                 )
+                endpoint_rows = start_rows + end_rows
+                legacy_only = bool(endpoint_rows) and all(
+                    event.get("schema_version") is None for event in endpoint_rows
+                )
+                if legacy_only and (len(start_rows) != 1 or len(end_rows) != 1):
+                    continue
                 used_ends = set()
                 for start_index, start_row in enumerate(start_rows):
                     if start_row["event_id"] in conflict_ids:
@@ -3638,6 +3654,10 @@ class MetricsAggregator:
         current = end_row
         while preceding_id and preceding_id not in visited:
             if preceding_id == start_row.get("event_id"):
+                current_time = _parse_utc_instant(current.get("occurred_at"))
+                start_time = _parse_utc_instant(start_row.get("occurred_at"))
+                if not current_time or not start_time or current_time < start_time:
+                    return False
                 return (
                     current.get("source") != start_row.get("source")
                     or current.get("sequence") == start_row.get("sequence") + 1
@@ -3645,6 +3665,10 @@ class MetricsAggregator:
             visited.add(preceding_id)
             previous = events_by_id.get(preceding_id)
             if not previous:
+                return False
+            current_time = _parse_utc_instant(current.get("occurred_at"))
+            previous_time = _parse_utc_instant(previous.get("occurred_at"))
+            if not current_time or not previous_time or current_time < previous_time:
                 return False
             if any(
                 previous.get(field) != start_row.get(field)
