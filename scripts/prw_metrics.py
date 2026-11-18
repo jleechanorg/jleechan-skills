@@ -4422,6 +4422,8 @@ def aggregate_native_human_steering(
         if not isinstance(e, dict):
             return e
         e = dict(e, **{f: canonical_pr(e[f]) for f in ("effective_associated_pr", "context_associated_pr", "original_associated_pr") if f in e})
+        if isinstance(e.get("associated_prs"), list):
+            e["associated_prs"] = [canonical_pr(pr) for pr in e["associated_prs"]]
         if isinstance(e.get("pr_binding"), dict) and "pr" in e["pr_binding"]:
             e["pr_binding"] = dict(e["pr_binding"], pr=canonical_pr(e["pr_binding"]["pr"]))
         return e
@@ -4526,7 +4528,8 @@ def aggregate_native_human_steering(
         disputed = len({json.dumps({k: v for k, v in i.items() if k not in ("source_fingerprint", "source_id")}, sort_keys=True, default=str) for i in items}) > 1
         if disputed:
             event = {**event, "pr_binding": None, "context_pr_decision": "unassigned_multi_pr",  # copies disagree: bind none
-                     "message_kind": None, "human_nudge_eligible": None, "score": None, "episode_id": None}
+                     "message_kind": None, "human_nudge_eligible": None, "score": None, "episode_id": None,
+                     "association_scope": None, "associated_prs": []}
         coverage["verified_messages" if verified else "candidate_messages"] += 1
         if event.get("branch_source") == "cached_repository_map":
             coverage["repository_map_resolved_events"] += 1
@@ -4559,7 +4562,24 @@ def aggregate_native_human_steering(
         binding = event.get("pr_binding")
         direct_pr = binding.get("pr") if isinstance(binding, dict) else None
         context_decision = event.get("context_pr_decision")
-        if _safe_pr_id(direct_pr):
+        selected_associations = []
+        scope = event.get("association_scope")
+        selected = event.get("associated_prs")
+        if not binding and not context_decision and scope in ("single", "multi") and isinstance(selected, list):
+            selected_associations = list(dict.fromkeys(pr for pr in selected if _safe_pr_id(pr)))
+            if (scope == "single" and len(selected_associations) != 1) or (scope == "multi" and len(selected_associations) < 2):
+                selected_associations = []
+            if selected_associations:
+                association = selected_associations[0]
+                for pr in selected_associations:
+                    ensure_direct_row(pr)
+                confidence, basis, association_kind = "REVIEWED_CONTEXT", "reviewed_context_association", "context"
+        if selected_associations:
+            pass
+        elif not binding and not context_decision and scope in ("global", "unknown", "single", "multi"):
+            coverage["reviewed_unassigned_messages"] += 1
+            coverage["global_scope_unassigned_messages" if scope == "global" else "no_single_pr_unassigned_messages"] += 1
+        elif _safe_pr_id(direct_pr):
             association = direct_pr
             ensure_direct_row(association)
             confidence, basis, association_kind = "EXPLICIT", "reviewed_direct_pr_binding", "direct"
@@ -4688,64 +4708,67 @@ def aggregate_native_human_steering(
                 unassigned_nudge_episode_ids.add(str(episode_id))
             continue
 
-        row = pr_rows[association]
-        row["_assigned_observations"] += 1
-        row["association_basis"].add(basis)
-        branch_source = event.get("branch_source")
-        if not isinstance(branch_source, str) or branch_source not in {"recorded_repository_url", "cached_repository_map",
-                                 "recorded_git_branch", "state_db_snapshot", "session_meta",
-                                 "claude_session_metadata_low_confidence"}:
-            branch_source = None
-        branch_basis = event.get("branch_basis")
-        if not isinstance(branch_basis, str) or branch_basis not in {"recorded_repository_url", "exact_recorded_cwd_lookup",
-                                "exact_recorded_record", "state_db_thread_snapshot",
-                                "session_git_metadata", "first_64_session_records_not_event_time"}:
-            branch_basis = None
-        if branch_source and association_kind in ("branch", "branch_only"):
-            row["association_basis"].add("source:" + branch_source)
-        if branch_basis and association_kind in ("branch", "branch_only"):
-            row["association_basis"].add("context:" + branch_basis)
-        row["_confidences"].add(confidence)
-        if verified:
-            row["raw_verified_messages"] += 1
-            if confirmed:  # branch matches and low-confidence context are heuristics, not confirmed steering
-                row["_confirmed_at"].append(at.isoformat().replace("+00:00", "Z"))
-            field = {
-                "direct": "direct_verified_messages",
-                "context": "context_associated_verified_messages",
-                "branch": "branch_associated_verified_messages",
-                "branch_only": "branch_only_associated_verified_messages",
-            }[association_kind]
-            row[field] += 1
-            coverage["assigned_verified_messages"] += 1
-            if message_kind in message_kinds:
-                counts = row["message_kind_counts"]
-                counts[message_kind] = counts.get(message_kind, 0) + 1
-            if nudge:
-                row["human_nudge_messages"] += 1
-                if episode_id:
-                    row["_nudge_episode_ids"].add(str(episode_id))
-                    assigned_nudge_episode_ids.add(str(episode_id))
-            if has_score:
-                row["reviewed_scores"].append(score)
-            if message_kind == "initial_task":
-                row["initial_requests"] += 1
-            if role == "followup":
-                row["verified_followup_messages"] += 1
-                if not episode_id:
-                    coverage["followups_without_episode_id"] += 1
-                else:
-                    row["_episode_labels"].setdefault(
-                        str(episode_id), set()
-                    ).add(quality_label)
-        else:
-            field = {
-                "direct": "direct_candidates",
-                "context": "context_candidates",
-                "branch": "branch_associated_candidates",
-                "branch_only": "branch_only_candidates",
-            }[association_kind]
-            row[field] += 1
+        for association_index, association in enumerate(selected_associations or [association]):
+            row = pr_rows[association]
+            row["_assigned_observations"] += 1
+            row["association_basis"].add(basis)
+            branch_source = event.get("branch_source")
+            if not isinstance(branch_source, str) or branch_source not in {"recorded_repository_url", "cached_repository_map",
+                                     "recorded_git_branch", "state_db_snapshot", "session_meta",
+                                     "claude_session_metadata_low_confidence"}:
+                branch_source = None
+            branch_basis = event.get("branch_basis")
+            if not isinstance(branch_basis, str) or branch_basis not in {"recorded_repository_url", "exact_recorded_cwd_lookup",
+                                    "exact_recorded_record", "state_db_thread_snapshot",
+                                    "session_git_metadata", "first_64_session_records_not_event_time"}:
+                branch_basis = None
+            if branch_source and association_kind in ("branch", "branch_only"):
+                row["association_basis"].add("source:" + branch_source)
+            if branch_basis and association_kind in ("branch", "branch_only"):
+                row["association_basis"].add("context:" + branch_basis)
+            row["_confidences"].add(confidence)
+            if verified:
+                row["raw_verified_messages"] += 1
+                if confirmed:  # branch matches and low-confidence context are heuristics, not confirmed steering
+                    row["_confirmed_at"].append(at.isoformat().replace("+00:00", "Z"))
+                field = {
+                    "direct": "direct_verified_messages",
+                    "context": "context_associated_verified_messages",
+                    "branch": "branch_associated_verified_messages",
+                    "branch_only": "branch_only_associated_verified_messages",
+                }[association_kind]
+                row[field] += 1
+                if association_index == 0:
+                    coverage["assigned_verified_messages"] += 1
+                if message_kind in message_kinds:
+                    counts = row["message_kind_counts"]
+                    counts[message_kind] = counts.get(message_kind, 0) + 1
+                if nudge:
+                    row["human_nudge_messages"] += 1
+                    if episode_id:
+                        row["_nudge_episode_ids"].add(str(episode_id))
+                        assigned_nudge_episode_ids.add(str(episode_id))
+                if has_score:
+                    row["reviewed_scores"].append(score)
+                if message_kind == "initial_task":
+                    row["initial_requests"] += 1
+                if role == "followup":
+                    row["verified_followup_messages"] += 1
+                    if not episode_id:
+                        if association_index == 0:
+                            coverage["followups_without_episode_id"] += 1
+                    else:
+                        row["_episode_labels"].setdefault(
+                            str(episode_id), set()
+                        ).add(quality_label)
+            else:
+                field = {
+                    "direct": "direct_candidates",
+                    "context": "context_candidates",
+                    "branch": "branch_associated_candidates",
+                    "branch_only": "branch_only_candidates",
+                }[association_kind]
+                row[field] += 1
 
     coverage["unassigned_followup_episodes"] = len(unassigned_episode_labels)
     for labels in unassigned_episode_labels.values():
@@ -5525,7 +5548,8 @@ def main():
         if args.history_export:
             write_normalized_history(args.history_export, history_data["export_records"], history_data["stats"])
         if args.nudge_packets:
-            write_nudge_packets(args.nudge_packets, history_data["nudge_packet_events"])
+            write_nudge_packets(args.nudge_packets, history_data["nudge_packet_events"],
+                                pr_lookup_cache.get("prs", []) if pr_lookup_cache else [])
     elif (
         args.history_annotations or args.history_export or args.repository_map or args.state_db
         or args.pr_lookup_cache or args.history_replay or args.entire_parser or args.nudge_packets

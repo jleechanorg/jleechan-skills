@@ -67,6 +67,21 @@ def _apply_replay_annotation(record, annotation):
             value = annotation[key]
             if value is None or _safe_pr_id(value):
                 record[key] = value
+    if any(key in annotation and annotation[key] is None for key in ("context_pr_decision", "pr_binding")):
+        record.update(association_scope="unknown", associated_prs=[], association_evidence=[])
+    if "association_scope" in annotation:
+        scope = annotation["association_scope"]
+        prs = annotation.get("associated_prs")
+        evidence = annotation.get("association_evidence")
+        if (scope in {"single", "multi", "global", "unknown"}
+                and isinstance(prs, list) and all(_safe_pr_id(pr) for pr in prs)
+                and isinstance(evidence, list)
+                and all(item in ("conversation", "session_binding", "git_context", "prior_review") for item in evidence)
+                and ((scope == "single" and len(prs) == 1) or (scope == "multi" and len(prs) >= 2)
+                     or (scope in ("global", "unknown") and not prs))):
+            record.update(association_scope=scope, associated_prs=prs, association_evidence=evidence)
+        elif scope is None:
+            record.update(association_scope="unknown", associated_prs=[], association_evidence=[])
     if annotation.get("message_kind") in {
         "initial_task", "new_requirement/domain_judgment", "status_request",
         "continuation/followthrough_nudge", "teammate_message",
@@ -344,10 +359,12 @@ def run_entire_parser(parser_argv, agent, source_bytes):
     return rows
 
 
-def write_nudge_packets(path, records):
+def write_nudge_packets(path, records, pr_candidates=None):
     """Write an explicitly requested, private model-input packet."""
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
+    keys = ("repo", "number", "title", "headRefName", "headRefOid", "createdAt", "closedAt", "mergedAt", "state", "url")
+    pr_candidates = [{k: item[k] for k in keys if k in item} for item in (pr_candidates or []) if isinstance(item, dict)]
     unique_records = []
     seen_records = set()
     for record in records:
@@ -358,7 +375,8 @@ def write_nudge_packets(path, records):
     fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     os.fchmod(fd, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as descriptor:
-        json.dump({"schema_version": "human-nudge-input.v1", "events": unique_records},
+        json.dump({"schema_version": "human-nudge-input.v1", "events": unique_records,
+                   "pr_candidates": pr_candidates or []},
                   descriptor, ensure_ascii=False, sort_keys=True)
         descriptor.write("\n")
 
@@ -514,7 +532,7 @@ def _entire_records(rows, source_fingerprint, source_id, session_id, provider,
             _apply_replay_annotation(record, annotation)
         result.append(record)
         context = []
-        for neighbor_index in range(max(0, index - 2), min(len(rows), index + 3)):
+        for neighbor_index in range(max(0, index - 12), min(len(rows), index + 13)):
             if neighbor_index == index:
                 continue
             neighbor = rows[neighbor_index]
@@ -848,6 +866,10 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                             record = dict(common, event_id=event_id,
                                           actor_kind="human" if verified else "unknown",
                                           origin_status="verified_human" if verified else "unverified_candidate")
+                            if session_index is not None:
+                                found = _session_binding_record_at(session_index, namespace, at)
+                                if found:
+                                    record["session_binding_evidence"] = {"pr": found[0], "timestamp": found[1]}
                             if aliases:
                                 record["event_id_aliases"] = aliases
                             if claude_user:
@@ -882,6 +904,12 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                     )
                     for record, packet_record in zip(parsed, packet_rows):
                         at = _parse_utc_instant(record.get("timestamp"))
+                        if session_index is not None and at and record.get("session_id"):
+                            found = _session_binding_record_at(session_index, record["session_id"], at)
+                            if found:
+                                evidence = {"pr": found[0], "timestamp": found[1]}
+                                record["session_binding_evidence"] = evidence
+                                packet_record["session_binding_evidence"] = evidence
                         if at is None:
                             stats["undated_records"] += 1
                         elif not start <= at < cutoff:
@@ -923,6 +951,7 @@ def main():
     parser.add_argument("--cutoff", required=True)
     parser.add_argument("--days", type=int, default=14)
     parser.add_argument("--annotations")
+    parser.add_argument("--pr-lookup-cache", help="Cached PR candidate metadata for the private adjudication packet")
     parser.add_argument("--state-db", help="Optional read-only Codex thread snapshot database")
     parser.add_argument("--session-bindings", action="append", default=None,
                         help="Session-to-PR binding ledger (JSONL); repeatable")
@@ -935,12 +964,18 @@ def main():
         parser.error("--entire-parser requires --entire-agent")
     if args.nudge_packets and not args.entire_parser:
         parser.error("--nudge-packets requires --entire-parser")
+    pr_candidates = None
+    if args.pr_lookup_cache:
+        cache = json.loads(Path(args.pr_lookup_cache).read_text(encoding="utf-8"))
+        if not isinstance(cache, dict) or not isinstance(cache.get("prs"), list):
+            parser.error("--pr-lookup-cache must contain a prs list")
+        pr_candidates = cache["prs"]
     data = collect_native_history(args.history_root, cutoff=cutoff, days=args.days, annotation_path=args.annotations, state_db=args.state_db,
                                   session_bindings=args.session_bindings,
                                   entire_parser=args.entire_parser, entire_agent=args.entire_agent)
     write_normalized_history(args.output, data["export_records"], data["stats"])
     if args.nudge_packets:
-        write_nudge_packets(args.nudge_packets, data["nudge_packet_events"])
+        write_nudge_packets(args.nudge_packets, data["nudge_packet_events"], pr_candidates)
     print(json.dumps(data["stats"], sort_keys=True))
     if data["stats"]["status"] == "FAILED":
         raise SystemExit(1)

@@ -9,6 +9,12 @@ import sys
 from pathlib import Path
 
 
+if __package__:
+    from .prw_metrics import _safe_pr_id
+else:
+    from prw_metrics import _safe_pr_id
+
+
 _PROMPTS = Path(__file__).parent / "prompts"
 _INPUT_SCHEMA_VERSION = "human-nudge-input.v1"
 _PRESERVED_ANNOTATION_FIELDS = {
@@ -17,6 +23,7 @@ _PRESERVED_ANNOTATION_FIELDS = {
     "effective_association_confidence", "original_association_basis",
     "original_association_confidence", "context_associated_pr",
     "effective_associated_pr", "original_associated_pr", "score", "pr_binding",
+    "association_scope", "associated_prs", "association_evidence",
 }
 
 
@@ -119,9 +126,22 @@ def _judge(packet, command, timeout):
                     ("string" in accepted_types and isinstance(value, str))
                     or ("boolean" in accepted_types and isinstance(value, bool))
                     or ("null" in accepted_types and value is None)
+                    or ("array" in accepted_types and isinstance(value, list))
                 )
                 if not valid_type:
                     raise ValueError("judge annotation has an invalid field type")
+        association_keys = {"association_scope", "associated_prs", "association_evidence"}
+        if association_keys & annotation.keys():
+            if not association_keys <= annotation.keys():
+                raise ValueError("judge association is incomplete")
+            scope, prs, evidence = (annotation[k] for k in ("association_scope", "associated_prs", "association_evidence"))
+            if (any(not _safe_pr_id(pr) for pr in prs) or len(set(prs)) != len(prs)
+                    or any(not isinstance(item, str) or item not in {"conversation", "session_binding", "git_context", "prior_review"} for item in evidence)
+                    or (scope == "single" and len(prs) != 1)
+                    or (scope == "multi" and len(prs) < 2)
+                    or (scope in ("global", "unknown") and prs)
+                    or (prs and not evidence)):
+                raise ValueError("judge association is invalid")
         received_ids.append(annotation["event_id"])
     if (
         len(received_ids) != len(set(received_ids))
@@ -135,6 +155,10 @@ def _judge(packet, command, timeout):
             for key, value in events_by_id[annotation["event_id"]].items()
             if key in _PRESERVED_ANNOTATION_FIELDS
         })
+        prior = events_by_id[annotation["event_id"]]
+        if any(key in prior for key in ("context_pr_decision", "pr_binding", "association_scope")):
+            annotation = {k: v for k, v in annotation.items() if k not in {
+                "association_scope", "associated_prs", "association_evidence"}}
         output_annotation.update(annotation)
         normalized.append(output_annotation)
     return normalized

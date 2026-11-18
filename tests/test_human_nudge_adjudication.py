@@ -39,6 +39,10 @@ class HumanNudgeAdjudicationTests(unittest.TestCase):
         self.temp.cleanup()
 
     def run_judge(self, response):
+        for annotation in response.get("annotations", []):
+            annotation.setdefault("association_scope", "unknown")
+            annotation.setdefault("associated_prs", [])
+            annotation.setdefault("association_evidence", [])
         fake = self.root / "fake_judge.py"
         fake.write_text(
             "import json,sys\n"
@@ -165,6 +169,7 @@ class HumanNudgeAdjudicationTests(unittest.TestCase):
         annotation = schema["properties"]["annotations"]["items"]
         expected_fields = {
             "event_id", "actor_kind", "message_kind", "human_nudge_eligible",
+            "association_scope", "associated_prs", "association_evidence",
         }
         self.assertIs(schema["additionalProperties"], False)
         self.assertEqual(set(schema["required"]), {"annotations"})
