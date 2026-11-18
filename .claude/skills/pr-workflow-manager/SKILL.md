@@ -52,40 +52,31 @@ Before selecting a branch, stage, or gate, inspect the target repository's `AGEN
 
 ### Per-PR execution ownership
 
-For every accepted PR, assign at least one named execution subagent a PR-specific
-goal and a concrete primary obligation. Before advancing intake to another PR,
-verify that the subagent has started a scoped action, or record the measured
-capacity wait and a real resumption handle. A dispatch that never starts work
-does not count as staffing the PR. The assignment names the PR URL and current
-candidate SHA, the requested endpoint, permitted actions, and the expected result
-or artifact. A session-level goal that
-mentions several PRs does not replace these individual assignments. Reuse an
-eligible worker when appropriate, keep one writer per branch, and retain
-independent review roles.
+The persistent driver owns the single native session goal under the
+manager's start contract. Each PR-specific task objective belongs in its worker
+brief and execution record, not in a separate subagent native goal.
 
-Record the subagent and goal against the PR's existing execution record and map
-the primary obligation to its ledger row. The persistent driver remains
-accountable for the PR through its requested endpoint, consumes worker results,
-and starts or assigns the next unmet action. A dispatch, acknowledgment, or
-running timer does not establish that execution started. Set the worker as the
-obligation owner and record its start time only after observing a task-scoped
-tool action or verified live job against the stated PR and revision.
+For every accepted PR, create a row in the existing execution record and name
+at least one execution subagent. Give it a PR-specific task objective, primary
+obligation, candidate SHA, permitted actions, and expected artifact. This task
+objective is an assignment brief, not a requirement to activate a separate
+native goal for the subagent. Use one writer per branch and retain independent
+review roles.
+Follow [review-records](../pr-lifecycle/review-records.md#per-pr-ownership-and-independent-intake)
+for per-PR execution, verified waits, and failure recovery.
 
-If the worker does not start or exits without a result, keep the obligation open
-under the persistent driver, inspect any output and side effects, and reassign or
-start the next safe action. For portable work, measure the available host and
-use the established Linux mirror route when that host is eligible; verify that
-the remote worker actually started on the intended PR revision. Keep a
-device-only action with its named device owner and record its actual completion
-handle. That obligation does not block intake on independent PRs. Assign the
-PR-specific subagent a concrete support action on the same PR, such as checking
-the returned device receipt against the claim and updating its applicability;
-the subagent must not claim device proof. If no support action can start because
-neither host meets its measured capacity threshold, retain the subagent in the
-PR goal as waiting for capacity, record both host measurements and the next real
-capacity-check handle and due time, then continue independent PR intake. A goal,
-assignment, or written wake condition alone does not satisfy the executing-owner
-or verified-wake requirement.
+A worker assignment or acknowledgment does not prove start. Confirm a start from
+an observed task-scoped action or verified live job against the PR revision.
+Keep the driver accountable until execution ownership is observed and recorded.
+If a worker fails to start or exits, inspect its output and side effects,
+then take the next bounded safe action as driver or recover on an eligible host.
+Prefer the current host when it has task-specific headroom. For a host-specific
+blocker, measure the alternate host and use /lm for Mac-to-Linux or /mac-mirror
+for Linux-to-Mac portable work when that route is eligible; verify the worker's
+actual start on the intended PR SHA. Apply the existing safe-retry limit and
+never loop on assignments, polls, or sleeps. Record an exact blocker, owner,
+next action, and real resumption trigger when work cannot start. A wait or
+failure on one PR does not gate intake of independent PRs.
 
 ## Practical publication guidance
 
