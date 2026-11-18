@@ -109,9 +109,17 @@ def _apply_replay_annotation(record, annotation):
             record.pop(key, None)
         record.update(association_scope="unknown", associated_prs=[], association_evidence=[])
     elif any(key in annotation and annotation[key] is None for key in ("context_pr_decision", "pr_binding")):
-        saved_legacy_multi = (annotation.get("context_pr_decision") == "unassigned_multi_pr"
+        memberships = record.get("associated_prs")
+        evidence = record.get("association_evidence")
+        saved_legacy_multi = (record.get("context_pr_decision") == "unassigned_multi_pr"
                               and annotation.get("pr_binding", 1) is None
-                              and association_applied and scope == "multi")
+                              and (association_applied or "association_scope" not in annotation)
+                              and record.get("association_scope") == "multi"
+                              and isinstance(memberships, list) and len(memberships) >= 2
+                              and all(_safe_pr_id(pr) for pr in memberships)
+                              and len(set(memberships)) == len(memberships)
+                              and isinstance(evidence, list)
+                              and all(item in ("conversation", "session_binding", "git_context", "prior_review") for item in evidence))
         if not saved_legacy_multi:
             record.update(association_scope="unknown", associated_prs=[], association_evidence=[])
 

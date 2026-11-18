@@ -96,5 +96,34 @@ class HumanRetractions(unittest.TestCase):
             self.assertEqual(unmodified,unrelated)
 
 
+    def test_partial_binding_retraction_preserves_exported_legacy_multi(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            record = {'record_type': 'human', 'provider': 'anthropic', 'event_id': 'selected',
+                      'timestamp': '2026-11-08T10:00:00Z', 'actor_kind': 'human',
+                      'message_kind': 'continuation/followthrough_nudge', 'human_nudge_eligible': True,
+                      'context_pr_decision': 'unassigned_multi_pr', 'association_scope': 'multi',
+                      'associated_prs': ['example/repo#1', 'example/repo#2'],
+                      'association_evidence': ['conversation']}
+            export = root / 'export.jsonl'
+            export.write_text(json.dumps(record) + '\n')
+            annotations = root / 'annotations.jsonl'
+            for correction in ({'pr_binding': None},
+                               {'pr_binding': None, 'context_pr_decision': 'unassigned_multi_pr'}):
+                with self.subTest(correction=correction):
+                    annotations.write_text(json.dumps({'event_id': 'selected', **correction}) + '\n')
+                    replay = load_normalized_history(export, self.cutoff, annotation_path=annotations)
+                    summary = aggregate_native_human_steering(replay['human_records'], [],
+                        window_start='2026-10-26T00:00:00Z', window_end=self.cutoff)
+                    self.assertEqual(summary['coverage']['human_nudge_messages'], 1)
+                    self.assertEqual([(r['pr'], r['human_nudge_messages']) for r in summary['per_pr']],
+                                     [('example/repo#1', 1), ('example/repo#2', 1)])
+            annotations.write_text(json.dumps({'event_id': 'selected', 'association_scope': None}) + '\n')
+            replay = load_normalized_history(export, self.cutoff, annotation_path=annotations)
+            summary = aggregate_native_human_steering(replay['human_records'], [],
+                window_start='2026-10-26T00:00:00Z', window_end=self.cutoff)
+            self.assertEqual(summary['coverage']['assigned_verified_messages'], 0)
+
+
 if __name__=='__main__':
     unittest.main()
