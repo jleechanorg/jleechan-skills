@@ -550,7 +550,7 @@ def _entire_records(rows, source_fingerprint, source_id, session_id, provider,
                 context_record["timestamp"] = format_iso_utc(neighbor_timestamp)
             context.append(context_record)
         prior_review = {}
-        if annotation is not None and isinstance(annotation.get("review_id"), str) and annotation["review_id"]:
+        if annotation is not None:
             allowed = {
                 "actor_kind": ("human", "automated_watch", "unknown", None),
                 "human_origin": ("verified_human", "unknown", "unverified_candidate", "automated_watch", "automated_watch_excluded", None),
@@ -559,10 +559,14 @@ def _entire_records(rows, source_fingerprint, source_id, session_id, provider,
             }
             prior_review = {key: annotation[key] for key, values in allowed.items()
                             if key in annotation and annotation[key] in values
-                            and (key != "human_nudge_eligible" or annotation[key] is None or isinstance(annotation[key], bool))}
+                            and (key != "human_nudge_eligible" or annotation[key] is None or isinstance(annotation[key], bool))
+                            and not (key in ("actor_kind", "human_origin")
+                                     and annotation[key] in ("unknown", "unverified_candidate")
+                                     and not annotation.get("review_id"))}
         packet.append({
             **record,
             "prior_review": prior_review,
+            "prior_association": bool(annotation is not None and "association_scope" in annotation),
             "association_retracted": bool(annotation is not None and any(
                 key in annotation and annotation[key] is None for key in ("context_pr_decision", "pr_binding"))),
             "text": user_text,

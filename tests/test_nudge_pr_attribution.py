@@ -167,3 +167,92 @@ def test_cli_replay_exports_multi_pr_nudge_counts_to_snapshot(tmp_path):
     data = json.loads(snapshot.read_text())
     assert data["human_coverage"]["human_nudge_messages"] == 1
     assert [row["human"]["nudge_messages"] for row in data["prs"]] == [1, 1]
+
+
+def test_saved_review_without_receipt_survives_collector_and_rejudgment(tmp_path, monkeypatch):
+    from datetime import datetime, timezone
+    from scripts import native_usage_collector as collector
+
+    source = tmp_path / "source.jsonl"
+    source.write_text(json.dumps({"type": "session_meta", "payload": {"id": "s"}}) + "\n")
+    rows = [{"v": 1, "type": "user", "id": name, "ts": f"2026-11-13T11:5{i}:00Z", "content": "continue"}
+            for i, name in enumerate(("watch", "retracted", "unknown"))]
+    monkeypatch.setattr(collector, "run_entire_parser", lambda *_: rows)
+    kwargs = dict(cutoff=datetime(2026, 11, 13, 12, tzinfo=timezone.utc), days=1,
+                  entire_parser="parser", entire_agent="codex")
+    first = collector.collect_native_history([source], **kwargs)
+    ids = {e["native_event_id"]: e["event_id"] for e in first["human_records"]}
+    reviews = tmp_path / "reviews.jsonl"
+    reviews.write_text("\n".join(json.dumps(x) for x in (
+        {"event_id": ids["watch"], "actor_kind": "automated_watch", "message_kind": None, "human_nudge_eligible": False},
+        {"event_id": ids["retracted"], "actor_kind": "human", "message_kind": None, "human_nudge_eligible": None},
+        {"event_id": ids["unknown"], "actor_kind": "unknown"},
+    )) + "\n")
+    packet = collector.collect_native_history([source], annotation_path=reviews, **kwargs)["nudge_packet_events"]
+    fake = tmp_path / "judge.py"
+    value = {"actor_kind": "human", "message_kind": "continuation/followthrough_nudge", "human_nudge_eligible": True,
+             "association_scope": "multi", "associated_prs": ["example/repo#1", "example/repo#2"], "association_evidence": ["conversation"]}
+    response = {"annotations": {event["event_id"]: value for event in packet}}
+    fake.write_text("import sys; sys.stdin.read(); print(" + repr(json.dumps(response)) + ")")
+    result = {e["event_id"]: e for e in judge._judge({"events": packet}, f"{sys.executable} {fake}", 10)}
+    assert result[ids["watch"]]["actor_kind"] == "automated_watch"
+    assert result[ids["watch"]]["human_nudge_eligible"] is False
+    assert result[ids["retracted"]]["message_kind"] is None
+    assert result[ids["retracted"]]["human_nudge_eligible"] is None
+    assert result[ids["unknown"]]["actor_kind"] == "human"
+    assert result[ids["unknown"]]["associated_prs"] == ["example/repo#1", "example/repo#2"]
+
+
+def test_previous_judge_output_survives_next_ingestion(tmp_path, monkeypatch):
+    from datetime import datetime, timezone
+    from scripts import native_usage_collector as collector
+    source = tmp_path / "source.jsonl"
+    source.write_text(json.dumps({"type": "session_meta", "payload": {"id": "s"}}) + "\n")
+    monkeypatch.setattr(collector, "run_entire_parser", lambda *_: [
+        {"v": 1, "type": "user", "id": "e", "ts": "2026-11-13T11:59:00Z", "content": "continue"}])
+    kwargs = dict(cutoff=datetime(2026, 11, 13, 12, tzinfo=timezone.utc), days=1,
+                  entire_parser="parser", entire_agent="codex")
+    packet = collector.collect_native_history([source], **kwargs)["nudge_packet_events"]
+    event_id = packet[0]["event_id"]
+    fake = tmp_path / "judge.py"
+    def answer(actor, kind, eligible):
+        value = {"actor_kind": actor, "message_kind": kind, "human_nudge_eligible": eligible,
+                 "association_scope": "unknown", "associated_prs": [], "association_evidence": []}
+        fake.write_text("import sys; sys.stdin.read(); print(" + repr(json.dumps({"annotations": {event_id: value}})) + ")")
+        return judge._judge({"events": packet}, f"{sys.executable} {fake}", 10)[0]
+    saved = answer("automated_watch", None, False)
+    assert "review_id" not in saved
+    sidecar = tmp_path / "saved.jsonl"
+    sidecar.write_text(json.dumps(saved) + "\n")
+    packet = collector.collect_native_history([source], annotation_path=sidecar, **kwargs)["nudge_packet_events"]
+    assert answer("human", "continuation/followthrough_nudge", True)["actor_kind"] == "automated_watch"
+    assert answer("human", "continuation/followthrough_nudge", True)["human_nudge_eligible"] is False
+
+
+def test_saved_association_and_null_retraction_survive_readjudication(tmp_path, monkeypatch):
+    from datetime import datetime, timezone
+    from scripts import native_usage_collector as collector
+    source = tmp_path / "source.jsonl"
+    source.write_text(json.dumps({"type": "session_meta", "payload": {"id": "s"}}) + "\n")
+    monkeypatch.setattr(collector, "run_entire_parser", lambda *_: [
+        {"v": 1, "type": "user", "id": name, "ts": f"2026-11-13T11:5{i}:00Z", "content": "continue"}
+        for i, name in enumerate(("saved", "retracted", "fresh"))])
+    kwargs = dict(cutoff=datetime(2026, 11, 13, 12, tzinfo=timezone.utc), days=1,
+                  entire_parser="parser", entire_agent="codex")
+    initial = collector.collect_native_history([source], **kwargs)["human_records"]
+    ids = {e["native_event_id"]: e["event_id"] for e in initial}
+    sidecar = tmp_path / "saved.jsonl"
+    sidecar.write_text("\n".join(json.dumps(x) for x in (
+        {"event_id": ids["saved"], "association_scope": "single", "associated_prs": ["example/repo#1"], "association_evidence": ["conversation"]},
+        {"event_id": ids["retracted"], "association_scope": None},
+    )) + "\n")
+    packet = collector.collect_native_history([source], annotation_path=sidecar, **kwargs)["nudge_packet_events"]
+    value = {"actor_kind": "human", "message_kind": "continuation/followthrough_nudge", "human_nudge_eligible": True,
+             "association_scope": "multi", "associated_prs": ["example/repo#2", "example/repo#3"], "association_evidence": ["conversation"]}
+    fake = tmp_path / "judge.py"
+    fake.write_text("import sys; sys.stdin.read(); print(" + repr(json.dumps({"annotations": {e["event_id"]: value for e in packet}})) + ")")
+    result = {e["event_id"]: e for e in judge._judge({"events": packet}, f"{sys.executable} {fake}", 10)}
+    assert result[ids["saved"]]["associated_prs"] == ["example/repo#1"]
+    assert result[ids["retracted"]]["association_scope"] == "unknown"
+    assert result[ids["retracted"]]["associated_prs"] == []
+    assert result[ids["fresh"]]["associated_prs"] == ["example/repo#2", "example/repo#3"]
