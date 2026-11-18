@@ -328,6 +328,7 @@ def _pr_row(metric, record, scenario, stage_events=None, cutoff=None, history_fr
             "coverage_status": metric.get("human_coverage_status"),
             "confidence": metric.get("human_association_confidence"),
             "verified_messages": _count(metric.get("raw_verified_human_message_count")),
+            "nudge_messages": _count(metric.get("human_nudge_message_count")),
             "initial": _count(metric.get("verified_initial_human_message_count")),
             "followup": _count(metric.get("verified_followup_human_message_count")),
             "mid_pr": _mid_pr(metric, flow, cutoff, history_from, history_to),

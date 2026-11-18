@@ -150,3 +150,20 @@ def test_legacy_global_and_unknown_dispositions_do_not_restore_association(tmp_p
         summary = aggregate_native_human_steering([record], [], window_start="2026-10-01T00:00:00Z", window_end="2026-10-20T00:00:00Z")
         assert summary["coverage"]["unassigned_verified_messages"] == 1
         assert all(row["raw_verified_messages"] == 0 for row in summary["per_pr"])
+
+
+def test_cli_replay_exports_multi_pr_nudge_counts_to_snapshot(tmp_path):
+    import subprocess
+    import pytest
+    pytest.importorskip("duckdb")
+    source, annotations, cache = (tmp_path / name for name in ("source.jsonl", "annotations.jsonl", "prs.json"))
+    source.write_text(json.dumps({"record_type": "human", "event_id": "e", "provider": "openai", "timestamp": "2026-10-10T00:00:00Z", "actor_kind": "unknown", "origin_status": "unverified_candidate"}) + "\n")
+    annotations.write_text(json.dumps({"event_id": "e", "actor_kind": "human", "message_kind": "continuation/followthrough_nudge", "human_nudge_eligible": True, "association_scope": "multi", "associated_prs": ["example/repo#1", "example/repo#2"], "association_evidence": ["conversation"]}) + "\n")
+    cache.write_text(json.dumps({"prs": [{"repo": "example/repo", "number": n, "state": "OPEN", "createdAt": "2026-10-01T00:00:00Z"} for n in (1, 2)]}))
+    snapshot = tmp_path / "snapshot.json"
+    cmd = [sys.executable, "scripts/prw_metrics.py", "--offline", "--history-replay", str(source), "--history-annotations", str(annotations), "--cutoff", "2026-10-20T00:00:00Z", "--days", "30", "--pr-lookup-cache", str(cache), "--output", str(tmp_path / "report.md"), "--dashboard-json", str(snapshot)]
+    result = subprocess.run(cmd, text=True, capture_output=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    data = json.loads(snapshot.read_text())
+    assert data["human_coverage"]["human_nudge_messages"] == 1
+    assert [row["human"]["nudge_messages"] for row in data["prs"]] == [1, 1]

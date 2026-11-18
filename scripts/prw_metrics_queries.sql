@@ -356,6 +356,8 @@ SELECT
         AS direct_candidates,
     TRY_CAST(json_extract_string(person.value, '$.branch_associated_candidates') AS BIGINT)
         AS branch_associated_candidates,
+    TRY_CAST(json_extract_string(person.value, '$.human_nudge_messages') AS BIGINT)
+        AS human_nudge_message_count,
     TRY_CAST(json_extract_string(person.value, '$.initial_requests') AS BIGINT)
         AS verified_initial_human_message_count,
     TRY_CAST(json_extract_string(person.value, '$.verified_followup_messages') AS BIGINT)
@@ -393,6 +395,7 @@ SELECT
         OR COUNT(DISTINCT branch_associated_verified_human_message_count) > 1
         OR COUNT(DISTINCT direct_candidates) > 1
         OR COUNT(DISTINCT branch_associated_candidates) > 1
+        OR COUNT(DISTINCT human_nudge_message_count) > 1
         OR COUNT(DISTINCT verified_initial_human_message_count) > 1
         OR COUNT(DISTINCT verified_followup_human_message_count) > 1
         OR COUNT(DISTINCT reviewed_followup_episode_count) > 1
@@ -410,6 +413,10 @@ SELECT
         THEN MIN(direct_candidates) END AS direct_candidates,
     CASE WHEN COUNT(DISTINCT branch_associated_candidates) <= 1
         THEN MIN(branch_associated_candidates) END AS branch_associated_candidates,
+    CASE WHEN COUNT(DISTINCT human_coverage_status) = 1
+              AND MIN(human_coverage_status) = 'OBSERVED_SCOPE_ONLY'
+              AND COUNT(DISTINCT human_nudge_message_count) <= 1
+        THEN MIN(human_nudge_message_count) END AS human_nudge_message_count,
     CASE WHEN COUNT(DISTINCT human_coverage_status) = 1
               AND MIN(human_coverage_status) = 'OBSERVED_SCOPE_ONLY'
               AND COUNT(DISTINCT verified_initial_human_message_count) <= 1
@@ -680,6 +687,7 @@ SELECT
     h.branch_associated_verified_human_message_count,
     h.direct_candidates,
     h.branch_associated_candidates,
+    h.human_nudge_message_count,
     h.verified_initial_human_message_count,
     h.verified_followup_human_message_count,
     h.reviewed_followup_episode_count,
