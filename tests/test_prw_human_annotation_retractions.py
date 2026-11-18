@@ -113,6 +113,7 @@ class HumanRetractions(unittest.TestCase):
                 with self.subTest(correction=correction):
                     annotations.write_text(json.dumps({'event_id': 'selected', **correction}) + '\n')
                     replay = load_normalized_history(export, self.cutoff, annotation_path=annotations)
+                    self.assertEqual(replay['human_records'][0]['associated_prs'], ['example/repo#1', 'example/repo#2'])
                     summary = aggregate_native_human_steering(replay['human_records'], [],
                         window_start='2026-10-26T00:00:00Z', window_end=self.cutoff)
                     self.assertEqual(summary['coverage']['human_nudge_messages'], 1)
