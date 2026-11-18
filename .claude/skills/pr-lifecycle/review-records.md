@@ -31,12 +31,28 @@ merge_authorization: <authorized (quoted source: operator statement, standing ap
 candidate: <head-SHA>
 next_action: <specific unmet obligation>
 owner: <driver or delegated lane>
+subagent: <named PR-specific execution subagent>
+subagent_status: <assigned | started | returned | exited | waiting_capacity>
+subagent_goal: <endpoint and concrete primary obligation>
+subagent_started_at: <UTC time of first observed scoped action or verified live job; UNKNOWN until then>
 job_handle: <actual handle when asynchronous, or N/A when synchronous/not-yet-started>
 wake_condition: <verified callback / poll / resume mechanism>
 blocker: <only if no executable authorized action remains>
 ```
 
 An actual handle (or `N/A` when synchronous or not yet started) plus a verified callback, polling, or resume mechanism must exist. A written wake condition alone does not schedule or execute resumption; ending a turn at "review requested" or "job submitted" without an active handle and verified resumption mechanism is forbidden.
+
+Every accepted PR has a named execution subagent with a PR-specific goal and
+one primary ledger obligation. The persistent driver keeps the requested
+endpoint, integrates results, and owns any unfinished obligation whose worker
+has not actually started or has exited without a result. Keep `owner`,
+`next_action`, and the real resumption handle current when ownership changes.
+An assignment or acknowledgment is not an execution start. Record
+`subagent_started_at` only after a task-scoped action or verified live job is
+observed on the stated candidate. If a wake fires but no substantive next action
+has started, the obligation remains actionable under the driver and its pickup
+interval remains open. The driver must inspect the result and begin or assign
+the next action, or establish a genuine verified wait.
 
 **Blocking dependency PR ownership:** When progress depends on a blocking dependency PR, the executing agent/driver must retain ownership of the blocking dependency through its required endpoint or verify an accepted handoff to a confirmed executing owner. Merely delivering a handoff message or task note does not relieve ownership or unblock the parent; delivery alone is not enough, and the parent blocker remains preserved until the dependency reaches its verified endpoint or active handoff acceptance is proven.
 
@@ -134,6 +150,7 @@ During a configured PRW measurement, the active owner may append one observed tr
 
 - occurred_at is the event clock used for duration; observed_at records when the receipt was captured and is audit metadata only.
 - Record actual_review_started only when substantive inspection is observed to begin. A request, assignment, acknowledgment, or status message is not an actual review start.
+- Record wake-fired time separately from next-action-start time when measuring pickup. A callback or scheduled poll firing does not close the pickup interval; only the first verified substantive action on the returned obligation does. Record worker acknowledgment separately from worker start.
 - The dashboard pairs records only when PR, candidate SHA, and attempt number match exactly. Missing endpoints, malformed receipts, and unmatched records remain UNKNOWN.
 - Receipt recording and reading are optional and non-blocking. A missing/unreadable receipt feed never delays, rejects, or blocks authorized PR work.
 

@@ -50,6 +50,41 @@ Before selecting a branch, stage, or gate, inspect the target repository's `AGEN
 - Never use hard resets, force-pushes, deleted branches, or discarded work as routine verification; this skill grants none of those actions and no new writer. Re-read remote head before publication; unexpected remote movement requires reconciliation, not overwrite.
 - For upstream mechanics and branch tracking verification, follow [git-branch-tracking](../git-branch-tracking/SKILL.md).
 
+### Per-PR execution ownership
+
+For every accepted PR, assign at least one named execution subagent a PR-specific
+goal and a concrete primary obligation. Before advancing intake to another PR,
+verify that the subagent has started a scoped action, or record the measured
+capacity wait and a real resumption handle. A dispatch that never starts work
+does not count as staffing the PR. The assignment names the PR URL and current
+candidate SHA, the requested endpoint, permitted actions, and the expected result
+or artifact. A session-level goal that
+mentions several PRs does not replace these individual assignments. Reuse an
+eligible worker when appropriate, keep one writer per branch, and retain
+independent review roles.
+
+Record the subagent and goal against the PR's existing execution record and map
+the primary obligation to its ledger row. The persistent driver remains
+accountable for the PR through its requested endpoint, consumes worker results,
+and starts or assigns the next unmet action. A dispatch, acknowledgment, or
+running timer does not establish that execution started. Set the worker as the
+obligation owner and record its start time only after observing a task-scoped
+tool action or verified live job against the stated PR and revision.
+
+If the worker does not start or exits without a result, keep the obligation open
+under the persistent driver, inspect any output and side effects, and reassign or
+start the next safe action. For portable work, measure the available host and
+use the established Linux mirror route when that host is eligible; verify that
+the remote worker actually started on the intended PR revision. Keep device-only
+work with its device owner, and have the assigned subagent own the next
+independent executable code, evidence, or status obligation on that PR without
+claiming device proof. If neither host can start eligible work, retain the PR
+under the driver's goal, identify the intended subagent as waiting for capacity,
+record both measured capacity results and the next real capacity-check handle
+and due time, and recommend waiting. A goal,
+assignment, or written wake condition alone does not satisfy the executing-owner
+or verified-wake requirement.
+
 ## Practical publication guidance
 
 Apply these compact defaults where explicit repository instructions are silent; existing global merge/push safety remains canonical:
