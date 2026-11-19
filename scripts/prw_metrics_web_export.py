@@ -70,6 +70,16 @@ def _count(value):
     return int(number) if number is not None else None
 
 
+def _elapsed_seconds(values):
+    """Preserve the difference between a missing field and no observed clocks."""
+    if not isinstance(values, list):
+        return None
+    seconds = [_number(value) for value in values]
+    if any(value is None or value < 0 for value in seconds):
+        return None
+    return seconds
+
+
 def _pr_key(repository, number):
     return f"{repository}#{number}"
 
@@ -368,6 +378,12 @@ def _pr_row(metric, record, scenario, stage_events=None, cutoff=None, history_fr
             ),
             "wake_to_pickup_sec": _number(ownership.get("wake_to_pickup_median_sec")),
             "wake_to_pickup_sample_n": _count(ownership.get("wake_to_pickup_sample_n")),
+            "review_return_to_pickup_open_elapsed_sec": _elapsed_seconds(
+                ownership.get("review_return_to_pickup_open_elapsed_sec")
+            ),
+            "wake_to_pickup_open_elapsed_sec": _elapsed_seconds(
+                ownership.get("wake_to_pickup_open_elapsed_sec")
+            ),
         }
     human = None
     if metric.get("human_coverage_status") not in (None, "UNKNOWN"):

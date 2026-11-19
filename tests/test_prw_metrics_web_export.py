@@ -113,6 +113,8 @@ class OwnershipAttentionTests(unittest.TestCase):
             "unknown_sec": 0.0, "coverage": 1.0, "eligible_unattended_sec": 480.0,
             "review_return_to_pickup_sec": 180.0, "review_return_to_pickup_sample_n": 2,
             "wake_to_pickup_sec": 120.0, "wake_to_pickup_sample_n": 1,
+            "review_return_to_pickup_open_elapsed_sec": None,
+            "wake_to_pickup_open_elapsed_sec": None,
         })
         self.assertIsNone(row["handoffs"])
         ownership_gap = next(gap for gap in export.build_snapshot(
@@ -130,6 +132,8 @@ class OwnershipAttentionTests(unittest.TestCase):
             "ownership_unknown_sec": 840.0, "ownership_coverage": 0.1,
             "review_return_to_pickup_median_sec": 7.6,
             "review_return_to_pickup_sample_n": 1,
+            "review_return_to_pickup_open_elapsed_sec": [7.6],
+            "wake_to_pickup_open_elapsed_sec": [0.0],
         }
         prs = [{"repo": "acme/app", "number": 1, "url": "https://github.com/acme/app/pull/1", "headRefOid": head}]
         row = export.build_snapshot(
@@ -180,6 +184,8 @@ class OwnershipAttentionTests(unittest.TestCase):
             "review_return_to_pickup_median_sec": "UNKNOWN",
             "review_return_to_pickup_sample_n": 0,
             "wake_to_pickup_median_sec": 10.0, "wake_to_pickup_sample_n": 1,
+            "review_return_to_pickup_open_elapsed_sec": [0.0, 42.5],
+            "wake_to_pickup_open_elapsed_sec": [],
         }
         prs = [{"repo": "acme/app", "number": 1, "url": "https://github.com/acme/app/pull/1", "headRefOid": head}]
         row = export.build_snapshot(
@@ -192,6 +198,12 @@ class OwnershipAttentionTests(unittest.TestCase):
         self.assertEqual(row["ownership"]["coverage"], 0.1)
         self.assertIsNone(row["ownership"]["review_return_to_pickup_sec"])
         self.assertEqual(row["ownership"]["review_return_to_pickup_sample_n"], 0)
+        self.assertEqual(row["ownership"]["wake_to_pickup_sec"], 10.0)
+        self.assertEqual(row["ownership"]["wake_to_pickup_sample_n"], 1)
+        self.assertEqual(
+            row["ownership"]["review_return_to_pickup_open_elapsed_sec"], [0.0, 42.5]
+        )
+        self.assertEqual(row["ownership"]["wake_to_pickup_open_elapsed_sec"], [])
         ownership_gap = next(gap for gap in export.build_snapshot(
             {"open_prs_unknown_idle": [attention]}, query([metric(1, pr_state="OPEN")]), prs
         )["gaps"] if gap["key"] == "ownership")

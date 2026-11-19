@@ -2890,6 +2890,81 @@ class TestDriverOwnershipProjection(unittest.TestCase):
         self.assertEqual(durations["review_return -> next_substantive_action"], 180.0)
         self.assertEqual(durations["wake_fired -> next_substantive_action"], 120.0)
 
+    def test_legacy_receipt_does_not_interrupt_v1_continuity(self):
+        start = datetime(2026, 11, 11, 10, 15, tzinfo=timezone.utc)
+        end = start + timedelta(minutes=15)
+        rows = self._fixture()[:6]
+        legacy = {
+            "event_id": "legacy-review-request",
+            "event_type": "review_requested",
+            "occurred_at": format_iso_utc(start + timedelta(minutes=1)),
+            "observed_at": format_iso_utc(start + timedelta(minutes=1)),
+            "pr_id": f"{self.REPO}#7",
+            "candidate_sha": self.HEAD,
+            "attempt_number": 1,
+        }
+        pr = {"repo": self.REPO, "number": 7, "headRefOid": self.HEAD}
+
+        metrics = MetricsAggregator().compute_driver_ownership_metrics(
+            pr, self._collect(rows + [legacy]), start, end,
+        )
+        self.assertEqual(metrics["status"], "COMPLETE")
+        self.assertEqual(metrics["unattended_sec_lower_bound"], 480.0)
+
+        unknown_version = dict(rows[1], schema_version=99)
+        metrics = MetricsAggregator().compute_driver_ownership_metrics(
+            pr, self._collect([rows[0], unknown_version, *rows[2:]]), start, end,
+        )
+        self.assertNotEqual(metrics["status"], "COMPLETE")
+        self.assertEqual(metrics["unknown_sec"], 300.0)
+
+    def test_pickup_clocks_are_right_censored_at_the_report_cutoff(self):
+        start = datetime(2026, 11, 11, 10, 15, tzinfo=timezone.utc)
+        pr = {
+            "repo": self.REPO, "number": 7, "state": "OPEN", "headRefOid": self.HEAD,
+            "createdAt": format_iso_utc(start), "updatedAt": format_iso_utc(start),
+            "url": f"https://github.com/{self.REPO}/pull/7", "labels": [],
+        }
+        events = self._collect(self._fixture()[:6])
+        for minute, review_open, wake_open, review_median, wake_median in (
+            (11, [], [], "UNKNOWN", "UNKNOWN"),
+            (12, [0.0], [], "UNKNOWN", "UNKNOWN"),
+            (13, [60.0], [0.0], "UNKNOWN", "UNKNOWN"),
+            (14, [120.0], [60.0], "UNKNOWN", "UNKNOWN"),
+            (15, [], [], 180.0, 120.0),
+        ):
+            with self.subTest(cutoff_minute=minute):
+                cutoff = start + timedelta(minutes=minute)
+                summary = MetricsAggregator(cutoff_dt=cutoff).aggregate_full_dataset(
+                    [pr], handoff_records=events, now_dt=cutoff,
+                )
+                projected = _project_summary(summary)
+                row, = projected["open_prs_known_idle"] + projected["open_prs_unknown_idle"]
+                self.assertEqual(row["review_return_to_pickup_open_elapsed_sec"], review_open)
+                self.assertEqual(row["wake_to_pickup_open_elapsed_sec"], wake_open)
+                self.assertEqual(row["review_return_to_pickup_median_sec"], review_median)
+                self.assertEqual(row["wake_to_pickup_median_sec"], wake_median)
+
+    def test_unsupported_schema_or_unmatched_head_cannot_open_pickup_clock(self):
+        cutoff = datetime(2026, 11, 11, 10, 29, tzinfo=timezone.utc)
+        pr = {
+            "repo": self.REPO, "number": 7, "state": "OPEN", "headRefOid": self.HEAD,
+            "createdAt": "2026-11-11T10:15:00Z",
+        }
+        rows = self._fixture()[3:5]
+        for record, observed in (
+            (pr, [dict(row, schema_version=99) for row in rows]),
+            (dict(pr, headRefOid="b" * 40), rows),
+            (dict(pr, headRefOid=None), rows),
+        ):
+            with self.subTest(head=record["headRefOid"], version=observed[0]["schema_version"]):
+                summary = MetricsAggregator(cutoff_dt=cutoff).aggregate_full_dataset(
+                    [record], handoff_records=self._collect(observed), now_dt=cutoff,
+                )
+                row, = summary["open_prs_unknown_idle"]
+                self.assertEqual(row["review_return_to_pickup_open_elapsed_sec"], [])
+                self.assertEqual(row["wake_to_pickup_open_elapsed_sec"], [])
+
     def test_incomplete_or_mismatched_evidence_is_not_ranked(self):
         cutoff = datetime(2026, 11, 18, 10, 15, tzinfo=timezone.utc)
         aggregator = MetricsAggregator(cutoff_dt=cutoff)

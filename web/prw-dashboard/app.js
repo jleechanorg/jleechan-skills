@@ -55,6 +55,11 @@
     return seconds < 90 ? seconds.toFixed(1) + " s" : S.formatDuration(seconds);
   }
 
+  function openPickupDurations(seconds) {
+    if (!Array.isArray(seconds)) return null;
+    return seconds.length ? seconds.map(pickupDuration).join(" · ") : "None observed";
+  }
+
   function fmtTime(iso, withTime) {
     if (!iso) return null;
     var opts = { timeZone: state.tz, year: "numeric", month: "short", day: "numeric" };
@@ -639,6 +644,10 @@
           ? pickupDuration(pr.ownership.review_return_to_pickup_sec) + " (n=" + pr.ownership.review_return_to_pickup_sample_n + ")" : null],
         ["Wake to pickup", typeof pr.ownership.wake_to_pickup_sec === "number"
           ? pickupDuration(pr.ownership.wake_to_pickup_sec) + " (n=" + pr.ownership.wake_to_pickup_sample_n + ")" : null],
+        ["Pending review pickup elapsed",
+          openPickupDurations(pr.ownership.review_return_to_pickup_open_elapsed_sec)],
+        ["Pending wake pickup elapsed",
+          openPickupDurations(pr.ownership.wake_to_pickup_open_elapsed_sec)],
         ["Status", pr.ownership.status],
       ]) : h("p", { class: "note", text: "Unavailable. No versioned ownership observations were collected for this PR." })]),
       h("section", null, [h("h3", { text: "Time and size" }), dl([
