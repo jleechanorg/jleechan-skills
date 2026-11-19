@@ -27,6 +27,12 @@ installs only with `--profile web` or `--with web-advice`.
 
 Strategy source: [“Shift left, shift right — a portable skill system”](https://docs.google.com/presentation/d/1rGk2ZUIlJw3AkVJmJbdVB5OqAixR6M_xp7lc6lP2awA/edit?slide=id.gogSlide1787597443235634000#slide=id.gogSlide1787597443235634000).
 
+### LLM response streaming
+
+The optional [LLM response streaming skill](.claude/skills/llm-response-streaming/SKILL.md)
+includes a runnable Python reference for Gemini direct, OpenRouter, and browser
+SSE delivery. Select it with `./install-claude-commands.sh --with llm-response-streaming`.
+
 ### PR workflow entry point
 
 Start with [PR Workflow Manager](.claude/skills/pr-workflow-manager/SKILL.md)
