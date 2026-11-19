@@ -244,9 +244,9 @@ media cells in a findings table need inline copies. The element under test must
 change in the pixels, not only in a caption; below-fold or caption-only video
 does not prove the claim, and an independent reviewer must decode the relevant
 frames. Verify the intended
-reviewer's access, media content type and rendered PR-body URLs. Play the exact
-delivered file through the claimed action and the settled destination. Check
-that captions, masks and crops preserve the complete screen. Use clickable
+reviewer's access, media content type and rendered PR-body URLs. For video, play
+the exact delivered file through the claimed action and the settled destination.
+Check that captions, masks and crops preserve the complete screen. Use clickable
 authorized hosts rather than `gs://` or `storage.cloud.google.com/` links. The
 sanitized receipt lists the same media hashes and access mode. Never make private
 media public merely to satisfy reachability, use placeholders/crops that hide the
