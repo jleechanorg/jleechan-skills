@@ -560,6 +560,12 @@ def _sanitize_retained_record(record, allowed, nested=False):
     return out
 
 
+def _canonical_transition_receipt(row):
+    if row.get("record_type") == "transition_event" and "schema_version" in row:
+        return _sanitize_retained_record(row, RETAINED_HANDOFF_FIELDS, nested=True)
+    return row
+
+
 def _scrub_secrets(obj):
     """Recursively redact credentials in every string value without truncating."""
     if isinstance(obj, str):
@@ -1768,7 +1774,7 @@ class Collector:
                                         for key in continuity_fields if key in continuity
                                     }
                                 version = receipt.get("schema_version")
-                                if version is not None and (type(version) is not int or version != 1):
+                                if "schema_version" in receipt and (type(version) is not int or version != 1):
                                     stats["receipt_unknown_schema_events"] += 1
                                 receipt["record_type"] = "transition_event"
                                 records.append(receipt)
@@ -2372,7 +2378,7 @@ PICKUP_CLOCKS = {
 
 
 def _has_ownership_observation_fields(row):
-    return row.get("schema_version") is not None or any(
+    return "schema_version" in row or any(
         key in row for key in OWNERSHIP_OBSERVATION_FIELDS
     )
 
@@ -2605,7 +2611,7 @@ class MetricsAggregator:
 
         pr_id = f"{pr.get('repo')}#{pr.get('number')}"
         matching = [
-            row for row in records or []
+            _canonical_transition_receipt(row) for row in records or []
             if isinstance(row, dict) and row.get("record_type") == "transition_event"
             and row.get("pr_id") == pr_id
             and _has_ownership_observation_fields(row)
@@ -3528,6 +3534,7 @@ class MetricsAggregator:
         for row in records:
             if not isinstance(row, dict) or row.get("record_type") != "transition_event":
                 continue
+            row = _canonical_transition_receipt(row)
             raw_event_id = row.get("event_id")
             event_id = _usage_label(raw_event_id)
             source_event_type = row.get("event_type")

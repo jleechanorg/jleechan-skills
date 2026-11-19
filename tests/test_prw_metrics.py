@@ -2890,6 +2890,35 @@ class TestDriverOwnershipProjection(unittest.TestCase):
         self.assertEqual(durations["review_return -> next_substantive_action"], 180.0)
         self.assertEqual(durations["wake_fired -> next_substantive_action"], 120.0)
 
+    def test_versioned_receipts_have_live_and_retained_replay_parity(self):
+        start = datetime(2026, 11, 11, 10, 15, tzinfo=timezone.utc)
+        end = start + timedelta(minutes=15)
+        pr = {"repo": self.REPO, "number": 7, "headRefOid": self.HEAD}
+        rows = self._fixture()[:6]
+        rows[1]["continuity_receipt"]["receipt_id"] = "../local/driver.log"
+        invalid = {
+            key: rows[3][key] for key in (
+                "event_id", "occurred_at", "observed_at", "pr_id", "candidate_sha", "attempt_number",
+            )
+        }
+        invalid.update(event_type="review_return", schema_version="invalid/schema")
+        live = self._collect(rows + [invalid])
+        path = "dashboards/prw/telemetry/20261111/retained_handoffs.jsonl"
+        replay = [
+            json.loads(line) for line in sanitize_telemetry_file(
+                path, "\n".join(map(json.dumps, live)),
+            ).splitlines()
+        ]
+        aggregator = MetricsAggregator()
+        before = aggregator.compute_driver_ownership_metrics(pr, live[:-1], start, end)
+        after = aggregator.compute_driver_ownership_metrics(pr, replay[:-1], start, end)
+        self.assertEqual(before, after)
+        self.assertNotEqual(before["status"], "COMPLETE")
+        self.assertEqual(
+            aggregator.adapt_transition_event_receipts(live, [pr], as_of=end),
+            aggregator.adapt_transition_event_receipts(replay, [pr], as_of=end),
+        )
+
     def test_legacy_receipt_does_not_interrupt_v1_continuity(self):
         start = datetime(2026, 11, 11, 10, 15, tzinfo=timezone.utc)
         end = start + timedelta(minutes=15)
