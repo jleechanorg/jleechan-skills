@@ -17,7 +17,7 @@ Use [Starter Kit iOS](../starter-kit-ios/SKILL.md) for scaffold, build, evidence
 
 | Existing app | Recommended iOS bridge |
 | --- | --- |
-| Electron, Tauri, or web UI | Expo/React Native/TypeScript for screens. Reuse pure JS/TS models, validation, formatting, and API client logic when portable. Replace DOM/CSS, Node filesystem, IPC, and desktop window APIs; don't wrap the whole UI in a WebView by default. |
+| Electron, Tauri, or web UI | Expo/React Native/TypeScript for screens. Reuse pure JS/TS models, validation, formatting, and API client logic when portable. Replace DOM/CSS, Node filesystem, IPC, and desktop window APIs; a WebView may show bounded web content where the story calls for it, but wrapping or merely scaling the desktop UI does not satisfy the port. |
 | Python, .NET, Java, or other service-backed desktop | Keep the typed API contract. Reuse the existing service only in an explicitly approved, isolated staging or development environment; otherwise use fixtures or a separate backend. Build a new Expo client with environment selection and auth appropriate to the new app. Do not port desktop-only runtime code into mobile JS. |
 | Native macOS/Swift, Windows, or Qt desktop | Preserve product behavior and portable fixtures. Reuse domain logic through an existing API or a deliberate shared core if it earns its cost. Add a native Expo module only for a capability not covered by an Expo/RN library. |
 | Desktop-local files or database | Start with approved import/export or a mobile-local store. Add explicit sync only if needed, with stable IDs, retries, conflicts, and recovery tests. Never point the phone at a desktop DB file or a guessed private host. |
@@ -28,9 +28,9 @@ Use [Starter Kit iOS](../starter-kit-ios/SKILL.md) for scaffold, build, evidence
 
 ## 3. Build, compare, and iterate
 
-1. Capture the desktop task's starting and ending states as a reference, when available; label a sketch if the desktop app isn't accessible. Capture the first mobile attempt with the same story, then iterate on the actual Expo phone UI. Test the emulator/simulator with appropriate keyboard, permission, and network conditions. Use mobile web first where the same component path is supported; do not count it as native.
+1. Capture the desktop task's starting and ending states as a reference, when available; label a sketch if the desktop app isn't accessible. Capture the first mobile attempt with the same story, then iterate on the actual Expo phone UI. Test the emulator/simulator with appropriate keyboard, permission, and network conditions. Use mobile web first where the same component path is supported; do not count it as native. Without an authorized Mac/runtime or a verified installed-device run, report native verification as blocked.
 2. Review one action at a time: is it discoverable without desktop affordances? Does the outcome match the story? Do long text, safe areas, input focus, back gestures and interrupted/resumed flows work? Record the exact commit and evidence per story; fix failures and replay before asking for sign-off.
-3. Exit with a feature mapping (implemented/deferred), stack decision, test and recording receipts, and a list of open findings. Get actual visual acceptance from the designated reviewer or user if required; don't call an uninspected recording or an untested shared-data assumption accepted.
+3. Exit with a feature mapping (implemented/deferred), stack decision, test and recording receipts, and a list of open findings. Get actual visual acceptance from the designated reviewer or user if required; do not accept an uninspected recording, a desktop wrapper, or a story that fails its expected outcome.
 
 ### Handoff request
 
