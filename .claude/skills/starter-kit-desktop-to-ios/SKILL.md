@@ -18,7 +18,7 @@ Use [Starter Kit iOS](../starter-kit-ios/SKILL.md) for scaffold, build, evidence
 | Existing app | Recommended iOS bridge |
 | --- | --- |
 | Electron, Tauri, or web UI | Expo/React Native/TypeScript for screens. Reuse pure JS/TS models, validation, formatting, and API client logic when portable. Replace DOM/CSS, Node filesystem, IPC, and desktop window APIs; don't wrap the whole UI in a WebView by default. |
-| Python, .NET, Java, or other service-backed desktop | Keep the existing authorized service and its typed API contract. Build a new Expo client with environment selection and auth appropriate to the new app. Do not port desktop-only runtime code into mobile JS. |
+| Python, .NET, Java, or other service-backed desktop | Keep the typed API contract. Reuse the existing service only in an explicitly approved, isolated staging or development environment; otherwise use fixtures or a separate backend. Build a new Expo client with environment selection and auth appropriate to the new app. Do not port desktop-only runtime code into mobile JS. |
 | Native macOS/Swift, Windows, or Qt desktop | Preserve product behavior and portable fixtures. Reuse domain logic through an existing API or a deliberate shared core if it earns its cost. Add a native Expo module only for a capability not covered by an Expo/RN library. |
 | Desktop-local files or database | Start with approved import/export or a mobile-local store. Add explicit sync only if needed, with stable IDs, retries, conflicts, and recovery tests. Never point the phone at a desktop DB file or a guessed private host. |
 
