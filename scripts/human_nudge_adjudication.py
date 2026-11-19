@@ -9,6 +9,14 @@ import sys
 from pathlib import Path
 
 
+if __package__:
+    from .prw_metrics import _safe_pr_id
+    from .native_usage_collector import RETRACTABLE_ANNOTATION_FIELDS
+else:
+    from prw_metrics import _safe_pr_id
+    from native_usage_collector import RETRACTABLE_ANNOTATION_FIELDS
+
+
 _PROMPTS = Path(__file__).parent / "prompts"
 _INPUT_SCHEMA_VERSION = "human-nudge-input.v1"
 _PRESERVED_ANNOTATION_FIELDS = {
@@ -17,6 +25,7 @@ _PRESERVED_ANNOTATION_FIELDS = {
     "effective_association_confidence", "original_association_basis",
     "original_association_confidence", "context_associated_pr",
     "effective_associated_pr", "original_associated_pr", "score", "pr_binding",
+    "association_scope", "associated_prs", "association_evidence",
 }
 
 
@@ -65,6 +74,18 @@ def _judge(packet, command, timeout):
     annotation_properties = annotation_schema["properties"]
     annotation_fields = set(annotation_properties)
     annotation_required = set(annotation_schema["required"])
+    event_ids = [event["event_id"] for event in packet["events"]]
+    value_schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {key: value for key, value in annotation_properties.items() if key != "event_id"},
+        "required": [key for key in annotation_schema["required"] if key != "event_id"],
+    }
+    response_schema["properties"]["annotations"] = {
+        "type": "object", "additionalProperties": False,
+        "properties": {event_id: value_schema for event_id in event_ids},
+        "required": event_ids,
+    }
     request = {
         "prompt": (_PROMPTS / "human_nudge_adjudication.md").read_text(
             encoding="utf-8"
@@ -87,11 +108,18 @@ def _judge(packet, command, timeout):
         raise ValueError("judge response was not valid JSON") from exc
     if (
         not isinstance(response, dict)
-        or not isinstance(response.get("annotations"), list)
+        or not isinstance(response.get("annotations"), (dict, list))
     ):
-        raise ValueError("judge response must contain an annotations array")
+        raise ValueError("judge response must contain annotations")
+    expected_ids = set(event_ids)
     annotations = response["annotations"]
-    expected_ids = {event["event_id"] for event in packet["events"]}
+    legacy_array = isinstance(annotations, list)
+    if isinstance(annotations, dict):
+        if set(annotations) != expected_ids:
+            raise ValueError("judge response event IDs do not match the input packet")
+        if any(not isinstance(value, dict) or "event_id" in value for value in annotations.values()):
+            raise ValueError("judge annotation has an invalid keyed value")
+        annotations = [{"event_id": event_id, **annotations[event_id]} for event_id in event_ids]
     events_by_id = {event["event_id"]: event for event in packet["events"]}
     received_ids = []
     normalized = []
@@ -103,7 +131,10 @@ def _judge(packet, command, timeout):
             raise ValueError("judge annotation is missing an event_id")
         if set(annotation) - annotation_fields:
             raise ValueError("judge annotation contains unsupported fields")
-        if not annotation_required.issubset(annotation):
+        required = annotation_required
+        if legacy_array and not {"association_scope", "associated_prs", "association_evidence"} & annotation.keys():
+            required = {"event_id", "actor_kind", "message_kind", "human_nudge_eligible"}
+        if not required.issubset(annotation):
             raise ValueError("judge annotation is missing required fields")
         for key, value in annotation.items():
             enum = annotation_properties[key].get("enum")
@@ -119,9 +150,22 @@ def _judge(packet, command, timeout):
                     ("string" in accepted_types and isinstance(value, str))
                     or ("boolean" in accepted_types and isinstance(value, bool))
                     or ("null" in accepted_types and value is None)
+                    or ("array" in accepted_types and isinstance(value, list))
                 )
                 if not valid_type:
                     raise ValueError("judge annotation has an invalid field type")
+        association_keys = {"association_scope", "associated_prs", "association_evidence"}
+        if association_keys & annotation.keys():
+            if not association_keys <= annotation.keys():
+                raise ValueError("judge association is incomplete")
+            scope, prs, evidence = (annotation[k] for k in ("association_scope", "associated_prs", "association_evidence"))
+            if (any(not _safe_pr_id(pr) for pr in prs) or len(set(prs)) != len(prs)
+                    or any(not isinstance(item, str) or item not in {"conversation", "session_binding", "git_context", "prior_review"} for item in evidence)
+                    or (scope == "single" and len(prs) != 1)
+                    or (scope == "multi" and len(prs) < 2)
+                    or (scope in ("global", "unknown") and prs)
+                    or (prs and not evidence)):
+                raise ValueError("judge association is invalid")
         received_ids.append(annotation["event_id"])
     if (
         len(received_ids) != len(set(received_ids))
@@ -135,7 +179,41 @@ def _judge(packet, command, timeout):
             for key, value in events_by_id[annotation["event_id"]].items()
             if key in _PRESERVED_ANNOTATION_FIELDS
         })
+        prior = events_by_id[annotation["event_id"]]
+        legacy_multi = (prior.get("context_pr_decision") == "unassigned_multi_pr"
+                        and not prior.get("pr_binding") and not prior.get("associated_prs")
+                        and not prior.get("prior_association")
+                        and annotation.get("association_scope") == "multi")
+        if legacy_multi and output_annotation.get("pr_binding") is None:
+            output_annotation.pop("pr_binding", None)
+        if not legacy_multi and (any(key in prior for key in ("context_pr_decision", "pr_binding"))
+                or prior.get("association_retracted")
+                or prior.get("prior_association")
+                or (prior.get("review_id") and "association_scope" in prior)):
+            annotation = {k: v for k, v in annotation.items() if k not in {
+                "association_scope", "associated_prs", "association_evidence"}}
         output_annotation.update(annotation)
+        retractions = prior.get("prior_retractions")
+        if isinstance(retractions, list):
+            for key in RETRACTABLE_ANNOTATION_FIELDS:
+                if key in retractions:
+                    output_annotation[key] = None
+        prior_review = prior.get("prior_review")
+        if isinstance(prior_review, dict):
+            for key in ("actor_kind", "human_origin", "message_kind", "human_nudge_eligible"):
+                if key not in prior_review:
+                    continue
+                value = prior_review[key]
+                if key == "human_origin":
+                    allowed = ("verified_human", "unknown", "unverified_candidate", "automated_watch", "automated_watch_excluded", None)
+                else:
+                    allowed = annotation_properties[key]["enum"]
+                    if key == "actor_kind":
+                        allowed = [*allowed, None]
+                if value in allowed and (key != "human_nudge_eligible" or value is None or isinstance(value, bool)):
+                    output_annotation[key] = value
+            if "human_origin" in output_annotation and "actor_kind" not in prior_review:
+                output_annotation.pop("actor_kind", None)
         normalized.append(output_annotation)
     return normalized
 

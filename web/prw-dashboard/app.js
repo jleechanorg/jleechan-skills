@@ -416,7 +416,7 @@
 
     var hc = data.human_coverage || {};
     var classes = [
-      ["assigned_verified_messages", "Verified, tied to one PR"],
+      ["assigned_verified_messages", "Verified, tied to PRs"],
       ["branch_only_messages", "Branch match only"],
       ["multi_pr_unassigned_messages", "Unassigned: several PRs"],
       ["ambiguous_branch_messages", "Ambiguous branch"],
@@ -498,6 +498,7 @@
     { key: "tokens", label: "Tokens", num: true, get: function (p) { return p.usage ? p.usage.total : null; } },
     { key: "cost", label: "List price", num: true, get: function (p) { return p.cost ? p.cost.known_subtotal_usd : null; } },
     { key: "human", label: "Steering msgs", num: true, get: function (p) { return p.human ? p.human.verified_messages : null; } },
+    { key: "nudges", label: "Nudges", num: true, get: function (p) { return p.human ? p.human.nudge_messages : null; } },
     { key: "idle", label: "Unattended", num: true, get: function (p) { return p.eligible_idle_s; } },
     { key: "size", label: "Lines", num: true, get: function (p) { return p.size ? p.size.additions + p.size.deletions : null; } },
   ];
@@ -551,6 +552,7 @@
         cell(pr.cost ? (pr.cost.full_scenario_usd !== null ? pr.cost.full_scenario_usd : pr.cost.known_subtotal_usd) : null,
           function (v) { return (pr.cost.full_scenario_usd !== null ? "" : "≥ ") + usd(v); }),
         cell(pr.human ? pr.human.verified_messages : null, function (v) { return v.toLocaleString("en-US"); }),
+        cell(pr.human ? pr.human.nudge_messages : null, function (v) { return v.toLocaleString("en-US"); }),
         cell(pr.eligible_idle_s, S.formatDuration),
         cell(pr.size ? pr.size.additions + pr.size.deletions : null, function (v) { return v.toLocaleString("en-US"); }),
       ]));
@@ -606,7 +608,7 @@
       ]) : h("p", { class: "note", text: "Unavailable (" + (pr.cost_status || "no priced usage") + ")." }),
         h("p", { class: "note", text: "Public list prices applied to observed tokens. Not subscription spend, an invoice, or quota used." })]),
       h("section", null, [h("h3", { text: "Human steering" }), pr.human ? dl([
-        ["Verified messages", n(pr.human.verified_messages)], ["Initial requests", n(pr.human.initial)], ["Follow-ups", n(pr.human.followup)],
+        ["Verified messages", n(pr.human.verified_messages)], ["Nudges", n(pr.human.nudge_messages)], ["Initial requests", n(pr.human.initial)], ["Follow-ups", n(pr.human.followup)],
         ["Branch-only candidates", n(pr.human.branch_candidates)],
         ["Episodes", pr.human.episodes && ["good", "bad", "mixed", "unknown"].some(function (k) { return pr.human.episodes[k]; })
           ? ["good", "bad", "mixed", "unknown"].map(function (k) { return (pr.human.episodes[k] || 0) + " " + k; }).join(" · ") : "None recorded"],
@@ -648,6 +650,7 @@
       { header: "list_price_known_usd", value: function (p) { return p.cost ? p.cost.known_subtotal_usd : null; } },
       { header: "list_price_full_usd", value: function (p) { return p.cost ? p.cost.full_scenario_usd : null; } },
       { header: "verified_steering_messages", value: function (p) { return p.human ? p.human.verified_messages : null; } },
+      { header: "nudge_messages", value: function (p) { return p.human ? p.human.nudge_messages : null; } },
       { header: "active_seconds", value: function (p) { return p.active_s; } },
       { header: "eligible_unattended_seconds", value: function (p) { return p.eligible_idle_s; } },
       { header: "lines_changed", value: function (p) { return p.size ? p.size.additions + p.size.deletions : null; } },

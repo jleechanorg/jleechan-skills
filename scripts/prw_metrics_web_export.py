@@ -328,6 +328,7 @@ def _pr_row(metric, record, scenario, stage_events=None, cutoff=None, history_fr
             "coverage_status": metric.get("human_coverage_status"),
             "confidence": metric.get("human_association_confidence"),
             "verified_messages": _count(metric.get("raw_verified_human_message_count")),
+            "nudge_messages": _count(metric.get("human_nudge_message_count")),
             "initial": _count(metric.get("verified_initial_human_message_count")),
             "followup": _count(metric.get("verified_followup_human_message_count")),
             "mid_pr": _mid_pr(metric, flow, cutoff, history_from, history_to),
@@ -409,7 +410,7 @@ def _gaps(rows, coverage):
         "Public-list-price scenario only, never invoiced spend. Rows with unpriced token buckets "
         "show a known-component subtotal, which is a lower bound.")
     add("human", "Human steering per PR", have(lambda r: r["human"] and r["human"]["verified_messages"]),
-        "Counts verified-human messages bound to one PR. Branch-only and ambiguous candidates are not counted.")
+        "Counts verified-human messages per selected PR; multi-PR messages can appear on each. Branch-only and ambiguous candidates are not counted.")
     add("active", "Observed active time", have(lambda r: r["active_s"] is not None),
         "Needs timed operation telemetry; elapsed minus active is a residual, not wasted time.")
     add("idle", "Eligible idle time", have(lambda r: r["eligible_idle_s"] is not None),

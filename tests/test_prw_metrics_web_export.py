@@ -521,3 +521,36 @@ class FrontendStatsTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_conflicting_multi_memberships_keep_both_mid_pr_unknown():
+    import prw_metrics
+
+    prs = [{"repo": "acme/app", "number": n, "state": "MERGED",
+            "createdAt": "2026-11-01T08:00:00Z", "mergedAt": "2026-11-01T13:00:00Z"} for n in (1, 2)]
+    for flip in (False, True):
+        records = [{"event_id": f"anchor{n}", "provider": "codex", "timestamp": "2026-11-01T09:00:00Z",
+                    "actor_kind": "human", "pr_binding": {"pr": f"acme/app#{n}"}} for n in (1, 2)]
+        copies = [{"event_id": "disputed", "provider": "codex", "timestamp": "2026-11-01T11:00:00Z",
+                   "actor_kind": "human", "association_scope": "multi", "associated_prs": choices}
+                  for choices in (["acme/app#1", "acme/app#2"], ["acme/app#1"])]
+        records += copies[::-1] if flip else copies
+        agg = {r["pr"]: r for r in prw_metrics.aggregate_native_human_steering(
+            records, prs, window_start="2026-10-01T00:00:00Z", window_end="2026-12-01T00:00:00Z")["per_pr"]}
+        q = query([metric(n, human_coverage_status="OBSERVED_SCOPE_ONLY", raw_verified_human_message_count=1,
+                          confirmed_verified_at=agg[f"acme/app#{n}"]["confirmed_verified_at"],
+                          unconfirmed_verified_messages=agg[f"acme/app#{n}"]["unconfirmed_verified_messages"]) for n in (1, 2)])
+        timeline = [{"repo": "acme/app", "pr_number": n, "event": "labeled", "label": label, "createdAt": at}
+                    for n in (1, 2) for label, at in (("stage:1-coding", "2026-11-01T10:00:00Z"),
+                                                       ("stage:5-final-approval", "2026-11-01T12:00:00Z"))]
+        summary = {"usage_summary": {"coverage": {"native_source": {"status": "COMPLETE", "window_start": "2026-10-01T00:00:00Z", "window_end": "2026-12-01T00:00:00Z"}}}}
+        rows = export.build_snapshot(summary, q, prs, timeline=timeline)["prs"]
+        assert [row["human"]["mid_pr"] for row in rows] == [None, None]
+
+
+def test_malformed_association_scope_is_ignored_without_exception():
+    from scripts.native_usage_collector import _apply_replay_annotation
+    for invalid in ([], {}):
+        record = {"event_id": "e"}
+        _apply_replay_annotation(record, {"association_scope": invalid, "associated_prs": [], "association_evidence": []})
+        assert "association_scope" not in record
