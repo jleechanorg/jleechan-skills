@@ -89,7 +89,16 @@ explicit in its record. One of the following must be observed:
 An open PR with no observed execution, verified dependency/device wait, measured
 capacity wait, or specific driver-owned recovery is an uncovered actionable
 obligation. The driver starts or safely reassigns it without blocking unrelated
-PRs. For any wait, a written wake condition alone is not a handle. Record the
+PRs. Before yielding on a blocker, ask: “If this dependency stays blocked,
+which required action can I still finish?” Inspect this PR’s closing records,
+then the other PRs you already own. Start the first authorized independent
+action whose result is still useful at the current head, or continue its
+existing executor or job without duplicating it. Recheck after each dispatch,
+failure, or result until the independent obligations are covered. If every
+remaining action depends on the blocker, retain the owner and verified wake.
+When a result returns, verify the current head and base, update the affected
+records, and keep evidence that remains applicable. For any wait, a written
+wake condition alone is not a handle. Record the
 actual job/result handle, callback or scheduled check, responsible result
 owner, and due time when applicable. At the due time, inspect the handle once;
 if it failed or its wake was missed, update the record and recover without a
