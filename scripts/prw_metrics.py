@@ -311,25 +311,41 @@ RETAINED_NESTED_KEYS = frozenset({
 })
 
 
-def _retained_nested(value, depth=3, *, path_free=False, field=None):
+_OWNERSHIP_PROOF_FIELDS = frozenset({
+    "event_id", "event_type", "occurred_at", "pr_id", "candidate_sha", "attempt_number",
+    "obligation_id", "source", "sequence", "preceding_event_id", "state", "owner_id",
+    "worker_id", "job_id", "result_receipt", "wait_reason", "wake_trigger", "wake_due_at",
+    "continuity_from_event_id", "continuity_receipt",
+})
+
+
+def _retained_nested(value, depth=3, *, path_free=False, field=None, redacted_proof=None):
     """Keep scalars, ISO-formatted datetimes, and nested lists/dicts limited to RETAINED_NESTED_KEYS."""
     if isinstance(value, datetime):
         return format_iso_utc(value)
     if isinstance(value, str):
+        redacted = redact_sensitive_excerpt(value, max_chars=len(value) + (32 if path_free else 4))
         if path_free:
-            value = _without_local_path(value, field)
-        if value is None:
-            return None
-        return redact_sensitive_excerpt(value, max_chars=len(value) + 4)
+            if redacted != value or "[REDACTED]" in value or "[PATH]" in value:
+                if redacted_proof is not None:
+                    redacted_proof.add(field)
+                return None
+            return _without_local_path(value, field)
+        return redacted
     if value is None or isinstance(value, (bool, int, float)):
         return value
     if depth <= 0:
         return None
     if isinstance(value, (list, tuple)):
-        return [_retained_nested(v, depth - 1, path_free=path_free, field=field) for v in value]
+        return [
+            _retained_nested(v, depth - 1, path_free=path_free, field=field,
+                             redacted_proof=redacted_proof)
+            for v in value
+        ]
     if isinstance(value, dict):
         return {
-            k: _retained_nested(v, depth - 1, path_free=path_free, field=k)
+            k: _retained_nested(v, depth - 1, path_free=path_free, field=k,
+                                redacted_proof=redacted_proof)
             for k, v in value.items() if k in RETAINED_NESTED_KEYS
         }
     return None
@@ -540,6 +556,7 @@ def _sanitize_retained_record(record, allowed, nested=False):
         and record.get("record_type") == "transition_event"
         and "schema_version" in record
     )
+    redacted_proof = set()
     out = {}
     for key in allowed:
         if key not in record:
@@ -550,13 +567,22 @@ def _sanitize_retained_record(record, allowed, nested=False):
         elif key in ("annotator_a", "annotator_b"):
             label = value.get("label") if isinstance(value, dict) else value
             out[key] = {"label": _retained_scalar(label)} if isinstance(value, dict) else _retained_scalar(label)
+        elif key == "source_receipt" and path_free:
+            continue  # Versioned observations use continuity_receipt, never a local receipt file.
         elif key == "source_receipt" and isinstance(value, str) and value:
             # Only the receipt's presence/identity matters downstream, never its local path.
             out[key] = "receipt-" + hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
         elif nested:
-            out[key] = _retained_nested(value, path_free=path_free, field=key)
+            out[key] = _retained_nested(
+                value, path_free=path_free, field=key,
+                redacted_proof=redacted_proof if key in _OWNERSHIP_PROOF_FIELDS else None,
+            )
         else:
             out[key] = _retained_scalar(value)
+    if redacted_proof:
+        # The receipt contract requires usable identities. Keep scope/time for
+        # gap accounting, but a redaction cannot prove this observation's state.
+        out["state"] = None
     return out
 
 
@@ -3530,6 +3556,7 @@ class MetricsAggregator:
         conflict_ids = set()
         raw_v1_fingerprints = {}
         raw_pickup_times = defaultdict(list)
+        predecessor_observations = defaultdict(set)
         pickups_missing_obligation = []
         for row in records:
             if not isinstance(row, dict) or row.get("record_type") != "transition_event":
@@ -3552,17 +3579,21 @@ class MetricsAggregator:
             attempt = row.get("attempt_number")
             version = row.get("schema_version")
             if (
-                as_of is not None and event_type in ("next_action_started", "worker_started")
-                and scope and tuple(scope) in pr_keys
+                as_of is not None and scope and tuple(scope) in pr_keys
                 and isinstance(candidate_sha, str)
                 and type(attempt) is int and attempt > 0
             ):
+                attempt_scope = (*scope, candidate_sha.lower(), attempt)
                 obligation = _usage_label(row.get("obligation_id"))
-                pickup_key = (*scope, candidate_sha.lower(), attempt, obligation)
-                raw_pickup_times[pickup_key].append(occurred)
                 preceding_id = _usage_label(row.get("preceding_event_id"))
-                if obligation is None and preceding_id:
-                    pickups_missing_obligation.append((pickup_key, preceding_id, occurred))
+                if type(version) is int and version == 1 and event_id and (obligation or preceding_id):
+                    predecessor_observations[(*attempt_scope, event_id)].add(
+                        (obligation, preceding_id, occurred)
+                    )
+                if event_type in ("next_action_started", "worker_started"):
+                    raw_pickup_times[(*attempt_scope, obligation)].append(occurred)
+                    if obligation is None and preceding_id:
+                        pickups_missing_obligation.append((attempt_scope, preceding_id, occurred))
             if type(version) is int and version == 1 and event_identity:
                 fingerprint_fields = (
                     "event_id", "event_type", "occurred_at", "pr_id", "candidate_sha",
@@ -3667,16 +3698,13 @@ class MetricsAggregator:
             if event_identity not in conflict_ids
         }
 
-        for pickup_key, preceding_id, occurred in pickups_missing_obligation:
-            repo, number, sha, attempt, _ = pickup_key
-            predecessor = clean_events_by_id.get((repo, number, preceding_id))
-            if (
-                predecessor and predecessor.get("obligation_id")
-                and predecessor["candidate_sha"] == sha
-                and predecessor["attempt_number"] == attempt
-            ):
-                linked_key = (repo, number, sha, attempt, predecessor["obligation_id"])
-                raw_pickup_times[linked_key].append(occurred)
+        # Conflicts invalidate completion proof, but can still make an open clock ambiguous.
+        for attempt_scope, preceding_id, occurred in pickups_missing_obligation:
+            obligations = self._pickup_obligation_candidates(
+                attempt_scope, preceding_id, occurred, predecessor_observations,
+            )
+            for obligation in obligations:
+                raw_pickup_times[(*attempt_scope, obligation)].append(occurred)
 
         pairs = []
         open_clocks = []
@@ -3762,6 +3790,28 @@ class MetricsAggregator:
         else:
             stats["status"] = stats.get("status", "NOT_COLLECTED")
         return pairs + open_clocks, stats
+
+    @staticmethod
+    def _pickup_obligation_candidates(attempt_scope, preceding_id, pickup_at, observations):
+        """Follow explicit links within one PR, head and attempt to attribute ambiguity."""
+        pending = [(preceding_id, pickup_at)]
+        visited = set()
+        obligations = set()
+        while pending:
+            event_id, latest_at = pending.pop()
+            if (event_id, latest_at) in visited:
+                continue
+            visited.add((event_id, latest_at))
+            for obligation, parent_id, occurred_at in observations.get(
+                (*attempt_scope, event_id), (),
+            ):
+                if latest_at is not None and occurred_at is not None and occurred_at > latest_at:
+                    continue
+                if obligation:
+                    obligations.add(obligation)
+                elif parent_id:
+                    pending.append((parent_id, occurred_at or latest_at))
+        return obligations
 
     @staticmethod
     def _ownership_event_follows(start_row, end_row, events_by_id):

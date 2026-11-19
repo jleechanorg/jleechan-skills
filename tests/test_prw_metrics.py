@@ -3017,6 +3017,64 @@ class TestDriverOwnershipProjection(unittest.TestCase):
                     expected,
                 )
 
+    def test_missing_pickup_obligation_respects_contested_predecessor_scopes(self):
+        cutoff = datetime(2026, 11, 11, 10, 35, tzinfo=timezone.utc)
+        pr = {"repo": self.REPO, "number": 7, "headRefOid": self.HEAD}
+        returned, wake, started = self._fixture()[3:6]
+        del started["obligation_id"]
+        alternate = self._event(
+            "alternate-return", "worker_returned", 8, 8, "actionable_unowned",
+            obligation="alternate",
+        )
+        unaffected = [
+            self._event(
+                "unrelated-return", "worker_returned", 9, 9, "actionable_unowned",
+                obligation="unrelated",
+            ),
+            self._event(
+                "other-attempt-return", "worker_returned", 10, 10, "actionable_unowned",
+                obligation="alternate", attempt=2,
+            ),
+            self._event(
+                "other-head-return", "worker_returned", 11, 11, "actionable_unowned",
+                obligation="alternate", candidate="b" * 40,
+            ),
+        ]
+        wake_without_obligation = dict(wake)
+        del wake_without_obligation["obligation_id"]
+        for case, wakes, expected_returns in (
+            ("same obligation", [wake, dict(wake, result_receipt="conflicting")],
+             [alternate, *unaffected]),
+            ("different obligation", [wake, dict(wake, obligation_id="alternate")], unaffected),
+            ("different attempt", [wake, dict(wake, obligation_id="alternate", attempt_number=2)],
+             [alternate, *unaffected]),
+            ("different head", [wake, dict(wake, obligation_id="alternate", candidate_sha="b" * 40)],
+             [alternate, *unaffected]),
+            ("later alternative", [wake, dict(wake, obligation_id="alternate",
+                                              occurred_at="2026-11-11T10:31:00Z")],
+             [alternate, *unaffected]),
+            ("wake missing obligation", [wake_without_obligation], [alternate, *unaffected]),
+            ("cyclic predecessor", [dict(wake_without_obligation, preceding_event_id=wake["event_id"])],
+             [returned, alternate, *unaffected]),
+        ):
+            rows = [returned, alternate, *unaffected, *wakes, started]
+            expected = {event["occurred_at"] for event in expected_returns}
+            for order, raw in (("forward", rows), ("reversed", rows[::-1])):
+                live = self._collect(raw)
+                retained = sanitize_telemetry_file(
+                    "dashboards/prw/telemetry/20261111/retained_handoffs.jsonl",
+                    "\n".join(map(json.dumps, live)),
+                )
+                replay = [json.loads(line) for line in retained.splitlines()]
+                for feed, events in (("live", live), ("replay", replay)):
+                    with self.subTest(case=case, order=order, feed=feed):
+                        clocks, _ = MetricsAggregator().adapt_transition_event_receipts(
+                            events, [pr], as_of=cutoff,
+                        )
+                        self.assertEqual({clock["start_at"] for clock in clocks}, expected)
+                        self.assertEqual(len(clocks), len(expected))
+                        self.assertTrue(all(clock["status"] == "RIGHT_CENSORED" for clock in clocks))
+
     def test_unsupported_schema_or_unmatched_head_cannot_open_pickup_clock(self):
         cutoff = datetime(2026, 11, 11, 10, 29, tzinfo=timezone.utc)
         pr = {
