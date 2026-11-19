@@ -2989,6 +2989,53 @@ class TestDriverOwnershipProjection(unittest.TestCase):
             self.assertEqual(metrics["unattended_sec_lower_bound"], 300.0)
             self.assertEqual(metrics["unknown_sec"], 600.0)
 
+    def test_untimed_duplicate_conflict_preserves_only_unaffected_ownership_spans(self):
+        start = datetime(2026, 11, 11, 10, 15, tzinfo=timezone.utc)
+        end = start + timedelta(minutes=15)
+        pr = {
+            "repo": self.REPO, "number": 7, "state": "OPEN",
+            "headRefOid": self.HEAD, "createdAt": format_iso_utc(start),
+        }
+        records = self._fixture()[:6]
+        endpoint = records[-1]
+        untimed = dict(endpoint, result_receipt="conflicting")
+        del untimed["occurred_at"]
+        malformed = dict(untimed, occurred_at="not-a-timestamp")
+        before_creation = dict(untimed, occurred_at="2026-11-11T10:14:00Z")
+        legacy = {
+            key: untimed[key] for key in (
+                "event_id", "event_type", "observed_at", "pr_id", "candidate_sha", "attempt_number",
+            )
+        }
+        for case, extra, expected, ownership in (
+            ("missing time", untimed, 360.0, "PARTIAL"),
+            ("invalid time", malformed, 360.0, "PARTIAL"),
+            ("before creation", before_creation, 360.0, "PARTIAL"),
+            ("unrelated ID", dict(untimed, event_id="unrelated-untimed"), 480.0, "COMPLETE"),
+            ("other PR", dict(untimed, pr_id="other/repo#9"), 480.0, "COMPLETE"),
+            ("clean mirror", dict(endpoint, observed_at="2026-11-11T10:31:00Z"), 480.0, "COMPLETE"),
+            ("legacy", legacy, 480.0, "COMPLETE"),
+        ):
+            for order, raw in (("after", [*records, extra]), ("before", [extra, *records])):
+                live = self._collect(raw)
+                retained = sanitize_telemetry_file(
+                    "dashboards/prw/telemetry/20261111/retained_handoffs.jsonl",
+                    "\n".join(map(json.dumps, live)),
+                )
+                replay = [json.loads(line) for line in retained.splitlines()]
+                for feed, events in (("live", live), ("replay", replay)):
+                    with self.subTest(case=case, order=order, feed=feed):
+                        summary = MetricsAggregator(cutoff_dt=end).aggregate_full_dataset(
+                            [pr], handoff_records=events, now_dt=end,
+                        )
+                        section = (
+                            "open_prs_known_idle" if ownership == "COMPLETE" else "open_prs_unknown_idle"
+                        )
+                        row, = summary[section]
+                        self.assertEqual(row["ownership_status"], ownership)
+                        self.assertEqual(row["ownership_unattended_sec_lower_bound"], expected)
+                        self.assertEqual(row["ownership_unknown_sec"], 480.0 - expected)
+
     def test_malformed_pickup_blocks_open_clocks_only_for_matching_scope(self):
         cutoff = datetime(2026, 11, 11, 10, 35, tzinfo=timezone.utc)
         pr = {"repo": self.REPO, "number": 7, "headRefOid": self.HEAD}

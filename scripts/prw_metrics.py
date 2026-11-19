@@ -592,6 +592,27 @@ def _canonical_transition_receipt(row):
     return row
 
 
+def _ownership_receipt_fingerprint(row):
+    """Compare receipt evidence independently of when an observer collected it."""
+    fingerprint = {
+        key: value for key, value in row.items()
+        if key in _OWNERSHIP_PROOF_FIELDS or key == "schema_version"
+    }
+    for time_field in ("occurred_at", "wake_due_at"):
+        parsed = _parse_utc_instant(fingerprint.get(time_field))
+        if parsed:
+            fingerprint[time_field] = parsed.isoformat(timespec="auto").replace("+00:00", "Z")
+    continuity = fingerprint.get("continuity_receipt")
+    if isinstance(continuity, dict):
+        continuity = dict(continuity)
+        for time_field in ("covers_from", "covers_to"):
+            parsed = _parse_utc_instant(continuity.get(time_field))
+            if parsed:
+                continuity[time_field] = parsed.isoformat(timespec="auto").replace("+00:00", "Z")
+        fingerprint["continuity_receipt"] = continuity
+    return json.dumps(fingerprint, sort_keys=True, separators=(",", ":"))
+
+
 def _scrub_secrets(obj):
     """Recursively redact credentials in every string value without truncating."""
     if isinstance(obj, str):
@@ -2636,50 +2657,46 @@ class MetricsAggregator:
             }
 
         pr_id = f"{pr.get('repo')}#{pr.get('number')}"
-        matching = [
-            _canonical_transition_receipt(row) for row in records or []
-            if isinstance(row, dict) and row.get("record_type") == "transition_event"
-            and row.get("pr_id") == pr_id
-            and _has_ownership_observation_fields(row)
-        ]
         pr_created = parse_iso_utc(pr.get("createdAt"))
-        if pr_created:
-            matching = [
-                row for row in matching
-                if parse_iso_utc(row.get("occurred_at"))
-                and parse_iso_utc(row.get("occurred_at")) >= pr_created
-            ]
-        if not matching:
-            total = (end_dt - start_dt).total_seconds()
-            return {
-                "status": "UNKNOWN", "unattended_sec_lower_bound": 0.0,
-                "unknown_sec": total, "coverage": 0.0,
-            }
-
         by_id = defaultdict(list)
-        for row in matching:
-            event_id = row.get("event_id")
-            if not isinstance(event_id, str) or not event_id:
-                by_id[None].append((row, None))
+        for row in records or []:
+            if (
+                not isinstance(row, dict) or row.get("record_type") != "transition_event"
+                or row.get("pr_id") != pr_id or not _has_ownership_observation_fields(row)
+            ):
                 continue
+            row = _canonical_transition_receipt(row)
+            event_id = _usage_label(row.get("event_id"))
             normalized = self.validate_ownership_observation(row, pr_id)
-            by_id[event_id].append((row, normalized))
+            representation = (
+                normalized if normalized is not None else _ownership_receipt_fingerprint(row)
+            )
+            by_id[event_id].append((row, normalized, representation))
 
         conflicts = set()
         ordered = []
         for event_id, observations in by_id.items():
-            first = observations[0][1]
-            if any(normalized != first for _, normalized in observations):
+            _, first_normalized, first_representation = observations[0]
+            # An untimed copy can still contradict the evidence at other times for this ID.
+            if event_id and any(
+                representation != first_representation for _, _, representation in observations
+            ):
                 conflicts.add(event_id)
-            elif first is not None:
+            elif first_normalized is not None:
                 observations = observations[:1]
-            for raw, normalized in observations:
+            for raw, normalized, _representation in observations:
                 row = normalized or raw
                 occurred = _parse_utc_instant(row.get("occurred_at"))
-                if occurred:
-                    sequence = row.get("sequence")
-                    sort_sequence = sequence if isinstance(sequence, int) and not isinstance(sequence, bool) else 0
-                    ordered.append((occurred, sort_sequence, event_id, row, normalized))
+                if occurred is None or (pr_created and occurred < pr_created):
+                    continue
+                sequence = row.get("sequence")
+                sort_sequence = sequence if isinstance(sequence, int) and not isinstance(sequence, bool) else 0
+                ordered.append((occurred, sort_sequence, event_id, row, normalized))
+        if not ordered:
+            return {
+                "status": "UNKNOWN", "unattended_sec_lower_bound": 0.0,
+                "unknown_sec": (end_dt - start_dt).total_seconds(), "coverage": 0.0,
+            }
         ordered.sort(key=lambda item: (item[0], item[1], item[2] or ""))
 
         conflicts.update(
@@ -3595,27 +3612,7 @@ class MetricsAggregator:
                     if obligation is None and preceding_id:
                         pickups_missing_obligation.append((attempt_scope, preceding_id, occurred))
             if type(version) is int and version == 1 and event_identity:
-                fingerprint_fields = (
-                    "event_id", "event_type", "occurred_at", "pr_id", "candidate_sha",
-                    "attempt_number", "schema_version", "obligation_id", "source", "sequence",
-                    "preceding_event_id", "state", "owner_id", "worker_id", "job_id",
-                    "result_receipt", "wait_reason", "wake_trigger", "wake_due_at",
-                    "continuity_from_event_id", "continuity_receipt",
-                )
-                fingerprint = {field: row[field] for field in fingerprint_fields if field in row}
-                for time_field in ("occurred_at", "wake_due_at"):
-                    parsed = _parse_utc_instant(fingerprint.get(time_field))
-                    if parsed:
-                        fingerprint[time_field] = parsed.isoformat(timespec="auto").replace("+00:00", "Z")
-                continuity = fingerprint.get("continuity_receipt")
-                if isinstance(continuity, dict):
-                    continuity = dict(continuity)
-                    for time_field in ("covers_from", "covers_to"):
-                        parsed = _parse_utc_instant(continuity.get(time_field))
-                        if parsed:
-                            continuity[time_field] = parsed.isoformat(timespec="auto").replace("+00:00", "Z")
-                    fingerprint["continuity_receipt"] = continuity
-                fingerprint_text = json.dumps(fingerprint, sort_keys=True, separators=(",", ":"))
+                fingerprint_text = _ownership_receipt_fingerprint(row)
                 previous_fingerprint = raw_v1_fingerprints.get(event_identity)
                 if previous_fingerprint is not None and previous_fingerprint != fingerprint_text:
                     conflict_ids.add(event_identity)
