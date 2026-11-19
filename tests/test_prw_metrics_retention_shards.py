@@ -166,12 +166,15 @@ class RetainedUsageShards(unittest.TestCase):
         }
         earlier = dict(versioned, event_id="evt-1", source="driver-session-1",
                        result_receipt=url, continuity_receipt=None, wait_reason=None)
+        legacy = dict(versioned, event_id="legacy")
+        del legacy["schema_version"]
+        records = [earlier, versioned, legacy]
         with tempfile.TemporaryDirectory() as temp:
             bundle = m.Publisher(temp).write_telemetry_bundle(
-                {}, window_slug="20261109", handoff_records=[earlier, versioned]
+                {}, window_slug="20261109", handoff_records=records
             )
         path = "dashboards/prw/telemetry/20261109/retained_handoffs.jsonl"
-        first, second = map(json.loads, bundle[path].splitlines())
+        first, second, retained_legacy = map(json.loads, bundle[path].splitlines())
         for field in ("source", "result_receipt", "wait_reason"):
             self.assertIsNone(second.get(field))
         self.assertIsNone(second["continuity_receipt"].get("receipt_id"))
@@ -182,6 +185,9 @@ class RetainedUsageShards(unittest.TestCase):
         self.assertEqual(first["source"], "driver-session-1")
         self.assertEqual(first["result_receipt"], url)
         self.assertEqual(second["pr_url"], url)
+        self.assertEqual(retained_legacy["source"], legacy["source"])
+        raw = "\n".join(map(json.dumps, records))
+        self.assertEqual(m.sanitize_telemetry_file(path, raw), bundle[path])
         self.assertEqual(m.sanitize_telemetry_file(path, bundle[path]), bundle[path])
 
     def test_retained_full_record_index_preserves_equality_and_scales(self):
