@@ -538,7 +538,7 @@ def _sanitize_retained_record(record, allowed, nested=False):
     path_free = (
         allowed is RETAINED_HANDOFF_FIELDS
         and record.get("record_type") == "transition_event"
-        and record.get("schema_version") not in (None, 0)
+        and "schema_version" in record
     )
     out = {}
     for key in allowed:
