@@ -296,12 +296,6 @@ RETAINED_HANDOFF_FIELDS = frozenset({
     "owner_id", "worker_id", "job_id", "result_receipt", "wait_reason", "wake_trigger",
     "wake_due_at", "wake_fired_at", "continuity_from_event_id", "continuity_receipt",
 })
-_OWNERSHIP_RETAINED_IDS = frozenset({
-    "event_id", "event_type", "obligation_id", "source", "preceding_event_id",
-    "owner_id", "worker_id", "job_id", "receipt_id", "result_receipt",
-    "wait_reason", "wake_trigger", "continuity_from_event_id",
-})
-
 RETAINED_SOURCE_FIELDS = frozenset({"status", "count", "cutoff"})
 # Keys permitted inside nested structures (stage transitions, eligible intervals, label objects).
 RETAINED_NESTED_KEYS = frozenset({
@@ -317,20 +311,27 @@ RETAINED_NESTED_KEYS = frozenset({
 })
 
 
-def _retained_nested(value, depth=3):
+def _retained_nested(value, depth=3, *, path_free=False, field=None):
     """Keep scalars, ISO-formatted datetimes, and nested lists/dicts limited to RETAINED_NESTED_KEYS."""
     if isinstance(value, datetime):
         return format_iso_utc(value)
     if isinstance(value, str):
+        if path_free:
+            value = _without_local_path(value, field)
+        if value is None:
+            return None
         return redact_sensitive_excerpt(value, max_chars=len(value) + 4)
     if value is None or isinstance(value, (bool, int, float)):
         return value
     if depth <= 0:
         return None
     if isinstance(value, (list, tuple)):
-        return [_retained_nested(v, depth - 1) for v in value]
+        return [_retained_nested(v, depth - 1, path_free=path_free, field=field) for v in value]
     if isinstance(value, dict):
-        return {k: _retained_nested(v, depth - 1) for k, v in value.items() if k in RETAINED_NESTED_KEYS}
+        return {
+            k: _retained_nested(v, depth - 1, path_free=path_free, field=k)
+            for k, v in value.items() if k in RETAINED_NESTED_KEYS
+        }
     return None
 
 
@@ -511,12 +512,18 @@ def _project_summary(summary):
     return {k: _project(summary[k], sub) for k, sub in SUMMARY_SCHEMA.items() if k in summary}
 
 
-def _without_local_path(value):
-    # docs/specs/prw-ownership-observations.md requires path-free v1 references.
-    if not isinstance(value, str) or "\\" in value:
+def _without_local_path(value, field):
+    # docs/specs/prw-ownership-observations.md requires path-free retained observations.
+    if "\\" in value or value.lower().startswith("file:"):
         return None
+    if field in ("pr_id", "repo"):
+        pr_id = value if field == "pr_id" else f"{value}#1"
+        repo = pr_id.rsplit("#", 1)[0]
+        return value if _safe_pr_id(pr_id) and not {".", ".."} & set(repo.split("/")) else None
     if "/" not in value:
         return value
+    if any(char.isspace() for char in value):
+        return None
     try:
         url = urlsplit(value)
     except ValueError:
@@ -528,24 +535,16 @@ def _sanitize_retained_record(record, allowed, nested=False):
     """Project a record onto the allowed fields, redacting credentials in string values."""
     if not isinstance(record, dict):
         return {}
-    ownership_v1 = (
+    path_free = (
         allowed is RETAINED_HANDOFF_FIELDS
         and record.get("record_type") == "transition_event"
-        and type(record.get("schema_version")) is int
-        and record["schema_version"] == 1
+        and record.get("schema_version") not in (None, 0)
     )
     out = {}
     for key in allowed:
         if key not in record:
             continue
         value = record[key]
-        if ownership_v1 and key in _OWNERSHIP_RETAINED_IDS:
-            value = _without_local_path(value)
-        elif ownership_v1 and key == "continuity_receipt" and isinstance(value, dict):
-            value = {
-                field: _without_local_path(item) if field in _OWNERSHIP_RETAINED_IDS else item
-                for field, item in value.items()
-            }
         if key == "message_ids" and isinstance(value, list):
             out[key] = [_retained_scalar(v) if isinstance(v, (str, int)) else None for v in value]
         elif key in ("annotator_a", "annotator_b"):
@@ -555,7 +554,7 @@ def _sanitize_retained_record(record, allowed, nested=False):
             # Only the receipt's presence/identity matters downstream, never its local path.
             out[key] = "receipt-" + hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
         elif nested:
-            out[key] = _retained_nested(value)
+            out[key] = _retained_nested(value, path_free=path_free, field=key)
         else:
             out[key] = _retained_scalar(value)
     return out
@@ -3525,6 +3524,7 @@ class MetricsAggregator:
         conflict_ids = set()
         raw_v1_fingerprints = {}
         raw_pickup_times = defaultdict(list)
+        pickups_missing_obligation = []
         for row in records:
             if not isinstance(row, dict) or row.get("record_type") != "transition_event":
                 continue
@@ -3550,8 +3550,12 @@ class MetricsAggregator:
                 and isinstance(candidate_sha, str)
                 and type(attempt) is int and attempt > 0
             ):
-                pickup_key = (*scope, candidate_sha.lower(), attempt, _usage_label(row.get("obligation_id")))
+                obligation = _usage_label(row.get("obligation_id"))
+                pickup_key = (*scope, candidate_sha.lower(), attempt, obligation)
                 raw_pickup_times[pickup_key].append(occurred)
+                preceding_id = _usage_label(row.get("preceding_event_id"))
+                if obligation is None and preceding_id:
+                    pickups_missing_obligation.append((pickup_key, preceding_id, occurred))
             if type(version) is int and version == 1 and event_identity:
                 fingerprint_fields = (
                     "event_id", "event_type", "occurred_at", "pr_id", "candidate_sha",
@@ -3655,6 +3659,17 @@ class MetricsAggregator:
             event_identity: row for event_identity, row in by_id.items()
             if event_identity not in conflict_ids
         }
+
+        for pickup_key, preceding_id, occurred in pickups_missing_obligation:
+            repo, number, sha, attempt, _ = pickup_key
+            predecessor = clean_events_by_id.get((repo, number, preceding_id))
+            if (
+                predecessor and predecessor.get("obligation_id")
+                and predecessor["candidate_sha"] == sha
+                and predecessor["attempt_number"] == attempt
+            ):
+                linked_key = (repo, number, sha, attempt, predecessor["obligation_id"])
+                raw_pickup_times[linked_key].append(occurred)
 
         pairs = []
         open_clocks = []

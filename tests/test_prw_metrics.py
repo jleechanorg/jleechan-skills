@@ -2969,8 +2969,12 @@ class TestDriverOwnershipProjection(unittest.TestCase):
             worker_id=None, result_receipt=None,
         )
 
+        missing_obligation = dict(started)
+        del missing_obligation["obligation_id"]
         for case, ends, expected in (
             ("invalid state", [malformed], []),
+            ("missing obligation linked to wake", [missing_obligation], []),
+            ("known other obligation", [dict(started, obligation_id="other")], ["RIGHT_CENSORED"] * 2),
             ("duplicate pickup ID", [started, dict(started, result_receipt="different")], []),
             ("other attempt", [dict(malformed, attempt_number=2)], ["RIGHT_CENSORED"] * 2),
             ("valid pickup", [started], ["COMPLETE"] * 2),

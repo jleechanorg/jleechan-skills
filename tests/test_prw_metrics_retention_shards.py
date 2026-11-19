@@ -154,30 +154,36 @@ class RetainedUsageShards(unittest.TestCase):
         url = "https://github.com/acme/app/pull/12"
         versioned = {
             "record_type": "transition_event", "schema_version": 1,
-            "pr_id": pr_id, "pr_url": url, "event_id": "evt-2",
+            "pr_id": pr_id, "pr_url": url, "event_id": "evt-2", "repo": "acme/app", "sequence": 2,
             "source": ".scratch/private/session.jsonl",
             "result_receipt": r"C:\private\driver.log",
             "wait_reason": "worktrees/customer-x/transcripts/run.jsonl",
+            "state": "private/states/current.json",
             "preceding_event_id": "evt-1", "continuity_from_event_id": "evt-1",
             "owner_id": "driver:abc-1",
             "continuity_receipt": {
                 "receipt_id": "../local/driver.log", "owner_id": "driver:abc-1", "pr_id": pr_id,
+                "covers_to": "internal/run/close.log",
             },
         }
         earlier = dict(versioned, event_id="evt-1", source="driver-session-1",
                        result_receipt=url, continuity_receipt=None, wait_reason=None)
         legacy = dict(versioned, event_id="legacy")
         del legacy["schema_version"]
-        records = [earlier, versioned, legacy]
+        future = dict(versioned, event_id="future", schema_version=2)
+        records = [earlier, versioned, legacy, future]
         with tempfile.TemporaryDirectory() as temp:
             bundle = m.Publisher(temp).write_telemetry_bundle(
                 {}, window_slug="20261109", handoff_records=records
             )
         path = "dashboards/prw/telemetry/20261109/retained_handoffs.jsonl"
-        first, second, retained_legacy = map(json.loads, bundle[path].splitlines())
-        for field in ("source", "result_receipt", "wait_reason"):
+        first, second, retained_legacy, retained_future = map(json.loads, bundle[path].splitlines())
+        for field in ("source", "result_receipt", "wait_reason", "state"):
             self.assertIsNone(second.get(field))
         self.assertIsNone(second["continuity_receipt"].get("receipt_id"))
+        self.assertIsNone(second["continuity_receipt"].get("covers_to"))
+        self.assertIsNone(retained_future.get("source"))
+        self.assertEqual(retained_future["schema_version"], 2)
         self.assertEqual(second["continuity_receipt"]["owner_id"], second["owner_id"])
         self.assertEqual(second["continuity_receipt"]["pr_id"], second["pr_id"])
         self.assertEqual(second["preceding_event_id"], first["event_id"])
@@ -185,6 +191,8 @@ class RetainedUsageShards(unittest.TestCase):
         self.assertEqual(first["source"], "driver-session-1")
         self.assertEqual(first["result_receipt"], url)
         self.assertEqual(second["pr_url"], url)
+        self.assertEqual(second["repo"], "acme/app")
+        self.assertEqual(second["sequence"], 2)
         self.assertEqual(retained_legacy["source"], legacy["source"])
         raw = "\n".join(map(json.dumps, records))
         self.assertEqual(m.sanitize_telemetry_file(path, raw), bundle[path])
