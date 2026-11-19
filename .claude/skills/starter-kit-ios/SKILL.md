@@ -1,23 +1,23 @@
 ---
-name: expo-ios-oneshot
-description: Build a new Expo iOS app from a brief in one pass, from a clean project through a tested vertical slice and a native simulator handoff. Use for greenfield React Native apps; not for modifying or releasing an existing app.
+name: starter-kit-ios
+description: Build a new general-purpose iOS app with Expo. Generate user stories and a tested first journey, then iterate on rendered iPhone evidence to visual acceptance. For a desktop port, use starter-kit-desktop-to-ios.
 ---
 
-# One-shot Expo iOS app
+# Starter Kit iOS
 
 Turn the product brief into a runnable app, not a plan. Start in a new directory or an empty target repo. Use an existing app as a **read-only architecture reference** only if the requester supplies it and access is available. Reuse the working patterns, not the codebase, brand, identifiers, credentials, users, assets, or release automation.
 
-## 1. Freeze the target and one user journey
+## 1. Define the product with user stories
 
-- Record the app name, target repo/path, one primary user, and one journey with an observable end state. If the brief is loose, choose reversible defaults and write them down. Reserve questions for decisions that block implementation or require authorization.
+- Write 3–5 prioritized user stories in the target repo: As [user], I want [action], so [outcome]. For each, record Given/When/Then criteria for visible state, navigation, persistence and recovery where relevant. Mark one end-to-end journey as the first runnable slice. Record the app name, repository and non-goals. If the brief is loose, choose reversible defaults and write them down. Reserve questions for decisions that block implementation or require authorization.
 - Default to Expo + React Native + TypeScript + npm lockfile. For matching a supplied reference, read its package manifest/lockfile, Node pin, app config, native plugins, CI, and build profiles at a fixed revision. Pin a compatible SDK/React/RN/Node combination; do not copy the dependency list or use a new SDK template while claiming to match an older SDK. Without a reference, pick a currently supported Expo template and record the resolved versions.
 - Keep a new app's display name, bundle ID, URL scheme, Expo project, backend/auth projects and environments distinct. Set a unique dev identifier before native install. Don't link, register, or upload to an existing project as a shortcut. Choose one navigation system; keep data and service adapters outside screens.
 - Start from the Expo template matching that decision ([Expo setup](https://docs.expo.dev/build/setup/)). Use `npx expo install` for Expo/native dependencies, commit package.json and its lockfile together, and prove a clean `npm ci`. Prefer config plugins over hand-edited generated projects. Never use clean prebuild over uncommitted or maintained native sources.
 
 ## 2. Build the slice
 
-- Deliver the shortest complete flow with a polished iPhone layout and real actions. For an AI story app: Library → create/open a campaign → read the first scene → commit one choice → return to Library → reopen the same saved campaign. Give it original art or intentional placeholders, legible text, safe areas, keyboard handling, and accessible controls.
-- Treat streaming and persistence separately: show incremental output, but commit one completed turn by stable ID; interrupted or rejected responses must not fabricate a turn. Exercise one failure/retry path and one empty/loading state. Build the storage seam first; real API/auth comes through an adapter when approved and required.
+- Sketch the first journey in a phone-sized mock, including its loading, empty, error and success states. Use it to make layout decisions before wiring the full flow. Build the shortest complete path with real controls. For a notes app: list → create/edit → save → relaunch → reopen the same note. Treat art, text hierarchy, safe areas, keyboard handling and accessibility as visible acceptance criteria.
+- Choose the smallest stack beyond Expo: SQLite for structured offline data, key-value storage for small non-sensitive preferences, secure storage for auth tokens, and a typed API client only when sync or a service is needed. When actions stream, show partial output separately; commit one completed action by stable ID and never persist an interrupted response as success. Exercise one failure/retry path and one empty/loading state. Build the storage seam first; real API/auth comes through an adapter when approved and required.
 - Provide a deterministic local mode from a clean clone so the slice works without accounts. Label fixture data, auth and provider output explicitly. For real auth, restore sessions across restart and test account isolation; use an approved isolated backend and dedicated test users. Do not send private data to a model. Provider keys, signing keys, and server secrets never go in JS bundles or `EXPO_PUBLIC_*`. Use backend-mediated provider calls.
 
 ## 3. Prove it, web first and native second
@@ -26,6 +26,11 @@ Turn the product brief into a runnable app, not a plan. Start in a new directory
 2. Run the same Expo UI on phone-sized web where supported (`npx expo start --web`). Capture the clean baseline and the working path when a behavioral comparison exists. Label any fixture rather than presenting it as real service integration.
 3. For native proof use an authorized macOS host with Xcode and an installed iOS Simulator runtime. Record `xcodebuild -version` and `xcrun simctl list devices available`, and select an isolated available simulator. Compile using the [Expo local iOS build flow](https://docs.expo.dev/guides/local-app-development/); for unattended testing use a supported headless build/install/launch route, not UI automation against a shared simulator. Verify the installed app and exact bundle ID, exercise the flow at least once, relaunch, and re-open the saved item. Capture a continuous portrait recording plus a short receipt. Expo Go, web, and a successful JS export are not installed-native proof. If no authorized Mac/runtime is available, finish the other checks and say native verification is blocked.
 4. Linux CI can run typecheck and tests; an iOS simulator or signed archive uses macOS. Do not turn on CI publishing triggers as part of the first build. An EAS simulator profile is optional when already authorized. Device signing, store distribution, TestFlight upload and release are distinct steps: use only the new app's approved identities and existing authorized signing path. Stop for any required access or approval. See [EAS profiles](https://docs.expo.dev/build/eas-json/) and [submission](https://docs.expo.dev/submit/ios/). A queued build, archive, skipped CI job or successful workflow aggregate does not establish upload or App Store Connect processing.
+
+## 4. Iterate to visual acceptance
+
+- For each story, inspect the actual rendered UI at normal and large text, compact iPhone and (if in scope) larger sizes, and the applicable themes. Run the interaction, not just a static screenshot. Compare the behavior to its Given/When/Then and the screen to the mock; log what differs, fix it, and recapture at the new commit. Cover loading/error/success and keyboard or permission prompts where they change the journey.
+- For a greenfield app, label the first runnable baseline or the mock honestly; do not fabricate a pre-existing app. Keep annotated screenshots or a continuous recording linked to story IDs and the exact commit, viewport, backend/fixture mode and observed result. Use an independent visual reviewer when available or required. Continue on concrete findings; when a human owns the design decision, present the actual before/after and keep visual acceptance pending until they approve. A screenshot, passing test, or draft PR is not visual approval.
 
 ## Agent handoff
 
