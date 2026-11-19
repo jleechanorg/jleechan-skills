@@ -50,6 +50,34 @@ Before selecting a branch, stage, or gate, inspect the target repository's `AGEN
 - Never use hard resets, force-pushes, deleted branches, or discarded work as routine verification; this skill grants none of those actions and no new writer. Re-read remote head before publication; unexpected remote movement requires reconciliation, not overwrite.
 - For upstream mechanics and branch tracking verification, follow [git-branch-tracking](../git-branch-tracking/SKILL.md).
 
+### Per-PR execution ownership
+
+The persistent driver owns the single native session goal under the
+manager's start contract. Each PR-specific task objective belongs in its worker
+brief and execution record, not in a separate subagent native goal.
+
+For every accepted PR, create a row in the existing execution record and name
+at least one execution subagent. Give it a PR-specific task objective, primary
+obligation, candidate SHA, permitted actions, and expected artifact. This task
+objective is an assignment brief, not a requirement to activate a separate
+native goal for the subagent. Use one writer per branch and retain independent
+review roles.
+Follow [review-records](../pr-lifecycle/review-records.md#per-pr-ownership-and-independent-intake)
+for per-PR execution, verified waits, and failure recovery.
+
+A worker assignment or acknowledgment does not prove start. Confirm a start from
+an observed task-scoped action or verified live job against the PR revision.
+Keep the driver accountable until execution ownership is observed and recorded.
+If a worker fails to start or exits, inspect its output and side effects,
+then take the next bounded safe action as driver or recover on an eligible host.
+Prefer the current host when it has task-specific headroom. For a host-specific
+blocker, measure the alternate host and use /lm for Mac-to-Linux or /mac-mirror
+for Linux-to-Mac portable work when that route is eligible; verify the worker's
+actual start on the intended PR SHA. Apply the existing safe-retry limit and
+never loop on assignments, polls, or sleeps. Record an exact blocker, owner,
+next action, and real resumption trigger when work cannot start. A wait or
+failure on one PR does not gate intake of independent PRs.
+
 ## Practical publication guidance
 
 Apply these compact defaults where explicit repository instructions are silent; existing global merge/push safety remains canonical:

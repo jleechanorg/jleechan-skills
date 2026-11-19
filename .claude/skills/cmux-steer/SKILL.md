@@ -5,9 +5,17 @@ description: Resolve, inspect, and safely steer named cmux workspaces, tabs, and
 
 > **Terminal-reading rule (canonical):** before any classification, assessment, or steer of a
 > cmux surface, read the surface's FULL available history (~10k words when possible;
-> `cmux capture-pane --scrollback --lines 1500`), then the last ~15 lines for current state.
-> Never decide from a short tail. Canonical text: `~/.codex/AGENTS.md` section
-> "Reading a cmux terminal before deciding (full-buffer rule)".
+> `cmux capture-pane --workspace <ws> --surface <sf> --scrollback --lines 1500` — if shorter,
+> read all of it), reading in two layers: (1) deep scrollback for history/receipts/plan, then
+> (2) the last ~15 lines for current state (`grep` over one capture is a pre-filter, never a
+> state verdict). Before any idle/stalled/blocked verdict, capture twice 20–30s apart into
+> unique `mktemp` paths (**screen changed => `WORKING`, stop**) and confirm the absence of
+> post-footer tool calls/assistant text, live timer growth (`Working (…)`/`Pursuing goal (…)`),
+> CPU in `top_flat.tsv`, and for `pi` panes growth of the trailing `~/.pi/agent/sessions/*/*.jsonl`
+> matched by `cwd`. Strings such as `Goal stalled (/goal resume)`, `Goal hit usage limits (/goal resume)`,
+> `CH100%`, `Working (…)`, and `Pursuing goal (…)` are never state verdicts on their own. If the
+> full buffer cannot be read, mark the surface `UNVERIFIED` rather than guessing. Summary pointer:
+> `~/.codex/AGENTS.md` § "Reading a cmux terminal before deciding (full-buffer rule)".
 
 > **No workspace selection (mandatory):** never run `cmux select-workspace`, `workspace.select`, `workspace-action --action focus`, or any command that selects/focuses/switches a workspace or surface — it steals the operator's active window. Read headless with `cmux capture-pane --workspace <ws> --surface <sf> --scrollback --lines <n>`; never `cmux read-screen` as this skill's targeted read (the installed build accepts `--workspace/--surface`, but cross-workspace read routing was historically unreliable — see "Headless only"). `cmux send`/`send-key --workspace <ws> --surface <sf>` is allowed and must not select.
 

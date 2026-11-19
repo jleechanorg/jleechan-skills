@@ -22,10 +22,20 @@ else:
     from prw_metrics import _parse_utc_instant, _safe_pr_id, _usage_count, _usage_label, format_iso_utc
 
 
+RETRACTABLE_ANNOTATION_FIELDS = (
+    "actor_kind", "human_origin", "episode_id", "episode_role", "quality_label", "score_source", "review_id",
+    "context_pr_decision", "association_method", "annotation_confidence", "effective_association_confidence",
+    "original_association_basis", "original_association_confidence", "message_kind", "human_nudge_eligible",
+    "score", "pr_binding", "context_associated_pr", "effective_associated_pr", "original_associated_pr", "association_scope",
+)
+
+
 def _apply_replay_annotation(record, annotation):
     actor_kind = annotation.get("actor_kind")
     human_origin = annotation.get("human_origin")
-    if actor_kind == "unknown" or human_origin in ("unknown", "unverified_candidate"):
+    if (("actor_kind" in annotation and actor_kind is None)
+            or ("human_origin" in annotation and human_origin is None)
+            or actor_kind == "unknown" or human_origin in ("unknown", "unverified_candidate")):
         record["actor_kind"] = "unknown"
         record["origin_status"] = "unverified_candidate"
     elif actor_kind in ("human", "automated_watch"):
@@ -67,6 +77,20 @@ def _apply_replay_annotation(record, annotation):
             value = annotation[key]
             if value is None or _safe_pr_id(value):
                 record[key] = value
+    association_applied = False
+    if "association_scope" in annotation:
+        scope = annotation["association_scope"]
+        prs = annotation.get("associated_prs")
+        evidence = annotation.get("association_evidence")
+        if (isinstance(scope, str) and scope in {"single", "multi", "global", "unknown"}
+                and isinstance(prs, list) and all(_safe_pr_id(pr) for pr in prs)
+                and len(set(prs)) == len(prs)
+                and isinstance(evidence, list) and (not prs or bool(evidence))
+                and all(item in ("conversation", "session_binding", "git_context", "prior_review") for item in evidence)
+                and ((scope == "single" and len(prs) == 1) or (scope == "multi" and len(prs) >= 2)
+                     or (scope in ("global", "unknown") and not prs))):
+            record.update(association_scope=scope, associated_prs=prs, association_evidence=evidence)
+            association_applied = True
     if annotation.get("message_kind") in {
         "initial_task", "new_requirement/domain_judgment", "status_request",
         "continuation/followthrough_nudge", "teammate_message",
@@ -88,6 +112,24 @@ def _apply_replay_annotation(record, annotation):
             key: binding[key] for key in ("pr", "method", "weight")
             if key in binding and isinstance(binding[key], (str, int, float))
         }
+    if "association_scope" in annotation and annotation["association_scope"] is None:
+        for key in ("pr_binding", "context_pr_decision", "effective_associated_pr", "context_associated_pr", "original_associated_pr"):
+            record.pop(key, None)
+        record.update(association_scope="unknown", associated_prs=[], association_evidence=[])
+    elif any(key in annotation and annotation[key] is None for key in ("context_pr_decision", "pr_binding")):
+        memberships = record.get("associated_prs")
+        evidence = record.get("association_evidence")
+        saved_legacy_multi = (record.get("context_pr_decision") == "unassigned_multi_pr"
+                              and annotation.get("pr_binding", 1) is None
+                              and (association_applied or "association_scope" not in annotation)
+                              and record.get("association_scope") == "multi"
+                              and isinstance(memberships, list) and len(memberships) >= 2
+                              and all(_safe_pr_id(pr) for pr in memberships)
+                              and len(set(memberships)) == len(memberships)
+                              and isinstance(evidence, list) and bool(evidence)
+                              and all(item in ("conversation", "session_binding", "git_context", "prior_review") for item in evidence))
+        if not saved_legacy_multi:
+            record.update(association_scope="unknown", associated_prs=[], association_evidence=[])
 
 
 def _load_replay_annotations(path):
@@ -344,10 +386,12 @@ def run_entire_parser(parser_argv, agent, source_bytes):
     return rows
 
 
-def write_nudge_packets(path, records):
+def write_nudge_packets(path, records, pr_candidates=None):
     """Write an explicitly requested, private model-input packet."""
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
+    keys = ("repo", "number", "title", "headRefName", "headRefOid", "createdAt", "closedAt", "mergedAt", "state", "url")
+    pr_candidates = [{k: item[k] for k in keys if k in item} for item in (pr_candidates or []) if isinstance(item, dict)]
     unique_records = []
     seen_records = set()
     for record in records:
@@ -358,7 +402,8 @@ def write_nudge_packets(path, records):
     fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     os.fchmod(fd, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as descriptor:
-        json.dump({"schema_version": "human-nudge-input.v1", "events": unique_records},
+        json.dump({"schema_version": "human-nudge-input.v1", "events": unique_records,
+                   "pr_candidates": pr_candidates or []},
                   descriptor, ensure_ascii=False, sort_keys=True)
         descriptor.write("\n")
 
@@ -514,7 +559,7 @@ def _entire_records(rows, source_fingerprint, source_id, session_id, provider,
             _apply_replay_annotation(record, annotation)
         result.append(record)
         context = []
-        for neighbor_index in range(max(0, index - 2), min(len(rows), index + 3)):
+        for neighbor_index in range(max(0, index - 12), min(len(rows), index + 13)):
             if neighbor_index == index:
                 continue
             neighbor = rows[neighbor_index]
@@ -531,8 +576,29 @@ def _entire_records(rows, source_fingerprint, source_id, session_id, provider,
             if neighbor_timestamp:
                 context_record["timestamp"] = format_iso_utc(neighbor_timestamp)
             context.append(context_record)
+        prior_review = {}
+        if annotation is not None:
+            allowed = {
+                "actor_kind": ("human", "automated_watch", "unknown", None),
+                "human_origin": ("verified_human", "unknown", "unverified_candidate", "automated_watch", "automated_watch_excluded", None),
+                "message_kind": ("initial_task", "new_requirement/domain_judgment", "status_request", "continuation/followthrough_nudge", "teammate_message", "cold_reviewer_dispatch", "compaction", "merge_approval", None),
+                "human_nudge_eligible": (True, False, None),
+            }
+            prior_review = {key: annotation[key] for key, values in allowed.items()
+                            if key in annotation and annotation[key] in values
+                            and (key != "human_nudge_eligible" or annotation[key] is None or isinstance(annotation[key], bool))
+                            and not (key in ("actor_kind", "human_origin")
+                                     and annotation[key] in ("unknown", "unverified_candidate")
+                                     and not annotation.get("review_id"))}
         packet.append({
             **record,
+            "prior_review": prior_review,
+            "prior_retractions": [key for key in RETRACTABLE_ANNOTATION_FIELDS
+                                  if annotation is not None and key in annotation and annotation[key] is None],
+            "prior_association": bool(annotation is not None and "association_scope" in annotation
+                                      and "association_scope" in record),
+            "association_retracted": bool(annotation is not None and any(
+                key in annotation and annotation[key] is None for key in ("context_pr_decision", "pr_binding"))),
             "text": user_text,
             "text_blocks": blocks,
             "text_available": row.get("content") is not None,
@@ -848,6 +914,10 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                             record = dict(common, event_id=event_id,
                                           actor_kind="human" if verified else "unknown",
                                           origin_status="verified_human" if verified else "unverified_candidate")
+                            if session_index is not None:
+                                found = _session_binding_record_at(session_index, namespace, at)
+                                if found:
+                                    record["session_binding_evidence"] = {"pr": found[0], "timestamp": found[1]}
                             if aliases:
                                 record["event_id_aliases"] = aliases
                             if claude_user:
@@ -882,6 +952,12 @@ def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=No
                     )
                     for record, packet_record in zip(parsed, packet_rows):
                         at = _parse_utc_instant(record.get("timestamp"))
+                        if session_index is not None and at and record.get("session_id"):
+                            found = _session_binding_record_at(session_index, record["session_id"], at)
+                            if found:
+                                evidence = {"pr": found[0], "timestamp": found[1]}
+                                record["session_binding_evidence"] = evidence
+                                packet_record["session_binding_evidence"] = evidence
                         if at is None:
                             stats["undated_records"] += 1
                         elif not start <= at < cutoff:
@@ -923,6 +999,7 @@ def main():
     parser.add_argument("--cutoff", required=True)
     parser.add_argument("--days", type=int, default=14)
     parser.add_argument("--annotations")
+    parser.add_argument("--pr-lookup-cache", help="Cached PR candidate metadata for the private adjudication packet")
     parser.add_argument("--state-db", help="Optional read-only Codex thread snapshot database")
     parser.add_argument("--session-bindings", action="append", default=None,
                         help="Session-to-PR binding ledger (JSONL); repeatable")
@@ -935,12 +1012,18 @@ def main():
         parser.error("--entire-parser requires --entire-agent")
     if args.nudge_packets and not args.entire_parser:
         parser.error("--nudge-packets requires --entire-parser")
+    pr_candidates = None
+    if args.pr_lookup_cache:
+        cache = json.loads(Path(args.pr_lookup_cache).read_text(encoding="utf-8"))
+        if not isinstance(cache, dict) or not isinstance(cache.get("prs"), list):
+            parser.error("--pr-lookup-cache must contain a prs list")
+        pr_candidates = cache["prs"]
     data = collect_native_history(args.history_root, cutoff=cutoff, days=args.days, annotation_path=args.annotations, state_db=args.state_db,
                                   session_bindings=args.session_bindings,
                                   entire_parser=args.entire_parser, entire_agent=args.entire_agent)
     write_normalized_history(args.output, data["export_records"], data["stats"])
     if args.nudge_packets:
-        write_nudge_packets(args.nudge_packets, data["nudge_packet_events"])
+        write_nudge_packets(args.nudge_packets, data["nudge_packet_events"], pr_candidates)
     print(json.dumps(data["stats"], sort_keys=True))
     if data["stats"]["status"] == "FAILED":
         raise SystemExit(1)

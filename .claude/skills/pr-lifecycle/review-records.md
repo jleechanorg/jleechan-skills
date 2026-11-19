@@ -31,6 +31,10 @@ merge_authorization: <authorized (quoted source: operator statement, standing ap
 candidate: <head-SHA>
 next_action: <specific unmet obligation>
 owner: <driver or delegated lane>
+subagent: <named PR-specific execution subagent>
+subagent_status: <assigned | started | returned | exited | blocked | waiting_dependency | waiting_capacity>
+subagent_goal: <PR-specific task assignment and primary obligation; not a native session goal>
+subagent_started_at: <UTC time of first observed scoped action or verified live job; UNKNOWN until then>
 job_handle: <actual handle when asynchronous, or N/A when synchronous/not-yet-started>
 wake_condition: <verified callback / poll / resume mechanism>
 blocker: <only if no executable authorized action remains>
@@ -38,8 +42,62 @@ blocker: <only if no executable authorized action remains>
 
 An actual handle (or `N/A` when synchronous or not yet started) plus a verified callback, polling, or resume mechanism must exist. A written wake condition alone does not schedule or execute resumption; ending a turn at "review requested" or "job submitted" without an active handle and verified resumption mechanism is forbidden.
 
-**Blocking dependency PR ownership:** When progress depends on a blocking dependency PR, the executing agent/driver must retain ownership of the blocking dependency through its required endpoint or verify an accepted handoff to a confirmed executing owner. Merely delivering a handoff message or task note does not relieve ownership or unblock the parent; delivery alone is not enough, and the parent blocker remains preserved until the dependency reaches its verified endpoint or active handoff acceptance is proven.
+### Per-PR ownership and independent intake
 
+Intake means adding another independent PR or obligation to the persistent
+driver's session. Keep it parallel across PRs. For each accepted PR, create a
+named subagent assignment, one primary ledger obligation, and a current
+execution record. The driver owns the single native session goal under the manager's start
+contract. Keep one writer per branch and retain independent review roles. Each PR-specific objective is written in its worker task brief and
+execution record, not as a separate native session goal.
+
+Do not serialize independent PR intake behind another subagent's observed
+start. Before moving work forward, make the current PR's state and next owner
+explicit in its record. One of the following must be observed:
+
+- **Executing:** A task-scoped action or verified live job has started against
+  the candidate SHA. Record its actual owner, specific next action, and job
+  handle. The driver may execute a bounded action directly. Record the driver as owner and the observed start in
+  next_substantive_action_started_at, then continue independent intake.
+- **Verified asynchronous wait:** Name the owner performing the device,
+  dependency, or other asynchronous job, its actual result handle, verified
+  callback/poll/resume event, and who will pick up the result. The PR-specific
+  subagent owns pickup while it remains active. If that worker exits or is
+  blocked, the persistent driver owns pickup and recovery until a confirmed
+  handoff to another worker. For a device-only claim, the named device operator
+  keeps the physical action and proof; the assigned PR worker picks up the
+  receipt when it arrives. Do not invent a concurrent support task. A
+  task-scoped live job performing the primary obligation is execution. A
+  queued/running external job with a real result handle, named result owner,
+  and verified wake is a wait and does not claim substantive PR follow-up has
+  started. This verified wait permits independent PR intake.
+- **Waiting for capacity:** Use this only when the action's task-specific host
+  admission rule is unmet. Measure the current and alternate hosts, prefer the
+  current host when eligible, and use /lm or /mac-mirror for portable work in
+  the direction that reaches an eligible host. Record measured capacity and
+  an actual recheck handle and due time. Keep the driver responsible and
+  continue independent intake.
+- **Worker blocked:** If dispatch, authentication, or execution fails, record
+  the observed failure, set subagent_status to blocked, and keep the driver as
+  owner of the recovery action. Inspect output and side effects; check an
+  eligible alternate host; use the existing safe-retry limit. A direct
+  driver-owned action is recorded as execution. Otherwise record the exact
+  blocker, owner, next action, and real resumption trigger. Do not relabel
+  worker failure as capacity wait or leave an acknowledgment as a start.
+  Continue independent PR intake while the driver owns recovery.
+
+An open PR with no observed execution, verified dependency/device wait, measured
+capacity wait, or specific driver-owned recovery is an uncovered actionable
+obligation. The driver starts or safely reassigns it without blocking unrelated
+PRs. For any wait, a written wake condition alone is not a handle. Record the
+actual job/result handle, callback or scheduled check, responsible result
+owner, and due time when applicable. At the due time, inspect the handle once;
+if it failed or its wake was missed, update the record and recover without a
+polling or sleep loop. The retry limit and uncertain-mutation rules in the
+[PR workflow manager](../pr-workflow-manager/SKILL.md#endpoint-lanes-and-waiting)
+remain in force.
+
+**Blocking dependency PR ownership:** When progress depends on a blocking dependency PR, the executing agent/driver must retain ownership of the blocking dependency through its required endpoint or verify an accepted handoff to a confirmed executing owner. Merely delivering a handoff message or task note does not relieve ownership or unblock the parent; delivery alone is not enough, and the parent blocker remains preserved until the dependency reaches its verified endpoint or active handoff acceptance is proven.
 ## Observational Scratch runtime telemetry (`run.stats.json`)
 
 Observational Scratch runtime telemetry (`run.stats.json`) is an optional derived sidecar for non-enforcing metrics, never a competing authority, schema enforcement, or second ledger. The executing agent/driver produces this telemetry optionally from already-fetched candidate, gate, or job events without making new model/tool calls, and human audit is the consumer for offline review without blocking gates or stage transitions. To capture execution telemetry without cluttering the repository or git history, write a tiny observational runtime snapshot to the host Scratch space (resolved dynamically via `~/.claude/skills/scratch-space/scripts/scratch-dir.sh [subpath]` or `diskm scratch-new`, falling back to `/tmp` only when unconfigured):
@@ -122,7 +180,7 @@ At already-observed transitions (e.g. evidence ready, review requested, review s
   "candidate_sha": "<40-char-sha>",
   "attempt_number": 1,
   "owner": "<owner-or-job>",
-  "event_type": "<evidence_ready | review_requested | actual_review_started | review_return | next_action_started>"
+  "event_type": "<evidence_ready | review_requested | actual_review_started | review_return | worker_acknowledged | worker_started | worker_returned | wake_fired | next_action_started>"
 }
 ```
 
@@ -136,6 +194,7 @@ For the optional ownership and pickup pilot, emit the v1 fields and state-specif
 
 - occurred_at is the event clock used for duration; observed_at records when the receipt was captured and is audit metadata only.
 - Record actual_review_started only when substantive inspection is observed to begin. A request, assignment, acknowledgment, or status message is not an actual review start.
+- Record review return, wake firing, and next-action start separately. Result-to-pickup is next_substantive_action_started_at minus review_return_at; wake-to-action is next_substantive_action_started_at minus wake_fired event's occurred_at. If the action has not started by the observation cutoff, report each elapsed clock as open/right-censored. A callback or poll firing neither closes nor resets the result-to-pickup clock. Record worker acknowledgment separately from worker start.
 - The dashboard pairs records only when PR, candidate SHA, and attempt number match exactly. Missing endpoints, malformed receipts, and unmatched records remain UNKNOWN.
 - Receipt recording and reading are optional and non-blocking. A missing/unreadable receipt feed never delays, rejects, or blocks authorized PR work.
 
