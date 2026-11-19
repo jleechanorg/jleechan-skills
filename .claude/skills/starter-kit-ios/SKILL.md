@@ -7,6 +7,18 @@ description: Build a new general-purpose iOS app with Expo. Generate user storie
 
 Turn the product brief into a runnable app, not a plan. Start in a new directory or an empty target repo. Use an existing app as a **read-only architecture reference** only if the requester supplies it and access is available. Reuse the working patterns, not the codebase, brand, identifiers, credentials, users, assets, or release automation.
 
+## Install and verify the toolchain
+
+| When | Install | Verify |
+| --- | --- | --- |
+| Every project | Git, Node.js LTS compatible with the chosen Expo SDK, and npm (included with Node). Use your host package manager for Git and an official Node distribution or existing version manager. | `git --version`, `node --version`, `npm --version`. Record the exact versions and commit a Node version pin. |
+| App dependencies | Use a pinned `create-expo-app` release and an explicit matching TypeScript template: `npx create-expo-app@<exact-version> <new-directory> --template <sdk-matched-template>` (substitute both pins). React, React Native, Expo CLI and TypeScript come from the project, not global installs. | Commit `package.json` and `package-lock.json`; run `npm ci`, `npx expo-doctor`, typecheck and focused tests. |
+| Mobile web proof | Use a browser. If the template lacks web support, run `npx expo install react-dom react-native-web @expo/metro-runtime`. | `npx expo start --web`; exercise the real Expo screen at phone width. |
+| Local native iOS proof | Install full Xcode on an authorized Mac. In Xcode select its Command Line Tools and download a compatible iOS Simulator runtime. Use CocoaPods if the resolved native project needs it; follow the project's pinned Ruby/Bundler/Gemfile if present, otherwise use the [CocoaPods installer](https://guides.cocoapods.org/using/getting-started.html). Install Watchman only if the selected Expo SDK requires it (see [Expo's simulator setup](https://docs.expo.dev/workflow/ios-simulator/)). | `xcodebuild -version`, `xcrun simctl list devices available` and, if needed, `bundle exec pod --version` or `pod --version`. On an isolated simulator use `npx expo run:ios --device` and select that simulator; open the installed app. |
+| Optional integration, device distribution or cloud build | Install only the chosen service tools (e.g. a local emulator) or an exact EAS CLI version if an authorized EAS route is needed. A custom Expo development client may add `npx expo install expo-dev-client`; Android Studio and a global Expo CLI are not required for this iOS kit. | List the exact tools, versions, commands and purpose in the target README. Once Xcode is installed, no Apple Developer membership, Expo account, distribution signing, submission or paid service is required for the fixture and local simulator path. |
+
+Use [Expo's setup guide](https://docs.expo.dev/get-started/set-up-your-environment/) to resolve compatible versions. List each task-selected package or external service tool in the README as **required** or **optional**, with platform, exact install/start commands, required environment variable *names* and a no-credentials fixture path. Never copy credentials or install unrelated software.
+
 ## 1. Define the product with user stories
 
 - Write 3–5 prioritized user stories in the target repo: As [user], I want [action], so [outcome]. For each, record Given/When/Then criteria for visible state, navigation, persistence and recovery where relevant. Mark one end-to-end journey as the first runnable slice. Record the app name, repository and non-goals. If the brief is loose, choose reversible defaults and write them down. Reserve questions for decisions that block implementation or require authorization.
