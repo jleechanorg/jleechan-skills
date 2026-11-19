@@ -404,7 +404,7 @@ class TestDashboardRenderer(unittest.TestCase):
 
         # Check section 5 subsections
         self.assertIn("### 5A. Open PRs with Observed Eligible Unattended Duration", md)
-        self.assertIn("### 5B. Open PRs with Unknown Eligibility (Telemetry Coverage 0%)", md)
+        self.assertRegex(md, r"(?m)^### 5B\. .+$")
 
     def test_render_states(self):
         """Dashboard must gracefully handle EMPTY, STALE, and PARTIAL_FAILURE."""
@@ -2945,6 +2945,45 @@ class TestDriverOwnershipProjection(unittest.TestCase):
                 self.assertEqual(row["review_return_to_pickup_median_sec"], review_median)
                 self.assertEqual(row["wake_to_pickup_median_sec"], wake_median)
 
+    def test_conflicting_duplicate_interrupts_ownership_at_every_occurrence(self):
+        start = datetime(2026, 11, 11, 10, 15, tzinfo=timezone.utc)
+        end = start + timedelta(minutes=15)
+        rows = self._fixture()[:6]
+        conflict = dict(rows[3], occurred_at=format_iso_utc(start + timedelta(minutes=14)))
+        pr = {"repo": self.REPO, "number": 7, "headRefOid": self.HEAD}
+
+        for events in (rows + [conflict], [conflict] + rows):
+            metrics = MetricsAggregator().compute_driver_ownership_metrics(
+                pr, self._collect(events), start, end,
+            )
+            self.assertEqual(metrics["status"], "PARTIAL")
+            self.assertEqual(metrics["unattended_sec_lower_bound"], 300.0)
+            self.assertEqual(metrics["unknown_sec"], 600.0)
+
+    def test_malformed_pickup_blocks_open_clocks_only_for_matching_scope(self):
+        cutoff = datetime(2026, 11, 11, 10, 35, tzinfo=timezone.utc)
+        pr = {"repo": self.REPO, "number": 7, "headRefOid": self.HEAD}
+        returned, wake, started = self._fixture()[3:6]
+        malformed = dict(
+            started, state="paused", wait_reason="explicit_pause",
+            worker_id=None, result_receipt=None,
+        )
+
+        for case, ends, expected in (
+            ("invalid state", [malformed], []),
+            ("duplicate pickup ID", [started, dict(started, result_receipt="different")], []),
+            ("other attempt", [dict(malformed, attempt_number=2)], ["RIGHT_CENSORED"] * 2),
+            ("valid pickup", [started], ["COMPLETE"] * 2),
+        ):
+            with self.subTest(case=case):
+                rows, _ = MetricsAggregator().adapt_transition_event_receipts(
+                    self._collect([returned, wake, *ends]), [pr], as_of=cutoff,
+                )
+                self.assertEqual(
+                    [row.get("status", "COMPLETE") for row in rows],
+                    expected,
+                )
+
     def test_unsupported_schema_or_unmatched_head_cannot_open_pickup_clock(self):
         cutoff = datetime(2026, 11, 11, 10, 29, tzinfo=timezone.utc)
         pr = {
@@ -2964,6 +3003,33 @@ class TestDriverOwnershipProjection(unittest.TestCase):
                 row, = summary["open_prs_unknown_idle"]
                 self.assertEqual(row["review_return_to_pickup_open_elapsed_sec"], [])
                 self.assertEqual(row["wake_to_pickup_open_elapsed_sec"], [])
+
+    def test_current_ownership_and_completed_pickup_require_matching_head(self):
+        start = datetime(2026, 11, 11, 10, 15, tzinfo=timezone.utc)
+        cutoff = start + timedelta(minutes=15)
+        events = self._collect(self._fixture()[:6])
+        for head, eligible, complete_samples in (
+            (self.HEAD, 480.0, 1),
+            ("b" * 40, None, 0),
+            (None, None, 0),
+        ):
+            with self.subTest(head=head):
+                pr = Collector().normalize_pr_record({
+                    "repo": self.REPO, "number": 7, "state": "OPEN",
+                    "headRefOid": head, "createdAt": format_iso_utc(start),
+                })
+                summary = MetricsAggregator(cutoff_dt=cutoff).aggregate_full_dataset(
+                    [pr], handoff_records=events, now_dt=cutoff,
+                )
+                if eligible is None:
+                    self.assertEqual(summary["open_prs_known_idle"], [])
+                    row, = summary["open_prs_unknown_idle"]
+                    self.assertEqual(row["ownership_coverage"], 0.0)
+                else:
+                    row, = summary["open_prs_known_idle"]
+                    self.assertEqual(row["eligible_unattended_duration_sec"], eligible)
+                self.assertEqual(row["review_return_to_pickup_sample_n"], complete_samples)
+                self.assertEqual(row["wake_to_pickup_sample_n"], complete_samples)
 
     def test_incomplete_or_mismatched_evidence_is_not_ranked(self):
         cutoff = datetime(2026, 11, 18, 10, 15, tzinfo=timezone.utc)

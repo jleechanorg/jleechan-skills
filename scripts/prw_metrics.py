@@ -296,6 +296,12 @@ RETAINED_HANDOFF_FIELDS = frozenset({
     "owner_id", "worker_id", "job_id", "result_receipt", "wait_reason", "wake_trigger",
     "wake_due_at", "wake_fired_at", "continuity_from_event_id", "continuity_receipt",
 })
+_OWNERSHIP_RETAINED_IDS = frozenset({
+    "event_id", "event_type", "obligation_id", "source", "preceding_event_id",
+    "owner_id", "worker_id", "job_id", "receipt_id", "result_receipt",
+    "wait_reason", "wake_trigger", "continuity_from_event_id",
+})
+
 RETAINED_SOURCE_FIELDS = frozenset({"status", "count", "cutoff"})
 # Keys permitted inside nested structures (stage transitions, eligible intervals, label objects).
 RETAINED_NESTED_KEYS = frozenset({
@@ -505,15 +511,41 @@ def _project_summary(summary):
     return {k: _project(summary[k], sub) for k, sub in SUMMARY_SCHEMA.items() if k in summary}
 
 
+def _without_local_path(value):
+    # docs/specs/prw-ownership-observations.md requires path-free v1 references.
+    if not isinstance(value, str) or "\\" in value:
+        return None
+    if "/" not in value:
+        return value
+    try:
+        url = urlsplit(value)
+    except ValueError:
+        return None
+    return value if url.scheme in ("http", "https") and url.hostname else None
+
+
 def _sanitize_retained_record(record, allowed, nested=False):
     """Project a record onto the allowed fields, redacting credentials in string values."""
     if not isinstance(record, dict):
         return {}
+    ownership_v1 = (
+        allowed is RETAINED_HANDOFF_FIELDS
+        and record.get("record_type") == "transition_event"
+        and type(record.get("schema_version")) is int
+        and record["schema_version"] == 1
+    )
     out = {}
     for key in allowed:
         if key not in record:
             continue
         value = record[key]
+        if ownership_v1 and key in _OWNERSHIP_RETAINED_IDS:
+            value = _without_local_path(value)
+        elif ownership_v1 and key == "continuity_receipt" and isinstance(value, dict):
+            value = {
+                field: _without_local_path(item) if field in _OWNERSHIP_RETAINED_IDS else item
+                for field, item in value.items()
+            }
         if key == "message_ids" and isinstance(value, list):
             out[key] = [_retained_scalar(v) if isinstance(v, (str, int)) else None for v in value]
         elif key in ("annotator_a", "annotator_b"):
@@ -2593,41 +2625,37 @@ class MetricsAggregator:
                 "unknown_sec": total, "coverage": 0.0,
             }
 
-        conflicts = set()
-        by_id = {}
-        untimed = []
+        by_id = defaultdict(list)
         for row in matching:
             event_id = row.get("event_id")
             if not isinstance(event_id, str) or not event_id:
-                untimed.append(row)
+                by_id[None].append((row, None))
                 continue
             normalized = self.validate_ownership_observation(row, pr_id)
-            previous = by_id.get(event_id)
-            if previous is not None and previous["normalized"] != normalized:
-                conflicts.add(event_id)
-            else:
-                by_id[event_id] = {"row": row, "normalized": normalized}
+            by_id[event_id].append((row, normalized))
 
+        conflicts = set()
         ordered = []
-        for event_id, event in by_id.items():
-            row = event["normalized"] or event["row"]
-            occurred = _parse_utc_instant(row.get("occurred_at"))
-            if occurred:
-                sequence = row.get("sequence")
-                sort_sequence = sequence if isinstance(sequence, int) and not isinstance(sequence, bool) else 0
-                ordered.append((occurred, sort_sequence, event_id, row, event["normalized"]))
-        for row in untimed:
-            occurred = _parse_utc_instant(row.get("occurred_at"))
-            if occurred:
-                sequence = row.get("sequence")
-                sort_sequence = sequence if isinstance(sequence, int) and not isinstance(sequence, bool) else 0
-                ordered.append((occurred, sort_sequence, None, row, None))
+        for event_id, observations in by_id.items():
+            first = observations[0][1]
+            if any(normalized != first for _, normalized in observations):
+                conflicts.add(event_id)
+            elif first is not None:
+                observations = observations[:1]
+            for raw, normalized in observations:
+                row = normalized or raw
+                occurred = _parse_utc_instant(row.get("occurred_at"))
+                if occurred:
+                    sequence = row.get("sequence")
+                    sort_sequence = sequence if isinstance(sequence, int) and not isinstance(sequence, bool) else 0
+                    ordered.append((occurred, sort_sequence, event_id, row, normalized))
         ordered.sort(key=lambda item: (item[0], item[1], item[2] or ""))
 
         conflicts.update(
             event_id
             for _scope, event_id in self._simultaneous_ownership_conflicts(ordered)
         )
+        conflict_times = {event[0] for event in ordered if event[2] in conflicts}
 
         covered_sec = 0.0
         unattended_sec = 0.0
@@ -2636,7 +2664,7 @@ class MetricsAggregator:
             right_dt, _, right_id, right_raw, right = right_event
             if right_dt <= left_dt:
                 continue
-            if (left is None or right is None or left_id in conflicts or right_id in conflicts):
+            if left is None or right is None or left_dt in conflict_times or right_dt in conflict_times:
                 continue
             same_scope = (
                 left.get("candidate_sha") == right.get("candidate_sha")
@@ -2670,7 +2698,10 @@ class MetricsAggregator:
 
         total_sec = (end_dt - start_dt).total_seconds()
         coverage = min(1.0, covered_sec / total_sec)
-        latest_events = [event for event in ordered if event[0] <= end_dt and event[4]]
+        latest_events = [
+            event for event in ordered
+            if event[0] <= end_dt and event[4] and event[0] not in conflict_times
+        ]
         current_head_observed = (
             not pr.get("headRefOid")
             or bool(latest_events and latest_events[-1][4].get("candidate_sha") == pr["headRefOid"])
@@ -3493,6 +3524,7 @@ class MetricsAggregator:
         by_id = {}
         conflict_ids = set()
         raw_v1_fingerprints = {}
+        raw_pickup_times = defaultdict(list)
         for row in records:
             if not isinstance(row, dict) or row.get("record_type") != "transition_event":
                 continue
@@ -3512,6 +3544,14 @@ class MetricsAggregator:
             candidate_sha = row.get("candidate_sha")
             attempt = row.get("attempt_number")
             version = row.get("schema_version")
+            if (
+                as_of is not None and event_type in ("next_action_started", "worker_started")
+                and scope and tuple(scope) in pr_keys
+                and isinstance(candidate_sha, str)
+                and type(attempt) is int and attempt > 0
+            ):
+                pickup_key = (*scope, candidate_sha.lower(), attempt, _usage_label(row.get("obligation_id")))
+                raw_pickup_times[pickup_key].append(occurred)
             if type(version) is int and version == 1 and event_identity:
                 fingerprint_fields = (
                     "event_id", "event_type", "occurred_at", "pr_id", "candidate_sha",
@@ -3651,7 +3691,10 @@ class MetricsAggregator:
                         and (next_start_at is None or _parse_utc_instant(event["occurred_at"]) < next_start_at)
                     ]
                     if not candidates:
-                        if as_of is not None and next_start_at is None and name in PICKUP_CLOCKS:
+                        if (
+                            as_of is not None and next_start_at is None and name in PICKUP_CLOCKS
+                            and not any(at is None or at >= start_at for at in raw_pickup_times[key])
+                        ):
                             open_clocks.append({
                                 "repo": key[0], "number": int(key[1]), "candidate_sha": key[2],
                                 "attempt_number": key[3], "name": name,
@@ -4142,22 +4185,21 @@ class MetricsAggregator:
             idle = self.compute_eligible_unattended_duration(p)
             created_at = parse_iso_utc(p.get("createdAt"))
             ownership_start = max(w2_s, created_at) if created_at else w2_s
+            current_head = p.get("headRefOid")
             ownership = self.compute_driver_ownership_metrics(
-                p, ownership_events, ownership_start, cutoff
+                p, ownership_events if current_head else [], ownership_start, cutoff
             )
             pickup_samples = {name: [] for name in PICKUP_CLOCKS}
             pickup_open = {name: [] for name in PICKUP_CLOCKS}
-            current_head = p.get("headRefOid")
             for event in pickup_clocks_by_pr.get((p.get("repo"), p.get("number")), []):
-                if current_head and event.get("candidate_sha") != current_head:
+                if not current_head or event.get("candidate_sha") != current_head:
                     continue
                 transition_name = event.get("name")
                 if transition_name not in PICKUP_CLOCKS:
                     continue
                 if event.get("status") == "RIGHT_CENSORED":
-                    if current_head:
-                        elapsed = (cutoff - _parse_utc_instant(event["start_at"])).total_seconds()
-                        pickup_open[transition_name].append(elapsed)
+                    elapsed = (cutoff - _parse_utc_instant(event["start_at"])).total_seconds()
+                    pickup_open[transition_name].append(elapsed)
                     continue
                 duration = self.compute_interval_duration(event["start_at"], event["end_at"])
                 if duration["status"] == "OK":
@@ -4604,7 +4646,7 @@ class DashboardRenderer:
         else:
             md.append("*No open PRs currently exhibit proven eligible unattended duration.*")
         md.append("")
-        md.append("### 5B. Open PRs with Unknown Eligibility (Telemetry Coverage 0%)")
+        md.append("### 5B. Open PRs with Incomplete Eligibility Evidence")
         md.append("")
         md.append("> ℹ️ **Notice**: These PRs lack fine-grained active-worker/hold-state telemetry. They are reported transparently for operator attention and are NOT ranked as idle.")
         md.append("")

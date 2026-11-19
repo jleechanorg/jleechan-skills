@@ -149,6 +149,41 @@ class RetainedUsageShards(unittest.TestCase):
                     git_calls.assert_not_called()
                 self.assertEqual(list(Path(temp).iterdir()), [])
 
+    def test_ownership_publication_excludes_local_paths(self):
+        pr_id = "acme/app#12"
+        url = "https://github.com/acme/app/pull/12"
+        versioned = {
+            "record_type": "transition_event", "schema_version": 1,
+            "pr_id": pr_id, "pr_url": url, "event_id": "evt-2",
+            "source": ".scratch/private/session.jsonl",
+            "result_receipt": r"C:\private\driver.log",
+            "wait_reason": "worktrees/customer-x/transcripts/run.jsonl",
+            "preceding_event_id": "evt-1", "continuity_from_event_id": "evt-1",
+            "owner_id": "driver:abc-1",
+            "continuity_receipt": {
+                "receipt_id": "../local/driver.log", "owner_id": "driver:abc-1", "pr_id": pr_id,
+            },
+        }
+        earlier = dict(versioned, event_id="evt-1", source="driver-session-1",
+                       result_receipt=url, continuity_receipt=None, wait_reason=None)
+        with tempfile.TemporaryDirectory() as temp:
+            bundle = m.Publisher(temp).write_telemetry_bundle(
+                {}, window_slug="20261109", handoff_records=[earlier, versioned]
+            )
+        path = "dashboards/prw/telemetry/20261109/retained_handoffs.jsonl"
+        first, second = map(json.loads, bundle[path].splitlines())
+        for field in ("source", "result_receipt", "wait_reason"):
+            self.assertIsNone(second.get(field))
+        self.assertIsNone(second["continuity_receipt"].get("receipt_id"))
+        self.assertEqual(second["continuity_receipt"]["owner_id"], second["owner_id"])
+        self.assertEqual(second["continuity_receipt"]["pr_id"], second["pr_id"])
+        self.assertEqual(second["preceding_event_id"], first["event_id"])
+        self.assertEqual(second["continuity_from_event_id"], first["event_id"])
+        self.assertEqual(first["source"], "driver-session-1")
+        self.assertEqual(first["result_receipt"], url)
+        self.assertEqual(second["pr_url"], url)
+        self.assertEqual(m.sanitize_telemetry_file(path, bundle[path]), bundle[path])
+
     def test_retained_full_record_index_preserves_equality_and_scales(self):
         class CountedRecord(dict):
             comparisons = 0
