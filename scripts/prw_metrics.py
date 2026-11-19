@@ -292,6 +292,9 @@ RETAINED_HANDOFF_FIELDS = frozenset({
     "closure_sprint_to_merge_sec", "explicit_waiting_sec", "observed_active_wall_sec",
     "observed_operation_elapsed_sec", "pr_elapsed_sec", "task_elapsed_sec", "median_sec",
     "observed_n", "total_n",
+    "schema_version", "obligation_id", "source", "sequence", "preceding_event_id", "state",
+    "owner_id", "worker_id", "job_id", "result_receipt", "wait_reason", "wake_trigger",
+    "wake_due_at", "wake_fired_at", "continuity_from_event_id", "continuity_receipt",
 })
 RETAINED_SOURCE_FIELDS = frozenset({"status", "count", "cutoff"})
 # Keys permitted inside nested structures (stage transitions, eligible intervals, label objects).
@@ -303,23 +306,48 @@ RETAINED_NESTED_KEYS = frozenset({
     "evidence_ready_at", "review_requested_at", "actual_review_started_at", "review_return_at",
     "review_returned_at", "review_completed_at", "next_substantive_action_started_at",
     "next_action_started_at",
+    "receipt_id", "covers_from", "covers_to", "pr_id", "schema_version", "obligation_id",
+    "attempt_number", "owner_id", "worker_id", "job_id",
 })
 
 
-def _retained_nested(value, depth=3):
+_OWNERSHIP_PROOF_FIELDS = frozenset({
+    "event_id", "event_type", "occurred_at", "pr_id", "candidate_sha", "attempt_number",
+    "obligation_id", "source", "sequence", "preceding_event_id", "state", "owner_id",
+    "worker_id", "job_id", "result_receipt", "wait_reason", "wake_trigger", "wake_due_at",
+    "continuity_from_event_id", "continuity_receipt",
+})
+
+
+def _retained_nested(value, depth=3, *, path_free=False, field=None, redacted_proof=None):
     """Keep scalars, ISO-formatted datetimes, and nested lists/dicts limited to RETAINED_NESTED_KEYS."""
     if isinstance(value, datetime):
         return format_iso_utc(value)
     if isinstance(value, str):
-        return redact_sensitive_excerpt(value, max_chars=len(value) + 4)
+        redacted = redact_sensitive_excerpt(value, max_chars=len(value) + (32 if path_free else 4))
+        if path_free:
+            if redacted != value or "[REDACTED]" in value or "[PATH]" in value:
+                if redacted_proof is not None:
+                    redacted_proof.add(field)
+                return None
+            return _without_local_path(value, field)
+        return redacted
     if value is None or isinstance(value, (bool, int, float)):
         return value
     if depth <= 0:
         return None
     if isinstance(value, (list, tuple)):
-        return [_retained_nested(v, depth - 1) for v in value]
+        return [
+            _retained_nested(v, depth - 1, path_free=path_free, field=field,
+                             redacted_proof=redacted_proof)
+            for v in value
+        ]
     if isinstance(value, dict):
-        return {k: _retained_nested(v, depth - 1) for k, v in value.items() if k in RETAINED_NESTED_KEYS}
+        return {
+            k: _retained_nested(v, depth - 1, path_free=path_free, field=k,
+                                redacted_proof=redacted_proof)
+            for k, v in value.items() if k in RETAINED_NESTED_KEYS
+        }
     return None
 
 
@@ -334,10 +362,17 @@ def _retained_scalar(value):
 _SC = "scalar"
 _LABELS = {"good": _SC, "bad": _SC, "mixed": _SC, "unknown": _SC}
 _ATTENTION_ROW = {
-    "url": _SC, "sha": _SC, "stage": _SC, "title_status": _SC, "next_action": _SC, "owner": _SC,
+    "repo": _SC, "number": _SC, "url": _SC, "sha": _SC, "stage": _SC,
+    "title_status": _SC, "next_action": _SC, "owner": _SC,
     "hold_status": _SC, "job_handle": _SC, "wake_condition": _SC, "receipt_links": [_SC],
     "earliest_unmet_obligation": _SC, "potential_handoff_waiting": _SC, "quiet_time": _SC,
     "eligible_unattended_duration_sec": _SC,
+    "ownership_unattended_sec_lower_bound": _SC, "ownership_unknown_sec": _SC,
+    "ownership_coverage": _SC, "ownership_status": _SC,
+    "review_return_to_pickup_median_sec": _SC, "review_return_to_pickup_sample_n": _SC,
+    "review_return_to_pickup_open_elapsed_sec": [_SC],
+    "wake_to_pickup_median_sec": _SC, "wake_to_pickup_sample_n": _SC,
+    "wake_to_pickup_open_elapsed_sec": [_SC],
 }
 # Explicit schema for every record type nested in the summary: dict = allowed keys, [spec] = list of
 # records, ("map", spec) = dynamic keys. Anything not listed is dropped at every depth.
@@ -369,7 +404,8 @@ SUMMARY_SCHEMA = {
         "name", "observed_n", "sample_n", "total_n", "median_sec", "p75_sec",
         "p50_sec", "p90_sec", "p99_sec", "status", "receipt_status",
         "receipt_events_seen", "receipt_events_valid", "receipt_pairs",
-        "receipt_events_unmatched", "receipt_parse_errors", "receipt_read_errors")}],
+        "receipt_duplicate_events", "receipt_event_conflicts", "receipt_events_unmatched",
+        "receipt_parse_errors", "receipt_read_errors", "receipt_unknown_schema_events")}],
     "open_prs_known_idle": [_ATTENTION_ROW],
     "open_prs_unknown_idle": [_ATTENTION_ROW],
     "time_semantics_pilot": [{k: _SC for k in (
@@ -492,10 +528,35 @@ def _project_summary(summary):
     return {k: _project(summary[k], sub) for k, sub in SUMMARY_SCHEMA.items() if k in summary}
 
 
+def _without_local_path(value, field):
+    # docs/specs/prw-ownership-observations.md requires path-free retained observations.
+    if "\\" in value or value.lower().startswith("file:"):
+        return None
+    if field in ("pr_id", "repo"):
+        pr_id = value if field == "pr_id" else f"{value}#1"
+        repo = pr_id.rsplit("#", 1)[0]
+        return value if _safe_pr_id(pr_id) and not {".", ".."} & set(repo.split("/")) else None
+    if "/" not in value:
+        return value
+    if any(char.isspace() for char in value):
+        return None
+    try:
+        url = urlsplit(value)
+    except ValueError:
+        return None
+    return value if url.scheme in ("http", "https") and url.hostname else None
+
+
 def _sanitize_retained_record(record, allowed, nested=False):
     """Project a record onto the allowed fields, redacting credentials in string values."""
     if not isinstance(record, dict):
         return {}
+    path_free = (
+        allowed is RETAINED_HANDOFF_FIELDS
+        and record.get("record_type") == "transition_event"
+        and "schema_version" in record
+    )
+    redacted_proof = set()
     out = {}
     for key in allowed:
         if key not in record:
@@ -506,14 +567,50 @@ def _sanitize_retained_record(record, allowed, nested=False):
         elif key in ("annotator_a", "annotator_b"):
             label = value.get("label") if isinstance(value, dict) else value
             out[key] = {"label": _retained_scalar(label)} if isinstance(value, dict) else _retained_scalar(label)
+        elif key == "source_receipt" and path_free:
+            continue  # Versioned observations use continuity_receipt, never a local receipt file.
         elif key == "source_receipt" and isinstance(value, str) and value:
             # Only the receipt's presence/identity matters downstream, never its local path.
             out[key] = "receipt-" + hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
         elif nested:
-            out[key] = _retained_nested(value)
+            out[key] = _retained_nested(
+                value, path_free=path_free, field=key,
+                redacted_proof=redacted_proof if key in _OWNERSHIP_PROOF_FIELDS else None,
+            )
         else:
             out[key] = _retained_scalar(value)
+    if redacted_proof:
+        # The receipt contract requires usable identities. Keep scope/time for
+        # gap accounting, but a redaction cannot prove this observation's state.
+        out["state"] = None
     return out
+
+
+def _canonical_transition_receipt(row):
+    if row.get("record_type") == "transition_event" and "schema_version" in row:
+        return _sanitize_retained_record(row, RETAINED_HANDOFF_FIELDS, nested=True)
+    return row
+
+
+def _ownership_receipt_fingerprint(row):
+    """Compare receipt evidence independently of when an observer collected it."""
+    fingerprint = {
+        key: value for key, value in row.items()
+        if key in _OWNERSHIP_PROOF_FIELDS or key == "schema_version"
+    }
+    for time_field in ("occurred_at", "wake_due_at"):
+        parsed = _parse_utc_instant(fingerprint.get(time_field))
+        if parsed:
+            fingerprint[time_field] = parsed.isoformat(timespec="auto").replace("+00:00", "Z")
+    continuity = fingerprint.get("continuity_receipt")
+    if isinstance(continuity, dict):
+        continuity = dict(continuity)
+        for time_field in ("covers_from", "covers_to"):
+            parsed = _parse_utc_instant(continuity.get(time_field))
+            if parsed:
+                continuity[time_field] = parsed.isoformat(timespec="auto").replace("+00:00", "Z")
+        fingerprint["continuity_receipt"] = continuity
+    return json.dumps(fingerprint, sort_keys=True, separators=(",", ":"))
 
 
 def _scrub_secrets(obj):
@@ -1652,6 +1749,7 @@ class Collector:
         stats = {
             "status": "NOT_CONFIGURED", "files_scanned": 0, "receipt_events_seen": 0,
             "receipt_parse_errors": 0, "receipt_read_errors": 0,
+            "receipt_unknown_schema_events": 0,
         }
         if not receipts_dir:
             self.receipt_scan_stats = stats
@@ -1703,10 +1801,28 @@ class Collector:
                                 allowed = (
                                     "event_id", "event_type", "occurred_at", "observed_at",
                                     "pr_id", "candidate_sha", "attempt_number",
+                                    "schema_version", "obligation_id", "source", "sequence",
+                                    "preceding_event_id", "state", "owner_id", "worker_id",
+                                    "job_id", "result_receipt", "wait_reason", "wake_trigger",
+                                    "wake_due_at", "wake_fired_at", "continuity_from_event_id",
                                 )
                                 receipt = {
                                     key: item[key] for key in allowed if key in item
                                 }
+                                continuity = item.get("continuity_receipt")
+                                if isinstance(continuity, dict):
+                                    continuity_fields = (
+                                        "receipt_id", "covers_from", "covers_to", "pr_id",
+                                        "candidate_sha", "attempt_number", "obligation_id",
+                                        "owner_id", "worker_id", "job_id",
+                                    )
+                                    receipt["continuity_receipt"] = {
+                                        key: continuity[key]
+                                        for key in continuity_fields if key in continuity
+                                    }
+                                version = receipt.get("schema_version")
+                                if "schema_version" in receipt and (type(version) is not int or version != 1):
+                                    stats["receipt_unknown_schema_events"] += 1
                                 receipt["record_type"] = "transition_event"
                                 records.append(receipt)
                                 stats["receipt_events_seen"] += 1
@@ -2299,6 +2415,21 @@ class Collector:
 # Task 2: Aggregation and Honest Idle Boundaries
 # -----------------------------------------------------------------------------
 
+OWNERSHIP_OBSERVATION_FIELDS = (
+    "state", "obligation_id", "sequence", "continuity_receipt",
+)
+PICKUP_CLOCKS = {
+    "review_return -> next_substantive_action": "review_return_to_pickup",
+    "wake_fired -> next_substantive_action": "wake_to_pickup",
+}
+
+
+def _has_ownership_observation_fields(row):
+    return "schema_version" in row or any(
+        key in row for key in OWNERSHIP_OBSERVATION_FIELDS
+    )
+
+
 class MetricsAggregator:
     VERIFIED_HUMAN_ORIGINS = frozenset({
         "human",
@@ -2419,6 +2550,305 @@ class MetricsAggregator:
         intervals = pr.get("eligible_intervals", [])
         total_sec = compute_disjoint_interval_union(intervals)
         return {"duration_sec": total_sec, "status": "OK"}
+
+    @staticmethod
+    def validate_ownership_observation(row, expected_pr_id=None):
+        """Return normalized v1 ownership evidence only when its identity and proof are valid."""
+        if not isinstance(row, dict) or row.get("record_type") != "transition_event":
+            return None
+        if type(row.get("schema_version")) is not int or row.get("schema_version") != 1:
+            return None
+
+        event_id = _usage_label(row.get("event_id"))
+        event_type = row.get("event_type")
+        pr_id = row.get("pr_id")
+        occurred = _parse_utc_instant(row.get("occurred_at"))
+        candidate_sha = row.get("candidate_sha")
+        attempt = row.get("attempt_number")
+        obligation_id = _usage_label(row.get("obligation_id"))
+        source = _usage_label(row.get("source"))
+        sequence = row.get("sequence")
+        owner_id = _usage_label(row.get("owner_id"))
+        state = row.get("state")
+        states = {
+            "actionable_unowned", "executing", "verified_wait", "paused", "endpoint_reached",
+        }
+        if not (
+            event_id and isinstance(event_type, str) and event_type
+            and _safe_pr_id(pr_id) and (expected_pr_id is None or pr_id == expected_pr_id)
+            and occurred and isinstance(candidate_sha, str)
+            and re.fullmatch(r"[0-9a-fA-F]{40}", candidate_sha)
+            and isinstance(attempt, int) and not isinstance(attempt, bool) and attempt > 0
+            and obligation_id and source and isinstance(sequence, int)
+            and not isinstance(sequence, bool) and sequence > 0
+            and owner_id and isinstance(state, str) and state in states
+        ):
+            return None
+
+        worker_id = _usage_label(row.get("worker_id"))
+        job_id = _usage_label(row.get("job_id"))
+        result_receipt = _usage_label(row.get("result_receipt"))
+        wait_reason = _usage_label(row.get("wait_reason"))
+        wake_trigger = _usage_label(row.get("wake_trigger"))
+        wake_due_at = row.get("wake_due_at")
+        parsed_wake_due = _parse_utc_instant(wake_due_at) if wake_due_at else None
+        if wake_due_at and parsed_wake_due is None:
+            return None
+
+        if state == "actionable_unowned" and (worker_id or job_id or not result_receipt):
+            return None
+        if state == "executing" and (not (worker_id or job_id) or not result_receipt):
+            return None
+        if state == "verified_wait" and (
+            not wait_reason or not (job_id or (wake_trigger and parsed_wake_due))
+        ):
+            return None
+        if state == "paused" and (not wait_reason or worker_id or job_id):
+            return None
+        if state == "endpoint_reached" and (not result_receipt or worker_id or job_id):
+            return None
+        if event_type in ("worker_started", "next_action_started") and state != "executing":
+            return None
+        if event_type == "worker_acknowledged" and state not in (
+            "actionable_unowned", "verified_wait",
+        ):
+            return None
+        if event_type == "worker_returned" and state != "actionable_unowned":
+            return None
+        if event_type == "wake_fired" and state != "actionable_unowned":
+            return None
+
+        continuity = row.get("continuity_receipt")
+        if continuity is not None and not isinstance(continuity, dict):
+            return None
+        return {
+            "event_id": event_id,
+            "event_type": event_type,
+            "occurred_at": occurred.isoformat(timespec="auto").replace("+00:00", "Z"),
+            "pr_id": pr_id,
+            "candidate_sha": candidate_sha.lower(),
+            "attempt_number": attempt,
+            "schema_version": 1,
+            "obligation_id": obligation_id,
+            "source": source,
+            "sequence": sequence,
+            "preceding_event_id": _usage_label(row.get("preceding_event_id")),
+            "state": state,
+            "owner_id": owner_id,
+            "worker_id": worker_id,
+            "job_id": job_id,
+            "result_receipt": result_receipt,
+            "wait_reason": wait_reason,
+            "wake_trigger": wake_trigger,
+            "wake_due_at": parsed_wake_due.isoformat(timespec="auto").replace("+00:00", "Z")
+            if parsed_wake_due else None,
+            "continuity_from_event_id": _usage_label(row.get("continuity_from_event_id")),
+            "continuity_receipt": continuity,
+        }
+
+    def compute_driver_ownership_metrics(self, pr, records, window_start, window_end):
+        """Project only causally continuous, same-obligation ownership observations."""
+        start_dt = parse_iso_utc(window_start) if isinstance(window_start, str) else window_start
+        end_dt = parse_iso_utc(window_end) if isinstance(window_end, str) else window_end
+        if not start_dt or not end_dt or end_dt <= start_dt:
+            return {
+                "status": "UNKNOWN", "unattended_sec_lower_bound": 0.0,
+                "unknown_sec": None, "coverage": 0.0,
+            }
+
+        pr_id = f"{pr.get('repo')}#{pr.get('number')}"
+        pr_created = parse_iso_utc(pr.get("createdAt"))
+        by_id = defaultdict(list)
+        for row in records or []:
+            if (
+                not isinstance(row, dict) or row.get("record_type") != "transition_event"
+                or row.get("pr_id") != pr_id or not _has_ownership_observation_fields(row)
+            ):
+                continue
+            row = _canonical_transition_receipt(row)
+            event_id = _usage_label(row.get("event_id"))
+            normalized = self.validate_ownership_observation(row, pr_id)
+            representation = (
+                normalized if normalized is not None else _ownership_receipt_fingerprint(row)
+            )
+            by_id[event_id].append((row, normalized, representation))
+
+        conflicts = set()
+        ordered = []
+        for event_id, observations in by_id.items():
+            _, first_normalized, first_representation = observations[0]
+            # An untimed copy can still contradict the evidence at other times for this ID.
+            if event_id and any(
+                representation != first_representation for _, _, representation in observations
+            ):
+                conflicts.add(event_id)
+            elif first_normalized is not None:
+                observations = observations[:1]
+            for raw, normalized, _representation in observations:
+                row = normalized or raw
+                occurred = _parse_utc_instant(row.get("occurred_at"))
+                if occurred is None or (pr_created and occurred < pr_created):
+                    continue
+                sequence = row.get("sequence")
+                sort_sequence = sequence if isinstance(sequence, int) and not isinstance(sequence, bool) else 0
+                ordered.append((occurred, sort_sequence, event_id, row, normalized))
+        if not ordered:
+            return {
+                "status": "UNKNOWN", "unattended_sec_lower_bound": 0.0,
+                "unknown_sec": (end_dt - start_dt).total_seconds(), "coverage": 0.0,
+            }
+        ordered.sort(key=lambda item: (item[0], item[1], item[2] or ""))
+
+        conflicts.update(
+            event_id
+            for _scope, event_id in self._simultaneous_ownership_conflicts(ordered)
+        )
+        conflict_times = {event[0] for event in ordered if event[2] in conflicts}
+
+        covered_sec = 0.0
+        unattended_sec = 0.0
+        for left_event, right_event in zip(ordered, ordered[1:]):
+            left_dt, _, left_id, left_raw, left = left_event
+            right_dt, _, right_id, right_raw, right = right_event
+            if right_dt <= left_dt:
+                continue
+            if left is None or right is None or left_dt in conflict_times or right_dt in conflict_times:
+                continue
+            same_scope = (
+                left.get("candidate_sha") == right.get("candidate_sha")
+                and left.get("attempt_number") == right.get("attempt_number")
+                and left.get("obligation_id") == right.get("obligation_id")
+                and right.get("preceding_event_id") == left_id
+                and right.get("continuity_from_event_id") == left_id
+                and (
+                    left.get("source") != right.get("source")
+                    or right.get("sequence", 0) == left.get("sequence", 0) + 1
+                )
+            )
+            receipt = right.get("continuity_receipt")
+            if not same_scope or not self._valid_ownership_continuity(
+                receipt, left, right, pr_id, left_dt, right_dt
+            ):
+                continue
+
+            span_start = max(left_dt, start_dt)
+            span_end = min(right_dt, end_dt)
+            if left.get("state") == "verified_wait":
+                due = _parse_utc_instant(left.get("wake_due_at"))
+                if due and due < span_end:
+                    span_end = due
+            if span_end <= span_start:
+                continue
+            duration = (span_end - span_start).total_seconds()
+            covered_sec += duration
+            if left.get("state") == "actionable_unowned":
+                unattended_sec += duration
+
+        total_sec = (end_dt - start_dt).total_seconds()
+        coverage = min(1.0, covered_sec / total_sec)
+        latest_events = [
+            event for event in ordered
+            if event[0] <= end_dt and event[4] and event[0] not in conflict_times
+        ]
+        current_head_observed = (
+            not pr.get("headRefOid")
+            or bool(latest_events and latest_events[-1][4].get("candidate_sha") == pr["headRefOid"])
+        )
+        if not current_head_observed:
+            return {
+                "status": "UNKNOWN", "unattended_sec_lower_bound": 0.0,
+                "unknown_sec": round(total_sec, 3), "coverage": 0.0,
+            }
+        complete = covered_sec >= total_sec - 0.001
+        return {
+            "status": "COMPLETE" if complete else "PARTIAL",
+            "unattended_sec_lower_bound": round(unattended_sec, 3),
+            "unknown_sec": 0.0 if complete else round(max(0.001, total_sec - covered_sec), 3),
+            "coverage": round(coverage, 6),
+        }
+
+    @staticmethod
+    def _simultaneous_ownership_conflicts(ordered):
+        """Flag same-time observations that disagree about state or interval identity."""
+        by_time = defaultdict(list)
+        for occurred, _sequence, event_id, _raw, normalized in ordered:
+            if event_id and normalized:
+                identity = normalized.get("pr_id") or (
+                    f"{normalized.get('repo')}#{normalized.get('number')}"
+                )
+                by_time[(occurred, identity)].append((event_id, normalized))
+        conflicts = set()
+        for (_occurred, scope), observations in by_time.items():
+            if len(observations) < 2:
+                continue
+            for index, (event_id, row) in enumerate(observations):
+                for other_id, other in observations[index + 1:]:
+                    if (row.get("source") == other.get("source")
+                            and row.get("sequence") == other.get("sequence")):
+                        conflicts.update(((scope, event_id), (scope, other_id)))
+                        continue
+                    identity_fields = (
+                        "state", "candidate_sha", "attempt_number", "obligation_id",
+                        "owner_id", "worker_id", "job_id",
+                    )
+                    if all(row.get(field) == other.get(field) for field in identity_fields):
+                        continue
+                    causal_pair = (
+                        row.get("candidate_sha") == other.get("candidate_sha")
+                        and row.get("attempt_number") == other.get("attempt_number")
+                        and row.get("obligation_id") == other.get("obligation_id")
+                        and row.get("source") == other.get("source")
+                        and abs(row.get("sequence", 0) - other.get("sequence", 0)) == 1
+                        and (
+                            row.get("preceding_event_id") == other_id
+                            or other.get("preceding_event_id") == event_id
+                        )
+                    )
+                    if not causal_pair:
+                        conflicts.update(((scope, event_id), (scope, other_id)))
+        return conflicts
+
+    @staticmethod
+    def _valid_ownership_continuity(receipt, left, right, pr_id, left_dt, right_dt):
+        if not isinstance(receipt, dict):
+            return False
+        receipt_start = _parse_utc_instant(receipt.get("covers_from"))
+        receipt_end = _parse_utc_instant(receipt.get("covers_to"))
+        owner_id = receipt.get("owner_id")
+        owner_matches = (
+            isinstance(owner_id, str) and owner_id
+            and owner_id == left.get("owner_id") == right.get("owner_id")
+        )
+        job_id = receipt.get("job_id")
+        job_matches = (
+            isinstance(job_id, str) and job_id
+            and job_id == left.get("job_id") == right.get("job_id")
+        )
+        if "owner_id" in receipt and not owner_matches:
+            return False
+        if "job_id" in receipt and not job_matches:
+            return False
+        worker_id = receipt.get("worker_id")
+        worker_matches = (
+            isinstance(worker_id, str) and worker_id
+            and worker_id == left.get("worker_id") == right.get("worker_id")
+        )
+        if "worker_id" in receipt and not worker_matches:
+            return False
+        return bool(
+            isinstance(receipt.get("receipt_id"), str) and receipt.get("receipt_id")
+            and receipt.get("pr_id") == pr_id
+            and isinstance(receipt.get("candidate_sha"), str)
+            and re.fullmatch(r"[0-9a-fA-F]{40}", receipt["candidate_sha"])
+            and receipt.get("candidate_sha").lower() == left.get("candidate_sha") == right.get("candidate_sha")
+            and isinstance(receipt.get("attempt_number"), int)
+            and not isinstance(receipt.get("attempt_number"), bool)
+            and receipt.get("attempt_number") == left.get("attempt_number") == right.get("attempt_number")
+            and isinstance(receipt.get("obligation_id"), str) and receipt.get("obligation_id")
+            and receipt.get("obligation_id") == left.get("obligation_id") == right.get("obligation_id")
+            and (owner_matches or job_matches)
+            and receipt_start == left_dt and receipt_end == right_dt
+        )
 
     def compute_lifecycle_durations(self, pr):
         """Separate closure sprint from task-to-merge."""
@@ -3115,12 +3545,15 @@ class MetricsAggregator:
             ))
         return out
 
-    def adapt_transition_event_receipts(self, records, prs):
-        """Pair observed event receipts only on exact PR, candidate SHA, and attempt."""
+    def adapt_transition_event_receipts(self, records, prs, *, as_of=None):
+        """Pair observed events, including unclosed pickup clocks at an optional cutoff."""
         transitions = (
-            ("evidence_ready -> review_requested", "evidence_ready", "review_requested"),
-            ("review_requested -> actual_review_started", "review_requested", "actual_review_started"),
-            ("review_return -> next_substantive_action", "review_return", "next_action_started"),
+            ("evidence_ready -> review_requested", ("evidence_ready",), ("review_requested",)),
+            ("review_requested -> actual_review_started", ("review_requested",), ("actual_review_started",)),
+            ("review_return -> next_substantive_action", ("review_return",),
+             ("next_action_started", "worker_started")),
+            ("wake_fired -> next_substantive_action", ("wake_fired",),
+             ("next_action_started", "worker_started")),
         )
         pr_keys = {
             (str(pr.get("repo")), str(pr.get("number")))
@@ -3138,80 +3571,208 @@ class MetricsAggregator:
         }
         by_id = {}
         conflict_ids = set()
+        raw_v1_fingerprints = {}
+        raw_pickup_times = defaultdict(list)
+        predecessor_observations = defaultdict(set)
+        pickups_missing_obligation = []
         for row in records:
             if not isinstance(row, dict) or row.get("record_type") != "transition_event":
                 continue
-            event_id = _usage_label(row.get("event_id"))
-            event_type = row.get("event_type")
+            row = _canonical_transition_receipt(row)
+            raw_event_id = row.get("event_id")
+            event_id = _usage_label(raw_event_id)
+            source_event_type = row.get("event_type")
+            event_type = ({
+                "worker_returned": "review_return",
+            }.get(source_event_type, source_event_type)
+                if isinstance(source_event_type, str) else None)
             pr_id = row.get("pr_id")
+            scope = pr_id.rsplit("#", 1) if _safe_pr_id(pr_id) else None
+            event_identity = (scope[0], scope[1], event_id) if scope and event_id else None
             occurred = _parse_utc_instant(row.get("occurred_at"))
+            if as_of is not None and occurred and occurred > as_of:
+                continue
             candidate_sha = row.get("candidate_sha")
             attempt = row.get("attempt_number")
-            valid = (
-                event_id and event_type in {
-                    "evidence_ready", "review_requested", "actual_review_started",
-                    "review_return", "next_action_started",
-                }
+            version = row.get("schema_version")
+            if (
+                as_of is not None and scope and tuple(scope) in pr_keys
+                and isinstance(candidate_sha, str)
+                and type(attempt) is int and attempt > 0
+            ):
+                attempt_scope = (*scope, candidate_sha.lower(), attempt)
+                obligation = _usage_label(row.get("obligation_id"))
+                preceding_id = _usage_label(row.get("preceding_event_id"))
+                if type(version) is int and version == 1 and event_id and (obligation or preceding_id):
+                    predecessor_observations[(*attempt_scope, event_id)].add(
+                        (obligation, preceding_id, occurred)
+                    )
+                if event_type in ("next_action_started", "worker_started"):
+                    raw_pickup_times[(*attempt_scope, obligation)].append(occurred)
+                    if obligation is None and preceding_id:
+                        pickups_missing_obligation.append((attempt_scope, preceding_id, occurred))
+            if type(version) is int and version == 1 and event_identity:
+                fingerprint_text = _ownership_receipt_fingerprint(row)
+                previous_fingerprint = raw_v1_fingerprints.get(event_identity)
+                if previous_fingerprint is not None and previous_fingerprint != fingerprint_text:
+                    conflict_ids.add(event_identity)
+                    stats["receipt_event_conflicts"] += 1
+                    continue
+                raw_v1_fingerprints[event_identity] = fingerprint_text
+                if event_identity in conflict_ids:
+                    continue
+            ownership = self.validate_ownership_observation(row, pr_id) if version is not None else None
+            legacy_types = {
+                "evidence_ready", "review_requested", "actual_review_started",
+                "review_return", "next_action_started",
+            }
+            valid_legacy = (
+                not _has_ownership_observation_fields(row)
+                and event_id and isinstance(source_event_type, str)
+                and source_event_type in legacy_types and event_type in legacy_types
                 and _safe_pr_id(pr_id) and occurred
                 and isinstance(candidate_sha, str)
                 and re.fullmatch(r"[0-9a-fA-F]{7,40}", candidate_sha) is not None
                 and isinstance(attempt, int) and not isinstance(attempt, bool) and attempt > 0
             )
+            valid = bool(ownership) or bool(valid_legacy)
             repo, number = pr_id.rsplit("#", 1) if valid else (None, None)
             if not valid or (repo, number) not in pr_keys:
                 continue
-            normalized = {
+            normalized = dict(ownership or {})
+            normalized.update({
                 "event_id": event_id, "event_type": event_type,
+                "source_event_type": source_event_type,
                 "repo": repo, "number": number, "candidate_sha": candidate_sha.lower(),
                 "attempt_number": attempt,
-                "occurred_at": occurred.isoformat(timespec="auto").replace(
-                    "+00:00", "Z"
-                ),
-                "observed_at": row.get("observed_at"),
-            }
-            existing = by_id.get(event_id)
+                "occurred_at": occurred.isoformat(timespec="auto").replace("+00:00", "Z"),
+            })
+            if ownership:
+                normalized["continuity_receipt"] = ownership.get("continuity_receipt")
+            event_identity = (repo, number, event_id)
+            normalized["_identity_key"] = event_identity
+            existing = by_id.get(event_identity)
             if existing is not None:
                 if existing == normalized:
                     stats["receipt_duplicate_events"] += 1
                 else:
-                    conflict_ids.add(event_id)
+                    conflict_ids.add(event_identity)
                     stats["receipt_event_conflicts"] += 1
                 continue
-            by_id[event_id] = normalized
+            by_id[event_identity] = normalized
 
         groups = defaultdict(lambda: defaultdict(list))
-        for event_id, row in by_id.items():
-            if event_id in conflict_ids:
+        for event_identity, row in by_id.items():
+            if event_identity in conflict_ids:
                 continue
             stats["receipt_events_valid"] += 1
-            key = (row["repo"], row["number"], row["candidate_sha"], row["attempt_number"])
+            key = (
+                row["repo"], row["number"], row["candidate_sha"],
+                row["attempt_number"], row.get("obligation_id"),
+            )
             groups[key][row["event_type"]].append(row)
 
+        v1_event_rows = [
+            row for row in by_id.values()
+            if row.get("schema_version") == 1
+        ]
+        simultaneous_input = []
+        for row in v1_event_rows:
+            occurred = _parse_utc_instant(row.get("occurred_at"))
+            if occurred:
+                simultaneous_input.append((
+                    occurred, row.get("sequence", 0), row["event_id"], row, row,
+                ))
+        simultaneous_conflicts = self._simultaneous_ownership_conflicts(simultaneous_input)
+        simultaneous_identities = set()
+        for scope, event_id in simultaneous_conflicts:
+            repo, number = scope.rsplit("#", 1)
+            simultaneous_identities.add((repo, number, event_id))
+        stats["receipt_event_conflicts"] += len(simultaneous_identities - conflict_ids)
+        conflict_ids.update(simultaneous_identities)
+        clean_events_by_id = {
+            event_identity: row for event_identity, row in by_id.items()
+            if event_identity not in conflict_ids
+        }
+
+        # Conflicts invalidate completion proof, but can still make an open clock ambiguous.
+        for attempt_scope, preceding_id, occurred in pickups_missing_obligation:
+            obligations = self._pickup_obligation_candidates(
+                attempt_scope, preceding_id, occurred, predecessor_observations,
+            )
+            for obligation in obligations:
+                raw_pickup_times[(*attempt_scope, obligation)].append(occurred)
+
         pairs = []
+        open_clocks = []
         paired_ids = set()
         for key, by_type in groups.items():
-            for name, start_type, end_type in transitions:
-                start_rows = by_type.get(start_type, [])
-                end_rows = by_type.get(end_type, [])
-                if len(start_rows) != 1 or len(end_rows) != 1:
+            for name, start_types, end_types in transitions:
+                start_rows = sorted(
+                    (event for event_type in start_types for event in by_type.get(event_type, [])),
+                    key=lambda event: (_parse_utc_instant(event["occurred_at"]), event["sequence"] if isinstance(event.get("sequence"), int) else 0),
+                )
+                end_rows = sorted(
+                    (event for event_type in end_types for event in by_type.get(event_type, [])),
+                    key=lambda event: (_parse_utc_instant(event["occurred_at"]), event["sequence"] if isinstance(event.get("sequence"), int) else 0),
+                )
+                endpoint_rows = start_rows + end_rows
+                legacy_only = bool(endpoint_rows) and all(
+                    event.get("schema_version") is None for event in endpoint_rows
+                )
+                if legacy_only and (len(start_rows) != 1 or len(end_rows) > 1):
                     continue
-                start_row, end_row = start_rows[0], end_rows[0]
-                start_at = _parse_utc_instant(start_row["occurred_at"])
-                end_at = _parse_utc_instant(end_row["occurred_at"])
-                if start_at is None or end_at is None or end_at < start_at:
-                    continue
-                pair_receipt = hashlib.sha256(
-                    "|".join((key[0], key[1], key[2], str(key[3]), name,
-                              start_row["event_id"], end_row["event_id"])).encode()
-                ).hexdigest()
-                pairs.append({
-                    "repo": key[0], "number": int(key[1]), "candidate_sha": key[2],
-                    "attempt_number": key[3], "name": name,
-                    "start_at": start_row["occurred_at"], "end_at": end_row["occurred_at"],
-                    "receipt_id": "sha256:" + pair_receipt,
-                })
-                paired_ids.add(start_row["event_id"])
-                paired_ids.add(end_row["event_id"])
+                used_ends = set()
+                for start_index, start_row in enumerate(start_rows):
+                    if start_row["_identity_key"] in conflict_ids:
+                        continue
+                    start_at = _parse_utc_instant(start_row["occurred_at"])
+                    next_start_at = (
+                        _parse_utc_instant(start_rows[start_index + 1]["occurred_at"])
+                        if start_index + 1 < len(start_rows) else None
+                    )
+                    candidates = [
+                        event for event in end_rows
+                        if event["_identity_key"] not in used_ends
+                        and _parse_utc_instant(event["occurred_at"]) >= start_at
+                        and (next_start_at is None or _parse_utc_instant(event["occurred_at"]) < next_start_at)
+                    ]
+                    if not candidates:
+                        if (
+                            as_of is not None and next_start_at is None and name in PICKUP_CLOCKS
+                            and not any(at is None or at >= start_at for at in raw_pickup_times[key])
+                        ):
+                            open_clocks.append({
+                                "repo": key[0], "number": int(key[1]), "candidate_sha": key[2],
+                                "attempt_number": key[3], "name": name,
+                                "start_at": start_row["occurred_at"], "end_at": None,
+                                "status": "RIGHT_CENSORED",
+                            })
+                        continue
+                    end_at = _parse_utc_instant(candidates[0]["occurred_at"])
+                    same_time = [event for event in candidates if _parse_utc_instant(event["occurred_at"]) == end_at]
+                    if len(same_time) != 1:
+                        continue
+                    end_row = same_time[0]
+                    if end_row["_identity_key"] in conflict_ids:
+                        continue
+                    if start_row.get("schema_version") == 1 or end_row.get("schema_version") == 1:
+                        if (start_row.get("schema_version") != 1 or end_row.get("schema_version") != 1
+                                or not self._ownership_event_follows(start_row, end_row, clean_events_by_id)):
+                            continue
+                    used_ends.add(end_row["_identity_key"])
+                    pair_receipt = hashlib.sha256(
+                        "|".join((key[0], key[1], key[2], str(key[3]), name,
+                                  start_row["event_id"], end_row["event_id"])).encode()
+                    ).hexdigest()
+                    pairs.append({
+                        "repo": key[0], "number": int(key[1]), "candidate_sha": key[2],
+                        "attempt_number": key[3], "name": name,
+                        "start_at": start_row["occurred_at"], "end_at": end_row["occurred_at"],
+                        "receipt_id": "sha256:" + pair_receipt,
+                    })
+                    paired_ids.add(start_row["_identity_key"])
+                    paired_ids.add(end_row["_identity_key"])
 
         stats["receipt_pairs"] = len(pairs)
         stats["receipt_events_unmatched"] = max(
@@ -3225,7 +3786,65 @@ class MetricsAggregator:
             stats["status"] = "COMPLETE"
         else:
             stats["status"] = stats.get("status", "NOT_COLLECTED")
-        return pairs, stats
+        return pairs + open_clocks, stats
+
+    @staticmethod
+    def _pickup_obligation_candidates(attempt_scope, preceding_id, pickup_at, observations):
+        """Follow explicit links within one PR, head and attempt to attribute ambiguity."""
+        pending = [(preceding_id, pickup_at)]
+        visited = set()
+        obligations = set()
+        while pending:
+            event_id, latest_at = pending.pop()
+            if (event_id, latest_at) in visited:
+                continue
+            visited.add((event_id, latest_at))
+            for obligation, parent_id, occurred_at in observations.get(
+                (*attempt_scope, event_id), (),
+            ):
+                if latest_at is not None and occurred_at is not None and occurred_at > latest_at:
+                    continue
+                if obligation:
+                    obligations.add(obligation)
+                elif parent_id:
+                    pending.append((parent_id, occurred_at or latest_at))
+        return obligations
+
+    @staticmethod
+    def _ownership_event_follows(start_row, end_row, events_by_id):
+        """Require v1 pickup to follow the return through its causal event chain."""
+        preceding_id = end_row.get("preceding_event_id")
+        visited = set()
+        current = end_row
+        while preceding_id and preceding_id not in visited:
+            if preceding_id == start_row.get("event_id"):
+                current_time = _parse_utc_instant(current.get("occurred_at"))
+                start_time = _parse_utc_instant(start_row.get("occurred_at"))
+                if not current_time or not start_time or current_time < start_time:
+                    return False
+                return (
+                    current.get("source") != start_row.get("source")
+                    or current.get("sequence") == start_row.get("sequence") + 1
+                )
+            visited.add(preceding_id)
+            previous = events_by_id.get((start_row.get("repo"), start_row.get("number"), preceding_id))
+            if not previous:
+                return False
+            current_time = _parse_utc_instant(current.get("occurred_at"))
+            previous_time = _parse_utc_instant(previous.get("occurred_at"))
+            if not current_time or not previous_time or current_time < previous_time:
+                return False
+            if any(
+                previous.get(field) != start_row.get(field)
+                for field in ("repo", "number", "candidate_sha", "attempt_number", "obligation_id")
+            ):
+                return False
+            if (current.get("source") == previous.get("source")
+                    and current.get("sequence") != previous.get("sequence") + 1):
+                return False
+            current = previous
+            preceding_id = previous.get("preceding_event_id")
+        return False
 
     def compute_handoff_breakdown(
         self, prs, handoff_records=None, total_cohort_n=None, receipt_stats=None
@@ -3243,6 +3862,7 @@ class MetricsAggregator:
             "evidence_ready -> review_requested",
             "review_requested -> actual_review_started",
             "review_return -> next_substantive_action",
+            "wake_fired -> next_substantive_action",
             "authority_ready -> merged",
             "task_accepted -> merged",
             "closure_sprint_accepted -> merged",
@@ -3302,7 +3922,8 @@ class MetricsAggregator:
                 **scan_stats,
                 **pairing_stats,
             }
-            if scan_stats.get("receipt_parse_errors") or scan_stats.get("receipt_read_errors"):
+            if (scan_stats.get("receipt_parse_errors") or scan_stats.get("receipt_read_errors")
+                    or scan_stats.get("receipt_unknown_schema_events")):
                 receipt_summary["status"] = "PARTIAL"
             expanded = []
             for rec in records_to_process:
@@ -3411,10 +4032,13 @@ class MetricsAggregator:
                 "receipt_status": receipt_summary.get("status", "NOT_CONFIGURED"),
                 "receipt_events_seen": receipt_summary.get("receipt_events_seen", 0),
                 "receipt_events_valid": receipt_summary.get("receipt_events_valid", 0),
+                "receipt_duplicate_events": receipt_summary.get("receipt_duplicate_events", 0),
+                "receipt_event_conflicts": receipt_summary.get("receipt_event_conflicts", 0),
                 "receipt_pairs": receipt_summary.get("receipt_pairs", 0),
                 "receipt_events_unmatched": receipt_summary.get("receipt_events_unmatched", 0),
                 "receipt_parse_errors": receipt_summary.get("receipt_parse_errors", 0),
                 "receipt_read_errors": receipt_summary.get("receipt_read_errors", 0),
+                "receipt_unknown_schema_events": receipt_summary.get("receipt_unknown_schema_events", 0),
             })
 
         return handoffs_data
@@ -3466,6 +4090,16 @@ class MetricsAggregator:
         all_closed_w2 = [p for p in filter_events_half_open(prs, "closedAt", w2_s, cutoff) if not p.get("mergedAt")]
         all_current_closed = [p for p in prs if p.get("state") == "CLOSED" and not p.get("mergedAt")]
         all_still_open = [p for p in prs if p.get("state") == "OPEN"]
+        ownership_events = handoff_records if isinstance(handoff_records, list) else []
+        if isinstance(handoff_records, dict):
+            owned_rows = handoff_records.get("records", handoff_records.get("handoffs", []))
+            ownership_events = owned_rows if isinstance(owned_rows, list) else []
+        pickup_clocks, _pickup_stats = self.adapt_transition_event_receipts(
+            ownership_events, all_still_open, as_of=cutoff
+        )
+        pickup_clocks_by_pr = defaultdict(list)
+        for event in pickup_clocks:
+            pickup_clocks_by_pr[(event["repo"], event["number"])].append(event)
 
         for repo in repos:
             repo_prs = [p for p in prs if p.get("repo") == repo]
@@ -3618,6 +4252,48 @@ class MetricsAggregator:
         open_prs_unknown = []
         for p in all_still_open:
             idle = self.compute_eligible_unattended_duration(p)
+            created_at = parse_iso_utc(p.get("createdAt"))
+            ownership_start = max(w2_s, created_at) if created_at else w2_s
+            current_head = p.get("headRefOid")
+            ownership = self.compute_driver_ownership_metrics(
+                p, ownership_events if current_head else [], ownership_start, cutoff
+            )
+            pickup_samples = {name: [] for name in PICKUP_CLOCKS}
+            pickup_open = {name: [] for name in PICKUP_CLOCKS}
+            for event in pickup_clocks_by_pr.get((p.get("repo"), p.get("number")), []):
+                if not current_head or event.get("candidate_sha") != current_head:
+                    continue
+                transition_name = event.get("name")
+                if transition_name not in PICKUP_CLOCKS:
+                    continue
+                if event.get("status") == "RIGHT_CENSORED":
+                    elapsed = (cutoff - _parse_utc_instant(event["start_at"])).total_seconds()
+                    pickup_open[transition_name].append(elapsed)
+                    continue
+                duration = self.compute_interval_duration(event["start_at"], event["end_at"])
+                if duration["status"] == "OK":
+                    pickup_samples[transition_name].append(duration["duration_sec"])
+            pickup_metrics = {}
+            for name, prefix in PICKUP_CLOCKS.items():
+                values = pickup_samples[name]
+                pickup_metrics.update({
+                    f"{prefix}_median_sec": calculate_median(values) if values else "UNKNOWN",
+                    f"{prefix}_sample_n": len(values),
+                    f"{prefix}_open_elapsed_sec": sorted(pickup_open[name], reverse=True),
+                })
+            has_ownership_events = any(
+                isinstance(event, dict)
+                and event.get("record_type") == "transition_event"
+                and event.get("pr_id") == f"{p.get('repo')}#{p.get('number')}"
+                and _has_ownership_observation_fields(event)
+                for event in ownership_events
+            )
+            if has_ownership_events:
+                idle = {
+                    "duration_sec": ownership["unattended_sec_lower_bound"]
+                    if ownership["status"] == "COMPLETE" else None,
+                    "status": "OK" if ownership["status"] == "COMPLETE" else "UNKNOWN",
+                }
             stg_lbl = next(
                 (l for l in p.get("labels", []) if isinstance(l, str) and l.startswith("stage:")),
                 p.get("legacy_stage") or "stage:unknown",
@@ -3635,6 +4311,8 @@ class MetricsAggregator:
 
             if idle.get("status") == "OK" and idle.get("duration_sec") is not None:
                 open_prs_known.append({
+                    "repo": p.get("repo"),
+                    "number": p.get("number"),
                     "url": p.get("url"),
                     "sha": sha,
                     "stage": stg_lbl,
@@ -3647,11 +4325,18 @@ class MetricsAggregator:
                     "wake_condition": p.get("wake_condition") or "UNKNOWN",
                     "receipt_links": p.get("receipt_links") or [],
                     "eligible_unattended_duration_sec": idle["duration_sec"],
+                    "ownership_unattended_sec_lower_bound": ownership["unattended_sec_lower_bound"],
+                    "ownership_unknown_sec": ownership["unknown_sec"],
+                    "ownership_coverage": ownership["coverage"],
+                    "ownership_status": ownership["status"],
+                    **pickup_metrics,
                 })
             else:
                 u_dt = parse_iso_utc(p.get("updatedAt")) or parse_iso_utc(p.get("createdAt"))
                 quiet_hrs = round((cutoff - u_dt).total_seconds() / 3600.0, 1) if u_dt else "UNKNOWN"
                 open_prs_unknown.append({
+                    "repo": p.get("repo"),
+                    "number": p.get("number"),
                     "url": p.get("url"),
                     "sha": sha,
                     "stage": stg_lbl,
@@ -3664,6 +4349,11 @@ class MetricsAggregator:
                     "job_handle": p.get("job_handle") or "UNKNOWN",
                     "wake_condition": p.get("wake_condition") or "UNKNOWN",
                     "receipt_links": p.get("receipt_links") or [],
+                    "ownership_unattended_sec_lower_bound": ownership["unattended_sec_lower_bound"],
+                    "ownership_unknown_sec": ownership["unknown_sec"],
+                    "ownership_coverage": ownership["coverage"],
+                    "ownership_status": ownership["status"],
+                    **pickup_metrics,
                     "quiet_time": f"{quiet_hrs}h" if isinstance(quiet_hrs, (int, float)) else "UNKNOWN",
                 })
 
@@ -3754,6 +4444,17 @@ class MetricsAggregator:
 # -----------------------------------------------------------------------------
 # Task 3: Dashboard Rendering
 # -----------------------------------------------------------------------------
+
+def _format_pickup_clocks(pr, prefix):
+    median = format_duration(pr.get(f"{prefix}_median_sec"))
+    sample_count = pr.get(f"{prefix}_sample_n", 0)
+    completed = f"{median} ({sample_count})"
+    elapsed = pr.get(f"{prefix}_open_elapsed_sec") or []
+    if elapsed:
+        clocks = ", ".join(format_duration(seconds) for seconds in elapsed)
+        return f"{completed} · open at cutoff {clocks}"
+    return completed
+
 
 class DashboardRenderer:
     """Renders structured summary data into GitHub-flavored Markdown."""
@@ -4003,21 +4704,29 @@ class DashboardRenderer:
         md.append("### 5A. Open PRs with Observed Eligible Unattended Duration")
         md.append("")
         if data.get("open_prs_known_idle"):
-            md.append("| PR | Head SHA | Stage | Title Status | Earliest Unmet Obligation | Actionable Next Step | Owner | Hold Status | Job Handle | Wake Condition | Receipts | Eligible Unattended Duration |")
-            md.append("|---|---|---|---|---|---|---|---|---|---|---|---|")
+            md.append("| PR | Head SHA | Stage | Title Status | Earliest Unmet Obligation | Actionable Next Step | Owner | Hold Status | Job Handle | Wake Condition | Receipts | Eligible Unattended Duration | Ownership Coverage | Unknown Minutes | Review Return to Pickup | Wake to Pickup |")
+            md.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
             for pr in data.get("open_prs_known_idle"):
-                md.append(f"| [{pr['url']}]({pr['url']}) | `{pr['sha'][:7]}` | `{pr['stage']}` | {pr.get('title_status', 'UNKNOWN')} | {pr.get('earliest_unmet_obligation', 'UNKNOWN')} | {pr['next_action']} | `{pr['owner']}` | {pr['hold_status']} | {pr.get('job_handle', 'UNKNOWN')} | {pr.get('wake_condition', 'UNKNOWN')} | {render_receipt_links(pr.get('receipt_links'))} | **{format_duration(pr['eligible_unattended_duration_sec'])}** |")
+                coverage = pr.get("ownership_coverage")
+                coverage_text = f"{coverage:.1%}" if isinstance(coverage, (int, float)) else "UNKNOWN"
+                review_pickup_text = _format_pickup_clocks(pr, "review_return_to_pickup")
+                wake_pickup_text = _format_pickup_clocks(pr, "wake_to_pickup")
+                md.append(f"| [{pr['url']}]({pr['url']}) | `{pr['sha'][:7]}` | `{pr['stage']}` | {pr.get('title_status', 'UNKNOWN')} | {pr.get('earliest_unmet_obligation', 'UNKNOWN')} | {pr['next_action']} | `{pr['owner']}` | {pr['hold_status']} | {pr.get('job_handle', 'UNKNOWN')} | {pr.get('wake_condition', 'UNKNOWN')} | {render_receipt_links(pr.get('receipt_links'))} | **{format_duration(pr['eligible_unattended_duration_sec'])}** | {coverage_text} | {format_duration(pr.get('ownership_unknown_sec'))} | {review_pickup_text} | {wake_pickup_text} |")
         else:
             md.append("*No open PRs currently exhibit proven eligible unattended duration.*")
         md.append("")
-        md.append("### 5B. Open PRs with Unknown Eligibility (Telemetry Coverage 0%)")
+        md.append("### 5B. Open PRs with Incomplete Eligibility Evidence")
         md.append("")
         md.append("> ℹ️ **Notice**: These PRs lack fine-grained active-worker/hold-state telemetry. They are reported transparently for operator attention and are NOT ranked as idle.")
         md.append("")
         if data.get("open_prs_unknown_idle"):
-            md.append("| PR | Head SHA | Stage | Title Status | Earliest Unmet Obligation | Next Action | Owner | Hold Status | Job Handle | Wake Condition | Receipts | Potential Handoff Waiting | GitHub Quiet Time (Proxy Only) |")
-            md.append("|---|---|---|---|---|---|---|---|---|---|---|---:|---:|")
+            md.append("| PR | Head SHA | Stage | Title Status | Earliest Unmet Obligation | Next Action | Owner | Hold Status | Job Handle | Wake Condition | Receipts | Verified Unattended Lower Bound | Unknown Minutes | Coverage | Review Return to Pickup | Wake to Pickup | Potential Handoff Waiting | GitHub Quiet Time (Proxy Only) |")
+            md.append("|---|---|---|---|---|---|---|---|---|---|---|---:|---:|---:|---:|---:|---|---:|")
             for pr in data.get("open_prs_unknown_idle"):
+                coverage = pr.get("ownership_coverage")
+                coverage_text = f"{coverage:.1%}" if isinstance(coverage, (int, float)) else "UNKNOWN"
+                review_pickup_text = _format_pickup_clocks(pr, "review_return_to_pickup")
+                wake_pickup_text = _format_pickup_clocks(pr, "wake_to_pickup")
                 md.append(
                     f"| [{pr['url']}]({pr['url']}) | `{pr['sha'][:7]}` | `{pr['stage']}` | "
                     f"{pr.get('title_status', 'UNKNOWN')} | "
@@ -4025,6 +4734,10 @@ class DashboardRenderer:
                     f"`{pr.get('owner', 'UNKNOWN')}` | {pr.get('hold_status', 'UNKNOWN')} | "
                     f"{pr.get('job_handle', 'UNKNOWN')} | {pr.get('wake_condition', 'UNKNOWN')} | "
                     f"{render_receipt_links(pr.get('receipt_links'))} | "
+                    f"{format_duration(pr.get('ownership_unattended_sec_lower_bound'))} | "
+                    f"{format_duration(pr.get('ownership_unknown_sec'))} | {coverage_text} | "
+                    f"{review_pickup_text} | "
+                    f"{wake_pickup_text} | "
                     f"{pr.get('potential_handoff_waiting', 'UNKNOWN')} | {pr.get('quiet_time', 'UNKNOWN')} |"
                 )
         else:

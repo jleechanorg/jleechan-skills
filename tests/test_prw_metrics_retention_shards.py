@@ -3,6 +3,7 @@ import json
 import subprocess
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
@@ -148,6 +149,131 @@ class RetainedUsageShards(unittest.TestCase):
                     self.assertIn(manifest_name, result["reason"])
                     git_calls.assert_not_called()
                 self.assertEqual(list(Path(temp).iterdir()), [])
+
+    def test_ownership_publication_excludes_local_paths(self):
+        pr_id = "acme/app#12"
+        url = "https://github.com/acme/app/pull/12"
+        versioned = {
+            "record_type": "transition_event", "schema_version": 1,
+            "pr_id": pr_id, "pr_url": url, "event_id": "evt-2", "repo": "acme/app", "sequence": 2,
+            "source": ".scratch/private/session.jsonl",
+            "result_receipt": r"C:\private\driver.log",
+            "wait_reason": "worktrees/customer-x/transcripts/run.jsonl",
+            "state": "private/states/current.json",
+            "preceding_event_id": "evt-1", "continuity_from_event_id": "evt-1",
+            "owner_id": "driver:abc-1",
+            "continuity_receipt": {
+                "receipt_id": "../local/driver.log", "owner_id": "driver:abc-1", "pr_id": pr_id,
+                "covers_to": "internal/run/close.log",
+            },
+        }
+        earlier = dict(versioned, event_id="evt-1", source="driver-session-1",
+                       result_receipt=url, continuity_receipt=None, wait_reason=None)
+        legacy = dict(versioned, event_id="legacy")
+        del legacy["schema_version"]
+        future = dict(versioned, event_id="future", schema_version=2)
+        records = [earlier, versioned, legacy, future]
+        with tempfile.TemporaryDirectory() as temp:
+            bundle = m.Publisher(temp).write_telemetry_bundle(
+                {}, window_slug="20261109", handoff_records=records
+            )
+        path = "dashboards/prw/telemetry/20261109/retained_handoffs.jsonl"
+        first, second, retained_legacy, retained_future = map(json.loads, bundle[path].splitlines())
+        for field in ("source", "result_receipt", "wait_reason", "state"):
+            self.assertIsNone(second.get(field))
+        self.assertIsNone(second["continuity_receipt"].get("receipt_id"))
+        self.assertIsNone(second["continuity_receipt"].get("covers_to"))
+        self.assertIsNone(retained_future.get("source"))
+        self.assertEqual(retained_future["schema_version"], 2)
+        self.assertEqual(second["continuity_receipt"]["owner_id"], second["owner_id"])
+        self.assertEqual(second["continuity_receipt"]["pr_id"], second["pr_id"])
+        self.assertEqual(second["preceding_event_id"], first["event_id"])
+        self.assertEqual(second["continuity_from_event_id"], first["event_id"])
+        self.assertEqual(first["source"], "driver-session-1")
+        self.assertEqual(first["result_receipt"], url)
+        self.assertEqual(second["pr_url"], url)
+        self.assertEqual(second["repo"], "acme/app")
+        self.assertEqual(second["sequence"], 2)
+        self.assertEqual(retained_legacy["source"], legacy["source"])
+        raw = "\n".join(map(json.dumps, records))
+        self.assertEqual(m.sanitize_telemetry_file(path, raw), bundle[path])
+        self.assertEqual(m.sanitize_telemetry_file(path, bundle[path]), bundle[path])
+
+    def test_redacted_pickup_proof_cannot_become_valid_on_replay(self):
+        start = datetime(2026, 11, 11, 10, 15, tzinfo=timezone.utc)
+        cutoff = start + timedelta(minutes=16)
+        repo = "acme/app"
+        url = f"https://github.com/{repo}/pull/7"
+        scope = {"pr_id": f"{repo}#7", "candidate_sha": "a" * 40,
+                 "obligation_id": "follow-up", "owner_id": "driver", "attempt_number": 1}
+        pr = {"repo": repo, "number": 7, "state": "OPEN", "headRefOid": scope["candidate_sha"],
+              "createdAt": m.format_iso_utc(start), "url": url, "labels": []}
+        fixture = []
+        for sequence, (minute, event_type, executing) in enumerate([
+            (0, "action_observed", False), (2, "worker_acknowledged", False),
+            (5, "worker_started", True), (12, "worker_returned", False),
+            (13, "wake_fired", False), (15, "next_action_started", True),
+            (16, "window_observed", True),
+        ], 1):
+            event_id = f"event-{sequence}"
+            row = dict(scope, record_type="transition_event", schema_version=1,
+                       sequence=sequence, source="driver", event_id=event_id, event_type=event_type,
+                       occurred_at=m.format_iso_utc(start + timedelta(minutes=minute)),
+                       state="executing" if executing else "actionable_unowned",
+                       result_receipt=f"result-{sequence}")
+            if executing:
+                row["worker_id"] = "worker"
+            if fixture:
+                preceding = fixture[-1]
+                row["preceding_event_id"] = row["continuity_from_event_id"] = preceding["event_id"]
+                row["continuity_receipt"] = dict(
+                    scope, receipt_id=f"coverage-{sequence}",
+                    covers_from=preceding["occurred_at"], covers_to=row["occurred_at"],
+                )
+            fixture.append(row)
+
+        def metrics(records):
+            summary = m.MetricsAggregator(cutoff_dt=cutoff).aggregate_full_dataset(
+                [pr], handoff_records=records, now_dt=cutoff
+            )
+            attention = (summary["open_prs_known_idle"] + summary["open_prs_unknown_idle"])[0]
+            return tuple(attention[field] for field in (
+                "ownership_status", "ownership_unattended_sec_lower_bound", "ownership_unknown_sec",
+                "review_return_to_pickup_sample_n", "wake_to_pickup_sample_n",
+            ))
+
+        pickup = fixture[5]
+
+        def with_receipt(identity):
+            return dict(pickup, continuity_receipt=dict(pickup["continuity_receipt"], receipt_id=identity))
+
+        short, long = with_receipt("Bearer x"), with_receipt("Bearer syntheticvalue")
+        mask = with_receipt("Bearer [REDACTED]")
+        old_short_mask = with_receipt("Bearer [REDA...")
+        display = dict(pickup, pr_url="Bearer syntheticvalue", source_receipt="Bearer x")
+        cases = [
+            ("clean", [pickup], True), ("optional display redacted", [display], True),
+            ("distinct credentials", [short, long], False),
+            ("distinct credentials reversed", [long, short], False),
+            ("mixed duplicate", [pickup, long], False),
+            ("mixed duplicate reversed", [long, pickup], False),
+            ("existing mask", [mask], False), ("old truncated mask", [old_short_mask], False),
+        ]
+        path = "dashboards/prw/telemetry/20261109/retained_handoffs.jsonl"
+        with tempfile.TemporaryDirectory() as temp:
+            publisher = m.Publisher(temp)
+            for name, variants, clean in cases:
+                with self.subTest(name=name):
+                    records = fixture[:5] + variants + fixture[6:]
+                    expected = ("COMPLETE", 480.0, 0.0, 1, 1) if clean else ("PARTIAL", 360.0, 180.0, 0, 0)
+                    content = publisher.write_telemetry_bundle(
+                        {}, window_slug="20261109", handoff_records=records
+                    )[path]
+                    replay = m.sanitize_telemetry_file(path, content)
+                    self.assertNotIn("Bearer", replay)
+                    self.assertEqual(content, replay)
+                    self.assertEqual(metrics(records), expected)
+                    self.assertEqual(metrics(list(map(json.loads, replay.splitlines()))), expected)
 
     def test_retained_full_record_index_preserves_equality_and_scales(self):
         class CountedRecord(dict):

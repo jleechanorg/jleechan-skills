@@ -190,6 +190,8 @@ Existing PR description ledgers and attempt receipts remain the single authorita
 
 During a configured PRW measurement, the active owner may append one observed transition per JSON line to PRW_METRICS_RECEIPTS_DIR/transition-events.jsonl. This uses the existing receipts directory; it adds no runner, service, hook, or PR gate. For the dashboard pairing, include event_id, event_type, occurred_at, observed_at, pr_id, candidate_sha, and attempt_number. Other optional receipt fields are not required by this metric.
 
+For the optional ownership and pickup pilot, emit the v1 fields and state-specific proof in [PR ownership transition observations](../../../docs/specs/prw-ownership-observations.md). Legacy seven-field records remain valid for existing handoff metrics and do not establish ownership coverage.
+
 - occurred_at is the event clock used for duration; observed_at records when the receipt was captured and is audit metadata only.
 - Record actual_review_started only when substantive inspection is observed to begin. A request, assignment, acknowledgment, or status message is not an actual review start.
 - Record review return, wake firing, and next-action start separately. Result-to-pickup is next_substantive_action_started_at minus review_return_at; wake-to-action is next_substantive_action_started_at minus wake_fired event's occurred_at. If the action has not started by the observation cutoff, report each elapsed clock as open/right-censored. A callback or poll firing neither closes nor resets the result-to-pickup clock. Record worker acknowledgment separately from worker start.
