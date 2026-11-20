@@ -6,7 +6,7 @@ From the reviewed repository, make a seat package. Transfer the archive through 
 
 ```bash
 git archive --output=pr-owner-nudger.tar "$reviewed_sha" scripts/{pr_owner_nudger.py,pr_nudger_routes.py,pr_nudger_discovery.py,run_pr_owner_nudger.sh,render_pr_owner_nudger.py} \
-  .claude/skills/dot/{SKILL.md,scripts/dot.sh,scripts/dot_chrome.mjs} \
+  .claude/skills/dot/{SKILL.md,scripts/dot.sh,scripts/dot_chrome.mjs,scripts/dot_reply.mjs} \
   launchd/org.prw.pr-owner-nudger.plist.template systemd/pr-owner-nudger.{service,timer}.template docs/pr-owner-nudger.md
 # In the extracted workspace on the seat
 config="$HOME/.config/pr-owner-nudger/config.json"

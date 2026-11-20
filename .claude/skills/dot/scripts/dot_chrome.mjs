@@ -168,7 +168,8 @@ class ExistingProfileUnavailable extends Unavailable {
 const existingProfileUnavailable = (code) => { throw new ExistingProfileUnavailable(code); };
 
 const [mode, arg, option, expectedAccountDigest, replyDestination, replyParent, seatId] = process.argv.slice(2);
-const dotReply = mode === 'send-prepared' && option === '--exact-dot-reply';
+const dotReply = mode === 'send-prepared' && option === '--exact-dot-reply'
+  ? await import('./dot_reply.mjs') : null;
 const exactDestination = dotReply || (mode === 'send-prepared' && option === '--exact-destination');
 const exactUrl = dotReply ? replyDestination : URL_;
 let ctx = null;
@@ -396,7 +397,7 @@ async function settlePage(page, currentMode) {
     if (exactDestination) {
       const current = page.url();
       if (current !== exactUrl) {
-        if (!dotReply || ![URL_, 'https://chatgpt.com/dots/home'].includes(current)) unavailable('destination changed');
+        if (!dotReply || !dotReply.isSettlingUrl(current, URL_)) unavailable('destination changed');
         await sleep(500);
         continue;
       }
@@ -426,16 +427,9 @@ async function settlePage(page, currentMode) {
       const len = bodyText.length;
       if (len > 50) {
         stable = len === last ? stable + 1 : 0;
-        if (stable >= 2) {
-          if (session.status === 200 && session.isJson && session.hasUser) {
-            clearAuthFailed(USER_DATA_DIR);
-          }
-          return page;
-        }
+        if (stable >= 2) return page;
       }
       last = len;
-      await sleep(1000);
-      continue;
     }
     await sleep(1000);
   }
@@ -501,11 +495,9 @@ async function launchExistingProfileOnly(launchTimeoutMs) {
 }
 
 async function launchPrepared() {
-  if (dotReply && (
-    !/^[a-f0-9-]{36}$/.test(seatId) || URL_ !== `https://chatgpt.com/dots/${seatId}` ||
-    accountInfo.configuredUrl !== URL_ || !/^https:\/\/chatgpt\.com\/dots\/[a-f0-9-]{36}~[a-f0-9]{32}$/.test(replyDestination) ||
-    !/^[a-f0-9]{32}~[a-f0-9]{32}~CalpicoMessage~Sentinel_[a-f0-9]{32}$/.test(replyParent)
-  )) unavailable('invalid configured Dot reply binding');
+  if (dotReply && !dotReply.validBinding(URL_, accountInfo.configuredUrl, exactUrl, replyParent, seatId)) {
+    unavailable('invalid configured Dot reply binding');
+  }
   await launchExistingProfileOnly();
   const page = await ctx.newPage();
   await page.goto(URL_, { waitUntil: 'domcontentloaded', timeout: 45000 });
@@ -664,65 +656,20 @@ async function exactDestinationReady(page) {
     !(await page.locator('button[data-testid=stop-button], button[aria-label="Stop generating"]').first().isVisible());
 }
 
-async function hasReplyParent(panel) {
-  if (await panel.count() !== 1 || !(await panel.isVisible())) return false;
-  const first = panel.locator('.message-list article.message-row[data-message-id]').first();
-  return (await first.count()) === 1 && (await first.getAttribute('data-message-id')) === replyParent;
-}
-
-async function loadReplyParent(feed, reply, roomReady) {
-  const rows = feed.locator('article.message-row[data-message-id]');
-  for (let batch = 0; batch < 5; batch++) {
-    if (!(await roomReady())) return false;
-    if (await reply.count() === 1) return true;
-    const before = await rows.count();
-    if (before > 0 && !(await feed.evaluate((node, url) => {
-      if (node.ownerDocument.URL !== url) return false;
-      node.scrollTop = 0;
-      return true;
-    }, exactUrl))) return false;
-    const deadline = Date.now() + 3000;
-    let grew = false;
-    while (Date.now() < deadline) {
-      if (!(await roomReady())) return false;
-      if (await reply.count() === 1) return true;
-      grew = await rows.count() > before;
-      if (grew) break;
-      await sleep(200);
-    }
-    if (!grew) return false;
-  }
-  return false;
-}
-
-async function openDotReply(page) {
-  const panel = page.locator('.reply-chain-container[aria-label="Replies"]');
-  if (await panel.count()) return null;
-  const feed = page.locator('.messages-scroll:visible');
-  await feed.waitFor({ state: 'visible', timeout: 5000 });
-  const roomReady = async () => await exactDestinationReady(page) &&
-    (await panel.count()) === 0 && (await feed.count()) === 1;
-  const action = { name: 'Reply', exact: true };
-  const reply = feed.locator(`article.message-row[data-message-id="${replyParent}"]`)
-    .filter({ has: page.getByRole('button', action) }).last().getByRole('button', action);
-  if (!(await loadReplyParent(feed, reply, roomReady)) || !(await roomReady())) return null;
-  await reply.click();
-  await panel.waitFor({ state: 'visible', timeout: 5000 });
-  return await hasReplyParent(panel) ? panel : null;
-}
-
 async function send(page, file, dry, opts = {}) {
   if (exactDestination && !(await exactDestinationReady(page))) {
     reportPrecommitNoSend('destination_unverified_or_busy', file);
     return;
   }
-  const scope = dotReply ? await openDotReply(page) : page;
+  const scope = dotReply ? await dotReply.openDotReply(page, {
+    parent: replyParent, destination: exactUrl, destinationReady: () => exactDestinationReady(page), sleep,
+  }) : page;
   const composerSelector = dotReply ? '.reply-chain-composer [contenteditable=true][aria-label="Message"]' : COMPOSER;
   if (!scope || (dotReply && await scope.locator(composerSelector).count() !== 1)) {
     reportPrecommitNoSend('reply_parent_unverified', file);
     return;
   }
-  const replyBound = async () => page.url() === exactUrl && await hasReplyParent(scope);
+  const replyBound = async () => page.url() === exactUrl && await dotReply.hasReplyParent(scope, replyParent);
   const stillReady = async () => await exactDestinationReady(page) && (!dotReply || await replyBound());
   const msg = fs.readFileSync(file, 'utf8').trim();
   let preparedDraft = null;
@@ -849,9 +796,7 @@ async function send(page, file, dry, opts = {}) {
   }
 
   if (aborted) return;
-  const replySend = dotReply
-    ? scope.locator('.reply-chain-composer').getByRole('button', { name: 'Send', exact: true })
-    : null;
+  const replySend = dotReply?.sendButton(scope);
   if (replySend && (await replySend.count() !== 1 || !(await replySend.isEnabled()) || !(await stillReady()))) return;
   if (aborted) return;
   clicked = true;

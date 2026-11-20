@@ -279,7 +279,7 @@ exports.chromium = {
                               initial_composer="", usage_limit=False,
                               mismatched_composer=False, missing_profile=False,
                               hang_launch=False, hang_after_commit=False,
-                              send_advance_ms=120000, exact=None, reply=None):
+                              send_advance_ms=120000, exact=None, reply=None, copy_only=False):
         state_path = self._install_fake_send_playwright(initial_composer)
         module = self.root / "node_modules" / "playwright" / "index.js"
         source = module.read_text()
@@ -327,7 +327,11 @@ process.stdout.write = (chunk, ...args) => {
   return result;
 };
 '''.replace("__ADVANCE__", str(advance_ms)).replace("__DECISION__", decision))
-        command = [str(NODE22), "--require", str(preload), str(SCRIPT), "send-prepared", str(message_path)]
+        entry = SCRIPT
+        if copy_only:
+            entry = self.root / SCRIPT.name
+            shutil.copyfile(SCRIPT, entry)
+        command = [str(NODE22), "--require", str(preload), str(entry), "send-prepared", str(message_path)]
         env = dict(self.env, DOT_PREPARED="1")
         if exact is not None:
             exact = dict(exact)
@@ -367,6 +371,13 @@ process.stdout.write = (chunk, ...args) => {
                 self.assertEqual(state["clicked"], clicked)
                 self.assertEqual("prepared-exact " in result.stdout, clicked)
                 self.assertEqual("DOT_SENT_VERIFIED" in result.stdout, clicked)
+
+    def test_private_chat_prepared_send_supports_a_standalone_entrypoint(self):
+        url = "https://chatgpt.com/c/00000000-0000-4000-8000-000000000001"
+        result, state = self._run_clocked_prepared(exact={"DOT_URL": url}, copy_only=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(state["clicked"])
+        self.assertIn("DOT_SENT_VERIFIED", result.stdout)
 
     def test_dot_reply_delivery_is_bound_to_the_parent_panel(self):
         seat = "00000000-0000-4000-8000-000000000001"

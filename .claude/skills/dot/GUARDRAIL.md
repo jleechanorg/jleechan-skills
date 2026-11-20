@@ -11,16 +11,16 @@ how to coordinate) lives in `SKILL.md` and the calling agent, never in code.
 |---|---|---|
 | `dot-coordinator/scripts/ping-dots.py` + `dot-coordinator-wrapper.sh` + `pi-lunaroute-adapter.sh` (canonical launcher plus temporary legacy wrapper/adapter/launcher forwarding files, combined) | 150 LOC | **≤ 150** |
 | `dot-coordinator/SKILL.md` (coordinator prompts & policy) | candidate | **≤ 400** |
-| `scripts/dot.sh` | 479 LOC | **≤ 520** |
-| `scripts/dot_chrome.mjs` | 843 LOC | **≤ 900** |
-| Transport scripts combined (`dot.sh` + `dot_chrome.mjs`) | 1322 LOC | **≤ 1400** |
+| `scripts/dot.sh` | 423 LOC | **≤ 520** |
+| `scripts/dot_chrome.mjs` and its transport modules (each) | 900 / 63 LOC | **≤ 900** |
+| Transport scripts combined (`dot.sh` + all `scripts/*.mjs`) | 1386 LOC | **≤ 1400** |
 | `SKILL.md` (policy layer — grows freely, this is where behavior belongs) | 174 LOC | **≤ 400** |
 | `tests/` (excluded — tests guard behavior, they are not transport) | 417 LOC | no cap |
 
 ## Rules
 
 1. **New behavior goes in `SKILL.md` first.** If a change adds judgment,
-   decision logic, or policy to `dot.sh`/`dot_chrome.mjs`, it is in the wrong
+   decision logic, or policy to the transport scripts, it is in the wrong
    place — rewrite it as an agent instruction here or in `SKILL.md`.
 2. **New script code must be mechanical**: launcher validation and process
    lifecycle only. Agent judgment belongs in the coordinator skill. Combined
