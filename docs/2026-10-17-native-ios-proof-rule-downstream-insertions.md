@@ -1,16 +1,16 @@
 # Historical native iOS proof rule — superseded
 
-> **Historical proposal only. Do not apply the downstream insertions below.** The universal native-proof trigger described here has been removed from the shared policy. Current platform-evidence rules belong to each product repository. The shared PR lifecycle applies those repository rules and keeps its existing visual-evidence defaults where a repository has not set a claim-specific route. During rollout, the replacement frontend and backend policies must be active before removing the installed shared rule.
+> **Historical proposal only. Do not apply the downstream insertions below.** The proposed shared-source change removes the former universal native-proof trigger when it is activated. Current platform-evidence rules belong to each product repository. Until the replacement frontend and backend policies are verified in force, the installed shared rule remains active. The shared PR lifecycle keeps its visual-evidence defaults where a repository has not set a claim-specific route.
 
-Status: **canonical text landed here; downstream edits deliberately NOT applied.** This note is the
-handoff for the paused downstream step.
+Status: **superseded 2026-11-20.** This note preserves the earlier rollout proposal; it is not an active
+handoff. Its downstream insertions below must not be applied.
 
-Canonical owner: `md_files/AGENTS.shared.md` § *Native iOS proof for user-visible UI changes
-(canonical)* (installs to `~/.codex/AGENTS.md` and is imported by `~/.claude/CLAUDE.md`).
+Historical owner: the former `md_files/AGENTS.shared.md` section (which installed to
+`~/.codex/AGENTS.md` and was imported by `~/.claude/CLAUDE.md`). Current shared policy defers platform
+and visual evidence applicability to target-repository policies and the changed claim.
 
-Per § *Downstream repository pointers and production classification*, downstream repositories point at
-the canonical file and never restate its text. So both downstream insertions below are **one pointer
-bullet each** — no numbers, no gates, no duplicated evidence classes.
+The insertions below record the earlier one-line downstream pointers proposed for the former global
+rule. They preserve the design history and carry no active instructions or requirements.
 
 ## 1. `jleechanorg/worldarchitect.ai` — `AGENTS.md`
 
