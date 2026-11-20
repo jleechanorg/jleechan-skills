@@ -1,4 +1,6 @@
-# Native iOS proof rule — downstream insertion points
+# Historical native iOS proof rule — superseded
+
+> **Historical proposal only. Do not apply the downstream insertions below.** The universal native-proof trigger described here has been removed from the shared policy. Current platform-evidence rules belong to each product repository. The shared PR lifecycle applies those repository rules and keeps its existing visual-evidence defaults where a repository has not set a claim-specific route. During rollout, the replacement frontend and backend policies must be active before removing the installed shared rule.
 
 Status: **canonical text landed here; downstream edits deliberately NOT applied.** This note is the
 handoff for the paused downstream step.
