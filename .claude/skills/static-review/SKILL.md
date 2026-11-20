@@ -46,6 +46,13 @@ for complete access or isolation; independence alone does not require a copy.
 
 ## 2. Templates
 
+Every template also carries the standing user-impact question: for each timer,
+expiry, timeout, retry, fallback, or magic number in the change, what does the
+user see when it fires in the foreground, in the background, on resume, and
+offline? Report as a P0 finding any user-visible behavior the request did not
+ask for that ships without being declared in the PR summary as a user-facing
+decision.
+
 Shared revision template for clone, export, read-only and remote modes:
 
 ```text
@@ -70,7 +77,7 @@ Report every supported finding in this one pass with file:line, tagged P0
 runtime/model when exposed, or `unreported` when hidden. Never name the
 reviewed system or scope as the model. Add COVERAGE: naming all files and the diff read. Approve source only with
 no P0 and full coverage; P1/P2 are nonblocking. Report separate readiness/evidence
-gaps without presenting this source vote as quorum or merge authority. End with exactly one line:
+gaps without presenting this source vote as quorum or merge authority. Answer the standing user-impact question (§2): for every timer, expiry, timeout, retry, fallback, or magic number, state what the user sees when it fires in the foreground, background, on resume, and offline, and flag any behavior beyond the explicit request that the PR summary never declared as a user-facing decision. End with exactly one line:
 VERDICT: APPROVED|NOT APPROVED|WITHHELD at <SHA> (WITHHELD with a reason).
 ```
 
@@ -96,7 +103,7 @@ more such behaviour as a fix. Report every supported finding in this one pass wi
 runtime/model when exposed, or `unreported` when hidden. Never name the
 reviewed system or scope as the model. Add COVERAGE: naming every file and diff actually read. Approve source only with
 no P0 and full coverage; P1/P2 are nonblocking. Keep readiness, quorum and merge
-authority separate. End with exactly one line:
+authority separate. Answer the standing user-impact question (§2): for every timer, expiry, timeout, retry, fallback, or magic number, state what the user sees when it fires in the foreground, background, on resume, and offline, and flag any behavior beyond the explicit request that the PR summary never declared as a user-facing decision. End with exactly one line:
 VERDICT: APPROVED|NOT APPROVED|WITHHELD at <SHA> (WITHHELD with a reason).
 ```
 
@@ -123,7 +130,7 @@ Report every supported finding in this one pass with file:line, tagged P0
 runtime/model when exposed, or `unreported` when hidden. Never name the reviewed
 system or scope as the model. Add COVERAGE: naming the files and diff actually read.
 Approve only with no P0 and full coverage; P1/P2 are nonblocking. Bind revision approval only to verified revision metadata;
-otherwise approve only the named documents, never code or HEAD. End with exactly one line:
+otherwise approve only the named documents, never code or HEAD. Answer the standing user-impact question (§2): for every timer, expiry, timeout, retry, fallback, or magic number, state what the user sees when it fires in the foreground, background, on resume, and offline, and flag any behavior beyond the explicit request that the PR summary never declared as a user-facing decision. End with exactly one line:
 VERDICT: APPROVED|NOT APPROVED|WITHHELD at <REVIEW TARGET> (WITHHELD with a reason).
 ```
 
