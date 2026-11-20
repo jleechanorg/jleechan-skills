@@ -669,8 +669,8 @@ async function send(page, file, dry, opts = {}) {
     reportPrecommitNoSend('reply_parent_unverified', file);
     return;
   }
-  const replyBound = async () => page.url() === exactUrl && await dotReply.hasReplyParent(scope, replyParent);
-  const stillReady = async () => await exactDestinationReady(page) && (!dotReply || await replyBound());
+  const destinationBound = async () => page.url() === exactUrl && (!dotReply || await dotReply.hasReplyParent(scope, replyParent));
+  const stillReady = async () => await exactDestinationReady(page) && (!dotReply || await destinationBound());
   const msg = fs.readFileSync(file, 'utf8').trim();
   let preparedDraft = null;
   const readComposer = () => scope.locator(composerSelector).first().innerText().catch(() => '');
@@ -682,7 +682,7 @@ async function send(page, file, dry, opts = {}) {
   };
   const clearPreparedDraft = async () => {
     try {
-      if (preparedDraft !== null && (!dotReply || await replyBound()) && (await readComposer()) === preparedDraft) await clear();
+      if (preparedDraft !== null && (await readComposer()) === preparedDraft && (!exactDestination || await destinationBound())) await clear();
     } catch {}
   };
   const userMessageSelector = dotReply ? '.message-list article.self .message-text'
@@ -806,7 +806,7 @@ async function send(page, file, dry, opts = {}) {
   const left = (await readComposer()).trim();
   const afterMsgs = await getUserMessages();
   const afterCount = countMatches(afterMsgs, norm(msg));
-  const sentVerified = left === '' && afterCount > beforeCount && (!dotReply || await replyBound());
+  const sentVerified = left === '' && afterCount > beforeCount && (!exactDestination || await destinationBound());
   console.log(sentVerified ? 'DOT_SENT_VERIFIED' : 'DOT_SEND_UNVERIFIED composer_left=' + left.length);
 }
 

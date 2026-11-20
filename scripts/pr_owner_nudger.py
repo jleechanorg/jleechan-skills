@@ -12,6 +12,8 @@ from collections import defaultdict
 from contextlib import ExitStack, closing
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlencode
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from pr_nudger_discovery import discover_owners
 from pr_nudger_routes import route
@@ -36,8 +38,32 @@ def checkout(cwd):
     return match[1].lower(), branch, sha
 
 
-def github(cwd, *args):
-    return json.loads(command(cwd, "gh", "api", *args, "--hostname", "github.com"))
+class NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+
+def github(cwd, endpoint, *, head=None, inspection=False):
+    args = (endpoint,)
+    if head is not None:
+        args = ("-X", "GET", endpoint, "-f", f"head={head}", "-f", "state=open", "-F", "per_page=2")
+    try:
+        return json.loads(command(cwd, "gh", "api", *args, "--hostname", "github.com"))
+    except subprocess.CalledProcessError as error:
+        # gh reserves exit 4 for its local authentication preflight.
+        if not inspection or error.returncode != 4:
+            raise
+    suffix = r"(?:/pulls/[1-9][0-9]*)?" if head is None else "/pulls"
+    match = re.fullmatch(rf"repos/({REPO}){suffix}", endpoint)
+    if not match:
+        raise ValueError("Unsupported public GitHub endpoint")
+    repo_slug(match[1])
+    query = "?" + urlencode(dict(head=head, state="open", per_page=2)) if head is not None else ""
+    request = Request(f"https://api.github.com/{endpoint}{query}", headers={
+        "Accept": "application/vnd.github+json", "User-Agent": "pr-owner-nudger",
+    })
+    with build_opener(NoRedirect()).open(request, timeout=20) as response:
+        return json.load(response)
 
 
 def identity(pr):
@@ -91,8 +117,8 @@ def repo_slug(value):
     return value.lower()
 
 
-def inferred_bases(cwd, origin):
-    remote = github(cwd, f"repos/{origin}")
+def inferred_bases(cwd, origin, inspection):
+    remote = github(cwd, f"repos/{origin}", inspection=inspection)
     if repo_slug(remote["full_name"]) != origin:
         raise ValueError("GitHub repository does not match the checkout origin")
     if remote["fork"]:
@@ -100,13 +126,12 @@ def inferred_bases(cwd, origin):
     return {origin}
 
 
-def discover(cwd, repos, local):
+def discover(cwd, repos, local, inspection):
     origin, branch, sha = local
     matches = []
     for repo in sorted(repos):
-        rows = github(cwd, "-X", "GET", f"repos/{repo}/pulls", "-f",
-                      f"head={origin.split('/')[0]}:{branch}", "-f", "state=open",
-                      "-F", "per_page=2")
+        rows = github(cwd, f"repos/{repo}/pulls", head=f"{origin.split('/')[0]}:{branch}",
+                      inspection=inspection)
         if len(rows) > 1:
             return "ambiguous_pr", None
         if rows:
@@ -159,7 +184,7 @@ def dispatch(cwd, owner, local, pr, receipts, config, from_cache):
 
     def revalidate():
         try:
-            current = github(cwd, f"repos/{repo}/pulls/{number}")
+            current = github(cwd, f"repos/{repo}/pulls/{number}", inspection=receipts is None)
             return (checkout(cwd) == local and identity(current) == expected
                     and pr_status(current) == "actionable")
         except CHECK_ERRORS:
@@ -208,6 +233,7 @@ def tick(config, receipts):
     discovered = discover_owners(enrolled) if enrolled else {}
     candidates = defaultdict(list)
     inferred = {}
+    inspection = receipts is None
     for cwd, explicit in sorted(enrolled.items()):
         live = discovered.get(str(cwd), [])
         if len(explicit) == len(live) == 1 and all(
@@ -226,9 +252,9 @@ def tick(config, receipts):
             if not repos:
                 origin = local[0]
                 if origin not in inferred:
-                    inferred[origin] = inferred_bases(cwd, origin)
+                    inferred[origin] = inferred_bases(cwd, origin, inspection)
                 repos = inferred[origin]
-            status, pr = discover(cwd, repos, local)
+            status, pr = discover(cwd, repos, local, inspection)
         except CHECK_ERRORS as error:
             yield dict(result, status="blocked_discovery", error=type(error).__name__)
             continue

@@ -230,6 +230,8 @@ function locator(selector) {
 const page = {
   async goto() {},
   url() {
+    if (globalThis.fixturePrepared && process.env.DOT_TEST_POST_PREPARED_URL) return process.env.DOT_TEST_POST_PREPARED_URL;
+    if (state.clicked && process.env.DOT_TEST_POST_SEND_URL) return process.env.DOT_TEST_POST_SEND_URL;
     if (urlReads++ === 0 && process.env.DOT_TEST_DOT_HOME) return "https://chatgpt.com/dots/home";
     return process.env.DOT_TEST_RESOLVED_URL || process.env.DOT_URL;
   },
@@ -321,6 +323,7 @@ process.stdout.write = (chunk, ...args) => {
   const result = write(chunk, ...args);
   const match = /^prepared(?:-exact)? ([a-f0-9]{32})\n$/.exec(String(chunk));
   if (match) setImmediate(() => {
+    globalThis.fixturePrepared = true;
     global.advanceClock(__ADVANCE__);
     setImmediate(() => process.stdin.emit('data', Buffer.from('__DECISION__ ' + match[1] + '\n')));
   });
@@ -371,6 +374,27 @@ process.stdout.write = (chunk, ...args) => {
                 self.assertEqual(state["clicked"], clicked)
                 self.assertEqual("prepared-exact " in result.stdout, clicked)
                 self.assertEqual("DOT_SENT_VERIFIED" in result.stdout, clicked)
+
+    def test_private_chat_receipt_rejects_destination_switch_after_click(self):
+        chat = "https://chatgpt.com/c/00000000-0000-4000-8000-000000000001"
+        other = "https://chatgpt.com/c/00000000-0000-4000-8000-000000000002"
+        result, state = self._run_clocked_prepared(exact={"DOT_URL": chat, "DOT_TEST_POST_SEND_URL": other})
+        self.assertTrue(state["clicked"])
+        self.assertEqual(state["userMessages"], ["Synthetic proof"])
+        self.assertNotIn("DOT_SENT_VERIFIED", result.stdout)
+        self.assertIn("DOT_SEND_UNVERIFIED", result.stdout)
+
+    def test_private_chat_abort_clears_identical_draft_only_at_bound_destination(self):
+        chat = "https://chatgpt.com/c/00000000-0000-4000-8000-000000000001"
+        other = "https://chatgpt.com/c/00000000-0000-4000-8000-000000000002"
+        for current, draft in ((chat, ""), (other, "Synthetic proof")):
+            with self.subTest(current=current):
+                result, state = self._run_clocked_prepared(
+                    decision="abort", exact={"DOT_URL": chat, "DOT_TEST_POST_PREPARED_URL": current},
+                )
+                self.assertFalse(state["clicked"])
+                self.assertIn("aborted ", result.stdout)
+                self.assertEqual(state["composer"], draft)
 
     def test_private_chat_prepared_send_supports_a_standalone_entrypoint(self):
         url = "https://chatgpt.com/c/00000000-0000-4000-8000-000000000001"

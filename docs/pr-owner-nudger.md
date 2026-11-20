@@ -1,6 +1,6 @@
 # Schedule PR owner inspection
 
-Enroll each PR on one owning host. Keep its mode-0600 config at `~/.config/pr-owner-nudger/config.json`, for example `{"enabled":false,"owners":[{"cwd":"/absolute/worktree","repo":"owner/repo","cli":"codex","session":"<original-session-id>"}]}`. Install Python 3, Git, `gh` (authenticated for the scheduler account), and the owner's CLI. The wrapper loads that account's Bash profile.
+Enroll each PR on one owning host. Keep its mode-0600 config at `~/.config/pr-owner-nudger/config.json`, for example `{"enabled":false,"owners":[{"cwd":"/absolute/worktree","repo":"owner/repo","cli":"codex","session":"<original-session-id>"}]}`. Install Python 3, Git, `gh` (authenticated for the scheduler account), and the owner's CLI. The wrapper loads that account's Bash profile. For inspection of a public repository, an installed but signed-out GitHub CLI is sufficient. The inspector uses the public GitHub API when the CLI reports that login is required. Live dispatch still uses the scheduler account.
 
 From the reviewed repository, make a seat package. Transfer the archive through the authorized channel and extract with `tar -xf pr-owner-nudger.tar` in the seat's workspace. Keep the extracted path stable and create the seat's own config.
 

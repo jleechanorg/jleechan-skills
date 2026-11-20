@@ -2,6 +2,7 @@ import fcntl
 import io
 import json
 import sqlite3
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -76,6 +77,32 @@ class DispatcherTest(unittest.TestCase):
             if row.get("cwd", str(self.cwd)) == str(self.cwd):
                 return row["status"]
         self.fail("No outcome for owner worktree")
+
+    def test_only_local_auth_failure_allows_anonymous_inspection(self):
+        failure_code = 4
+
+        def command(cwd, *args):
+            if args[0] == "gh":
+                raise subprocess.CalledProcessError(failure_code, args)
+            return real_command(cwd, *args)
+
+        with patch.object(nudger, "command", side_effect=command), \
+                patch("urllib.request.OpenerDirector.open") as fetch, \
+                patch.object(nudger, "route", return_value="would_deliver") as route:
+            fetch.return_value.__enter__.return_value.read.return_value = json.dumps([self.pr]).encode()
+            self.assertEqual(self.status(apply=False), "would_deliver")
+            request = fetch.call_args.args[0]
+            self.assertEqual(request.get_method(), "GET")
+            self.assertEqual(request.full_url, "https://api.github.com/repos/base/project/pulls"
+                             "?head=fork%3Afeature&state=open&per_page=2")
+            self.assertIsNone(request.get_header("Authorization"))
+            self.assertFalse(Path(self.config["state_dir"]).exists())
+            self.assertEqual(self.status(), "blocked_discovery")
+            failure_code = 1
+            self.assertEqual(self.status(apply=False), "blocked_discovery")
+        fetch.assert_called_once()
+        route.assert_called_once()
+        self.assertFalse(route.call_args.args[2])
 
     def test_dry_run_opt_in_and_persistent_cooldown(self):
         def deliver(owner, _prompt, apply):
