@@ -1,6 +1,6 @@
 ---
 name: code-standards
-description: User-scope code/diff/PR review against the user-wide standards — ZFC, ZFC leveling, root-cause-first, and the ponytail (lazy senior dev) ladder. Dispatched by the /code-standards command.
+description: User-scope code/diff/PR review against the user-wide standards — ZFC, repository-local ZFC specialization, root-cause-first, and the ponytail (lazy senior dev) ladder. Dispatched by the /code-standards command.
 ---
 
 # Code Standards Dispatch
@@ -15,7 +15,7 @@ workflow; `${CLAUDE_HOME:-$HOME/.claude}/commands/code-standards.md` is a thin d
 |-------|------|
 | Ponytail — lazy senior dev mode | `${CLAUDE_HOME:-$HOME/.claude}/skills/ponytail/SKILL.md` |
 | Zero-Framework Cognition (ZFC) | `${CLAUDE_HOME:-$HOME/.claude}/skills/zero-framework-cognition/SKILL.md` |
-| ZFC Leveling Roadmap | Optional: if an installed product plugin provides a companion `zfc-leveling-roadmap` skill, read it |
+| Repository-local ZFC specialization | When the active repository declares a ZFC companion that applies to the review scope, read it from its instructions or skill catalog |
 | Root-cause-first engineering | `${CLAUDE_HOME:-$HOME/.claude}/skills/root-cause-first/SKILL.md` |
 
 `${CLAUDE_HOME:-$HOME/.claude}/skills/ponytail/SKILL.md` is the canonical mirror of
@@ -33,8 +33,10 @@ Codex discovers the same canonical skill via its `${AGENTS_HOME:-$HOME/.agents}/
    intentional simplifications with a `ponytail:` comment.
 2. **ZFC** — no keyword/regex/heuristic routing in application code. Delegate
    semantic decisions to a model.
-3. **ZFC leveling** — for level-up work, the model picks the target level (do
-   not derive primary availability from XP thresholds).
+3. **Repository-local ZFC specialization** — apply the active repository’s
+   declared companion if it covers the change. If none applies, report N-A;
+   do not substitute another product’s policy. If a required companion cannot
+   be read, report that gap instead of passing the lane.
 4. **Root-cause-first** — run the skill in review-only mode: check that the
    upstream prompt/schema/agent was considered first and accept backend
    enforcement only as a narrow, logged invariant with proof and a one-line
@@ -55,7 +57,7 @@ current diff/PR):
    ladder to the proposed diff before any *check* lane runs.
 2. **Define the review scope** from the command argument, or use the current
    diff / active PR context if no argument was supplied.
-3. **Load the four source skills** by path and treat them as authoritative.
+3. **Load the shared source skills and any applicable repository-local companion.** Follow repository-local domain policy within its scope.
    Never duplicate the standards into the command file; they live only here.
 4. **Dispatch or emulate the four independent review lanes**, root-cause-first
    in review-only mode. Each lane returns PASS with file/line evidence or FAIL
@@ -71,7 +73,7 @@ current diff/PR):
 |---|---|---|---|
 | Ponytail | PASS/FAIL | | |
 | ZFC | PASS/FAIL | | |
-| ZFC leveling | PASS/FAIL/N-A | | |
+| Repository-local ZFC specialization | PASS/FAIL/N-A | | |
 | Root-cause-first | PASS/FAIL | | |
 
 ## Smoke-test mode
@@ -97,7 +99,7 @@ The user-scope command at `${CLAUDE_HOME:-$HOME/.claude}/commands/code-standards
 `$GITHUB_REPOSITORY/.claude/commands/code-standards.md`) MUST:
 
 1. **Load BOTH files**, stating that the user-scope command / this skill are the
-   source of truth for the four-lane workflow (ponytail, ZFC, ZFC leveling,
+   source of truth for the four-lane workflow (ponytail, ZFC, repository-local ZFC specialization,
    root-cause-first).
 2. **Always reference `${CLAUDE_HOME:-$HOME/.claude}/skills/ponytail/SKILL.md`** so the
    ladder is never a per-repo choice.

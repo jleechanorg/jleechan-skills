@@ -1,17 +1,17 @@
 ---
 name: testing-gap-close
-description: Mandatory architectural and testing processes to get testing_mcp and testing_ui tests through the /es and /er evidence gates
+description: Close test-evidence gaps using the target repository’s supported harness and evidence requirements.
 ---
 
 # Testing Gap Close Strategy
 
-This skill codifies the mandatory architectural and testing processes required to get `testing_mcp` and `testing_ui` tests to pass `/es` (Evidence Standards) and `/er` (Evidence Review) verification gates.
+Use this process to close gaps found by `/es` (Evidence Standards) and `/er` (Evidence Review). The target repository owns runner-specific requirements.
 
 ## Select evidence for the claim
 
 There is no universal evidence triad for every PR. Resolve the current project root
-and read its `AGENTS.md`, the scoped `testing_mcp/AGENTS.md` or `testing_ui/CLAUDE.md`
-when those paths are involved, and the current evidence-standards owner. Select the
+and read its root and scoped test instructions, along with the current
+evidence-standards owner. Select the
 lowest sufficient evidence class for each actual claim. Capture request, provider,
 server, persistence, and UI artifacts only when that claim requires them; do not
 invent missing provider traffic or require unrelated evidence classes.
@@ -25,7 +25,7 @@ Use the server target required by the claim and the scoped test owner. A local
 behavior claim uses the authorized local server route; use gunicorn only when the
 claim depends on its worker or deployment behavior.
 - **Mock Fallback Banned**: Never rely on `TEST_MODE=mock` for production `/es` verification.
-- **Environment Parity**: Set only the environment required by the claim. Tests under `testing_mcp/` and `testing_ui/` must authenticate with real Firebase Auth and dedicated test accounts; explicitly set `TESTING_AUTH_BYPASS=false ALLOW_TEST_AUTH_BYPASS=false`. Their scoped owners prohibit bypass, mocks, and synthetic results. Offline mocks remain valid for deterministic tests outside those directories and never count as live-service proof.
+- **Environment parity:** Use the scoped owner's real auth, dedicated test identities and service configuration where required. Reject bypasses, mocks or synthetic results for any boundary claimed as real. Offline mocks remain valid for bounded deterministic claims.
 - **Worker Stability**: Use the scoped test-owned server lifecycle and teardown. Stop only the exact process started by the test after verifying its PID/ownership; never use broad `pkill` patterns or force-kill unrelated workers.
 
 ### 2. Validate evidence required by the claim

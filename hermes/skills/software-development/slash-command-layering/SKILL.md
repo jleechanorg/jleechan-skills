@@ -374,8 +374,9 @@ other commands also have repo-specific content as a follow-up finding.
 See `references/code-standards-bidirectional-contract-2026-07-15.md` for
 the verbatim contract, lane attribution table, audit-bucket results
 (A/B/C), the sibling-repo symlink gotcha, and the list of reciprocal
-pointers created in the same session that spawned this skill. Use it as
-a copy-paste template for other layered slash-command pairs.
+pointers created in the same session that spawned this skill. This is a
+historical example; reuse the structure without copying its lane names,
+paths or domain policy.
 
 See `references/slash-cmd-absent-false-claim-2026-07-20.md` for the
 session where Gotcha #7's "verified case" claim was itself wrong

@@ -15,9 +15,7 @@ A reusable planning template for medium-to-large engineering work that produces:
 - Beads (`br`) and memory entries linking the plan to existing tracking
 - Cross-references to all existing roadmap docs in scope
 
-This skill is project-agnostic. The ZFC leveling plan
-(`~/roadmap/nextsteps-2026-04-28-zfc-stage-pr-hybrid-plan.md`) is a historical
-example; the current task and repository owners govern the plan.
+The current task and repository owners govern the plan.
 
 ---
 
@@ -38,7 +36,7 @@ Do NOT use for:
 
 ## Output Artifact
 
-Always produces `~/roadmap/nextsteps-<YYYY-MM-DD>-<scope>-stage-pr-plan.md` as the durable agent-authored plan. Do not copy this report into the code repository; repository-owned product artifacts follow their owner instructions.
+Save `nextsteps-<YYYY-MM-DD>-<scope>-stage-pr-plan.md` to the task’s authorized destination or the repository resolved by the [roadmap skill](../roadmap/SKILL.md). If no durable destination is configured, return the plan and note that it was not saved. Do not copy the report into an unrelated code repository.
 
 The doc has these sections in order:
 1. **Goal** — one paragraph
@@ -54,7 +52,7 @@ The doc has these sections in order:
 11. **TDD Plan** — fresh failure and verification for behavior fixes
 12. **/4layer Coverage** — sufficient layers selected by the repository's testing owner
 13. **Cross-References** — all related roadmap docs (active, predecessor, foundational, skills)
-14. **Durable Plan Path** — the canonical `~/roadmap/` plan path to link from repository materials when useful; do not copy the plan into the repository
+14. **Durable Plan Path** — the configured roadmap plan path to link from repository materials when useful; do not copy the plan into the repository
 
 ---
 
@@ -145,8 +143,8 @@ Tests may share a coherent implementation commit; separate test commits are not
 required by this skill. The layer examples are:
 - **Layer 1**: Unit tests (`$PROJECT_ROOT/tests/test_*.py`)
 - **Layer 2**: End-to-end (`$PROJECT_ROOT/tests/test_end2end/`)
-- **Layer 3**: MCP/HTTP real-mode (`testing_mcp/`)
-- **Layer 4**: Browser (`testing_ui/`)
+- **Layer 3**: MCP/HTTP real-mode (the project’s configured MCP/API runner)
+- **Layer 4**: Browser (the project’s configured UI runner)
 
 Choose layer by what the PR changes:
 - Pure logic → Layer 1
@@ -154,10 +152,9 @@ Choose layer by what the PR changes:
 - API contract → Layer 3
 - User-visible behavior → Layer 4
 
-### Rule 6: Beads tracking
-- Every PR has ≥1 governing bead (`rev-xxxxx`)
-- Every commit message references at least one bead
-- New beads created BEFORE PR work starts (not retroactively)
+### Rule 6: Repository-defined tracking
+- When the repository uses Beads, bind each PR and commit to its governing bead; create any authorized new beads before work starts.
+- For a different tracker, follow its existing reference and timing rules. If no tracker is configured, keep the plan’s references explicit and do not invent IDs.
 
 ### Rule 7: Memory linkage
 Plan reads:
@@ -174,7 +171,7 @@ Plan writes:
 
 ### Phase 0: Discovery (read-only)
 1. Identify scope keyword (e.g., "auth", "checkout", "level-up").
-2. List existing roadmap docs in scope: `ls ~/roadmap/ | grep -i <scope>`.
+2. Search the configured roadmap for existing docs in scope, if configured.
 3. Inspect repository-owned planning artifacts only when the task owner requires them; do not treat this as a destination for a copy of the agent-authored plan.
 4. List open PRs in scope: `gh pr list --state open --search "<scope> in:title"`.
 5. List active beads in scope: `br list | grep <scope>` (or equivalent).
@@ -208,11 +205,11 @@ does not create another confirmation checkpoint.
 Inspect `git diff --cached --stat` for reviewability and any explicitly agreed size limit.
 
 ### Phase 4: Doc generation
-Write the artifact at `~/roadmap/nextsteps-<date>-<scope>-stage-pr-plan.md`.
+Write `nextsteps-<date>-<scope>-stage-pr-plan.md` to the resolved destination, if configured.
 Include all 14 sections above. Cross-reference every roadmap doc found in Phase 0.
 
 ### Phase 5: Sync
-Keep the durable plan in `~/roadmap`; share its path when needed rather than copying it into the repository.
+Keep the durable plan in the configured roadmap; share its path when needed rather than copying it into the repository.
 
 ### Phase 6: Memory write
 Add entry to `~/.claude/projects/<project>/memory/` describing the plan and add a one-line pointer to `MEMORY.md`.
@@ -226,7 +223,7 @@ Add entry to `~/.claude/projects/<project>/memory/` describing the plan and add 
 - **Missing RED proof**: a combined test/fix commit still needs evidence that the check failed before the behavior fix
 - **Unreviewable changes**: split incoherent changes by dependency or risk into at most 2–5 coarse vertical subsystem PRs (see `pr-quantity-control`); a line count alone is not a split requirement
 - **Bead-after-the-fact**: creating a bead AFTER the PR opens — defeats tracking
-- **Roadmap-drift**: failing to create or update the canonical `~/roadmap/` plan; link it from repository materials instead of creating a duplicate copy
+- **Roadmap-drift**: failing to create or update the configured roadmap plan; link it from repository materials instead of creating a duplicate copy
 - **Generic plans**: "fix bugs", "improve performance" — must have concrete file ownership
 
 ---
@@ -252,7 +249,7 @@ boundaries required by the accepted plan; one coherent commit may be sufficient.
 
 | # | Type | Files | Size estimate, if useful | Bead | Description |
 |---|---|---|---|---|---|
-| 1 | tracking/docs, if needed | `~/roadmap/<topic>-YYYY-MM-DD.md` | <estimate or n/a> | <tracking> | Link the canonical plan |
+| 1 | tracking/docs, if needed | `<roadmap-dir>/<topic>-YYYY-MM-DD.md` | <estimate or n/a> | <tracking> | Link the canonical plan |
 | 2 | test and implementation | <test and source paths> | <estimate or n/a> | <tracking> | Capture required RED before the fix and verify GREEN |
 | 3 | broader evidence, if needed | <scoped driver or artifact> | <estimate or n/a> | <tracking> | Record results at the authorized destination |
 
@@ -279,9 +276,8 @@ Execute the concurrency check defined in [Rule 1: File-exclusive ownership](#rul
 ---
 
 ## See Also
-- a product plugin's `zfc-leveling-roadmap` skill, if installed — domain-specific instance
+- the active repository’s applicable ZFC companion, when documented
 - `.claude/skills/deletion-milestone/SKILL.md` — net-LOC discipline for deletion PRs
 - a product plugin's `repro-twin-clone-evidence` skill, if installed — evidence capture
 - `.claude/commands/4layer.md` — minimal-repro ladder
 - `.claude/commands/tdd.md` — red/green/refactor with matrix testing
-- `~/roadmap/nextsteps-2026-04-28-zfc-stage-pr-hybrid-plan.md` — historical example

@@ -377,25 +377,12 @@ independent work. Continue useful in-scope checks and fixes, and report any
 required check that remains unproven. Follow the repository's readiness rules;
 never call a failed required check green.
 
-### 3. Direct `import logging` (in `$PROJECT_ROOT/`)
+### 3. Bypassing an existing logging interface
 
-```python
-# ❌ BANNED - Direct logging module in $PROJECT_ROOT/
-import logging
-logger = logging.getLogger(__name__)
-logger.info("message")
-
-# ✅ CORRECT - Use unified logging_util
-from mvp_site import logging_util
-logging_util.info("message")
-logging_util.warning("something concerning")
-logging_util.error("something failed")
-```
-
-**Why banned:** `logging_util` provides unified output to both GCP Cloud Logging and local files with consistent formatting. Direct `import logging` bypasses this.
-
-**Exception:** Test files (`$PROJECT_ROOT/tests/*`) may use direct logging.
-
+If the active repository defines a canonical logging interface, reuse it and
+preserve its metadata, redaction, and sinks. Check repository policy for test
+exceptions. Do not replace an ordinary logger or introduce a new wrapper when
+the repository has no such requirement.
 ---
 
 ## Anti-Patterns

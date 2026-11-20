@@ -105,11 +105,13 @@ runtime-proof, or publication requirements.
 
 ### 1. Bundle integrity
 
-The example below handles the default manifest and sibling modes. If the
-canonical producer uses another aggregate filename, explicitly record its mapping
-to the same complete coverage contract and verify it with the existing producer
-verification utility or `sha256sum -c <mapped-manifest>` instead. A filename
-difference is not missing integrity; absent coverage or mismatching bytes is.
+The example below handles the default manifest and sibling modes. For a mapped
+aggregate manifest or digest-bearing receipt, identify the supported format and
+path-to-digest mapping before verification. Use the canonical producer’s verifier
+for its receipt format, or `sha256sum -c <mapped-manifest>` for a compatible
+text manifest. Recompute every digest against the actual bytes and reconcile
+the inventory; a mere digest claim, unsupported format or unreadable bytes
+leaves integrity unverified. A different supported filename is not a failure.
 
 ```bash
 (
@@ -145,10 +147,10 @@ difference is not missing integrity; absent coverage or mismatching bytes is.
 )
 ```
 
-- A top-level `checksums.sha256` means bundle-checksum mode; without one, verify every per-file `*.sha256`.
+- For the default layout, a top-level `checksums.sha256` means bundle-checksum mode; otherwise verify every per-file `*.sha256`. For a documented alternate format, use the mapped verification route above.
 - Any checksum mismatch → **FAIL** (not just PARTIAL: the bundle is tampered or stale).
-- No checksum files → **INCONCLUSIVE** for integrity; do not award PASS.
-- Independently inventory every substantive bundle artifact, including every claim-map artifact, and reconcile it against checksum coverage. A complete aggregate `checksums.sha256` manifest OR per-file `.sha256` siblings is sufficient; do not demand both. Resolve manifest paths from the bundle root and sibling entries from their own directory. Missing coverage or a listed-but-missing artifact is an integrity **FAIL**. A successful `sha256sum -c` checks listed bytes only and does not establish inventory completeness.
+- No verifiable digest manifest, receipt, or sibling checksums → **INCONCLUSIVE** for integrity; do not award PASS.
+- Independently inventory every substantive bundle artifact, including every claim-map artifact, and reconcile it against checksum coverage. A complete verified aggregate manifest, supported receipt, or per-file checksums is sufficient; do not demand redundant formats. Resolve manifest paths from the bundle root and sibling entries from their own directory. Missing coverage or a listed-but-missing artifact is an integrity **FAIL**. A successful `sha256sum -c` checks listed bytes only and does not establish inventory completeness.
 
 **Checksums establish integrity, not provenance.** A matching digest proves only that the reviewed bytes match the manifest, not where they came from, which code path produced them, or that they demonstrate the claimed behavior. For STRONG evidence, also resolve the primary raw artifact against its capture provenance (for example `metadata.json.provenance.git_head`, runtime/process metadata, and the raw request/response or test output that directly shows the claim). A claim supported only by a checksum or manifest entry is **MISSING**, not STRONG.
 
@@ -236,11 +238,10 @@ Directions may live in the PR, a checked-in document, an access-controlled evide
 - [ ] **BQ Record Resolution**: Verify any cited BigQuery/telemetry timestamp or query payload against the repo's canonical LLM-forensics store (named in the repo-level `/er`//`/es` overlay, e.g. a BigQuery `llm_payloads` table). Record missing, or model/content differs → **FAIL**.
 - [ ] **Harness & Provenance Disambiguation**: Inspect provenance commit subjects and test user IDs for mock markers (`RealisticFakeLLMResponse`, `mock`, `fake`). Evidence driven by test harnesses or mock LLMs MUST be labeled *Test-Harness Evidence*, NEVER "Real Production LLM Evidence". Mislabeling → **FAIL**.
 - [ ] **Traceback Code Alignment**: A cited `file:line` in a stack trace MUST match the exact source code AST at that line. Synthetic line numbers or non-matching code → **FAIL**.
-- [ ] **No Paraphrased / Synthesized Payloads**: Reject evidence files produced by custom scripts that build payload dictionaries or text strings in memory. Evidence MUST be untrimmed raw trace output (`llm_request_responses.jsonl`) backed by `.sha256` checksums.
-- [ ] **Checksum Recomputation (Gate D)**: Recompute `sha256sum` for all evidence files in the bundle (check 1). Any mismatch with `checksums.sha256` → **FAIL**.
-- [ ] **GREEN Payload Shape Verification (Gate F)**: Inspect the actual GREEN response payload. It MUST demonstrate the positive feature/fix behavior and MUST NOT contain filler phrases ("Administrative Update"), empty responses, or structural inversions. A GREEN payload that reproduces the defect or disproves its own fix → **FAIL**.
-- [ ] **is_test Telemetry Verification (Gate G)**: Check BigQuery / telemetry logs for synthetic test handles matching `test[-_]`, `e2e[-_]?`, `lean_lu_`, `browser-test-`, matching BOTH separator forms (`test_user`/`test-user`, `e2e_campaign`/`e2ecampaign`); a literal `test_`/`e2e_` match alone lets `test-user-42` or `e2ecampaign` slip past. Synthetic test traffic labeled as production → **FAIL**.
-- [ ] **is_test Cannot Be Trusted Alone**: 499 synthetic turns are flagged `is_test=FALSE` (bead rev-gfzts). Corroborate with the user_id prefix match above rather than the flag → **FAIL** otherwise.
+- [ ] **No Paraphrased / Synthesized Payloads**: Reject evidence files produced by custom scripts that build payload dictionaries or text strings in memory. Use the untrimmed raw trace from the active repository’s evidence producer, backed by SHA-256 hashes. Resolve the trace path from the repository’s evidence policy or the run’s manifest, not a fixed filename.
+- [ ] **Checksum Recomputation (Gate D)**: Recompute `sha256sum` for all evidence files in the bundle (check 1). Compare with the recorded SHA-256 digests in the bundle’s manifest or linked receipt. Missing digests leave integrity unverified; a mismatch → **FAIL**.
+- [ ] **GREEN Payload Shape Verification (Gate F)**: Inspect the actual GREEN response payload. It MUST demonstrate the positive feature/fix behavior and MUST NOT be empty or substitute filler for the required output. Judge wrong shapes and placeholders against the repository’s documented output contract and the case’s acceptance criteria, not a global phrase blacklist. A GREEN payload that reproduces the defect or disproves its own fix → **FAIL**.
+- [ ] **Test Traffic Classification (Gate G)**: Apply the active repository’s documented test-traffic identifiers and corroborate flags with trusted identity, run provenance, or fixture records. Account for test runs that use a real user identity. Synthetic traffic labeled as production → **FAIL**.
 
 **Report & Bead-Close Discipline (Bead rev-siiir)** — provenance: on one mission, three consecutive completion reports asserted numbers the cited artifact contradicted, and two P0 beads were each closed twice against acceptance criteria written plainly in their own bodies:
 
@@ -252,16 +253,14 @@ Directions may live in the PR, a checked-in document, an access-controlled evide
 - [ ] **Stale-Base Model Drift**: A measurement run from a feature branch inherits THAT BRANCH's constants, not production's; a stale base is a config-drift vector, the same class of error as "A/B control must be the deployed config, never 'off'" (bead rev-9piwk.2). Real instance: a cache measurement ran on a branch 10 commits behind `origin/main`, missing PR #8590's revert, so `DEFAULT_GEMINI_MODEL` silently fell back to `gemini-3.5-flash-lite` instead of production's `gemini-3-flash-preview`. The measured 72.6% hit rate was reported accurately; the defect was labelling that model the production default, so a non-production number stood in for production behavior (the production model measured 91% on the same prefix, and flash-lite carries a 62x near-verbatim repeat rate — bead rev-ldn6q). Caught only because the resolved model was logged and diffable against `origin/main` → **FAIL** if the resolved model isn't recorded and cross-checked against the target branch.
 - [ ] **Self-Check Before Publishing**: The reporting agent runs Gates A–G against its OWN output before publishing, not only as a reviewer step afterward. Gate F (GREEN payload shape) would have caught the worst artifact-read-back violation above.
 
-**BigQuery Query-Discipline Traps** (`worldarchitecture-ai.llm_forensics`) — these produced real wrong numbers and apply wherever a reviewer queries telemetry for this gate:
+**Telemetry query discipline.** Read the active repository's telemetry schema
+and evidence policy before using a query as proof. If it does not document the
+event types and keys, verify them from source or row samples before aggregating.
 
-- [ ] **Two Rows Per Turn**: Every turn writes TWO rows, `event_type` = `gameplay_streaming` AND `event_type` = `stream_story_with_game_state`. Pooling them without filtering to one `event_type` doubles every count → **FAIL**.
-- [ ] **finish_reason Payload-Shape Split**: `finish_reason` splits one `event_type` into incompatible payload shapes (`FinishReason.STOP` vs `success`). Never pool rows across `finish_reason` values with different shapes → **FAIL**.
-- [ ] **response_text May Be a JSON Array**: `response_text` is sometimes a JSON array, not an object; a naive `JSON_EXTRACT` returns NULL and silently drops rows from the count → **FAIL**.
-- [ ] **Key Match ≠ Value Match**: A JSON KEY's presence is not evidence about its VALUE. This single error produced four wrong numbers in one session → **FAIL**.
-- [ ] **The Two event_types Carry DISJOINT Columns**: they are not two views of one turn. `gameplay_streaming` populates the size estimates (`system_instruction_tokens_est`, `story_tokens_est`, `story_history_entry_count`) but leaves `turn_index` NULL on **every** row; `stream_story_with_game_state` populates `turn_index` but **none** of the size estimates. Measured: 92 rows / 92 NULL `turn_index` / 92 populated estimates vs 200 rows / 0 NULL / 0 populated. Queries needing size estimates MUST use `gameplay_streaming`, and the two counts are not comparable → **FAIL** if reconciled as one population.
-- [ ] **Never Dedup `gameplay_streaming` on `turn_index`**: the column is NULL there, so `PARTITION BY campaign_id, turn_index` silently collapses to **one row per campaign** and yields a wrong, plausible-looking rate. Real instance: "12 first attempts" was 12 *campaigns*, not 12 turns, and produced a 25% figure that was pure artifact → **FAIL**.
-- [ ] **`agent` MUST Be in the PARTITION BY**: several agents log under one `turn_index`, so omitting `agent` keeps only the earliest-`ingested_at` row and drops the rest. Real instance: 0 of 25 "first-attempt" rows were `GodModeAgent`; it vanished from the result. Canonical pattern: `ROW_NUMBER() OVER (PARTITION BY campaign_id, turn_index, agent ORDER BY ingested_at ASC) = 1`, on `stream_story_with_game_state`, with an explicit `agent` filter in the WHERE clause on top of the partition → **FAIL** without it.
-- [ ] **Agent-Created Replay Campaigns Are Invisible to Both Filters**: copies made with `copy_campaign.py --allow-same-user` inherit the REAL `user_id`, so the synthetic-prefix regex cannot match them and `is_test` is already unreliable; their cold-start zero-cache turns sit in production aggregates. Eyeball a per-campaign breakdown for unfamiliar `campaign_id`s before trusting any aggregate → **FAIL** if an agent-generated campaign is counted as production traffic.
+- [ ] **Grain and scope**: State what one row represents; filter and deduplicate on keys verified for that event type. Do not combine incompatible populations or deduplicate on an unset key.
+- [ ] **Payload shape**: Check object, array, null and missing-field cases, and whether response status changes the schema. The presence of a JSON key does not establish its value.
+- [ ] **Run provenance**: Separate synthetic or replayed traffic from production even when identifiers or flags overlap. Report unresolved classifications rather than silently counting them as production.
+- [ ] **Readback**: Check sampled rows and totals at each filter or join. An aggregate contradicted by its source rows → **FAIL**.
 
 ### 8. Branch & Commit Containment Verification
 

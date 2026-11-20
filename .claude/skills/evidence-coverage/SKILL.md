@@ -37,14 +37,13 @@ thing; L3 proves the model *does* the right thing.
 
 ### 3. Locate existing evidence
 
-Search evidence directories:
-```bash
-ls /tmp/your-project.com/<branch>/  # evidence bundles
-find /tmp/your-project.com/<branch>/ -maxdepth 3 -name "evidence.md"
-```
+Read the active repository’s evidence policy and search its configured artifact
+locations, including linked evidence bundles, supported runner output and
+exact-revision CI jobs. Inspect primary logs or artifacts before assigning
+coverage; an unavailable result is not proof.
 
-For each bundle, extract:
-- Git HEAD SHA from `evidence.md` or `metadata.json`
+For each accessible source, extract:
+- Tested Git SHA from run metadata or the original CI job and checkout log
 - Pass rate
 - Scenario names
 - Timestamp
@@ -123,13 +122,11 @@ After the matrix, include:
 
 ## Evidence bundle locations
 
-- MCP tests: `/tmp/your-project.com/<branch>/<test_name>/latest/`
-- Unit tests: retained raw output or an accessible exact-SHA CI run/job link, including commands, results, and tested SHA; a local copy is optional when the CI proof is accessible.
-- Antagonism prompt contract: `testing_mcp/test_living_world_antagonism_prompt_contract.py` (L1, standalone)
-- Sanctuary mode: `testing_mcp/test_sanctuary_mode.py` (L3, real LLM)
-- LW trigger gate: `testing_mcp/test_lw_trigger_gate.py` (L3, real LLM)
-- Multi-turn frequency: `testing_mcp/test_living_world_real_e2e.py` (L3, multi-turn)
-- Corrupt recovery: `testing_mcp/test_living_world_corrupt_recovery.py` (L3, real LLM)
+- Use the current test runner's documented evidence output, or a retained
+  exact-revision CI run/job link with the command and result.
+- For provider-dependent or integration claims, include only the artifacts
+  required by the tested boundary and repository policy.
+- A local copy is optional when the original evidence remains accessible.
 
 ## Cross-references
 

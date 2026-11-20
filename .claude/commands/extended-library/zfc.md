@@ -8,8 +8,8 @@ execution_mode: immediate
 
 Use `${CLAUDE_HOME:-$HOME/.claude}/skills/zero-framework-cognition/SKILL.md`
 as the portable dispatcher. Execute its **Resolve authority** step first: read
-the active repository's ZFC policy and required companions before applying global
-reference guidance, including when invoked by another review lane. Do not treat
+the active repository's ZFC policy and required companions, discovered from its
+instructions and skill catalog, before applying global reference guidance, including when invoked by another review lane. Do not treat
 this installed command as the active repository's policy.
 
 Review the supplied scope, or the current diff if none is supplied. Follow the

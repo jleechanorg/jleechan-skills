@@ -14,9 +14,9 @@ each adjustment.
 
 This skill extends:
 
-- `.claude/skills/zfc-adjuster/SKILL.md`
-- `.claude/skills/evidence-standards/SKILL.md`
-- for level-up/rewards changes, if an installed product plugin provides a companion `zfc-leveling-roadmap` skill, read it
+- [ZFC Adjuster](../zfc-adjuster/SKILL.md)
+- [Evidence Standards](../evidence-standards/SKILL.md)
+- Any ZFC proof or adjustment companion named by the active repository
 
 ## Verdicts
 
@@ -50,79 +50,45 @@ For each adjustment ID:
    - the red worktree diff that disables the adjustment
    - exact commands used
    - raw evidence paths
-6. Validate the manifest with `scripts/adjustment_proof_matrix.py validate`.
+6. Validate the manifest with the repository’s proof validator when specified.
 
 One disabled worktree per adjustment is mandatory. A bundle named for one
 adjustment cannot prove or delete another adjustment.
 
 ## Required Artifacts
 
-Each green and red evidence directory must contain:
+Each green and red evidence directory must include these roles in the active
+repository’s documented format (map the actual paths in the manifest):
 
-- `run.json`
-- `metadata.json`
+- machine-readable scenario outcomes and error details
+- capture provenance and run metadata
 - real HTTP request/response capture, such as `http_request_responses.jsonl`
 - real LLM capture, such as `llm_request_responses.jsonl`
 - matching git SHA provenance for the worktree that produced the evidence
 - checksums when the harness provides them
 
-For LLM-interacting level-up/rewards paths, unit tests are supporting evidence
-only. They cannot establish `proven` or `delete_candidate`.
+For paths whose claim depends on real model behavior, unit tests are supporting
+evidence only. They cannot establish `proven` or `delete_candidate`.
 
 ## How To Run A Proof
 
-Use the script to list registered adjustments:
+Resolve the adjustment ID, approved proof command, worktree setup, and capture
+format from the active repository. Create independent green and red worktrees
+with its supported tooling. Allocate separate evidence directories; do not use an
+incumbent's working tree or change unrelated code, prompts, or fixture inputs.
 
-```bash
-./scripts/adjustment_proof_matrix.py list
-```
-
-Create a deterministic proof plan for one adjustment:
-
-```bash
-./scripts/adjustment_proof_matrix.py plan \
-  --adjustment-id level_up_atomicity.suppress_unpaired_rewards_box \
-  --test-command '<real testing_mcp invocation from the target repository owner>'
-```
-
-Create both independent worktrees with `diskm worktree-new` under
-`~/.worktrees/<repo>/<name>`; the generated proof plan must point to those
-approved Git worktree paths, never to `/tmp` or raw scratch paths. Keep evidence
-and captures in a unique scratch evidence directory allocated via
-`diskm scratch-new <repo-path> <purpose> --kind evidence` or
-`${CLAUDE_HOME:-$HOME/.claude}/skills/scratch-space/scripts/scratch-dir.sh`
-(which resolves the host Scratch volume and falls back to `/tmp` only when
-unconfigured). In the red worktree, disable
-only the named adjustment. Prefer the narrowest possible edit:
-remove or bypass the exact correction/suppression branch that implements the
-registry entry. Do not change prompts, test harnesses, unrelated adjusters, or
-scenario inputs in the red worktree.
-
-After both runs finish, collect and validate:
-
-```bash
-EVIDENCE_DIR="$(${CLAUDE_HOME:-$HOME/.claude}/skills/scratch-space/scripts/scratch-dir.sh <repo>/evidence/<unique-run-dir>)"
-
-./scripts/adjustment_proof_matrix.py collect \
-  --adjustment-id level_up_atomicity.suppress_unpaired_rewards_box \
-  --green-worktree ~/.worktrees/<repo>/<green-worktree> \
-  --red-worktree ~/.worktrees/<repo>/<red-worktree> \
-  --green-evidence "$EVIDENCE_DIR/green" \
-  --red-evidence "$EVIDENCE_DIR/red" \
-  --test-command '<real testing_mcp invocation from the target repository owner>'
-
-./scripts/adjustment_proof_matrix.py validate \
-  "$EVIDENCE_DIR/proof_manifest.json"
-```
-
-The validator emits one of the allowed verdicts. Use that verdict in the PR body
-or registry update; do not upgrade it manually.
+On red, disable only the implementation of the named adjustment. Use the same
+authorized command and inputs on both sides. If the repository supplies a proof
+planner, collector, or validator, use the verified local versions. Otherwise
+record the required manifest and inspect the paired artifacts against this
+protocol. Report missing capabilities without guessing a command or widening
+permission to make provider calls.
 
 ## Review Rules
 
 Fail the proof as `insufficient` when:
 
-- the green or red bundle is missing `run.json` or `metadata.json`
+- either bundle lacks readable outcomes or capture provenance under the repository’s artifact contract
 - the bundle has no real LLM capture
 - the evidence SHA does not match the worktree SHA and staleness tolerance was
   not explicitly justified

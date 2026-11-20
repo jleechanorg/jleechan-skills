@@ -47,7 +47,7 @@ Three failure modes that keep recurring in the user's last month of coding-CLI s
 
 1. **Vague goal → vague outcome.** Goal written as "fix the cold-start bug" produces an investigation summary, not a merged PR. No verifiable end-state is named up front, so the agent ships a write-up and stops.
 2. **No evidence contract.** Goal says "make it work" but never says which evidence layer counts. Agent posts a green claim without verifying current-head CI green and no merge conflicts — `gh pr checks` alone can report stale passes or miss merge conflicts.
-3. **No project-specific quality bar.** Goal omits the repo's own adversarial gates (ZFC, ZFC-leveling, root-cause-first, /es, /er). The agent thinks lint + unit tests are "done" and the user has to redo the work in a follow-up PR.
+3. **No project-specific quality bar.** Goal omits the repo's own adversarial gates (for example, ZFC, an applicable repository-specific policy, root-cause-first, /es, /er). The agent thinks lint + unit tests are "done" and the user has to redo the work in a follow-up PR.
 
 **The fix:** mine the last 30 days of coding-CLI convos + memory for the real failure shape and the real success shape on this codebase, then write a goal spec that encodes the specific evidence artifacts, CI gates, and quality checks the agent must produce. The goal becomes a contract the agent can drive itself against — `/harness`, `/a`, `/finish` all consume it.
 
@@ -175,7 +175,7 @@ Run the applicable gates at completion (from /harness). Applicability and timing
 - **/code_standards** — four canonical lanes, applied with the repository's documented applicability:
   - Ponytail — reuse established pipelines and remove dead paths before adding code
   - ZFC (zero-framework cognition) — no keyword routing, no regex intent detection, no hand-tuned scoring
-  - ZFC-leveling — no level-up fields leaking into non-leveled surfaces
+  - Repository-local ZFC specialization — follow the companion declared by the active repository when it applies; otherwise mark not applicable
   - root-cause-first — prompt/schema fixes tried before backend protection; document why if backend enforcement is added
   - Record each lane's verdict and concrete file/line evidence; do not collapse these into a generic quality-pass statement.
 - **Independent Agent Review** — full-diff code review by an isolated subagent

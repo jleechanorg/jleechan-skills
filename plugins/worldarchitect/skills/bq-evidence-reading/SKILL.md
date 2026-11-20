@@ -147,6 +147,19 @@ Pass condition for shadow event proof:
 - Row count ambiguity: `llm_payloads` can include paired event types such as
   `gameplay_streaming` and `stream_story_with_game_state`. State whether a number is
   raw rows or logical turns/pairs.
+- For size estimates, use `gameplay_streaming`. Its `turn_index` can
+  be NULL and is not a deduplication key: partitioning on it can collapse every
+  row from one campaign. The measured `stream_story_with_game_state` cohort
+  carried turn indices but not those size estimates. Verify this against the
+  current schema and do not reconcile the two cohorts as one population.
+- For first attempts in `stream_story_with_game_state`, partition by
+  `campaign_id, turn_index, agent` and order by `ingested_at` ascending.
+  Filter to the intended agent explicitly; otherwise another agent can win
+  the earliest-row selection. First verify that these keys are populated.
+- A campaign copied for agent replay can inherit a real `user_id`, and
+  `is_test` can be false on synthetic traffic. Check the per-campaign
+  breakdown against replay/fixture and provenance records before counting
+  those rows as production; retain uncertainty where provenance is missing.
 - Checksum transport mismatch: verify gist checksums from a real `gh gist clone` when
   `gh gist view --raw` produces a stream digest mismatch.
 

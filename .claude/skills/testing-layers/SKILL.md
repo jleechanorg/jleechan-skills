@@ -1,6 +1,6 @@
 ---
 name: testing-layers
-description: Select the correct WorldArchitect.AI testing layer and understand its evidence value.
+description: Select the lowest test layer that proves the actual claim, and report what the result does not prove.
 ---
 
 # Testing Layers — When to Use Each Layer and How to Decide
@@ -9,35 +9,23 @@ description: Select the correct WorldArchitect.AI testing layer and understand i
 
 Directory map, layer-selection principles and evidence value of each test layer for Your Project. Use it when creating tests, reviewing coverage, or judging `/es` evidence completeness.
 
-## Directory Map
+## Discover the repository's test map
 
-| Layer | Directory | Runner | Evidence class |
-|---|---|---|---|
-| **1. Unit** | `$PROJECT_ROOT/tests/` | Use the repository's targeted test runner | Deterministic claims only; no live-service credit |
-| **1b. Unit (top-level)** | `tests/` | Use the repository's targeted test runner | Deterministic claims only; no live-service credit |
-| **2. End-to-End** | `$PROJECT_ROOT/tests/test_end2end/` | Use the repository's targeted test runner and E2E owner | Deterministic composed claims; no live-service credit |
-| **3. MCP API** | `testing_mcp/` | Follow `$PROJECT_ROOT/testing_mcp/AGENTS.md` | Real server/provider/auth evidence only for claims exercised |
-| **4. HTTP API** | `testing_http/` | Follow current project test instructions | Evidence for the exercised HTTP/server claim |
-| **5. Browser** | `testing_ui/` | Follow `$PROJECT_ROOT/testing_ui/CLAUDE.md` | Real authenticated browser evidence for the exercised UI claim |
+Locate the target repository's tests, supported runners, scoped instructions,
+and real-service fixtures. The table below names evidence layers, not assumed
+directories, cloud services, environment flags, or authorization.
 
-### Shared Libraries
+| Layer | Evidence class |
+|---|---|
+| **1. Unit** | Deterministic logic in isolation |
+| **2. Composed integration** | Calls across components; any faked boundaries remain unproven |
+| **3. Application or tool API** | Real server, provider, auth and persistence only where actually exercised |
+| **4. HTTP API** | Protocol and server behavior over real HTTP; distinguish fake and real services |
+| **5. Browser or native UI** | Rendered behavior on the tested client and revision |
 
-| Library | Path | Purpose |
-|---|---|---|
-| MCP test base | `testing_mcp/lib/base_test.py` | `MCPTestBase` — server lifecycle, evidence bundle, provenance |
-| MCP campaign utils | `testing_mcp/lib/campaign_utils.py` | `finish_character_creation`, `process_action`, `get_campaign_state` |
-| MCP client | `testing_mcp/lib/mcp_client.py` | MCP protocol client for `tools_call` |
-| Evidence utils | `testing_mcp/lib/__init__.py` | `capture_provenance`, `create_evidence_bundle`, `write_with_checksum` |
-| Browser test base | `testing_ui/lib/browser_test_base.py` | `BrowserTestBase` — Playwright lifecycle, screenshots, video |
-| HTTP test config | `testing_http/lib/config.py` | Server URL config, auth bypass |
-
-### Execution Environment
-
-- **Layers 1-2 and offline HTTP tests** may use deterministic mocks when the test lives outside `testing_mcp/` and `testing_ui/` and its claim is offline. These tests support only their stated deterministic claim.
-- **Layers 3 and 5** must use real server, Firestore, Firebase Auth, and live provider responses as required by their scoped owners. Resolve the project root; follow `testing_mcp/AGENTS.md` and `testing_ui/CLAUDE.md`, including explicit `TESTING_AUTH_BYPASS=false ALLOW_TEST_AUTH_BYPASS=false` for acceptance. Any offline mocks, bypass, or synthetic results in those directories invalidate acceptance evidence.
-- Use `/llm-testing` only when the claim requires real model-behavior evidence; deterministic claims use the lowest sufficient layer under the claim boundary below.
-
----
+Use the real model and real services when the claim requires them. Follow the
+repository's documented accounts, flags, service restrictions and proof
+requirements. Do not substitute mocks or auth bypasses for live acceptance.
 
 ## Claim boundary
 
@@ -46,8 +34,8 @@ Follow `pr-lifecycle` § Change-impact review and test depth and
 self-contained deterministic behavior, not model compliance, auth, persistence
 races or browser behavior. `/es` classification is independent of whether a real
 LLM or browser run is necessary. Non-production labels, one file or a small line
-count never replace inspecting the actual claim and risk, and the
-real-service-only directory rules above stay mandatory.
+count never replace inspecting the actual claim and risk, and local
+real-service-only rules stay mandatory.
 
 ## Decision Principles — Which Layer to Test At
 
@@ -77,7 +65,7 @@ Streaming, parsing, Firestore persistence, DOM rendering — bugs live in the gl
 
 ### Principle 4: Is it a multi-function or multi-file flow of execution?
 
-Spanning multiple functions or files is not by itself a reason for E2E: choose an integration layer only when the path between components is material to the claim. A deterministic composed test outside `testing_mcp/` and `testing_ui/` may use mocks; keep a unit test when it suffices for the actual behavior.
+Spanning multiple functions or files is not by itself a reason for E2E: choose an integration layer only when the path between components is material to the claim. A deterministic composed test may use mocks where the active policy allows them; keep a unit test when it suffices.
 
 - ✅ Layer 2 E2E: Routing a user input through the API, checking if the correct agent is selected, and verifying the mock LLM output updates the database correctly.
 - ❌ Not Layer 2: Verifying if Gemini actually hallucinates a specific value (use Layer 3/5).
@@ -143,11 +131,10 @@ A real-LLM test that can pass **without the guard ever firing** (because the LLM
 2. **Apply the 6 principles**: Is LLM judgment involved? Integration seams? Cost justified?
 3. **Choose the lowest sufficient layer** for the claim. Don't use Browser when MCP suffices, and don't use MCP when an offline deterministic test proves the bounded claim.
 4. **Verify non-vacuous**: If using Layer 3+, ensure the test can detect when the target path was NOT exercised.
-5. **Emit evidence**: Layer 3+ tests must produce `/es`-compliant bundles. Use `MCPTestBase` or `BrowserTestBase`.
+5. **Emit evidence**: Layer 3+ tests must produce `/es`-compliant bundles. Use the repository’s documented fixture and capture helpers.
 
 ## References
 
 Resolve the current `/end2end-testing`, `/4layer`, `/tdd`, evidence-standards,
 and PR-lifecycle owners through the active command/skill catalog. Resolve the
-project root and read its `AGENTS.md` plus any scoped `testing_mcp/AGENTS.md` or
-`testing_ui/CLAUDE.md` for directory-specific execution policy.
+project root and read its root and scoped instructions for execution policy.
