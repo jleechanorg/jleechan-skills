@@ -167,7 +167,8 @@ class ExistingProfileUnavailable extends Unavailable {
 }
 const existingProfileUnavailable = (code) => { throw new ExistingProfileUnavailable(code); };
 
-const [mode, arg] = process.argv.slice(2);
+const [mode, arg, option, expectedAccountDigest] = process.argv.slice(2);
+const exactDestination = mode === 'send-prepared' && option === '--exact-destination';
 let ctx = null;
 let clicked = false;
 let aborted = false;
@@ -394,7 +395,8 @@ async function settlePage(page, currentMode) {
     const composers = await page.locator(COMPOSER).count().catch(() => 0);
     const bodyText = (await page.evaluate(() => document.body ? document.body.innerText : '').catch(() => ''));
 
-    if (await clickRetryIfSnag(page, bodyText, 2000)) continue;
+    if (!exactDestination && await clickRetryIfSnag(page, bodyText, 2000)) continue;
+    if (exactDestination && page.url() !== URL_) unavailable('destination changed');
     if (/just a moment/i.test(title)) { await sleep(1500); continue; }
 
     if (composers >= 1) {
@@ -406,6 +408,10 @@ async function settlePage(page, currentMode) {
       if (session.status === 403) unavailable('Cloudflare 403 on session endpoint');
       if (session.status === 200 && session.isJson && session.hasUser) {
         clearAuthFailed(USER_DATA_DIR);
+      }
+      if (exactDestination && (session.status !== 200 || typeof session.email !== 'string' ||
+          crypto.createHash('sha256').update(session.email, 'utf8').digest('hex') !== expectedAccountDigest)) {
+        unavailable('exact destination needs a verified signed-in profile');
       }
       if (currentMode === 'send' || currentMode === 'send-prepared') return page;
       const len = bodyText.length;
@@ -637,7 +643,17 @@ async function read(page, n) {
   console.log(bodyText.slice(-n));
 }
 
+async function exactDestinationReady(page) {
+  const chat = /^https:\/\/chatgpt\.com\/(?:g\/g-[A-Za-z0-9-]+\/)?c\/[0-9a-f-]{36}$/;
+  return chat.test(URL_) && page.url() === URL_ &&
+    !(await page.locator('button[data-testid=stop-button], button[aria-label="Stop generating"]').first().isVisible());
+}
+
 async function send(page, file, dry, opts = {}) {
+  if (exactDestination && !(await exactDestinationReady(page))) {
+    reportPrecommitNoSend('destination_unverified_or_busy', file);
+    return;
+  }
   const msg = fs.readFileSync(file, 'utf8').trim();
   let preparedDraft = null;
   const readComposer = () => page.locator(COMPOSER).first().innerText().catch(() => '');
@@ -675,6 +691,7 @@ async function send(page, file, dry, opts = {}) {
   // Full-content normalized message match (never wiping on short prefix substrings)
   const matchesMessage = (userMsg, comp) => {
     if (!userMsg || !comp) return false;
+    if (exactDestination) return norm(userMsg) === norm(comp);
     const sMsg = stripReadReceipt(norm(userMsg));
     const sComp = stripReadReceipt(norm(comp));
     return sMsg === sComp ||
@@ -727,7 +744,7 @@ async function send(page, file, dry, opts = {}) {
   if (opts.prepared) {
     const nonce = crypto.randomBytes(16).toString('hex');
     opts.onPrepared?.();
-    process.stdout.write(`prepared ${nonce}\n`);
+    process.stdout.write(`${exactDestination ? "prepared-exact" : "prepared"} ${nonce}\n`);
     const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
     let decision = null;
     for await (const line of rl) {
@@ -743,7 +760,8 @@ async function send(page, file, dry, opts = {}) {
       return;
     }
     commitReceived = true;
-    if ((await readComposer()) !== preparedDraft) {
+    if ((await readComposer()) !== preparedDraft ||
+        (exactDestination && !(await exactDestinationReady(page)))) {
       aborted = true;
       await clearPreparedDraft();
       process.stdout.write(`aborted ${nonce}\n`);

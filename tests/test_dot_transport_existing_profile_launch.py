@@ -144,16 +144,18 @@ function locator(selector) {
       return state.composer;
     },
     async focus() {},
+    async isVisible() { return process.env.DOT_TEST_BUSY === "1"; },
     async click() {},
   };
 }
 const page = {
   async goto() {},
+  url() { return process.env.DOT_TEST_RESOLVED_URL || process.env.DOT_URL; },
   async title() { return "ChatGPT"; },
   locator,
   async evaluate(fn) {
     if (fn.toString().includes("/api/auth/session")) {
-      return {status: 200, hasUser: true, isJson: true};
+      return {status: 200, hasUser: true, isJson: true, email: "fixture@example.invalid"};
     }
     if (fn.toString().includes("usage limit")) return "";
     return "Fixture conversation";
@@ -194,7 +196,7 @@ exports.chromium = {
                               initial_composer="", usage_limit=False,
                               mismatched_composer=False, missing_profile=False,
                               hang_launch=False, hang_after_commit=False,
-                              send_advance_ms=120000):
+                              send_advance_ms=120000, exact=None):
         state_path = self._install_fake_send_playwright(initial_composer)
         module = self.root / "node_modules" / "playwright" / "index.js"
         source = module.read_text()
@@ -234,7 +236,7 @@ global.advanceClock = (ms) => {
 const write = process.stdout.write.bind(process.stdout);
 process.stdout.write = (chunk, ...args) => {
   const result = write(chunk, ...args);
-  const match = /^prepared ([a-f0-9]{32})\n$/.exec(String(chunk));
+  const match = /^prepared(?:-exact)? ([a-f0-9]{32})\n$/.exec(String(chunk));
   if (match) setImmediate(() => {
     global.advanceClock(__ADVANCE__);
     setImmediate(() => process.stdin.emit('data', Buffer.from('__DECISION__ ' + match[1] + '\n')));
@@ -243,7 +245,13 @@ process.stdout.write = (chunk, ...args) => {
 };
 '''.replace("__ADVANCE__", str(advance_ms)).replace("__DECISION__", decision))
         command = [str(NODE22), "--require", str(preload), str(SCRIPT), "send-prepared", str(message_path)]
-        with subprocess.Popen(command, env=dict(self.env, DOT_PREPARED="1"),
+        env = dict(self.env, DOT_PREPARED="1")
+        if exact is not None:
+            exact = dict(exact)
+            email = exact.pop("expected_email", "fixture@example.invalid")
+            command.extend(("--exact-destination", hashlib.sha256(email.encode()).hexdigest()))
+            env.update(exact)
+        with subprocess.Popen(command, env=env,
                               stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                               stderr=subprocess.PIPE, text=True) as child:
             try:
@@ -255,6 +263,18 @@ process.stdout.write = (chunk, ...args) => {
             proc = subprocess.CompletedProcess(command, child.returncode, stdout, stderr)
         state = json.loads(state_path.read_text()) if state_path.exists() else None
         return proc, state
+
+    def test_exact_prepared_send_rejects_redirect_and_busy_destination(self):
+        url = "https://chatgpt.com/c/00000000-0000-4000-8000-000000000001"
+        for flags, clicked in [
+            ({}, True), ({"DOT_TEST_RESOLVED_URL": "https://chatgpt.com/"}, False),
+            ({"DOT_TEST_BUSY": "1"}, False), ({"expected_email": "other@example.invalid"}, False),
+        ]:
+            with self.subTest(flags=flags):
+                result, state = self._run_clocked_prepared(exact={"DOT_URL": url, **flags})
+                self.assertEqual(state["clicked"], clicked)
+                self.assertEqual("prepared-exact " in result.stdout, clicked)
+                self.assertEqual("DOT_SENT_VERIFIED" in result.stdout, clicked)
 
     def test_prepared_callback_can_outlast_launch_deadline(self):
         proc, state = self._run_clocked_prepared()
