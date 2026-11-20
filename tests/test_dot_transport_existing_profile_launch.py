@@ -137,6 +137,7 @@ let urlReads = 0, historyReads = 0;
 const history = process.env.DOT_TEST_HISTORY;
 const changeAt = process.env.DOT_TEST_CHANGE_AT;
 const hasOlderRows = () => state.scrolls > 0 && ["grow", "hydrate"].includes(history) && historyReads > 2;
+const parentIsLoaded = () => !history || hasOlderRows() || (history === "deep" && state.scrolls >= 7);
 const replyPanel = {
   async count() { return Number(state.replyOpened); },
   async isVisible() { return state.replyOpened; },
@@ -184,15 +185,19 @@ function locator(selector) {
     async count() { return 1; },
     async waitFor() {},
     async evaluate(scroll, url) {
-      const fixture = {scrollTop: 500, ownerDocument: {URL: process.env.DOT_TEST_RESOLVED_URL}};
-      if (!scroll(fixture, url) || fixture.scrollTop !== 0) throw Error("Unexpected history scroll");
+      const positions = [];
+      const fixture = {isConnected: true, ownerDocument: {URL: process.env.DOT_TEST_RESOLVED_URL},
+        set scrollTop(value) { positions.push(value); }};
+      if (!await scroll(fixture, url) || positions.join(",") !== "35,0") throw Error("Unexpected history scroll");
       state.scrolls++;
+      if (history === "growing_missing") globalThis.advanceClock(5000);
       return true;
     },
     locator(selector) {
       if (selector === 'article.message-row[data-message-id]') return {
         async count() {
           historyReads++;
+          if (["deep", "growing_missing"].includes(history)) return 52 + state.scrolls * 8;
           if (history === "hydrate" && historyReads <= 2) return 0;
           return hasOlderRows() ? 84 : 52;
         },
@@ -206,7 +211,7 @@ function locator(selector) {
     getByRole() {
       return {
         async count() {
-          return Number((!history || hasOlderRows()) &&
+          return Number(parentIsLoaded() &&
             selector === `article.message-row[data-message-id="${replyParent}"]`);
         },
         async click() { state.replyOpened = true; },
@@ -530,6 +535,8 @@ process.stdout.write = (chunk, ...args) => {
             ({}, True, True, True),
             ({"DOT_TEST_DOT_HOME": "1", "DOT_TEST_HISTORY": "grow"}, True, True, True),
             ({"DOT_TEST_HISTORY": "hydrate"}, True, True, True),
+            ({"DOT_TEST_HISTORY": "deep"}, True, True, True),
+            ({"DOT_TEST_HISTORY": "growing_missing"}, False, False, False),
             ({"DOT_TEST_HISTORY": "end"}, False, False, False),
             ({"DOT_TEST_REPLY_CHANGED": "focus"}, True, False, False),
             ({"DOT_TEST_REPLY_CHANGED": "commit"}, True, False, False),
@@ -558,7 +565,10 @@ process.stdout.write = (chunk, ...args) => {
                 if observations.get("DOT_TEST_REPLY_CHANGED") == "focus":
                     self.assertEqual(state["composer"], "")
                     self.assertNotIn("prepared-exact ", result.stdout)
-                if "DOT_TEST_HISTORY" in observations:
+                history = observations.get("DOT_TEST_HISTORY")
+                if history in {"deep", "growing_missing"}:
+                    self.assertEqual(state["scrolls"], 7)
+                elif history:
                     self.assertEqual(state["scrolls"], 1)
                 self.assertEqual("DOT_SENT_VERIFIED" in result.stdout, verified)
 

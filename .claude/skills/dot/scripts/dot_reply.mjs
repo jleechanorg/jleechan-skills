@@ -7,24 +7,24 @@ export function validBinding(launchUrl, configuredUrl, destination, parent, seat
   );
 }
 
-export function isSettlingUrl(url, launchUrl) {
-  return url === launchUrl || url === 'https://chatgpt.com/dots/home';
-}
-
-async function loadReplyParent(feed, reply, roomReady, destination, sleep) {
+async function loadReplyParent(feed, reply, roomReady, destination, deadline, sleep) {
   const rows = feed.locator('article.message-row[data-message-id]');
-  for (let batch = 0; batch < 5; batch++) {
+  const searchUntil = Math.min(Date.now() + 35000, deadline);
+  while (Date.now() < searchUntil) {
     if (!(await roomReady())) return false;
     if (await reply.count() === 1) return true;
     const before = await rows.count();
-    if (before > 0 && !(await feed.evaluate((node, url) => {
-      if (node.ownerDocument.URL !== url) return false;
+    if (before > 0 && !(await feed.evaluate(async (node, { url, until }) => {
+      if (Date.now() >= until || node.ownerDocument.URL !== url) return false;
+      node.scrollTop = 35;
+      await new Promise(resolve => setTimeout(resolve, 160));
+      if (Date.now() >= until || node.ownerDocument.URL !== url || !node.isConnected) return false;
       node.scrollTop = 0;
       return true;
-    }, destination))) return false;
-    const deadline = Date.now() + 3000;
+    }, { url: destination, until: searchUntil }))) return false;
+    const nextBatchUntil = Math.min(Date.now() + 3000, searchUntil);
     let grew = false;
-    while (Date.now() < deadline) {
+    while (Date.now() < nextBatchUntil) {
       if (!(await roomReady())) return false;
       if (await reply.count() === 1) return true;
       grew = await rows.count() > before;
@@ -36,18 +36,18 @@ async function loadReplyParent(feed, reply, roomReady, destination, sleep) {
   return false;
 }
 
-export async function openDotReply(page, { parent, destination, sleep }) {
+export async function openDotReply(page, { parent, destination, deadline, sleep }) {
   const panel = page.locator('.reply-chain-container[aria-label="Replies"]');
   if (await panel.count()) return null;
   const feed = page.locator('.messages-scroll:visible');
   await feed.waitFor({ state: 'visible', timeout: 5000 });
   const stop = page.locator('button[data-testid=stop-button], button[aria-label="Stop generating"]').first();
-  const roomReady = async () => page.url() === destination && !(await stop.isVisible()) &&
+  const roomReady = async () => Date.now() < deadline && page.url() === destination && !(await stop.isVisible()) &&
     (await panel.count()) === 0 && (await feed.count()) === 1 && page.url() === destination;
   const action = { name: 'Reply', exact: true };
   const reply = feed.locator(`article.message-row[data-message-id="${parent}"]`)
     .filter({ has: page.getByRole('button', action) }).last().getByRole('button', action);
-  if (!(await loadReplyParent(feed, reply, roomReady, destination, sleep)) || !(await roomReady())) return null;
+  if (!(await loadReplyParent(feed, reply, roomReady, destination, deadline, sleep)) || !(await roomReady())) return null;
   await reply.click();
   await panel.waitFor({ state: 'visible', timeout: 5000 });
   return panel;

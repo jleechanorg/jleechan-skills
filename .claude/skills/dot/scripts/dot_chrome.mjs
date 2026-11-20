@@ -398,7 +398,7 @@ async function settlePage(page, currentMode) {
     if (exactDestination) {
       const current = page.url();
       if (current !== exactUrl) {
-        if (!dotReply || !dotReply.isSettlingUrl(current, URL_)) unavailable('destination changed');
+        if (!dotReply || ![URL_, 'https://chatgpt.com/dots/home'].includes(current)) unavailable('destination changed');
         await sleep(500);
         continue;
       }
@@ -650,7 +650,7 @@ async function read(page, n) {
 
 async function send(page, file, dry, opts = {}) {
   const scope = dotReply ? await dotReply.openDotReply(page, {
-    parent: replyParent, destination: exactUrl, sleep,
+    parent: replyParent, destination: exactUrl, deadline: phaseDeadline, sleep,
   }) : page;
   const composerSelector = dotReply ? '.reply-chain-composer [contenteditable=true][aria-label="Message"]' : COMPOSER;
   if (!scope || (dotReply && await scope.locator(composerSelector).count() !== 1)) {
