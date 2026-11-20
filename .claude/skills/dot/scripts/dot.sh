@@ -84,6 +84,17 @@ check_foreign_binary() {
   return 0
 }
 
+# Set the platform keyring environment without buffering the prepared handshake.
+configure_chrome_runner() {
+  if [[ "$(uname -s)" == "Linux" ]]; then
+    export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+    export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}"
+    if command -v xvfb-run >/dev/null 2>&1; then
+      runner=(xvfb-run -a)
+    fi
+  fi
+}
+
 run_chrome() {
   CHROME_OUT=""
   if [[ ! -x "$NODE" || ! -f "$HERE/dot_chrome.mjs" ]]; then CHROME_OUT="DOT_CHROME_UNAVAILABLE: node or dot_chrome.mjs missing"; return 10; fi
@@ -95,11 +106,7 @@ run_chrome() {
     CHROME_OUT="DOT_CHROME_UNAVAILABLE: low disk"; return 10
   fi
   local rc=0 runner=()
-  if [[ "$(uname -s)" == "Linux" ]]; then
-    export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=/run/user/$(id -u)/bus}"
-    export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
-    command -v xvfb-run >/dev/null 2>&1 && runner=(xvfb-run -a)
-  fi
+  configure_chrome_runner
   local budget="${DOT_CHROME_TIMEOUT_SECS:-130}" grace="${DOT_CHROME_KILL_GRACE_SECS:-10}"
   local out_file timed_out_file
   out_file="$(mktemp "${TMPDIR:-/tmp}/dot-chrome-out.XXXXXX")"
@@ -254,8 +261,10 @@ cmd_send_once() {
       exit 10
     fi
     profile_disk_ok "${DOT_CHROME_USER_DATA:-}" || exit 2
+    local runner=()
+    configure_chrome_runner
     DOT_ACCOUNT="$ACCOUNT" DOT_URL="$DOT_URL" DOT_CHROME_USER_DATA="${DOT_CHROME_USER_DATA:-}" DOT_CLEAR_DRAFT="${DOT_CLEAR_DRAFT:-}" DOT_PREPARED="1" DOT_NO_REMOTE="1" NODE_PATH="$EXTRA_NODE_PATH" \
-      "$NODE" "$HERE/dot_chrome.mjs" send-prepared "$@"
+      ${runner[@]+"${runner[@]}"} "$NODE" "$HERE/dot_chrome.mjs" send-prepared "$@"
     exit $?
   fi
   run_chrome send "$file" || rc=$?

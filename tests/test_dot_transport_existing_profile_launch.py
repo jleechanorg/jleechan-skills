@@ -914,6 +914,45 @@ process.stdout.write = (chunk, ...args) => {
         )
         self.assertFalse(self.profile.exists())
 
+    @unittest.skipUnless(os.uname().sysname == "Linux", "Linux keyring contract")
+    def test_dot_sh_prepared_streams_with_same_linux_keyring_environment(self):
+        msg = self.root / "fixture-message.txt"
+        msg.write_text("Hello dot")
+        node = self.root / "fixture-node"
+        node.write_text(
+            '#!/bin/bash\n'
+            'if [[ "${2:-}" == send-prepared ]]; then\n'
+            '  printf "%s|%s|%s\\n" "$XDG_RUNTIME_DIR" "$DBUS_SESSION_BUS_ADDRESS" "$DISPLAY"\n'
+            '  IFS= read -r decision && printf "%s\\n" "$decision"\n'
+            'else\n'
+            f'  exec {shlex.quote(str(NODE22))} "$@"\n'
+            'fi\n'
+        )
+        xvfb = self.root / "xvfb-run"
+        xvfb.write_text('#!/bin/bash\n[[ "$1" == -a ]] || exit 1\nshift\nexport DISPLAY=:99\nexec "$@"\n')
+        for executable in (node, xvfb):
+            executable.chmod(0o700)
+        for explicit in (False, True):
+            with self.subTest(explicit=explicit):
+                env = dict(self.env, DOT_NODE=str(node), PATH=f"{self.root}:{self.env['PATH']}")
+                env.pop("XDG_RUNTIME_DIR", None)
+                env.pop("DBUS_SESSION_BUS_ADDRESS", None)
+                runtime = f"/run/user/{os.getuid()}"
+                bus = f"unix:path={runtime}/bus"
+                if explicit:
+                    runtime, bus = "/fixture/runtime", "unix:path=/fixture/custom-bus"
+                    env.update(XDG_RUNTIME_DIR=runtime, DBUS_SESSION_BUS_ADDRESS=bus)
+                with subprocess.Popen([str(DOT_SH), "send-prepared", str(msg)], env=env,
+                                      stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                      stderr=subprocess.PIPE, text=True) as child:
+                    with selectors.DefaultSelector() as output_ready:
+                        output_ready.register(child.stdout, selectors.EVENT_READ)
+                        self.assertTrue(output_ready.select(timeout=5), "prepared output was buffered")
+                        self.assertEqual(child.stdout.readline().strip(), f"{runtime}|{bus}|:99")
+                    stdout, stderr = child.communicate("commit fixture\n", timeout=5)
+                    self.assertEqual(child.returncode, 0, stderr)
+                    self.assertEqual(stdout.strip(), "commit fixture")
+
     def test_dot_sh_prepared_send_mode_blocks_when_lock_present(self):
         lock = self.profile / "SingletonLock"
         lock.symlink_to("unknown-host-12345")
