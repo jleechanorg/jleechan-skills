@@ -93,6 +93,21 @@ class DispatcherTest(unittest.TestCase):
             self.assertEqual(self.status(), "cooldown")
         self.assertEqual(route.call_count, 2)
 
+    def test_dot_delivery_receipt_preserves_the_exact_parent_without_account_digest(self):
+        self.owner.update(cli="dot", parent_message_id="fixture-parent", identity_sha256="1" * 64)
+
+        def deliver(owner, _prompt, _apply):
+            self.assertTrue(owner["recheck"]("dot"))
+            return "delivered"
+
+        with patch.object(nudger, "route", side_effect=deliver):
+            self.assertEqual(self.status(), "delivered")
+        with sqlite3.connect(Path(self.config["state_dir"]) / "receipts.sqlite3") as state:
+            owner = json.loads(state.execute("SELECT owner FROM delivery").fetchone()[0])
+        self.assertEqual(owner["parent_message_id"], "fixture-parent")
+        self.assertEqual(owner["transport"], "dot")
+        self.assertNotIn("identity_sha256", owner)
+
     def test_explicit_owner_resume_defaults_on_and_honors_opt_outs(self):
         def resume(owner, _prompt, _apply):
             return "would_deliver" if owner["headless_resume"] else "blocked_headless_disabled"

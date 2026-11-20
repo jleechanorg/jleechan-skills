@@ -922,14 +922,15 @@ process.stdout.write = (chunk, ...args) => {
         node.write_text(
             '#!/bin/bash\n'
             'if [[ "${2:-}" == send-prepared ]]; then\n'
-            '  printf "%s|%s|%s\\n" "$XDG_RUNTIME_DIR" "$DBUS_SESSION_BUS_ADDRESS" "$DISPLAY"\n'
+            '  printf "%s|%s|%s\\n" "$XDG_RUNTIME_DIR" "$DBUS_SESSION_BUS_ADDRESS" "$DISPLAY" >&2\n'
+            '  printf "prepared-exact 00000000000000000000000000000000\\n"\n'
             '  IFS= read -r decision && printf "%s\\n" "$decision"\n'
             'else\n'
             f'  exec {shlex.quote(str(NODE22))} "$@"\n'
             'fi\n'
         )
         xvfb = self.root / "xvfb-run"
-        xvfb.write_text('#!/bin/bash\n[[ "$1" == -a ]] || exit 1\nshift\nexport DISPLAY=:99\nexec "$@"\n')
+        xvfb.write_text('#!/bin/bash\n[[ "$1" == -a ]] || exit 1\nshift\nexport DISPLAY=:99\nexec "$@" 2>&1\n')
         for executable in (node, xvfb):
             executable.chmod(0o700)
         for explicit in (False, True):
@@ -948,10 +949,11 @@ process.stdout.write = (chunk, ...args) => {
                     with selectors.DefaultSelector() as output_ready:
                         output_ready.register(child.stdout, selectors.EVENT_READ)
                         self.assertTrue(output_ready.select(timeout=5), "prepared output was buffered")
-                        self.assertEqual(child.stdout.readline().strip(), f"{runtime}|{bus}|:99")
+                        self.assertEqual(child.stdout.readline().strip(), "prepared-exact " + "0" * 32)
                     stdout, stderr = child.communicate("commit fixture\n", timeout=5)
                     self.assertEqual(child.returncode, 0, stderr)
                     self.assertEqual(stdout.strip(), "commit fixture")
+                    self.assertEqual(stderr.strip(), f"{runtime}|{bus}|:99")
 
     def test_dot_sh_prepared_send_mode_blocks_when_lock_present(self):
         lock = self.profile / "SingletonLock"

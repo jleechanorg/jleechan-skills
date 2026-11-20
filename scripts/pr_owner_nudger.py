@@ -151,7 +151,7 @@ def dispatch(cwd, owner, local, pr, receipts, config, from_cache):
 
     def record(status):
         fields = ("cwd", "cli", "session", "workspace", "surface", "profile_dir",
-                  "account", "destination")
+                  "account", "destination", "parent_message_id")
         audit = json.dumps({**{key: owner[key] for key in fields if key in owner},
                             "branch": branch, "transport": transport})
         receipts.execute("INSERT OR REPLACE INTO delivery VALUES (?, ?, ?, ?, ?, ?)",
