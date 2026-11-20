@@ -320,6 +320,10 @@ const page = {
   async click(selector) {
     if (selector.includes("send-button")) {
       state.clicked = true;
+      if (process.env.DOT_TEST_HANG_SEND_MS) {
+        globalThis.advanceClock(Number(process.env.DOT_TEST_HANG_SEND_MS));
+        await new Promise(() => {});
+      }
       state.userMessages.push(state.composer);
       state.composer = "";
     } else {
@@ -335,11 +339,17 @@ const page = {
         if (changeAt === "cleanup_selection") state.routeChanged = true;
       } else if (key === "Backspace" && this.selected) state.composer = "";
     },
-    async insertText(text) { state.composer += text; },
+    async insertText(text) {
+      state.composer += process.env.DOT_TEST_MISMATCH_COMPOSER === "1" ? "different fixture" : text;
+    },
   },
 };
 exports.chromium = {
   async launchPersistentContext() {
+    if (process.env.DOT_TEST_HANG_LAUNCH === "1") {
+      setImmediate(() => globalThis.advanceClock(120000));
+      await new Promise(() => {});
+    }
     return {
       async newPage() { return page; },
       async close() { fs.writeFileSync(statePath, JSON.stringify(state)); },
@@ -362,16 +372,6 @@ exports.chromium = {
                               hang_launch=False, hang_after_commit=False,
                               send_advance_ms=120000, exact=None, reply=None, copy_only=False):
         state_path = self._install_fake_send_playwright(initial_composer, usage_limit=usage_limit)
-        module = self.root / "node_modules" / "playwright" / "index.js"
-        source = module.read_text()
-        if mismatched_composer:
-            source = source.replace('state.composer += text', 'state.composer += "different fixture"')
-        if hang_launch:
-            source = source.replace('async launchPersistentContext() {', 'async launchPersistentContext() { setImmediate(() => globalThis.advanceClock(120000)); await new Promise(() => {});')
-        if hang_after_commit:
-            source = source.replace('state.clicked = true;',
-                                    f'state.clicked = true; globalThis.advanceClock({send_advance_ms}); await new Promise(() => {{}});')
-        module.write_text(source)
         if missing_profile:
             self.profile.rmdir()
         message_path = self.root / "clocked-message.txt"
@@ -412,7 +412,12 @@ process.stdout.write = (chunk, ...args) => {
             entry = self.root / SCRIPT.name
             shutil.copyfile(SCRIPT, entry)
         command = [str(NODE22), "--require", str(preload), str(entry), "send-prepared", str(message_path)]
-        env = dict(self.env, DOT_PREPARED="1")
+        env = dict(
+            self.env, DOT_PREPARED="1",
+            DOT_TEST_MISMATCH_COMPOSER="1" if mismatched_composer else "",
+            DOT_TEST_HANG_LAUNCH="1" if hang_launch else "",
+            DOT_TEST_HANG_SEND_MS=str(send_advance_ms) if hang_after_commit else "",
+        )
         if exact is not None:
             exact = dict(exact)
             email = exact.pop("expected_email", "fixture@example.invalid")
