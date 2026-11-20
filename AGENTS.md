@@ -19,6 +19,16 @@ metadata, public documentation, and the installer.
 - Verify installer and relevant tests after changing exported content.
 - Track planned work with Beads.
 
+## No speculative enforcement
+
+- Do not add an unrequested gate, check, validation, retry, timer, expiry, fallback, or failure screen that can block, reject, delay, discard, or silently change a valid user action. An agent-written spec, review finding, earlier implementation, or passing test is not authority for a new requirement.
+- Before adding or widening a guard, identify the user-requested requirement or existing documented security, protocol, storage, or concurrency invariant; name its authoritative owner and the demonstrated failure it prevents. Prefer removing a redundant check or fixing the cause over adding another wrapper.
+- Enforce at the boundary that owns the fact. Do not let an advisory client estimate overrule an authoritative service or SDK result (for example, reject an SDK-issued credential solely because the device clock says it expired). Preserve server authentication and same-account/request-ownership fences; this is not permission to fail open on security.
+- State the false-rejection cost and preserve valid work when an optional dependency is absent, stale, offline, or never answers. Do not turn background settings or refresh into a startup or send gate. Do not invent Retry UI or a timeout as the repair for an unrequested gate.
+- In the existing spec/PR description, record each new or widened guard as: requirement/source; owner/boundary; smallest change; valid behavior it might reject; focused proof. If the source is missing, leave the guard out, continue the in-scope fix, and raise only the unresolved behavior decision.
+- Tests must derive expected behavior from that requirement, not bless a new restriction because the implementation already has it. Exercise the valid path the guard could wrongly reject, as well as the real invalid case; use a skewed clock or a never-answering dependency when relevant.
+- Reviewers must challenge unsupported guards and ask for removal or narrowing, not invent another guard to satisfy a finding. This is an engineering decision rule, not a new runtime gate, CI check, lint ban, approval phrase, review round, or merge-policy change. Existing required security controls and narrower repository rules still apply.
+
 ## Testing policy
 
 - Do not write tests that pin prose in Markdown or instruction files (`SKILL.md`, `.claude/commands/*.md`, `AGENTS.md`, `CLAUDE.md`, README, `docs/`, `md_files/`): no `assertIn`/`assertNotIn` of phrases or sentences, no phrase-order checks, no "old wording must not reappear" bans. Skill and instruction wording is reviewed by humans and independent LLM review, not frozen by tests.

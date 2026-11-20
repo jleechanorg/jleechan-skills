@@ -30,6 +30,8 @@ Planning, reviews, and tracking must advance the requested outcome. They must no
 
 ## Engineering method and proof
 
+Apply [No speculative enforcement](../AGENTS.md#no-speculative-enforcement) when changing product behavior: a review finding or an agent-written spec cannot authorize an extra check, gate, retry, or timer. Preserve required security controls and continue in-scope work without adding a new approval pause.
+
 - Diagnose the first real divergence before editing. Reuse or delete before adding code, and load the relevant Ponytail, root-cause, and centralization skills.
 - Keep semantic judgment with the model rather than adding ad hoc keyword routing or heuristic policy in application code. Do not add unproven guards, retries, clamps, or fallbacks to conceal a cause.
 - Run focused tests for the changed behavior. Scale evidence to the actual change and risk; batch fixes before expensive evidence and rerun only proof the changes can invalidate.
