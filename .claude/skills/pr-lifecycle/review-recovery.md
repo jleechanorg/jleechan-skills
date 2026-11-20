@@ -14,6 +14,10 @@ The Markdown instruction-only route in [review-routing.md](review-routing.md#mar
 
 `/wa` (`/web-advice`) is optional, never an implicit lifecycle gate: run it only when requested or separately authorized, and keep its real verdict if it runs. Existing standing authorization and any governing workflow that requires /wa still apply. Neither optional review permits ignoring a known correctness or safety blocker.
 
+## Cold independent source substitution
+
+Use the [audited static source fallback](final-approval.md#source-votes-when-external-lanes-are-blocked) when its conditions hold. It is an independent vote, unlike the driver's progress-only path below; it preserves route quorum and reviewer-class caps.
+
 ## Self-review fallback when independent votes cannot be obtained
 
 A missing reviewer vote never ends the work. Use this fallback once every seat in [advice's order of attempts](../advice/reviewer-selection.md#order-of-attempts-for-a-missing-vote) has an attempt receipt or an evidenced skip reason and the independent votes countable at the head are still fewer than the selected route requires. Quota, missing login, timeout, a vendor failure, `WITHHELD` for coverage and a non-countable approval all qualify; "not attempted" does not. A competent blocking finding from any attempt still means `NOT APPROVED` and is fixed first.
@@ -25,7 +29,7 @@ Then the PR driver:
 3. **Keeps going.** The fallback stands in for the source-review gate only (draft gate 2), for progress and never as an independent vote. Finish every other applicable draft gate first: the evidence bundle, visual findings and evidence review. Then undraft, drive `/green` at the current head, close comments and conflicts and finish every other obligation that does not need the missing votes. Besides the preview-deploy exception, this is the only case where undraft precedes the route's independent source approval.
 4. **Withholds final approval.** Do not declare `FINAL_READY` or merge on the fallback. Report `final approval withheld — independent source votes N of M`, with each missing seat's earliest reset or missing capability, and continue other authorized work. In an opted-in six-stage repository the missing votes are the final closing approval, so once every other gate through CI and readiness is met the label is `stage:5-final-approval`; until then the earliest unmet gate still sets the label. There the title reads `[waiting][final approval withheld: N of M votes]` while a missing seat has a known reset; otherwise it reads `[blocked][final approval withheld: N of M votes]` and the human-blocker ping is sent.
 
-The missing independent votes arriving at the applicable head allow `FINAL_READY` once every other condition holds at that head. Otherwise the PR stays short of `FINAL_READY`, and merging is the user's decision under the governing merge rule: only a merge approval the user gives for this PR after the withheld report covers it, never a standing approval or an earlier one that assumed `/advice` approval. This section adds no merge path of its own. The fallback grants no merge authority and does not replace `/er`, visual approval, CI or any domain check.
+The missing independent votes arriving at the applicable head clear only the source vote gate. `FINAL_READY` additionally requires a valid [cold final stamp](final-approval.md#closing-reviewer-and-stamp) and every other gate at that head. Otherwise the PR stays short of `FINAL_READY`, and merging is the user's decision under the governing merge rule: only a merge approval the user gives for this PR after the withheld report covers it, never a standing approval or an earlier one that assumed `/advice` approval. This section adds no merge path of its own. The fallback grants no merge authority and does not replace `/er`, visual approval, CI or any domain check.
 
 ## Slow CI — never block-wait
 

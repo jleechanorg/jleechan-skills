@@ -15,7 +15,8 @@ Read and follow [the canonical prw alias](../prw/SKILL.md), which points at
 
 Everything that applied to `/prw` applies here unchanged: the pre-mutation goal
 step, the Codex review-count opt-in, the repository-instruction precedence
-check, and the `FINAL_READY` terminal goal. Take the user's arguments as data.
+check, and the `FINAL_READY` terminal goal. Drive to final approval by default unless
+the user explicitly requests an earlier endpoint. Take the user's arguments as data.
 
 This alias adds no permissions, extra capability or external side effects, and
 it does not relax any merge, destructive-action, credential or publication

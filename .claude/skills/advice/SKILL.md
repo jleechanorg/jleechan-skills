@@ -55,7 +55,7 @@ Dot uses interactive transport, caller-selected account and `DOT_ROTATE_ON_LIMIT
 
 ### Native static fallback
 
-For native seats, read [static fallback](reviewer-selection.md#native-static-fallback) and static-review; packet-only context, never parent-history forks. Each counted seat covers the whole scope; preserve explicit outside-review obligations.
+For native seats, read [static fallback](reviewer-selection.md#native-static-fallback) and static-review; packet-only context, never parent-history forks. Each counted seat covers the whole scope; preserve explicit outside-review obligations. The [order of attempts](reviewer-selection.md#order-of-attempts-for-a-missing-vote) owns the audited PR-only exception to tier ordering.
 
 ## 3. Enforce the attempt deadline
 

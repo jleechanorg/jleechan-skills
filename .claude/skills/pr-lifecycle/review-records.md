@@ -16,9 +16,30 @@ Maintain a structured obligation ledger in the PR description under `## Review L
 | Evidence review (/er) | Selected route | PASS / NOT REQUIRED | <Receipt URL or exemption> | Current candidate / Reason |
 | Visual approval | Changed claims | PASS / NOT REQUIRED | VISUAL APPROVED at <40-char-sha> | Rendered frames inspected / Reason |
 | CI and conflicts | Repository policy | PASS / OPEN | Live check run results | Current candidate |
-| Closing coverage | Final phase | PASS / OPEN | Closing validation record | Current candidate |
+| Closing coverage | Final phase | See linked closeout status | Candidate closeout task record | Current candidate |
 
 For every review type that runs, including `/es`, `/er`, `/advice`, `/wa`, `/cs`, other named lanes and native reviews, record in the PR body the exact reviewed SHA, review type/phase, verdict or status, timestamp, and reviewer/coverage. Document reviews also retain document hashes; their context SHA does not turn document approval into code approval. Source approval covers its reviewed scope. Before repeating additional runtime or measurement claims in closure, inspect their cited artifacts under the applicable evidence contract; otherwise mark them unverified. At each unfinished (`OPEN` or `PENDING`) obligation in the ledger, explicitly expose `owner`, `next_action`, and the actual resumption handle (`job_handle` + `wake_condition`), retaining candidate/claim applicability and recorded clocks. `job_handle` is required when the obligation is asynchronous; for synchronous or not-yet-started obligations, record `job_handle: N/A` while retaining a required `owner`, specific `next_action`, and genuine `wake_condition`. An unfinished obligation must never remain a bare unresolved status without an accountable owner, specific next action, and verified resumption handle.
+
+### Final closeout record
+
+Before freezing the PR body for the cold final review, link the stable,
+durable task record for this candidate from the closing row in the PR ledger.
+For this obligation only, the linked record is the authoritative live ledger
+and execution row, not an extra controller. The frozen PR row is a pointer,
+not a stored PASS or OPEN status. The owner and authorized closeout runner
+must be able to resolve the pointer and verify its contents; if no such
+durable record is available, keep the closing gate open.
+
+Record the candidate, governed obligation, owner, actual invocation/job handle,
+next action, wake condition, timestamps, prompt/packet hashes, attributable
+receipt ID, terminal status and applicability. Append dated dispatch, status
+and applicability events and eligible same-candidate CI reruns here. Link or
+record their receipts. This operational history is outside the frozen body
+digest; changes to substantive claims, governed obligations, the frozen
+packet or actual approval provenance still follow the stamp invalidation rules.
+After final review, put only the exact attributed receipt and generated
+status in the designated PR-body blocks. The PR and linked record never
+treat a presentation status as proof of passing the live gates.
 
 ### Execution record
 
@@ -208,6 +229,8 @@ For the optional ownership and pickup pilot, emit the v1 fields and state-specif
 - **No inferred idleness from quiet periods**: Never infer uninterrupted idleness from missing GitHub writes (e.g. periods without comment or push events).
 
 ## Publication and receipt integrity
+
+Record the [audited source substitution and attributed closing stamp](final-approval.md) in this ledger and its linked final closeout record. Preserve each external attempt and its disposition, the frozen packet, and current publication readback. An author-edited verdict does not count.
 
 For every PR, apply the shared [evidence publication contract](six-stage.md#evidence-attached-to-every-stage-exit) for artifact URLs, the route-appropriate evidence index, applicable inline media, access verification and publication readback. Its route exemptions remain intact. Stage-specific exit records apply only when the repository opts into that workflow; generic PRs record their applicable obligation or phase without adopting stage titles or labels.
 

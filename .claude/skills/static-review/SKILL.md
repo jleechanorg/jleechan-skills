@@ -44,6 +44,19 @@ read-only GitHub/API or an existing checkout when it supplies complete pinned
 objects. Use an export, saved revision packet or isolated clone only when needed
 for complete access or isolation; independence alone does not require a copy.
 
+## Closing review boundary
+
+The [independent final-approval seat](../pr-lifecycle/final-approval.md#closing-reviewer-and-stamp)
+is an exception to the standard source-vote template, not to cold isolation,
+complete changed-path coverage, provenance or read-only access. Send one
+read-only channel preamble, the unchanged versioned [closing rubric](../pr-lifecycle/final-approval-prompt.md),
+and the typed packet. Do not give the reviewer author history or arguments
+outside the packet. Scoped read-only access to the named pinned GitHub sources
+and evidence and to live PR, check and media state is allowed to verify the
+packet. Record the complete instantiated prompt digest and attribution privately.
+This seat is not a source vote and uses the governing lifecycle's PR closing
+review deadline; the ordinary static source-review deadline is unchanged.
+
 ## 2. Templates
 
 Shared revision template for clone, export, read-only and remote modes:
@@ -216,8 +229,9 @@ missing public fields alone do not make the account unverified. Static identity
 is its type, harness and actual model; preserve any stronger user/repository
 requirement.
 
-Static attempts have a 600-second end-to-end deadline; other advice attempts
-use advice §3. The orchestrator records queue/return and cleanup, not the model.
+Static attempts have a 600-second end-to-end deadline except the distinct
+[closing final-approval seat](#closing-review-boundary), which uses the
+applicable lifecycle deadline. Other advice attempts use advice §3. The orchestrator records queue/return and cleanup, not the model.
 Reuse completed coverage only under pr-lifecycle's claim/delta/phase rule
 ([review-routing](../pr-lifecycle/review-routing.md#sha-binding-rule-critical--applies-to-every-gate-in-this-chain));
 reaffirmation is not another vote. When that record is partially applicable

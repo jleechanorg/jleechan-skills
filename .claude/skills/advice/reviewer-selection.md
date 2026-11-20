@@ -93,12 +93,26 @@ when `ADVICE_OUTSIDE_ROUTES` lists it or the current task explicitly authorizes 
 6. **Web chats** through /web-advice, when authorized: one provider at a time, each on a signed-in profile with
    an empty composer.
 
+For a multi-seat PR source route governed by
+[the audited cold substitution](../pr-lifecycle/final-approval.md#source-votes-when-external-lanes-are-blocked),
+hold the native static seat in item 5 until all applicable external lanes,
+including web in item 6, are exhausted as that rule defines. Keep the other
+seats in their ordinary order. The held static seat is not a viable earlier
+tier for purposes of admitting web. It never authorizes disclosure: record
+an unapproved web route as unavailable with its authorization boundary, and
+do not upload the packet to exhaust it. This narrow exception does not reorder
+standalone advice, existing direct static routes, or stronger outside-only gates.
+
 Check which outside routes are authorized at the start, not after the CLI seats fail. A seat that withholds because
 it could not read a very large changed file in full has been attempted: move to the next seat. This list changes no
 counting rule. An approval counts only with full-scope `COVERAGE:` under
 [§5](reconciliation.md#5-reconcile-and-report); when its coverage statement is in doubt it does not count, and the
 next seat is tried. A reviewer's later clarification can withdraw its approval; it never creates or repairs one.
-When the list is finished and votes are still missing, `/advice` reports `WITHHELD` and a PR lifecycle continues under
+When the external list finishes and votes are still missing, first evaluate the
+[audited PR-only substitution](../pr-lifecycle/final-approval.md#source-votes-when-external-lanes-are-blocked).
+If eligible and within budget, dispatch the held native static seat and await its
+applicable verdict or deadline. Recount the existing quorum. Only if quorum
+still falls short, `/advice` reports `WITHHELD` and a PR lifecycle continues under
 [pr-lifecycle's self-review fallback](../pr-lifecycle/review-recovery.md#self-review-fallback-when-independent-votes-cannot-be-obtained).
 
 ### CLI capabilities
@@ -203,7 +217,7 @@ acknowledgement, reaction or promise. Route availability does not override discl
 Static reviewers follow [static-review](../static-review/SKILL.md) for cold input, full coverage, identity, deadlines
 and receipts. Spawn each native seat (for example Codex `spawn_agent`) with packet-only context, its preamble and
 template, never a parent-history fork such as `fork_turns: "all"`. Admit them in tier 2 with an eligible Hermes
-instance when needed; §2's aggregate caps still apply (static reviewers collectively at most one vote, Hermes
+instance when needed, except for the audited PR source substitution order above; §2's aggregate caps still apply (static reviewers collectively at most one vote, Hermes
 instances collectively at most one), and each counted verdict covers the whole scope. Eligible CLI pairs, CLI plus
 static (including a static reviewer on the host's own account), or eligible outside combinations may supply the quorum.
 There is no generic remote minimum or remote-only prohibition; preserve any separately explicit outside-review
