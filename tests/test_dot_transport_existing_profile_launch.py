@@ -131,9 +131,11 @@ exports.chromium = {
         script = r'''const fs = require("node:fs");
 const statePath = __STATE_PATH__;
 const externalComposerPath = __EXTERNAL_COMPOSER_PATH__;
-const state = {composer: __INITIAL_COMPOSER__, clicked: false, userMessages: [], replyClicked: false, replyOpened: false};
+const state = {composer: __INITIAL_COMPOSER__, clicked: false, userMessages: [], replyClicked: false, replyOpened: false, scrolls: 0};
 const replyParent = process.env.DOT_TEST_REPLY_PARENT;
-let parentReads = 0;
+let parentReads = 0, urlReads = 0, historyReads = 0;
+const history = process.env.DOT_TEST_HISTORY;
+const hasOlderRows = () => state.scrolls > 0 && ["grow", "hydrate"].includes(history) && historyReads > 2;
 const replyPanel = {
   async count() { return Number(state.replyOpened); },
   async isVisible() { return state.replyOpened; },
@@ -160,7 +162,10 @@ const replyPanel = {
         if (role !== "button" || options.name !== "Send" || !options.exact) throw Error("Unexpected reply control");
         return {
           async count() { return 1; },
-          async isEnabled() { return true; },
+          async isEnabled() {
+            if (process.env.DOT_TEST_REPLY_CHANGED === "timeout") globalThis.advanceClock(120000);
+            return true;
+          },
           async click() {
             state.replyClicked = true;
             state.userMessages.push(state.composer);
@@ -174,12 +179,35 @@ const replyPanel = {
 };
 function locator(selector) {
   if (selector === '.reply-chain-container[aria-label="Replies"]') return replyPanel;
+  if (selector === '.messages-scroll:visible') return {
+    async count() { return 1; },
+    async waitFor() {},
+    async evaluate(scroll, url) {
+      const fixture = {scrollTop: 500, ownerDocument: {URL: process.env.DOT_TEST_RESOLVED_URL}};
+      if (!scroll(fixture, url) || fixture.scrollTop !== 0) throw Error("Unexpected history scroll");
+      state.scrolls++;
+      return true;
+    },
+    locator(selector) {
+      if (selector === 'article.message-row[data-message-id]') return {
+        async count() {
+          historyReads++;
+          if (history === "hydrate" && historyReads <= 2) return 0;
+          return hasOlderRows() ? 84 : 52;
+        },
+      };
+      return locator(selector);
+    },
+  };
   if (selector.startsWith('article.message-row[data-message-id=')) return {
     filter() { return this; },
     last() { return this; },
     getByRole() {
       return {
-        async count() { return Number(selector === `article.message-row[data-message-id="${replyParent}"]`); },
+        async count() {
+          return Number((!history || hasOlderRows()) &&
+            selector === `article.message-row[data-message-id="${replyParent}"]`);
+        },
         async click() { state.replyOpened = true; },
       };
     },
@@ -201,7 +229,10 @@ function locator(selector) {
 }
 const page = {
   async goto() {},
-  url() { return process.env.DOT_TEST_RESOLVED_URL || process.env.DOT_URL; },
+  url() {
+    if (urlReads++ === 0 && process.env.DOT_TEST_DOT_HOME) return "https://chatgpt.com/dots/home";
+    return process.env.DOT_TEST_RESOLVED_URL || process.env.DOT_URL;
+  },
   async title() { return "ChatGPT"; },
   locator,
   getByRole() { return {}; },
@@ -343,7 +374,11 @@ process.stdout.write = (chunk, ...args) => {
         parent = "~".join(("2" * 32, "2" * 32, "CalpicoMessage", "Sentinel_" + "3" * 32))
         cases = [
             ({}, True, True, True),
+            ({"DOT_TEST_DOT_HOME": "1", "DOT_TEST_HISTORY": "grow"}, True, True, True),
+            ({"DOT_TEST_HISTORY": "hydrate"}, True, True, True),
+            ({"DOT_TEST_HISTORY": "end"}, False, False, False),
             ({"DOT_TEST_REPLY_CHANGED": "commit"}, True, False, False),
+            ({"DOT_TEST_REPLY_CHANGED": "timeout"}, True, False, False),
             ({"DOT_TEST_REPLY_CHANGED": "receipt"}, True, True, False),
             ({"DOT_TEST_RESOLVED_URL": "https://chatgpt.com/"}, False, False, False),
             ({"DOT_TEST_REPLY_PARENT": "absent-parent"}, False, False, False),
@@ -354,6 +389,8 @@ process.stdout.write = (chunk, ...args) => {
                 self.assertFalse(state["clicked"], "the feed composer must never submit")
                 self.assertEqual(state["replyOpened"], opened)
                 self.assertEqual(state["replyClicked"], sent)
+                if "DOT_TEST_HISTORY" in observations:
+                    self.assertEqual(state["scrolls"], 1)
                 self.assertEqual("DOT_SENT_VERIFIED" in result.stdout, verified)
 
     def test_prepared_callback_can_outlast_launch_deadline(self):

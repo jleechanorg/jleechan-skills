@@ -393,11 +393,14 @@ async function settlePage(page, currentMode) {
   const deadline = Date.now() + 45000;
   let last = -1, stable = 0;
   while (Date.now() < deadline) {
-    if (dotReply && page.url() === URL_ && URL_ !== exactUrl) {
-      await sleep(500);
-      continue;
+    if (exactDestination) {
+      const current = page.url();
+      if (current !== exactUrl) {
+        if (!dotReply || ![URL_, 'https://chatgpt.com/dots/home'].includes(current)) unavailable('destination changed');
+        await sleep(500);
+        continue;
+      }
     }
-    if (exactDestination && page.url() !== exactUrl) unavailable('destination changed');
     const title = await page.title().catch(() => '');
     const composers = await page.locator(COMPOSER).count().catch(() => 0);
     const bodyText = (await page.evaluate(() => document.body ? document.body.innerText : '').catch(() => ''));
@@ -437,6 +440,7 @@ async function settlePage(page, currentMode) {
     await sleep(1000);
   }
 
+  if (exactDestination && page.url() !== exactUrl) unavailable('destination did not settle');
   const title = await page.title().catch(() => '');
   if (/just a moment/i.test(title)) unavailable('Cloudflare challenge');
 
@@ -666,13 +670,42 @@ async function hasReplyParent(panel) {
   return (await first.count()) === 1 && (await first.getAttribute('data-message-id')) === replyParent;
 }
 
+async function loadReplyParent(feed, reply, roomReady) {
+  const rows = feed.locator('article.message-row[data-message-id]');
+  for (let batch = 0; batch < 5; batch++) {
+    if (!(await roomReady())) return false;
+    if (await reply.count() === 1) return true;
+    const before = await rows.count();
+    if (before > 0 && !(await feed.evaluate((node, url) => {
+      if (node.ownerDocument.URL !== url) return false;
+      node.scrollTop = 0;
+      return true;
+    }, exactUrl))) return false;
+    const deadline = Date.now() + 3000;
+    let grew = false;
+    while (Date.now() < deadline) {
+      if (!(await roomReady())) return false;
+      if (await reply.count() === 1) return true;
+      grew = await rows.count() > before;
+      if (grew) break;
+      await sleep(200);
+    }
+    if (!grew) return false;
+  }
+  return false;
+}
+
 async function openDotReply(page) {
   const panel = page.locator('.reply-chain-container[aria-label="Replies"]');
   if (await panel.count()) return null;
+  const feed = page.locator('.messages-scroll:visible');
+  await feed.waitFor({ state: 'visible', timeout: 5000 });
+  const roomReady = async () => await exactDestinationReady(page) &&
+    (await panel.count()) === 0 && (await feed.count()) === 1;
   const action = { name: 'Reply', exact: true };
-  const reply = page.locator(`article.message-row[data-message-id="${replyParent}"]`)
+  const reply = feed.locator(`article.message-row[data-message-id="${replyParent}"]`)
     .filter({ has: page.getByRole('button', action) }).last().getByRole('button', action);
-  if (await reply.count() !== 1) return null;
+  if (!(await loadReplyParent(feed, reply, roomReady)) || !(await roomReady())) return null;
   await reply.click();
   await panel.waitFor({ state: 'visible', timeout: 5000 });
   return await hasReplyParent(panel) ? panel : null;
@@ -816,15 +849,14 @@ async function send(page, file, dry, opts = {}) {
   }
 
   if (aborted) return;
-  if (dotReply) {
-    const button = scope.locator('.reply-chain-composer').getByRole('button', { name: 'Send', exact: true });
-    if (await button.count() !== 1 || !(await button.isEnabled()) || !(await stillReady())) return;
-    clicked = true;
-    await button.click();
-  } else {
-    clicked = true;
-    await page.click('button[data-testid=send-button], button[aria-label*=Send]');
-  }
+  const replySend = dotReply
+    ? scope.locator('.reply-chain-composer').getByRole('button', { name: 'Send', exact: true })
+    : null;
+  if (replySend && (await replySend.count() !== 1 || !(await replySend.isEnabled()) || !(await stillReady()))) return;
+  if (aborted) return;
+  clicked = true;
+  if (replySend) await replySend.click();
+  else await page.click('button[data-testid=send-button], button[aria-label*=Send]');
   await sleep(4000);
   const left = (await readComposer()).trim();
   const afterMsgs = await getUserMessages();
