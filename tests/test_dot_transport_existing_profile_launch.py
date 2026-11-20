@@ -137,7 +137,8 @@ let urlReads = 0, historyReads = 0;
 const history = process.env.DOT_TEST_HISTORY;
 const changeAt = process.env.DOT_TEST_CHANGE_AT;
 const hasOlderRows = () => state.scrolls > 0 && ["grow", "hydrate"].includes(history) && historyReads > 2;
-const parentIsLoaded = () => !history || hasOlderRows() || (history === "deep" && state.scrolls >= 7);
+const parentIsLoaded = () => !history || hasOlderRows() ||
+  (["deep", "quiet_then_grow"].includes(history) && state.scrolls >= 7);
 const replyPanel = {
   async count() { return Number(state.replyOpened); },
   async isVisible() { return state.replyOpened; },
@@ -197,6 +198,7 @@ function locator(selector) {
       if (selector === 'article.message-row[data-message-id]') return {
         async count() {
           historyReads++;
+          if (history === "quiet_then_grow") return 52 + (state.scrolls === 6 ? 5 : state.scrolls) * 8;
           if (["deep", "growing_missing"].includes(history)) return 52 + state.scrolls * 8;
           if (history === "hydrate" && historyReads <= 2) return 0;
           return hasOlderRows() ? 84 : 52;
@@ -565,6 +567,7 @@ process.stdout.write = (chunk, ...args) => {
             ({"DOT_TEST_DOT_HOME": "1", "DOT_TEST_HISTORY": "grow"}, True, True, True),
             ({"DOT_TEST_HISTORY": "hydrate"}, True, True, True),
             ({"DOT_TEST_HISTORY": "deep"}, True, True, True),
+            ({"DOT_TEST_HISTORY": "quiet_then_grow"}, True, True, True),
             ({"DOT_TEST_HISTORY": "growing_missing"}, False, False, False),
             ({"DOT_TEST_HISTORY": "end"}, False, False, False),
             ({"DOT_TEST_REPLY_CHANGED": "focus"}, True, False, False),
@@ -595,8 +598,10 @@ process.stdout.write = (chunk, ...args) => {
                     self.assertEqual(state["composer"], "")
                     self.assertNotIn("prepared-exact ", result.stdout)
                 history = observations.get("DOT_TEST_HISTORY")
-                if history in {"deep", "growing_missing"}:
+                if history in {"deep", "quiet_then_grow", "growing_missing"}:
                     self.assertEqual(state["scrolls"], 7)
+                elif history == "end":
+                    self.assertTrue(1 < state["scrolls"] <= 12, state["scrolls"])
                 elif history:
                     self.assertEqual(state["scrolls"], 1)
                 self.assertEqual("DOT_SENT_VERIFIED" in result.stdout, verified)

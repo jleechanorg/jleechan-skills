@@ -23,15 +23,12 @@ async function loadReplyParent(feed, reply, roomReady, destination, deadline, sl
       return true;
     }, { url: destination, until: searchUntil }))) return false;
     const nextBatchUntil = Math.min(Date.now() + 3000, searchUntil);
-    let grew = false;
     while (Date.now() < nextBatchUntil) {
       if (!(await roomReady())) return false;
       if (await reply.count() === 1) return true;
-      grew = await rows.count() > before;
-      if (grew) break;
+      if (await rows.count() > before) break;
       await sleep(200);
     }
-    if (!grew) return false;
   }
   return false;
 }
