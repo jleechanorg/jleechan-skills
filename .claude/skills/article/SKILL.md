@@ -76,7 +76,9 @@ request to write or save a draft.
    and address the reader. Carry over those choices without borrowing unrelated
    claims or manufacturing an opinion, memory, scene, or motive. If a reference
    assumes prior knowledge, explain the choice or event in plain language before
-   relying on it. Do not invent cheeky asides, unsupported jabs, strawman contrasts,
+   relying on it. In a firsthand anecdote, keep the action, its immediate result,
+   and any later discovery in the order the author experienced them. Do not invent
+   cheeky asides, unsupported jabs, strawman contrasts,
    generic AI flourish, defensive caveats, or automatic role labels. Do not erase
    a pointed criticism merely because it is strong: check the actual argument,
    preserve the author's interpretation, and do not present it as a direct quote.
@@ -93,13 +95,21 @@ request to write or save a draft.
 
 ## Visuals and platform fit
 
+- In a launch article, when trying the product is a primary reader action, put
+  the relevant links where a skimming reader can find them before the body.
+  Repeat them at the close when readers would naturally act there. Use plain
+  section headings to help readers find the author's story, examples, or build
+  details when the article covers several topics.
 - Use an actual screenshot of a cited exchange or real user experience when
   requested; retain source, provenance, and the applicable permission or other
   basis for reuse. If reuse cannot be established, use an authorized alternative
   or report that media as blocked; do not stage it. An image proves only
   what it shows. Do not imply a native, physical-device, or production result from
-  a different surface. Crop or resize transparently, preserve originals, and keep
-  text legible at the destination's displayed size.
+  a different surface. Show the moment, choice, or consequence the passage is
+  about when the source has it. After a screenshot replacement, compare the
+  current image with the nearby caption and correct any scene, step, or state
+  that the caption no longer describes. Crop or resize transparently, preserve
+  originals, and keep text legible at the destination's displayed size.
 - Use a diagram when it clarifies the argument, not as decoration. Preserve the
   distinctions and all material items it replaces; avoid caricaturing a competing
   position. Put each visual immediately after the passage it supports when the
