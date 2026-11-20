@@ -49,7 +49,7 @@ def test_headless_requires_cmux_absence_or_explicit_headless_host(tmp_path):
 
 def test_exact_owner_detected_and_unrelated_draft_never_submitted(tmp_path):
     owner, transcript = binding(tmp_path)
-    idle = "previous turn\n›\nfixture-gpt-6 · 92% left\n"
+    idle = "previous turn\n› Ask Codex to do anything\nfixture-gpt-6 · 92% left\n"
     snapshot = (idle, 0.0, (transcript.stat().st_ino, transcript.stat().st_size, 100))
     send = Mock(side_effect=["", "› Human draft\nfixture-gpt-6 · 92% left"])
     with patch.object(router.shutil, "which", return_value="/bin/true"), \
@@ -57,6 +57,7 @@ def test_exact_owner_detected_and_unrelated_draft_never_submitted(tmp_path):
          patch.object(router, "_writers", return_value=[WRITER]), \
          patch.object(router, "_matches_owner", return_value=True), \
          patch.object(router, "_snapshot", return_value=snapshot), \
+         patch.object(router, "_input_is", return_value=True), \
          patch.object(router.time, "sleep"), patch.object(router, "_checked", send):
         assert router.route(owner, PROMPT, True) == "attempted_delivery"
         assert [call.args[1] for call in send.call_args_list] == ["send", "capture-pane"]
@@ -124,3 +125,20 @@ def test_claude_stop_sequence_requires_a_completed_text_reply(tmp_path):
         message = {"stop_reason": reason, "content": [part]}
         transcript.write_text(json.dumps({"type": "assistant", "message": message}) + "\n")
         assert router._terminal_state("claude", transcript)[0] is idle
+
+
+
+def test_cmux_native_input_empty_attests_exact_owner_and_rejects_draft():
+    workspace, surface = SURFACE[2:4]
+    empty = dict(workspace_id=workspace, surface_id=surface, state="empty",
+                 terminal=True, agent=True, lifecycle="running",
+                 waiting_on_human=False, blocks_typing=False)
+    with patch.object(router, "_checked", return_value=json.dumps(empty)) as rpc:
+        assert router._input_is("cmux", workspace, surface, "empty")
+        cmux, command, method, target = rpc.call_args.args
+        assert (cmux, command, method) == ("cmux", "rpc", "surface.input_state")
+        assert json.loads(target) == {"workspace_id": workspace, "surface_id": surface}
+    for row in (dict(empty, state="draft"), dict(empty, state="dialog"),
+                dict(empty, surface_id="changed"), dict(empty, blocks_typing=True)):
+        with patch.object(router, "_checked", return_value=json.dumps(row)):
+            assert not router._input_is("cmux", workspace, surface, "empty")

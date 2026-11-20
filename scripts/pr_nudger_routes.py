@@ -175,6 +175,19 @@ def _matches_draft(lines, prompt):
     return bool(lines) and bool(re.fullmatch(r" ?".join(map(re.escape, lines)), prompt))
 
 
+def _input_is(cmux, workspace, surface, state):
+    target = {"workspace_id": workspace, "surface_id": surface}
+    result = json.loads(_checked(cmux, "rpc", "surface.input_state", json.dumps(target)))
+    return (
+        all(result.get(key) == value for key, value in target.items())
+        and result.get("terminal") is True and result.get("agent") is True
+        and result.get("waiting_on_human") is False
+        and result.get("lifecycle") in {"running", "idle"}
+        and result.get("state") == state
+        and (state != "empty" or result.get("blocks_typing") is False)
+    )
+
+
 def _capture(cmux, target):
     return _checked(cmux, "capture-pane", *target, "--scrollback", "--lines", "1500")
 
@@ -234,7 +247,7 @@ def _cmux_route(cmux, surface, writer, cwd, path, owner, prompt, apply):
     second = _snapshot(cmux, target, ref, path, writer[0])
     if first != second or second[1] or not _terminal_state(owner["cli"], path)[0]:
         return "busy"
-    if _composer(second[0], owner["cli"]) != [""]:
+    if not _input_is(cmux, workspace, surface_id, "empty"):
         return "blocked_composer"
     if _writers(cwd, path) != [writer]:
         return "blocked_writer_changed"
@@ -242,14 +255,18 @@ def _cmux_route(cmux, surface, writer, cwd, path, owner, prompt, apply):
         return "would_deliver"
     if not owner.get("recheck", lambda *_: True)("cmux"):
         return "stale_pr"
-    if _snapshot(cmux, target, ref, path, writer[0]) != second or _writers(cwd, path) != [writer]:
+    if (_snapshot(cmux, target, ref, path, writer[0]) != second
+            or _writers(cwd, path) != [writer]
+            or not _input_is(cmux, workspace, surface_id, "empty")):
         return "no_delivery"
     try:
         _checked(cmux, "send", *target, prompt)
         if not owner.get("revalidate", lambda: True)():
             return "attempted_delivery"
         drafted = _capture(cmux, target)
-        if not _matches_draft(_composer(drafted, owner["cli"]), prompt) or _writers(cwd, path) != [writer]:
+        if (not _matches_draft(_composer(drafted, owner["cli"]), prompt)
+                or _writers(cwd, path) != [writer]
+                or not _input_is(cmux, workspace, surface_id, "draft")):
             return "attempted_delivery"
         _checked(cmux, "send-key", *target, "enter")
         return _wait_for_receipt(path, second[2], owner["cli"], prompt, 8)
