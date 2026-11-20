@@ -951,6 +951,12 @@ process.stdout.write = (chunk, ...args) => {
         )
         self.assertFalse(self.profile.exists())
 
+    def _fixture_xvfb_path(self):
+        xvfb = self.root / "xvfb-run"
+        xvfb.write_text('#!/bin/bash\n[[ "$1" == -a ]] || exit 1\nshift\nexport DISPLAY=:99\nexec 3>&-\nexec "$@" 2>&1\n')
+        xvfb.chmod(0o700)
+        return f"{self.root}:{self.env['PATH']}"
+
     @unittest.skipUnless(os.uname().sysname == "Linux", "Linux keyring contract")
     def test_dot_sh_prepared_streams_with_same_linux_keyring_environment(self):
         msg = self.root / "fixture-message.txt"
@@ -966,13 +972,11 @@ process.stdout.write = (chunk, ...args) => {
             f'  exec {shlex.quote(str(NODE22))} "$@"\n'
             'fi\n'
         )
-        xvfb = self.root / "xvfb-run"
-        xvfb.write_text('#!/bin/bash\n[[ "$1" == -a ]] || exit 1\nshift\nexport DISPLAY=:99\nexec "$@" 2>&1\n')
-        for executable in (node, xvfb):
-            executable.chmod(0o700)
+        node.chmod(0o700)
+        path = self._fixture_xvfb_path()
         for explicit in (False, True):
             with self.subTest(explicit=explicit):
-                env = dict(self.env, DOT_NODE=str(node), PATH=f"{self.root}:{self.env['PATH']}")
+                env = dict(self.env, DOT_NODE=str(node), PATH=path)
                 env.pop("XDG_RUNTIME_DIR", None)
                 env.pop("DBUS_SESSION_BUS_ADDRESS", None)
                 runtime = f"/run/user/{os.getuid()}"
@@ -997,8 +1001,7 @@ process.stdout.write = (chunk, ...args) => {
         lock.symlink_to("unknown-host-12345")
         msg_file = self.root / "msg.txt"
         msg_file.write_text("Hello dot", encoding="utf-8")
-        env = dict(self.env)
-        env["DOT_PREPARED"] = "1"
+        env = dict(self.env, DOT_PREPARED="1", PATH=self._fixture_xvfb_path())
         proc = subprocess.run(
             [str(DOT_SH), "send-once", str(msg_file)],
             env=env,
@@ -1007,13 +1010,14 @@ process.stdout.write = (chunk, ...args) => {
             timeout=30,
             check=False,
         )
-        self.assertEqual(proc.returncode, 10, proc.stderr)
+        self.assertEqual(proc.returncode, 10, proc.stdout + proc.stderr)
         self.assertEqual(
             json.loads(proc.stdout.removeprefix("DOT_PRECOMMIT_NO_SEND ")),
             {"schema_version": 1, "phase": "precommit", "reason": "profile_unavailable",
              "message_sha256": hashlib.sha256(b"Hello dot").hexdigest()},
         )
         self.assertTrue(lock.is_symlink())
+        self.assertFalse(self.launch_record.exists())
 
 
 if __name__ == "__main__":

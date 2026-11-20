@@ -263,10 +263,12 @@ cmd_send_once() {
     profile_disk_ok "${DOT_CHROME_USER_DATA:-}" || exit 2
     local runner=()
     configure_chrome_runner
-    # xvfb-run merges stderr into stdout; retain the caller's stderr for the child.
+    if [[ -n "${runner[0]:-}" ]]; then
+      # Reopen the caller's stderr after Xvfb merges its child's streams.
+      runner+=(/bin/sh -c 'stderr=$1; shift; exec "$@" 2>>"$stderr"' dot-prepared "/proc/$$/fd/2")
+    fi
     DOT_ACCOUNT="$ACCOUNT" DOT_URL="$DOT_URL" DOT_CHROME_USER_DATA="${DOT_CHROME_USER_DATA:-}" DOT_CLEAR_DRAFT="${DOT_CLEAR_DRAFT:-}" DOT_PREPARED="1" DOT_NO_REMOTE="1" NODE_PATH="$EXTRA_NODE_PATH" \
-      ${runner[@]+"${runner[@]}"} /bin/sh -c 'exec "$@" 2>&3 3>&-' dot-prepared \
-      "$NODE" "$HERE/dot_chrome.mjs" send-prepared "$@" 3>&2
+      ${runner[@]+"${runner[@]}"} "$NODE" "$HERE/dot_chrome.mjs" send-prepared "$@"
     exit $?
   fi
   run_chrome send "$file" || rc=$?
