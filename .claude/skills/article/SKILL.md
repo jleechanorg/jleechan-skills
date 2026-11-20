@@ -1,5 +1,5 @@
 ---
-name: "article"
+name: article
 description: "Research, draft, revise, review, or stage long-form articles for LinkedIn, X, and Reddit while preserving the author's voice, evidence, and latest edits."
 ---
 
