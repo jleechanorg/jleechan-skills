@@ -63,8 +63,9 @@ request to write or save a draft.
    and the author's own experience. Preserve the comparison's units, baseline,
    timeframe, and scope; compute ratios from those values. Do not turn an author's
    estimate into a measured result or invent evidence or attribution.
-3. Choose examples that show the requested outcome at the right scale. Introduce
-   the product and explain the change for a reader with no project context. Use
+3. Choose examples that show the requested outcome at the right scale. If the
+   article covers a product, launch, or product change, introduce the product
+   and explain the relevant change for a reader with no project context. Use
    concrete user journeys, outcomes and the author's real role; do not lead with
    unexplained ticket IDs or minor fixes when the story is the whole product.
    Connect an outside idea to the author's example only after reading its source;
