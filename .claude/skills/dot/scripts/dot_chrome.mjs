@@ -131,7 +131,7 @@ function detectChromeProfile(requestedAccount) {
     : (hasProfDir ? accountConfig.profile_directory : null);
   const profileDirectory = validateProfileDirectory(profileDirectoryValue) ?? 'Default';
   profileDirectoryPath(profileDir, profileDirectory);
-  return { account: req, slug, matchedKey: null, profileDir, profileDirectory, url };
+  return { account: req, slug, matchedKey: null, profileDir, profileDirectory, url, configuredUrl: accountConfig.url };
 }
 
 function isMainModule() {
@@ -167,8 +167,10 @@ class ExistingProfileUnavailable extends Unavailable {
 }
 const existingProfileUnavailable = (code) => { throw new ExistingProfileUnavailable(code); };
 
-const [mode, arg, option, expectedAccountDigest] = process.argv.slice(2);
-const exactDestination = mode === 'send-prepared' && option === '--exact-destination';
+const [mode, arg, option, expectedAccountDigest, replyDestination, replyParent, seatId] = process.argv.slice(2);
+const dotReply = mode === 'send-prepared' && option === '--exact-dot-reply';
+const exactDestination = dotReply || (mode === 'send-prepared' && option === '--exact-destination');
+const exactUrl = dotReply ? replyDestination : URL_;
 let ctx = null;
 let clicked = false;
 let aborted = false;
@@ -391,12 +393,16 @@ async function settlePage(page, currentMode) {
   const deadline = Date.now() + 45000;
   let last = -1, stable = 0;
   while (Date.now() < deadline) {
+    if (dotReply && page.url() === URL_ && URL_ !== exactUrl) {
+      await sleep(500);
+      continue;
+    }
+    if (exactDestination && page.url() !== exactUrl) unavailable('destination changed');
     const title = await page.title().catch(() => '');
     const composers = await page.locator(COMPOSER).count().catch(() => 0);
     const bodyText = (await page.evaluate(() => document.body ? document.body.innerText : '').catch(() => ''));
 
     if (!exactDestination && await clickRetryIfSnag(page, bodyText, 2000)) continue;
-    if (exactDestination && page.url() !== URL_) unavailable('destination changed');
     if (/just a moment/i.test(title)) { await sleep(1500); continue; }
 
     if (composers >= 1) {
@@ -491,6 +497,11 @@ async function launchExistingProfileOnly(launchTimeoutMs) {
 }
 
 async function launchPrepared() {
+  if (dotReply && (
+    !/^[a-f0-9-]{36}$/.test(seatId) || URL_ !== `https://chatgpt.com/dots/${seatId}` ||
+    accountInfo.configuredUrl !== URL_ || !/^https:\/\/chatgpt\.com\/dots\/[a-f0-9-]{36}~[a-f0-9]{32}$/.test(replyDestination) ||
+    !/^[a-f0-9]{32}~[a-f0-9]{32}~CalpicoMessage~Sentinel_[a-f0-9]{32}$/.test(replyParent)
+  )) unavailable('invalid configured Dot reply binding');
   await launchExistingProfileOnly();
   const page = await ctx.newPage();
   await page.goto(URL_, { waitUntil: 'domcontentloaded', timeout: 45000 });
@@ -645,8 +656,26 @@ async function read(page, n) {
 
 async function exactDestinationReady(page) {
   const chat = /^https:\/\/chatgpt\.com\/(?:g\/g-[A-Za-z0-9-]+\/)?c\/[0-9a-f-]{36}$/;
-  return chat.test(URL_) && page.url() === URL_ &&
+  return (dotReply || chat.test(URL_)) && page.url() === exactUrl &&
     !(await page.locator('button[data-testid=stop-button], button[aria-label="Stop generating"]').first().isVisible());
+}
+
+async function hasReplyParent(panel) {
+  if (await panel.count() !== 1 || !(await panel.isVisible())) return false;
+  const first = panel.locator('.message-list article.message-row[data-message-id]').first();
+  return (await first.count()) === 1 && (await first.getAttribute('data-message-id')) === replyParent;
+}
+
+async function openDotReply(page) {
+  const panel = page.locator('.reply-chain-container[aria-label="Replies"]');
+  if (await panel.count()) return null;
+  const action = { name: 'Reply', exact: true };
+  const reply = page.locator(`article.message-row[data-message-id="${replyParent}"]`)
+    .filter({ has: page.getByRole('button', action) }).last().getByRole('button', action);
+  if (await reply.count() !== 1) return null;
+  await reply.click();
+  await panel.waitFor({ state: 'visible', timeout: 5000 });
+  return await hasReplyParent(panel) ? panel : null;
 }
 
 async function send(page, file, dry, opts = {}) {
@@ -654,24 +683,34 @@ async function send(page, file, dry, opts = {}) {
     reportPrecommitNoSend('destination_unverified_or_busy', file);
     return;
   }
+  const scope = dotReply ? await openDotReply(page) : page;
+  const composerSelector = dotReply ? '.reply-chain-composer [contenteditable=true][aria-label="Message"]' : COMPOSER;
+  if (!scope || (dotReply && await scope.locator(composerSelector).count() !== 1)) {
+    reportPrecommitNoSend('reply_parent_unverified', file);
+    return;
+  }
+  const replyBound = async () => page.url() === exactUrl && await hasReplyParent(scope);
+  const stillReady = async () => await exactDestinationReady(page) && (!dotReply || await replyBound());
   const msg = fs.readFileSync(file, 'utf8').trim();
   let preparedDraft = null;
-  const readComposer = () => page.locator(COMPOSER).first().innerText().catch(() => '');
+  const readComposer = () => scope.locator(composerSelector).first().innerText().catch(() => '');
   const clear = async () => {
-    await page.locator(COMPOSER).first().focus();
+    await scope.locator(composerSelector).first().focus();
     await page.keyboard.press(isMac ? 'Meta+A' : 'Control+A');
     await page.keyboard.press('Backspace');
     await sleep(800);
   };
   const clearPreparedDraft = async () => {
     try {
-      if (preparedDraft !== null && (await readComposer()) === preparedDraft) await clear();
+      if (preparedDraft !== null && (!dotReply || await replyBound()) && (await readComposer()) === preparedDraft) await clear();
     } catch {}
   };
-  const getUserMessages = () => page.locator('[data-message-author-role=user], article.self, article[class*="self"]')
-    .allInnerTexts()
-    .then(arr => arr.map(norm))
-    .catch(() => []);
+  const userMessageSelector = dotReply ? '.message-list article.self .message-text'
+    : '[data-message-author-role=user], article.self, article[class*="self"]';
+  const getUserMessages = () => {
+    const messages = scope.locator(userMessageSelector).allInnerTexts().then(arr => arr.map(norm));
+    return dotReply ? messages : messages.catch(() => []);
+  };
 
   const alertText = await page.evaluate(() => {
     const alerts = Array.from(document.querySelectorAll('[role="alert"], [data-testid*="alert"], div[class*="banner"], div[class*="error"]'));
@@ -699,7 +738,8 @@ async function send(page, file, dry, opts = {}) {
       (sComp.includes(sMsg) && sMsg.length >= sComp.length * 0.95);
   };
 
-  await page.click(COMPOSER);
+  if (dotReply) await scope.locator(composerSelector).click();
+  else await page.click(COMPOSER);
   await sleep(1500);
   let composer = (await readComposer()).trim();
 
@@ -721,6 +761,11 @@ async function send(page, file, dry, opts = {}) {
   }
   if (composer !== '') { console.log('DOT_DRAFT_PRESENT: ' + composer.slice(0, 300)); return; }
 
+  const beforeReplies = dotReply ? await getUserMessages() : null;
+  if (dotReply && !(await stillReady())) {
+    reportPrecommitNoSend('reply_parent_changed', file);
+    return;
+  }
   await page.keyboard.insertText(msg);
   await sleep(800);
   const typed = await readComposer();
@@ -738,7 +783,7 @@ async function send(page, file, dry, opts = {}) {
   }
 
   const countMatches = (msgs, needle) => msgs.filter(m => matchesMessage(m, needle)).length;
-  const beforeMsgs = await getUserMessages();
+  const beforeMsgs = beforeReplies ?? await getUserMessages();
   const beforeCount = countMatches(beforeMsgs, norm(msg));
 
   if (opts.prepared) {
@@ -761,7 +806,7 @@ async function send(page, file, dry, opts = {}) {
     }
     commitReceived = true;
     if ((await readComposer()) !== preparedDraft ||
-        (exactDestination && !(await exactDestinationReady(page)))) {
+        (exactDestination && !(await stillReady()))) {
       aborted = true;
       await clearPreparedDraft();
       process.stdout.write(`aborted ${nonce}\n`);
@@ -771,13 +816,20 @@ async function send(page, file, dry, opts = {}) {
   }
 
   if (aborted) return;
-  clicked = true;
-  await page.click('button[data-testid=send-button], button[aria-label*=Send]');
+  if (dotReply) {
+    const button = scope.locator('.reply-chain-composer').getByRole('button', { name: 'Send', exact: true });
+    if (await button.count() !== 1 || !(await button.isEnabled()) || !(await stillReady())) return;
+    clicked = true;
+    await button.click();
+  } else {
+    clicked = true;
+    await page.click('button[data-testid=send-button], button[aria-label*=Send]');
+  }
   await sleep(4000);
   const left = (await readComposer()).trim();
   const afterMsgs = await getUserMessages();
   const afterCount = countMatches(afterMsgs, norm(msg));
-  const sentVerified = left === '' && afterCount > beforeCount;
+  const sentVerified = left === '' && afterCount > beforeCount && (!dotReply || await replyBound());
   console.log(sentVerified ? 'DOT_SENT_VERIFIED' : 'DOT_SEND_UNVERIFIED composer_left=' + left.length);
 }
 

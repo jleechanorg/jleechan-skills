@@ -142,3 +142,15 @@ def test_cmux_native_input_empty_attests_exact_owner_and_rejects_draft():
                 dict(empty, surface_id="changed"), dict(empty, blocks_typing=True)):
         with patch.object(router, "_checked", return_value=json.dumps(row)):
             assert not router._input_is("cmux", workspace, surface, "empty")
+
+
+
+def test_dot_reply_binding_requires_resolved_conversation_and_parent():
+    owner = dict(cli="dot", session=SESSION, account="fixture", identity_sha256="1" * 64)
+    feed = f"https://chatgpt.com/dots/{SESSION}"
+    owner["destination"] = f"{feed}~" + "a" * 32
+    assert router.route(owner, PROMPT, apply=False) == "blocked_dot_binding"
+    owner["parent_message_id"] = "~".join(("b" * 32, "b" * 32, "CalpicoMessage", "Sentinel_" + "c" * 32))
+    assert router.route(owner, PROMPT, apply=False) == "would_deliver"
+    owner["destination"] = feed
+    assert router.route(owner, PROMPT, apply=False) == "blocked_dot_binding"

@@ -345,11 +345,20 @@ def _dot(owner, prompt, apply):
     destination = owner.get("destination", "")
     account = owner.get("account", "")
     identity = owner.get("identity_sha256", "")
-    if not re.fullmatch(r"[a-f0-9]{64}", identity) or not re.fullmatch(
-        r"[A-Za-z0-9_.@-]+", account
-    ) or not re.fullmatch(
-        rf"https://chatgpt\.com/(?:g/g-[A-Za-z0-9-]+/)?c/{owner['session']}", destination
-    ):
+    parent = owner.get("parent_message_id")
+    if not re.fullmatch(r"[a-f0-9]{64}", identity) or not re.fullmatch(r"[A-Za-z0-9_.@-]+", account):
+        return "blocked_dot_binding"
+    if parent is None:
+        bound = re.fullmatch(
+            rf"https://chatgpt\.com/(?:g/g-[A-Za-z0-9-]+/)?c/{owner['session']}", destination
+        )
+    else:
+        bound = isinstance(parent, str) and re.fullmatch(
+            r"[a-f0-9]{32}~[a-f0-9]{32}~CalpicoMessage~Sentinel_[a-f0-9]{32}", parent
+        ) and re.fullmatch(
+            r"https://chatgpt\.com/dots/[a-f0-9-]{36}~[a-f0-9]{32}", destination
+        )
+    if not bound:
         return "blocked_dot_binding"
     helper = Path(__file__).resolve().parents[1] / ".claude/skills/dot/scripts/dot.sh"
     if not helper.is_file():
@@ -362,12 +371,17 @@ def _dot(owner, prompt, apply):
         with tempfile.NamedTemporaryFile(mode="w") as draft:
             draft.write(prompt)
             draft.flush()
+            command = ["bash", str(helper), "--account", account]
+            if parent is None:
+                command += ["--url", destination, "send-prepared", draft.name,
+                            "--exact-destination", identity]
+            else:
+                command += ["send-prepared", draft.name, "--exact-dot-reply",
+                            identity, destination, parent, owner["session"]]
             child = subprocess.Popen(
-                ["bash", str(helper), "--account", account, "--url", destination,
-                 "send-prepared", draft.name, "--exact-destination", identity],
-                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                 env={key: value for key, value in os.environ.items() if key not in
-                     {"DOT_CHROME_USER_DATA", "DOT_PROFILE_DIRECTORY", "DOT_DRY_RUN"}},
+                     {"DOT_CHROME_USER_DATA", "DOT_PROFILE_DIRECTORY", "DOT_DRY_RUN", "DOT_URL"}},
             )
             try:
                 if not select.select([child.stdout], [], [], 120)[0]:

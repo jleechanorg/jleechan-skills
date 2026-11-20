@@ -255,7 +255,7 @@ cmd_send_once() {
     fi
     profile_disk_ok "${DOT_CHROME_USER_DATA:-}" || exit 2
     DOT_ACCOUNT="$ACCOUNT" DOT_URL="$DOT_URL" DOT_CHROME_USER_DATA="${DOT_CHROME_USER_DATA:-}" DOT_CLEAR_DRAFT="${DOT_CLEAR_DRAFT:-}" DOT_PREPARED="1" DOT_NO_REMOTE="1" NODE_PATH="$EXTRA_NODE_PATH" \
-      "$NODE" "$HERE/dot_chrome.mjs" send-prepared "$file" "${2:-}" "${3:-}"
+      "$NODE" "$HERE/dot_chrome.mjs" send-prepared "$@"
     exit $?
   fi
   run_chrome send "$file" || rc=$?

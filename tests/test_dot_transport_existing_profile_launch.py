@@ -131,8 +131,59 @@ exports.chromium = {
         script = r'''const fs = require("node:fs");
 const statePath = __STATE_PATH__;
 const externalComposerPath = __EXTERNAL_COMPOSER_PATH__;
-const state = {composer: __INITIAL_COMPOSER__, clicked: false, userMessages: []};
+const state = {composer: __INITIAL_COMPOSER__, clicked: false, userMessages: [], replyClicked: false, replyOpened: false};
+const replyParent = process.env.DOT_TEST_REPLY_PARENT;
+let parentReads = 0;
+const replyPanel = {
+  async count() { return Number(state.replyOpened); },
+  async isVisible() { return state.replyOpened; },
+  async waitFor() { if (!state.replyOpened) throw Error("Reply panel never opened"); },
+  locator(selector) {
+    if (selector === ".message-list article.message-row[data-message-id]") return {
+      first() { return this; },
+      async count() { return 1; },
+      async getAttribute() {
+        parentReads++;
+        if ((process.env.DOT_TEST_REPLY_CHANGED === "commit" && parentReads > 2) ||
+            (process.env.DOT_TEST_REPLY_CHANGED === "receipt" && state.replyClicked)) return "other-parent";
+        return replyParent;
+      },
+    };
+    if (selector === ".message-list article.self .message-text") return {
+      async allInnerTexts() { return state.userMessages; },
+    };
+    if (selector.startsWith(".reply-chain-composer [contenteditable=true]")) {
+      return locator("fixture scoped composer");
+    }
+    if (selector === ".reply-chain-composer") return {
+      getByRole(role, options) {
+        if (role !== "button" || options.name !== "Send" || !options.exact) throw Error("Unexpected reply control");
+        return {
+          async count() { return 1; },
+          async isEnabled() { return true; },
+          async click() {
+            state.replyClicked = true;
+            state.userMessages.push(state.composer);
+            state.composer = "";
+          },
+        };
+      },
+    };
+    throw Error("Unscoped reply read: " + selector);
+  },
+};
 function locator(selector) {
+  if (selector === '.reply-chain-container[aria-label="Replies"]') return replyPanel;
+  if (selector.startsWith('article.message-row[data-message-id=')) return {
+    filter() { return this; },
+    last() { return this; },
+    getByRole() {
+      return {
+        async count() { return Number(selector === `article.message-row[data-message-id="${replyParent}"]`); },
+        async click() { state.replyOpened = true; },
+      };
+    },
+  };
   if (selector.includes("data-message-author-role=user")) {
     return {async allInnerTexts() { return state.userMessages; }};
   }
@@ -153,6 +204,7 @@ const page = {
   url() { return process.env.DOT_TEST_RESOLVED_URL || process.env.DOT_URL; },
   async title() { return "ChatGPT"; },
   locator,
+  getByRole() { return {}; },
   async evaluate(fn) {
     if (fn.toString().includes("/api/auth/session")) {
       return {status: 200, hasUser: true, isJson: true, email: "fixture@example.invalid"};
@@ -196,7 +248,7 @@ exports.chromium = {
                               initial_composer="", usage_limit=False,
                               mismatched_composer=False, missing_profile=False,
                               hang_launch=False, hang_after_commit=False,
-                              send_advance_ms=120000, exact=None):
+                              send_advance_ms=120000, exact=None, reply=None):
         state_path = self._install_fake_send_playwright(initial_composer)
         module = self.root / "node_modules" / "playwright" / "index.js"
         source = module.read_text()
@@ -251,6 +303,15 @@ process.stdout.write = (chunk, ...args) => {
             email = exact.pop("expected_email", "fixture@example.invalid")
             command.extend(("--exact-destination", hashlib.sha256(email.encode()).hexdigest()))
             env.update(exact)
+        if reply is not None:
+            seat, target, parent, observations = reply
+            config = json.loads(self.config.read_text())
+            config["accounts"]["fixture"]["url"] = f"https://chatgpt.com/dots/{seat}"
+            self.config.write_text(json.dumps(config))
+            command.extend(("--exact-dot-reply", hashlib.sha256(b"fixture@example.invalid").hexdigest(),
+                            target, parent, seat))
+            env.update(DOT_TEST_RESOLVED_URL=target, DOT_TEST_REPLY_PARENT=parent)
+            env.update(observations)
         with subprocess.Popen(command, env=env,
                               stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                               stderr=subprocess.PIPE, text=True) as child:
@@ -275,6 +336,25 @@ process.stdout.write = (chunk, ...args) => {
                 self.assertEqual(state["clicked"], clicked)
                 self.assertEqual("prepared-exact " in result.stdout, clicked)
                 self.assertEqual("DOT_SENT_VERIFIED" in result.stdout, clicked)
+
+    def test_dot_reply_delivery_is_bound_to_the_parent_panel(self):
+        seat = "00000000-0000-4000-8000-000000000001"
+        target = "https://chatgpt.com/dots/00000000-0000-4000-8000-000000000002~" + "1" * 32
+        parent = "~".join(("2" * 32, "2" * 32, "CalpicoMessage", "Sentinel_" + "3" * 32))
+        cases = [
+            ({}, True, True, True),
+            ({"DOT_TEST_REPLY_CHANGED": "commit"}, True, False, False),
+            ({"DOT_TEST_REPLY_CHANGED": "receipt"}, True, True, False),
+            ({"DOT_TEST_RESOLVED_URL": "https://chatgpt.com/"}, False, False, False),
+            ({"DOT_TEST_REPLY_PARENT": "absent-parent"}, False, False, False),
+        ]
+        for observations, opened, sent, verified in cases:
+            with self.subTest(observations=observations):
+                result, state = self._run_clocked_prepared(reply=(seat, target, parent, observations))
+                self.assertFalse(state["clicked"], "the feed composer must never submit")
+                self.assertEqual(state["replyOpened"], opened)
+                self.assertEqual(state["replyClicked"], sent)
+                self.assertEqual("DOT_SENT_VERIFIED" in result.stdout, verified)
 
     def test_prepared_callback_can_outlast_launch_deadline(self):
         proc, state = self._run_clocked_prepared()
