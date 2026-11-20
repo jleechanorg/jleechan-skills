@@ -121,7 +121,7 @@ exports.chromium = {
             check=False,
         )
 
-    def _install_fake_send_playwright(self, initial_composer=""):
+    def _install_fake_send_playwright(self, initial_composer="", *, usage_limit=False):
         state_path = self.root / "prepared-send-state.json"
         external_composer_path = self.root / "external-composer.txt"
         state_path.unlink(missing_ok=True)
@@ -249,7 +249,7 @@ const page = {
     }
     if (fn.toString().includes("usage limit")) {
       if (changeAt === "before_focus") state.routeChanged = true;
-      return "";
+      return __USAGE_LIMIT_ALERT__;
     }
     return "Fixture conversation";
   },
@@ -287,6 +287,8 @@ exports.chromium = {
             "__EXTERNAL_COMPOSER_PATH__", json.dumps(str(external_composer_path))
         )
         script = script.replace("__INITIAL_COMPOSER__", json.dumps(initial_composer))
+        alert = "synthetic usage limit" if usage_limit else ""
+        script = script.replace("__USAGE_LIMIT_ALERT__", json.dumps(alert))
         (modules / "index.js").write_text(script, encoding="utf-8")
         return state_path
 
@@ -295,11 +297,9 @@ exports.chromium = {
                               mismatched_composer=False, missing_profile=False,
                               hang_launch=False, hang_after_commit=False,
                               send_advance_ms=120000, exact=None, reply=None, copy_only=False):
-        state_path = self._install_fake_send_playwright(initial_composer)
+        state_path = self._install_fake_send_playwright(initial_composer, usage_limit=usage_limit)
         module = self.root / "node_modules" / "playwright" / "index.js"
         source = module.read_text()
-        if usage_limit:
-            source = source.replace('includes("usage limit")) return ""', 'includes("usage limit")) return "synthetic usage limit"')
         if mismatched_composer:
             source = source.replace('state.composer += text', 'state.composer += "different fixture"')
         if hang_launch:
