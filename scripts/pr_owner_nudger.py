@@ -49,18 +49,31 @@ def pr_status(pr):
     if pr["state"] != "open":
         return "closed"
     records = re.findall(
-        r"(?ms)^## (?:PR Stage|Execution Record)[ \t]*\n(.*?)(?=^## |\Z)",
+        r"(?ms)^## (PR Stage|Execution Record)[ \t]*\n(.*?)(?=^## |\Z)",
         pr.get("body") or "",
     )
     if len(records) != 1:
         return "actionable"
+    section, record = records[0]
     fields = defaultdict(list)
-    for key, value in re.findall(r"(?m)^([a-z_]+):[ \t]*(\S[^\n]*)$", records[0]):
+    for key, value in re.findall(r"(?m)^([a-z_]+):[ \t]*(\S[^\n]*)$", record):
         fields[key].append(value.strip())
     missing = {"n/a", "none", "-", "unknown"}
-    if (fields["candidate"] != [pr["head"]["sha"]] or len(fields["owner"]) != 1
-            or fields["owner"][0].lower() in missing
-            or any(action.lower() not in missing for action in fields["next_action"])):
+    if any(action.lower() not in missing for action in fields["next_action"]):
+        return "actionable"
+    head = pr["head"]["sha"]
+    if (section == "PR Stage" and pr["title"].lower().startswith("[ready]")
+            and any(label["name"] == "stage:5-final-approval" for label in pr["labels"])
+            and fields["candidate"] in ([], [head]) and fields["status"] in ([], ["FINAL_READY"])
+            and all(blocker.lower() in missing for blocker in fields["blocker"])):
+        published = re.findall(
+            r"(?m)^Stage 5 (?:— |\(final approval\): )(?:FINAL_READY|\*\*FINAL_READY\*\*) "
+            r"at `([0-9a-f]{40})`(?:[.,]|$)", record
+        )
+        if published == [head]:
+            return "final_ready"
+    if (fields["candidate"] != [head] or len(fields["owner"]) != 1
+            or fields["owner"][0].lower() in missing):
         return "actionable"
     if fields["status"] == ["FINAL_READY"]:
         return "final_ready"

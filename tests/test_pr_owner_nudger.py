@@ -99,6 +99,10 @@ class DispatcherTest(unittest.TestCase):
         next_action = "next_action: read missing closing receipts"
         human_wait = "status: WAITING_HUMAN\nblocker: merge approval\nwake_condition: operator approves"
         ready = body + "status: FINAL_READY"
+        published = "## PR Stage\n\nStage 5 (final approval): **FINAL_READY** at "
+        published += f"`{self.sha}`. Closing checks passed. Merge authorization: not authorized."
+        published_plain = f"## PR Stage\n\nStage 5 — FINAL_READY at `{self.sha}`, base `{'1' * 40}`."
+        ready_title = "[ready][needs MERGE APPROVED] Example"
         scenarios = [
             ("[fa] Closing", [stage], body + next_action, "busy"),
             ("[ready] Closing", [stage], body + next_action, "busy"),
@@ -107,13 +111,17 @@ class DispatcherTest(unittest.TestCase):
             ("[blocked] Waiting", [stage, hold], body + human_wait, "awaiting_final_approval"),
             ("[fa] Closing", [stage], ready, "final_ready"),
             ("[ready] Example", [stage], ready.replace(self.sha, "0" * 40), "busy"),
+            (ready_title, [stage], published, "final_ready"),
+            (ready_title, [stage], published_plain, "final_ready"),
+            (ready_title, [stage], published.replace(self.sha, "0" * 40), "busy"),
+            (ready_title, [stage], published + "\n" + next_action, "busy"),
         ]
         with patch.object(nudger, "route", return_value="busy") as route:
             for title, labels, record, expected in scenarios:
                 with self.subTest(title=title, expected=expected):
                     self.pr.update(title=title, labels=labels, body=record)
                     self.assertEqual(self.status(), expected)
-        self.assertEqual(route.call_count, 5)
+        self.assertEqual(route.call_count, 7)
 
     def test_rechecks_exact_pr_immediately_before_dispatch(self):
         def drift(owner, _prompt, _apply):
