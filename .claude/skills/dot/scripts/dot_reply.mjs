@@ -11,16 +11,6 @@ export function isSettlingUrl(url, launchUrl) {
   return url === launchUrl || url === 'https://chatgpt.com/dots/home';
 }
 
-export function sendButton(panel) {
-  return panel.locator('.reply-chain-composer').getByRole('button', { name: 'Send', exact: true });
-}
-
-export async function hasReplyParent(panel, parent) {
-  if (await panel.count() !== 1 || !(await panel.isVisible())) return false;
-  const first = panel.locator('.message-list article.message-row[data-message-id]').first();
-  return (await first.count()) === 1 && (await first.getAttribute('data-message-id')) === parent;
-}
-
 async function loadReplyParent(feed, reply, roomReady, destination, sleep) {
   const rows = feed.locator('article.message-row[data-message-id]');
   for (let batch = 0; batch < 5; batch++) {
@@ -46,18 +36,65 @@ async function loadReplyParent(feed, reply, roomReady, destination, sleep) {
   return false;
 }
 
-export async function openDotReply(page, { parent, destination, destinationReady, sleep }) {
+export async function openDotReply(page, { parent, destination, sleep }) {
   const panel = page.locator('.reply-chain-container[aria-label="Replies"]');
   if (await panel.count()) return null;
   const feed = page.locator('.messages-scroll:visible');
   await feed.waitFor({ state: 'visible', timeout: 5000 });
-  const roomReady = async () => await destinationReady() &&
-    (await panel.count()) === 0 && (await feed.count()) === 1;
+  const stop = page.locator('button[data-testid=stop-button], button[aria-label="Stop generating"]').first();
+  const roomReady = async () => page.url() === destination && !(await stop.isVisible()) &&
+    (await panel.count()) === 0 && (await feed.count()) === 1 && page.url() === destination;
   const action = { name: 'Reply', exact: true };
   const reply = feed.locator(`article.message-row[data-message-id="${parent}"]`)
     .filter({ has: page.getByRole('button', action) }).last().getByRole('button', action);
   if (!(await loadReplyParent(feed, reply, roomReady, destination, sleep)) || !(await roomReady())) return null;
   await reply.click();
   await panel.waitFor({ state: 'visible', timeout: 5000 });
-  return await hasReplyParent(panel, parent) ? panel : null;
+  return panel;
+}
+
+export function exactAction(page, binding) {
+  return page.evaluate(({ destination, parent, composerSelector, userMessageSelector, action, draft, message, deadline }) => {
+    if (location.origin !== 'https://chatgpt.com' || location.href !== destination) return false;
+    const one = (root, selector) => {
+      const elements = root.querySelectorAll(selector);
+      return elements.length === 1 ? elements[0] : null;
+    };
+    const visible = element => element?.getClientRects().length && getComputedStyle(element).visibility === 'visible';
+    const scope = parent ? one(document, '.reply-chain-container[aria-label="Replies"]') : document;
+    if (!scope || (parent && (!visible(scope) ||
+        scope.querySelector('.message-list article.message-row[data-message-id]')?.dataset.messageId !== parent))) return false;
+    const composer = one(scope, composerSelector);
+    if (!composer?.isContentEditable || !visible(composer)) return false;
+    const normalized = text => text.replace(/\s+/g, ' ').trim();
+    const count = () => [...scope.querySelectorAll(userMessageSelector)]
+      .filter(row => normalized(row.innerText) === normalized(message)).length;
+    if (action === 'observe') return { draft: composer.innerText, count: count() };
+    if (Date.now() >= deadline) return false;
+    const stop = 'button[data-testid=stop-button], button[aria-label="Stop generating"]';
+    if ([...document.querySelectorAll(stop)].some(visible)) return false;
+    if (action === 'focus') {
+      composer.focus();
+      return composer.contains(document.activeElement);
+    }
+    if (action === 'fill') return !composer.innerText.trim() && composer.contains(document.activeElement) &&
+      document.execCommand('insertText', false, message);
+    if (composer.innerText !== draft) return false;
+    if (action === 'clear') {
+      if (!composer.contains(document.activeElement)) return false;
+      const range = document.createRange();
+      range.selectNodeContents(composer);
+      window.getSelection().removeAllRanges();
+      window.getSelection().addRange(range);
+      return location.href === destination && composer.contains(document.activeElement) && document.execCommand('delete');
+    }
+    const sendSelector = parent ? '.reply-chain-composer button[aria-label="Send"]'
+      : 'button[data-testid=send-button], button[aria-label="Send"]';
+    const button = one(scope, sendSelector);
+    if (action !== 'submit' || !visible(button) || button.matches(':disabled,[aria-disabled="true"]') ||
+        getComputedStyle(button).pointerEvents === 'none') return false;
+    const before = count();
+    button.click();
+    return { count: before };
+  }, binding);
 }

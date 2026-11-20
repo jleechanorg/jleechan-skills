@@ -154,3 +154,26 @@ def test_dot_reply_binding_requires_resolved_conversation_and_parent():
     assert router.route(owner, PROMPT, apply=False) == "would_deliver"
     owner["destination"] = feed
     assert router.route(owner, PROMPT, apply=False) == "blocked_dot_binding"
+
+
+
+def test_dot_requires_nonce_bound_zero_exit_to_prove_no_delivery():
+    owner = dict(cli="dot", session=SESSION, account="fixture", identity_sha256="1" * 64,
+                 destination=f"https://chatgpt.com/c/{SESSION}")
+    nonce = b"a" * 32
+    for receipt, returncode, status in [
+        (b"aborted " + nonce, 0, "no_delivery"),
+        (b"aborted " + b"b" * 32, 0, "attempted_delivery"),
+        (b"aborted " + nonce, 10, "attempted_delivery"),
+        (b"aborted " + nonce + b"\nDOT_SEND_UNVERIFIED", 0, "attempted_delivery"),
+        (b"DOT_SEND_UNVERIFIED", 10, "attempted_delivery"),
+        (b"DOT_SENT_VERIFIED", 0, "delivered"),
+    ]:
+        child = Mock(returncode=returncode)
+        child.poll.return_value = returncode
+        child.communicate.return_value = (receipt, b"")
+        with patch.object(router.subprocess, "Popen", return_value=child), \
+             patch.object(router.select, "select", return_value=([child.stdout], [], [])), \
+             patch.object(router.os, "read", return_value=b"prepared-exact " + nonce + b"\n"):
+            assert router.route(owner, PROMPT, apply=True) == status
+        child.communicate.assert_called_once_with(b"commit " + nonce + b"\n", timeout=18)

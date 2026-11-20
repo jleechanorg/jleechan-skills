@@ -395,7 +395,10 @@ def _dot(owner, prompt, apply):
                     child.communicate(timeout=12)
                     return "attempted_delivery"
                 receipt, _ = child.communicate(b"commit " + nonce[1] + b"\n", timeout=18)
-                return "delivered" if b"DOT_SENT_VERIFIED" in receipt.splitlines() else "attempted_delivery"
+                frames = receipt.splitlines()
+                if child.returncode == 0 and frames == [b"aborted " + nonce[1]]:
+                    return "no_delivery"
+                return "delivered" if b"DOT_SENT_VERIFIED" in frames else "attempted_delivery"
             finally:
                 if child.poll() is None:
                     child.terminate()

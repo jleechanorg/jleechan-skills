@@ -16,7 +16,7 @@ python3 scripts/pr_owner_nudger.py --config "$config"
 
 Use `worktree_roots` for discovery and `"headless_only": true` on an explicit owner that runs without cmux. Explicit Codex owners default to exact-session resume after the cmux safety check. Set `"headless_resume": false` in the config or owner to disable fallback.
 
-For a Dot owner, set `cli` to `dot`, select its `account`, and set `identity_sha256` to the lowercase SHA-256 of its exact authenticated email. See the Dot skill for browser prerequisites. Bind the owner to one of these destinations.
+For a Dot owner, set `cli` to `dot`, select its `account`, and set `identity_sha256` to the lowercase SHA-256 of its exact authenticated email. See the Dot skill for browser prerequisites. Both exact transports use the archived `dot_reply.mjs` companion. Bind the owner to one of these destinations.
 
 - For a private ChatGPT conversation, set `session` to its canonical lowercase UUID and `destination` to its exact `https://chatgpt.com/c/<session>` or `https://chatgpt.com/g/g-<gpt-id>/c/<session>` URL.
 - For a Dot reply, set `session` to the account's configured seat UUID from `https://chatgpt.com/dots/<session>`. Set `destination` to the verified resolved `https://chatgpt.com/dots/<uuid>~<thread-token>` URL and `parent_message_id` to the observed parent article's complete `data-message-id`. The timer starts from the configured seat URL and only submits in the bound parent’s Replies panel.

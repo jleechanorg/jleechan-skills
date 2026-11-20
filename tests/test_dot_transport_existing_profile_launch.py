@@ -231,6 +231,69 @@ function locator(selector) {
     async click() {},
   };
 }
+let activeEditor;
+function runExactFixture(fn, binding) {
+  const { action, parent } = binding;
+  if (action === "fill" && changeAt === "late_fill") state.composer = "Other draft";
+  if (action === "clear" && changeAt === "cleanup_focus") activeEditor = {};
+  if (action === "submit") {
+    if (changeAt === "commit_ready") state.routeChanged = true;
+    if (changeAt === "late_submit") state.composer = "Other draft";
+    if (process.env.DOT_TEST_REPLY_CHANGED === "timeout") globalThis.advanceClock(120000);
+  }
+  const visible = () => [{}];
+  const editor = {
+    isContentEditable: true, get innerText() { return state.composer; },
+    getClientRects: visible, contains(node) { return node === "composer"; },
+    focus() {
+      activeEditor = "composer";
+      if (parent) state.replyFocused = true;
+      else state.focusClicks++;
+      if (changeAt === "after_focus") state.routeChanged = true;
+    },
+  };
+  const send = {getClientRects: visible, matches() { return false; }, click() {
+    if (parent) state.replyClicked = true;
+    else state.clicked = true;
+    state.userMessages.push(state.composer);
+    state.composer = "";
+    if (changeAt === "submit_error") throw Error("execution context lost after click");
+  }};
+  const lists = selector => {
+    if (selector === binding.composerSelector) return [editor];
+    if (selector === binding.userMessageSelector) return state.userMessages.map(text => ({innerText: text}));
+    if (selector.includes("stop-button")) return process.env.DOT_TEST_BUSY ? [{getClientRects: visible}] : [];
+    if (selector.includes('aria-label="Send"')) return [send];
+    throw Error("Unexpected exact selector " + selector);
+  };
+  const panel = {getClientRects: visible, querySelectorAll: lists, querySelector() {
+    const changed = process.env.DOT_TEST_REPLY_CHANGED;
+    const moved = (changed === "focus" && state.replyFocused) ||
+      (changed === "commit" && globalThis.fixturePrepared) || (changed === "receipt" && state.replyClicked);
+    return {dataset: {messageId: moved ? "other-parent" : replyParent}};
+  }};
+  globalThis.getComputedStyle = element => ({
+    visibility: element === send && changeAt === "hidden_submit" ? "hidden" : "visible",
+    pointerEvents: "auto",
+  });
+  globalThis.location = { origin: "https://chatgpt.com", get href() {
+    return action === "observe" && state.clicked && changeAt === "receipt_transient"
+      ? "https://chatgpt.com/c/00000000-0000-4000-8000-000000000002" : page.url();
+  }};
+  globalThis.window = {getSelection: () => ({removeAllRanges() {}, addRange() {
+    if (changeAt === "cleanup_selection") state.routeChanged = true;
+  }})};
+  globalThis.document = {
+    get activeElement() { return activeEditor; },
+    createRange() { return {selectNodeContents() {}}; },
+    execCommand(op, _, value) { state.composer = op === "insertText" ? value : ""; return true; },
+    querySelectorAll(selector) {
+      return selector.includes("reply-chain-container") ? [panel] : lists(selector);
+    },
+  };
+  try { return fn(binding); }
+  finally { delete globalThis.document; delete globalThis.location; delete globalThis.window; delete globalThis.getComputedStyle; }
+}
 const page = {
   async goto() {},
   url() {
@@ -243,7 +306,8 @@ const page = {
   async title() { return "ChatGPT"; },
   locator,
   getByRole() { return {}; },
-  async evaluate(fn) {
+  async evaluate(fn, binding) {
+    if (binding?.action) return runExactFixture(fn, binding);
     if (fn.toString().includes("/api/auth/session")) {
       return {status: 200, hasUser: true, isJson: true, email: "fixture@example.invalid"};
     }
@@ -414,6 +478,9 @@ process.stdout.write = (chunk, ...args) => {
         cases = [
             ("before_focus", "commit", 0, ""),
             ("after_focus", "commit", 1, ""),
+            ("late_fill", "commit", 1, "Other draft"),
+            ("late_submit", "commit", 1, "Other draft"),
+            ("hidden_submit", "commit", 1, "Synthetic proof"),
             ("cleanup_focus", "abort", 1, "Synthetic proof"),
             ("cleanup_selection", "abort", 1, "Synthetic proof"),
             ("commit_ready", "commit", 1, "Synthetic proof"),
@@ -427,13 +494,28 @@ process.stdout.write = (chunk, ...args) => {
                 self.assertFalse(state["clicked"])
                 self.assertEqual(state["composer"], draft)
                 self.assertNotIn("DOT_SENT_VERIFIED", result.stdout)
+                if phase in {"late_submit", "hidden_submit"}:
+                    self.assertIn("aborted ", result.stdout)
 
-    def test_private_chat_prepared_send_supports_a_standalone_entrypoint(self):
+    def test_private_chat_disconnect_after_click_remains_unverified(self):
         url = "https://chatgpt.com/c/00000000-0000-4000-8000-000000000001"
-        result, state = self._run_clocked_prepared(exact={"DOT_URL": url}, copy_only=True)
+        result, state = self._run_clocked_prepared(exact={"DOT_URL": url, "DOT_TEST_CHANGE_AT": "submit_error"})
+        self.assertTrue(state["clicked"])
+        self.assertIn("DOT_SEND_UNVERIFIED", result.stdout)
+        self.assertNotIn("aborted ", result.stdout)
+
+    def test_legacy_prepared_send_supports_a_standalone_entrypoint(self):
+        result, state = self._run_clocked_prepared(copy_only=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(state["clicked"])
         self.assertIn("DOT_SENT_VERIFIED", result.stdout)
+
+    def test_private_chat_receipt_cannot_use_an_intermediate_conversation(self):
+        url = "https://chatgpt.com/c/00000000-0000-4000-8000-000000000001"
+        result, state = self._run_clocked_prepared(exact={"DOT_URL": url, "DOT_TEST_CHANGE_AT": "receipt_transient"})
+        self.assertTrue(state["clicked"])
+        self.assertEqual(state["userMessages"], ["Synthetic proof"])
+        self.assertNotIn("DOT_SENT_VERIFIED", result.stdout)
 
     def test_dot_reply_delivery_is_bound_to_the_parent_panel(self):
         seat = "00000000-0000-4000-8000-000000000001"
@@ -446,6 +528,10 @@ process.stdout.write = (chunk, ...args) => {
             ({"DOT_TEST_HISTORY": "end"}, False, False, False),
             ({"DOT_TEST_REPLY_CHANGED": "focus"}, True, False, False),
             ({"DOT_TEST_REPLY_CHANGED": "commit"}, True, False, False),
+            ({"DOT_TEST_CHANGE_AT": "late_submit"}, True, False, False),
+            ({"DOT_TEST_CHANGE_AT": "hidden_submit"}, True, False, False),
+            ({"DOT_TEST_CHANGE_AT": "submit_error"}, True, True, False),
+            ({"DOT_TEST_CHANGE_AT": "late_fill"}, True, False, False),
             ({"DOT_TEST_REPLY_CHANGED": "timeout"}, True, False, False),
             ({"DOT_TEST_REPLY_CHANGED": "receipt"}, True, True, False),
             ({"DOT_TEST_RESOLVED_URL": "https://chatgpt.com/"}, False, False, False),
@@ -457,6 +543,13 @@ process.stdout.write = (chunk, ...args) => {
                 self.assertFalse(state["clicked"], "the feed composer must never submit")
                 self.assertEqual(state["replyOpened"], opened)
                 self.assertEqual(state["replyClicked"], sent)
+                if observations.get("DOT_TEST_CHANGE_AT") in {"late_submit", "hidden_submit"}:
+                    self.assertIn("aborted ", result.stdout)
+                if observations.get("DOT_TEST_CHANGE_AT") == "submit_error":
+                    self.assertIn("DOT_SEND_UNVERIFIED", result.stdout)
+                    self.assertNotIn("aborted ", result.stdout)
+                if observations.get("DOT_TEST_CHANGE_AT") in {"late_fill", "late_submit"}:
+                    self.assertEqual(state["composer"], "Other draft")
                 if observations.get("DOT_TEST_REPLY_CHANGED") == "focus":
                     self.assertEqual(state["composer"], "")
                     self.assertNotIn("prepared-exact ", result.stdout)
