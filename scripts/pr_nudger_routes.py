@@ -293,7 +293,7 @@ def _native_writer_free(lock):
 
 
 def _resume(cmux, surfaces, cwd, path, env, owner, prompt, apply):
-    if owner.get("headless_only") is not True and owner.get("headless_resume") is not True:
+    if owner.get("headless_resume", owner.get("headless_only")) is not True:
         return "blocked_headless_disabled"
     cli = owner["cli"]
     if cli != "codex":

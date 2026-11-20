@@ -93,6 +93,18 @@ class DispatcherTest(unittest.TestCase):
             self.assertEqual(self.status(), "cooldown")
         self.assertEqual(route.call_count, 2)
 
+    def test_explicit_owner_resume_defaults_on_and_honors_opt_outs(self):
+        def resume(owner, _prompt, _apply):
+            return "would_deliver" if owner["headless_resume"] else "blocked_headless_disabled"
+
+        with patch.object(nudger, "route", side_effect=resume):
+            self.assertEqual(self.status(apply=False), "would_deliver")
+            self.owner["headless_resume"] = False
+            self.assertEqual(self.status(apply=False), "blocked_headless_disabled")
+            self.owner["headless_resume"] = True
+            self.config["headless_resume"] = False
+            self.assertEqual(self.status(apply=False), "blocked_headless_disabled")
+
     def test_stage_five_uses_current_owner_receipt(self):
         stage, hold = {"name": "stage:5-final-approval"}, {"name": "hold:operator"}
         body = f"## PR Stage\ncandidate: {self.sha}\nowner: driver\nendpoint: FINAL_READY\n"

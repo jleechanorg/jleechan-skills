@@ -121,11 +121,12 @@ def discover(cwd, repos, local):
     return ("stale_head" if pr["head"]["sha"] != sha else pr_status(pr)), pr
 
 
-def dispatch(cwd, owner, local, pr, receipts, cooldown, from_cache):
+def dispatch(cwd, owner, local, pr, receipts, config, from_cache):
     expected = identity(pr)
     repo, number, _, branch, sha = expected
     owner = dict(owner, cwd=str(cwd))
     key = (repo, number)
+    cooldown = config.get("cooldown_seconds", 1800)
     if receipts is not None:
         previous = receipts.execute(
             "SELECT status, time FROM delivery WHERE repo=? AND number=?", key
@@ -138,9 +139,9 @@ def dispatch(cwd, owner, local, pr, receipts, cooldown, from_cache):
     reserved = False
     transport = None
     binding = (str(cwd), *key, branch)
-    can_resume = owner.get("headless_resume", from_cache) is True
-    if owner.get("cmux_discovered") and not from_cache:
-        can_resume = False
+    can_resume = (config.get("headless_resume", True) is True
+                  and owner.get("headless_resume", True) is True
+                  and (from_cache or not owner.get("cmux_discovered")))
 
     def confirm_owner(workspace, surface):
         owner.update(workspace=workspace, surface=surface)
@@ -256,8 +257,7 @@ def tick(config, receipts):
             elif not owners:
                 status = "missing_owner"
             else:
-                status = dispatch(cwd, owners[0], local, pr, receipts,
-                                  config.get("cooldown_seconds", 1800), from_cache)
+                status = dispatch(cwd, owners[0], local, pr, receipts, config, from_cache)
             yield dict(result, status=status)
 
 

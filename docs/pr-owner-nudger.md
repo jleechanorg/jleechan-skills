@@ -14,7 +14,7 @@ stage="$(mktemp -d)"
 python3 scripts/pr_owner_nudger.py --config "$config"
 ```
 
-Use `worktree_roots` for discovery and `"headless_only": true` on an explicit owner that runs without cmux. Dot enrollments require an `account`, its `identity_sha256` (lowercase SHA-256 of the exact authenticated email), and a lowercase canonical `session` UUID. Set `destination` to that exact private chat's `https://chatgpt.com/c/<session>` URL or its `https://chatgpt.com/g/g-<gpt-id>/c/<session>` form. See the packaged Dot skill for its browser prerequisites.
+Use `worktree_roots` for discovery and `"headless_only": true` on an explicit owner that runs without cmux. Explicit Codex owners default to exact-session resume after the cmux safety check. Set `"headless_resume": false` in the config or owner to disable fallback. Dot enrollments require an `account`, its `identity_sha256` (lowercase SHA-256 of the exact authenticated email), and a lowercase canonical `session` UUID. Set `destination` to that exact private chat's `https://chatgpt.com/c/<session>` URL or its `https://chatgpt.com/g/g-<gpt-id>/c/<session>` form. See the packaged Dot skill for its browser prerequisites.
 
 Both schedules run every five minutes. To dispatch, set `"enabled": true` and add `--apply` when rendering. Skip the disable or bootout step on first install.
 
