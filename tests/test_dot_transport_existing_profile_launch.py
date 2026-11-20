@@ -291,7 +291,17 @@ function runExactFixture(fn, binding) {
   globalThis.document = {
     get activeElement() { return activeEditor; },
     createRange() { return {selectNodeContents() {}}; },
-    execCommand(op, _, value) { state.composer = op === "insertText" ? value : ""; return true; },
+    execCommand(op, _, value) {
+      if (op === "delete" && changeAt === "cleanup_persistence") {
+        state.persistedComposer = state.composer;
+        setTimeout(() => { state.persistedComposer = ""; }, 700);
+      }
+      if (op === "delete" && changeAt === "cleanup_scope_changed") {
+        setTimeout(() => { state.routeChanged = true; }, 700);
+      }
+      state.composer = op === "insertText" ? value : "";
+      return true;
+    },
     querySelectorAll(selector) {
       return selector.includes("reply-chain-container") ? [panel] : lists(selector);
     },
@@ -482,6 +492,25 @@ process.stdout.write = (chunk, ...args) => {
                 self.assertFalse(state["clicked"])
                 self.assertIn("aborted ", result.stdout)
                 self.assertEqual(state["composer"], draft)
+                cleanup = "refused" if draft else "empty_in_context"
+                self.assertIn(f"DOT_DRAFT_CLEANUP {cleanup}", result.stderr)
+
+    def test_dot_reply_abort_waits_for_owned_draft_cleanup_before_close(self):
+        seat = "00000000-0000-4000-8000-000000000001"
+        target = "https://chatgpt.com/dots/00000000-0000-4000-8000-000000000002~" + "1" * 32
+        parent = "~".join(("2" * 32, "2" * 32, "CalpicoMessage", "Sentinel_" + "3" * 32))
+        cases = (("cleanup_persistence", "empty_in_context"), ("cleanup_scope_changed", "unverified"))
+        for behavior, diagnostic in cases:
+            with self.subTest(behavior=behavior):
+                result, state = self._run_clocked_prepared(
+                    decision="abort", reply=(seat, target, parent, {"DOT_TEST_CHANGE_AT": behavior}),
+                )
+                self.assertFalse(state["replyClicked"])
+                self.assertEqual(state["composer"], "")
+                if behavior == "cleanup_persistence":
+                    self.assertEqual(state["persistedComposer"], "")
+                self.assertRegex(result.stdout.splitlines()[-1], r"^aborted [0-9a-f]{32}$")
+                self.assertIn(f"DOT_DRAFT_CLEANUP {diagnostic}", result.stderr)
 
     def test_private_chat_prepared_edits_stop_when_destination_changes(self):
         url = "https://chatgpt.com/c/00000000-0000-4000-8000-000000000001"

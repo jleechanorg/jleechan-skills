@@ -455,13 +455,9 @@ async function settlePage(page, currentMode) {
     unavailable('not signed in');
   }
 
-  if (currentMode === 'read') {
-    if (session.status === 200 && session.isJson && session.hasUser) {
-      clearAuthFailed(USER_DATA_DIR);
-    }
-    return page;
-  }
-  return unavailable('composer not found');
+  if (currentMode !== 'read') unavailable('composer not found');
+  if (session.status === 200 && session.isJson && session.hasUser) clearAuthFailed(USER_DATA_DIR);
+  return page;
 }
 
 async function launch() {
@@ -641,10 +637,9 @@ async function clearDraft(page) {
 }
 
 async function read(page, n) {
-  let bodyText = (await page.evaluate(() => document.body.innerText)).trim();
-  if (await clickRetryIfSnag(page, bodyText, 3000)) {
-    bodyText = (await page.evaluate(() => document.body.innerText)).trim();
-  }
+  const readText = async () => (await page.evaluate(() => document.body.innerText)).trim();
+  let bodyText = await readText();
+  if (await clickRetryIfSnag(page, bodyText, 3000)) bodyText = await readText();
   console.log(bodyText.slice(-n));
 }
 
@@ -667,7 +662,12 @@ async function send(page, file, dry, opts = {}) {
   });
   const readComposer = () => scope.locator(composerSelector).first().innerText().catch(() => '');
   const clear = async (expectedDraft = null) => {
-    if (exactDestination) return exactAction('clear', expectedDraft);
+    if (exactDestination) {
+      if (!(await exactAction('clear', expectedDraft))) return console.error('DOT_DRAFT_CLEANUP refused');
+      await sleep(800);
+      const observed = await exactAction('observe');
+      return console.error(observed && !observed.draft.trim() ? 'DOT_DRAFT_CLEANUP empty_in_context' : 'DOT_DRAFT_CLEANUP unverified');
+    }
     await scope.locator(composerSelector).first().focus();
     await page.keyboard.press(isMac ? 'Meta+A' : 'Control+A');
     await page.keyboard.press('Backspace');
@@ -736,7 +736,7 @@ async function send(page, file, dry, opts = {}) {
   if (opts.prepared) preparedDraft = typed;
   if (dry) {
     await clear(preparedDraft);
-    const left = exactDestination ? (await exactAction('observe'))?.draft.trim() : (await readComposer()).trim();
+    const left = exactDestination ? (await exactAction('observe'))?.draft?.trim() : (await readComposer()).trim();
     console.log(left === '' ? 'DOT_DRYRUN_OK composer_matched_and_cleared' : 'DOT_DRYRUN_CLEAR_FAILED composer_left=' + (left?.length ?? 'unknown'));
     return;
   }
@@ -761,7 +761,7 @@ async function send(page, file, dry, opts = {}) {
       aborted = true;
       try {
         if (preparedDraft !== null && (exactDestination || (await readComposer()) === preparedDraft)) await clear(preparedDraft);
-      } catch {}
+      } catch { if (exactDestination) console.error('DOT_DRAFT_CLEANUP unverified'); }
       process.stdout.write(`aborted ${nonce}\n`);
       if (commitReceived) console.log('DOT_PREPARED_ABORTED reason=composer_changed');
       return;
