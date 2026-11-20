@@ -1,13 +1,13 @@
 # Historical native iOS proof rule — superseded
 
-> **Historical proposal only. Do not apply the downstream insertions below.** The proposed shared-source change removes the former universal native-proof trigger when it is activated. Current platform-evidence rules belong to each product repository. Until the replacement frontend and backend policies are verified in force, the installed shared rule remains active. The shared PR lifecycle keeps its visual-evidence defaults where a repository has not set a claim-specific route.
+> **Historical proposal only. Do not apply the downstream insertions below.** The proposed shared-source change removes the former universal native-proof trigger when it is activated. The replacement frontend policy merged in frontend PR #937 and the backend policy merged in backend PR #11734 on 2026-11-20. The installed shared policy remains active until the shared source PR merges and its projection is deliberately installed. The shared PR lifecycle keeps its visual-evidence defaults where a repository has not set a claim-specific route.
 
 Status: **superseded 2026-11-20.** This note preserves the earlier rollout proposal; it is not an active
 handoff. Its downstream insertions below must not be applied.
 
 Historical owner: the former `md_files/AGENTS.shared.md` section (which installed to
-`~/.codex/AGENTS.md` and was imported by `~/.claude/CLAUDE.md`). Current shared policy defers platform
-and visual evidence applicability to target-repository policies and the changed claim.
+`~/.codex/AGENTS.md` and was imported by `~/.claude/CLAUDE.md`). The proposed shared policy defers platform and visual evidence applicability to target-repository
+policies and the changed claim.
 
 The insertions below record the earlier one-line downstream pointers proposed for the former global
 rule. They preserve the design history and carry no active instructions or requirements.
