@@ -1,119 +1,38 @@
 ---
 name: levelup
-description: Trigger and monitor the level-up organic test (testing_mcp/core/test_level_up_organic.py) against the PR's deployed preview server.
-scope: your-project.com level-up CI
+description: Run WorldArchitect's streamlined DeepSeek level-up checks on the current checkout or its exact PR preview.
+scope: WorldArchitect AI level-up testing
 ---
 
-# /levelup Skill
+# /levelup
 
-Run `testing_mcp/core/test_level_up_organic.py` — the real-server + real-LLM organic
-level-up playthrough — either **locally** (default, via `local.sh`) or against a PR's
-**deployed GCP preview server** (via `.github/workflows/levelup-tests.yml`). Mirrors the
-`/smoke` pattern but specifically exercises the organic level-up flow end-to-end.
+The default command runs the two real-browser checks wired into the WorldArchitect daily job, using DeepSeek v4.1 Flash via OpenRouter.
 
-## When to Use
+- A story-ready Level 1 Paladin starts at 299 XP and exercises the real crossing, Level 2 review, Finish, and reload path.
+- A separate fresh campaign follows browser character creation and ordinary gameplay through Level 2 and Level 3. It verifies each crossing, any repair, review, Finish, and saved state.
 
-- After `/smoke` passes, to verify level-up flows on the PR
-- When iterating on level-up prompt/code changes
-- To get `## Real LLM Evidence` for PRs touching `$PROJECT_ROOT/prompts/level_up_instruction.md`
+The results remain separate by scenario, and both affect the command exit status. Streaming receipts, state snapshots, and existing browser evidence are collected for each lane. The runner checks effective provider settings before gameplay and reports provider identity from streaming requests.
 
-## Local Mode (default — `local.sh`)
+## Run
 
-For fast iteration on your own machine, run the organic playthrough against a freshly
-auto-started local gunicorn server with real Firebase + the AGY CLI provider by default
-(no mocks). Missing AGY setup fails closed with an `$PROJECT_ROOT/install.sh` instruction. The
-helper `local.sh` in this skill's directory (`<skill-dir>/local.sh`) sets the required env
-(`TESTING_AUTH_BYPASS=true`, `ALLOW_TEST_AUTH_BYPASS=true`, `PYTHONPATH`), scrubs leaked mock-enabling flags with a loud notice and continues, defaults to the full scenario sweep, and
-passes any extra args straight through to the test:
+From the WorldArchitect checkout, the default selects the current PR's exact preview when available, then runs locally when no eligible preview exists.
 
 ```bash
-# From the product repository root — all scenarios against an auto-started local server:
-<skill-dir>/local.sh
-
-# A single scenario:
-<skill-dir>/local.sh --level-up-scenario single-organic
-
-# Pick the character class / enable full evidence guards:
-<skill-dir>/local.sh --class-name wizard --full
-
-# Target an existing server OR a GCP preview URL instead of auto-starting:
-<skill-dir>/local.sh --server https://<preview-service-url>
+.claude/skills/levelup/levelup.sh
 ```
 
-Scenario choices: `single-organic`, `multi-organic`, `projected-button`, `god-reward`,
-`atomicity`, `classifier`, `all` (default via `local.sh`). Evidence bundle lands at
-`/tmp/<repo>/<branch>/test_level_up_organic/latest/` with streaming captures, LLM traces,
-and per-scenario results. Use this for `/es` / `/er` evidence before the CI preview run.
-
-## Preview Mode (CI — `workflow_dispatch` / `/levelup` comment)
-
-## Trigger Method
-
-The workflow has an `author_association` guard on `issue_comment` — post a
-`/levelup` PR comment only if you are OWNER/MEMBER/COLLABORATOR. Otherwise use
-`workflow_dispatch` (reliable, no association check):
+The shared skill shim delegates to this repository-owned entry point. It resolves the product checkout from `PROJECT_ROOT`, then `REPO_ROOT`, then the current Git worktree. For example, when invoking the installed skill outside a checkout:
 
 ```bash
-gh workflow run levelup-tests.yml \
-  --repo $GITHUB_REPOSITORY \
-  --ref main \
-  -f pr_number=<PR_NUMBER>
+PROJECT_ROOT=/path/to/worldarchitect.ai ~/.claude/skills/levelup/local.sh
 ```
 
-**Do NOT use `--ref feat/<branch>`** — the workflow must be reachable on the default branch.
+Pass `--local` to force a local server, `--server <url>` for an explicit target, or `--daily-scenario crossing-299` / `organic-level-3` to run one browser journey. `--model <registry-id>` overrides the default model.
 
-## Monitoring
+Use `--mcp` to run the same two journeys through the MCP harness. Use `--diagnostics` or explicit legacy MCP scenario arguments to run the broader diagnostic sweep. These flags delegate to the WorldArchitect-owned runner and preserve its provider, auth, evidence, and test-account policy.
 
-```bash
-# Get the latest levelup run
-gh run list --workflow=levelup-tests.yml --repo $GITHUB_REPOSITORY \
-  --limit 3 --json databaseId,status,conclusion,createdAt \
-  --jq '.[] | "\(.databaseId) \(.status) \(.conclusion) \(.createdAt)"'
+The GitHub `/levelup` preview workflow invokes the same streamlined MCP default against the PR preview.
 
-# Watch a specific run
-gh run watch <RUN_ID> --repo $GITHUB_REPOSITORY
-```
+## Failure handling
 
-## What It Runs
-
-1. **Phase 1** (`resolve-pr-context`): resolves the PR head SHA and ref from GitHub API
-2. **Phase 2** (`run-levelup-tests`): checks out the PR head, resolves the GCP preview URL,
-   then runs `testing_mcp/core/test_level_up_organic.py` with `SKIP_CODEX_REVIEW=true`
-
-The test itself runs all organic level-up scenarios (multi-level, god mode, finish intent, etc.)
-against the preview service's configured live LLM provider + Firebase.
-
-## Success Criteria
-
-The workflow posts a PR comment starting with:
-```
-## ✅ Level-up Organic Tests Passed
-```
-
-or fails with:
-```
-## ❌ Level-up Organic Tests Failed
-```
-
-Check for the comment:
-```bash
-gh pr view <PR_NUMBER> --repo $GITHUB_REPOSITORY \
-  --json comments --jq '.comments[-5:]|.[].body' | grep -E "(Level-up Organic|PASSED|FAILED)"
-```
-
-## Iterating on Failures
-
-1. Read the failure comment body for the failing scenario name
-2. Check the workflow logs:
-   ```bash
-   gh run view <RUN_ID> --repo $GITHUB_REPOSITORY --log | grep -A 20 "FAILED\|ERROR"
-   ```
-3. Fix prompt or code on the branch, push, then dispatch again:
-   ```bash
-   gh workflow run levelup-tests.yml --repo $GITHUB_REPOSITORY --ref main -f pr_number=<PR>
-   ```
-
-## Relationship to Smoke Tests
-
-`/smoke` (11 general scenarios) and `/levelup` (level-up organic scenarios) are independent.
-A PR must pass both before `/green` (CI green + no merge conflicts) plus draft-phase quality gates (`/es`, `/er`, `/advice`) are claimed for level-up changes.
+A missing checkout entrypoint fails before any test launches. A wrong effective or observed provider fails preflight and invalidates that lane. A successful repair is reported separately from the first crossing. Both browser lanes must pass for the default command to pass.

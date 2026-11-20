@@ -1,30 +1,27 @@
 #!/usr/bin/env bash
-# test_local_resolution.sh — verify local.sh resolves the product repository in
-# the documented order: PROJECT_ROOT wins, then its accepted REPO_ROOT alias,
-# then the current git worktree. An unusable selected root fails closed instead
-# of silently running somewhere else.
-# See docs/portability-env-vars.md ("PROJECT_ROOT / REPO_ROOT").
-#
-# Usage: bash <skill-dir>/test_local_resolution.sh
-# Exit 0 on PASS, non-zero on FAIL.
+# Verify the portable command delegates to the selected product checkout.
 set -uo pipefail
 
 SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOCAL_SH="$SKILL_DIR/local.sh"
 FAIL=0
-
 WORK="$(mktemp -d)"
 WORK="$(cd "$WORK" && pwd -P)"
-trap 'rm -rf "$WORK"' EXIT
+case "$WORK" in
+  /tmp/tmp.*) ;;
+  *) echo "Unexpected test scratch path: $WORK" >&2; exit 2 ;;
+esac
+trap 'python3 -c '"'"'import sys,shutil; p=sys.argv[1]; assert p.startswith("/tmp/tmp."); shutil.rmtree(p)'"'"' "$WORK"' EXIT
 
 make_repo() {
-  # make_repo <dir> — minimal product checkout the runner can exec in.
-  mkdir -p "$1/testing_mcp/core"
-  cat > "$1/testing_mcp/core/test_level_up_organic.py" <<'EOF'
-import os, sys
-print("CWD=%s" % os.getcwd())
-print("ARGS=%s" % " ".join(sys.argv[1:]))
+  mkdir -p "$1/testing_mcp/core" "$1/.claude/skills/levelup"
+  : > "$1/testing_mcp/core/test_level_up_organic.py"
+  cat > "$1/.claude/skills/levelup/levelup.sh" <<'EOF'
+#!/usr/bin/env bash
+printf 'CWD=%s\nMODEL=%s\n' "$PWD" "${TEST_DEFAULT_MODEL:-<unset>}"
+printf 'ARG=<%s>\n' "$@"
 EOF
+  chmod +x "$1/.claude/skills/levelup/levelup.sh"
 }
 
 REPO_A="$WORK/repo-a"
@@ -35,77 +32,77 @@ make_repo "$REPO_A"
 make_repo "$REPO_B"
 make_repo "$REPO_C"
 mkdir -p "$ELSEWHERE"
-( cd "$REPO_C" && git init -q . ) >/dev/null 2>&1
+git -C "$REPO_C" init -q
 
 run_local() {
-  # run_local <cwd> [VAR=value ...] — runs local.sh with PROJECT_ROOT and the
-  # REPO_ROOT alias scrubbed first, so each case controls resolution itself.
   local cwd="$1"
   shift
-  ( cd "$cwd" && env -u PROJECT_ROOT -u REPO_ROOT "$@" bash "$LOCAL_SH" ) 2>&1
+  (
+    cd "$cwd"
+    unset PROJECT_ROOT REPO_ROOT TEST_DEFAULT_MODEL
+    for assignment in "$@"; do
+      case "$assignment" in
+        PROJECT_ROOT=*) PROJECT_ROOT="${assignment#PROJECT_ROOT=}"; export PROJECT_ROOT ;;
+        REPO_ROOT=*) REPO_ROOT="${assignment#REPO_ROOT=}"; export REPO_ROOT ;;
+        TEST_DEFAULT_MODEL=*) TEST_DEFAULT_MODEL="${assignment#TEST_DEFAULT_MODEL=}"; export TEST_DEFAULT_MODEL ;;
+        *) echo "Unsupported test assignment: $assignment" >&2; return 2 ;;
+      esac
+    done
+    bash "$LOCAL_SH" --daily-scenario crossing-299 "--work-name=local levelup"
+  ) 2>&1
 }
 
-check_rc() {
-  local rc="$1" expected="$2" label="$3"
-  if [[ "$rc" -eq "$expected" ]]; then
-    echo "PASS: $label (exit $rc)"
-  else
-    echo "FAIL: $label — expected exit $expected, got $rc"
-    FAIL=1
-  fi
-}
-
-check_contains() {
-  local out="$1" needle="$2" label="$3"
-  case "$out" in
-    *"$needle"*) echo "PASS: $label" ;;
-    *) echo "FAIL: $label — missing '$needle' in: $out"; FAIL=1 ;;
+check() {
+  local label="$1" expected="$2" output="$3"
+  case "$output" in
+    *"$expected"*) echo "PASS: $label" ;;
+    *) echo "FAIL: $label"; FAIL=1 ;;
   esac
 }
 
-echo "=== Case 1: PROJECT_ROOT wins over the REPO_ROOT alias and the cwd ==="
-OUT="$(run_local "$ELSEWHERE" "PROJECT_ROOT=$REPO_A" "REPO_ROOT=$REPO_B")"
-RC=$?
-check_rc "$RC" 0 "runner exits 0"
-check_contains "$OUT" "CWD=$REPO_A" "ran in PROJECT_ROOT"
+echo "=== PROJECT_ROOT wins over REPO_ROOT and cwd ==="
+OUT="$(run_local "$ELSEWHERE" "PROJECT_ROOT=$REPO_A" "REPO_ROOT=$REPO_B" "TEST_DEFAULT_MODEL=deepseek/deepseek-v4.1-flash")"
+check "selected project checkout" "CWD=$REPO_A" "$OUT"
+check "DeepSeek environment is preserved" "MODEL=deepseek/deepseek-v4.1-flash" "$OUT"
+check "daily scenario argument is passed" "ARG=<--daily-scenario>" "$OUT"
+check "arguments with spaces remain intact" "ARG=<--work-name=local levelup>" "$OUT"
 
-echo ""
-echo "=== Case 2: REPO_ROOT is the fallback alias when PROJECT_ROOT is unset ==="
+echo
+echo "=== REPO_ROOT resolves when PROJECT_ROOT is unset ==="
 OUT="$(run_local "$ELSEWHERE" "REPO_ROOT=$REPO_B")"
-RC=$?
-check_rc "$RC" 0 "runner exits 0"
-check_contains "$OUT" "CWD=$REPO_B" "ran in REPO_ROOT"
+check "selected repo alias checkout" "CWD=$REPO_B" "$OUT"
 
-echo ""
-echo "=== Case 3: verified cwd is the last resort ==="
+echo
+echo "=== git worktree is used as the final root fallback ==="
 OUT="$(run_local "$REPO_C")"
-RC=$?
-check_rc "$RC" 0 "runner exits 0"
-check_contains "$OUT" "CWD=$REPO_C" "ran in the cwd worktree"
+check "selected current git worktree" "CWD=$REPO_C" "$OUT"
 
-echo ""
-echo "=== Case 4: an unusable PROJECT_ROOT fails closed, it does not fall through ==="
-OUT="$(run_local "$ELSEWHERE" "PROJECT_ROOT=$WORK/does-not-exist" "REPO_ROOT=$REPO_B")"
+echo
+echo "=== invalid selected root fails closed ==="
+OUT="$(run_local "$ELSEWHERE" "PROJECT_ROOT=$WORK/missing-root" "REPO_ROOT=$REPO_B")"
 RC=$?
-check_rc "$RC" 2 "exits 2 on an unusable selected root"
-check_contains "$OUT" "PROJECT_ROOT not configured" "error names PROJECT_ROOT"
-case "$OUT" in
-  *"CWD="*) echo "FAIL: runner executed in a fallback repo"; FAIL=1 ;;
-  *) echo "PASS: runner refused to execute" ;;
-esac
+[ "$RC" -eq 2 ] && check "invalid project root reports resolution error" "WorldArchitect checkout not found" "$OUT" || {
+  echo "FAIL: invalid project root returned $RC"
+  FAIL=1
+}
+case "$OUT" in *"CWD="*) echo "FAIL: fallback checkout ran"; FAIL=1 ;; esac
 
-echo ""
-echo "=== Case 5: no root and no worktree fails closed with instruction ==="
-OUT="$(run_local "$ELSEWHERE")"
+echo
+echo "=== missing canonical entrypoint fails closed ==="
+mkdir -p "$WORK/no-entrypoint/testing_mcp/core"
+: > "$WORK/no-entrypoint/testing_mcp/core/test_level_up_organic.py"
+OUT="$(run_local "$ELSEWHERE" "PROJECT_ROOT=$WORK/no-entrypoint")"
 RC=$?
-check_rc "$RC" 2 "exits 2 with nothing to resolve"
-check_contains "$OUT" "PROJECT_ROOT not configured" "error names PROJECT_ROOT"
+[ "$RC" -eq 2 ] && check "missing entrypoint reports resolution error" "WorldArchitect checkout not found" "$OUT" || {
+  echo "FAIL: missing entrypoint returned $RC"
+  FAIL=1
+}
+case "$OUT" in *"CWD="*) echo "FAIL: MCP test launched without canonical entrypoint"; FAIL=1 ;; esac
 
-echo ""
-if [[ $FAIL -eq 0 ]]; then
-  echo "VERDICT: PASS — PROJECT_ROOT > REPO_ROOT > verified cwd, invalid root fails closed"
+echo
+if [ "$FAIL" -eq 0 ]; then
+  echo "VERDICT: PASS - portable command delegates exact arguments to the selected WorldArchitect checkout"
   exit 0
-else
-  echo "VERDICT: FAIL"
-  exit 1
 fi
+echo "VERDICT: FAIL"
+exit 1
