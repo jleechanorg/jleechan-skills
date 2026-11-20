@@ -9,7 +9,7 @@
     <string>/bin/bash</string>
   </array>
   <key>StartInterval</key>
-  <integer>300</integer>
+  <integer>600</integer>
   <key>AbandonProcessGroup</key>
   <true/>
   <key>StandardOutPath</key>

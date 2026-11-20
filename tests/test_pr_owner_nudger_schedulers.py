@@ -28,7 +28,7 @@ class SchedulerTest(unittest.TestCase):
         self.render("launchd")
         path = self.stage / "org.prw.pr-owner-nudger.plist"
         job = plistlib.loads(path.read_bytes())
-        self.assertEqual(job["StartInterval"], 300)
+        self.assertEqual(job["StartInterval"], 600)
         self.assertTrue(job["AbandonProcessGroup"])
         self.assertEqual(job["ProgramArguments"][2:], ["--config", str(self.config)])
         self.render("launchd", "--apply")
@@ -41,6 +41,7 @@ class SchedulerTest(unittest.TestCase):
         self.render("systemd")
         service = self.stage / "pr-owner-nudger.service"
         timer = self.stage / "pr-owner-nudger.timer"
+        self.assertIn("OnCalendar=*:0/10", timer.read_text().splitlines())
         self.assertNotIn("--apply", service.read_text())
         self.render("systemd", "--apply")
         self.assertIn("--apply", service.read_text())

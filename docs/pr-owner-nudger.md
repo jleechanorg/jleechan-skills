@@ -21,7 +21,7 @@ For a Dot owner, set `cli` to `dot`, select its `account`, and set `identity_sha
 - For a private ChatGPT conversation, set `session` to its canonical lowercase UUID and `destination` to its exact `https://chatgpt.com/c/<session>` or `https://chatgpt.com/g/g-<gpt-id>/c/<session>` URL.
 - For a Dot reply, set `session` to the account's configured seat UUID from `https://chatgpt.com/dots/<session>`. Set `destination` to the verified resolved `https://chatgpt.com/dots/<uuid>~<thread-token>` URL and `parent_message_id` to the observed parent article's complete `data-message-id`. The timer starts from the configured seat URL and only submits in the bound parent’s Replies panel.
 
-Both schedules run every five minutes. To dispatch, set `"enabled": true` and add `--apply` when rendering. Skip the disable or bootout step on first install.
+Both schedules run every ten minutes. To dispatch, set `"enabled": true` and add `--apply` when rendering. Skip the disable or bootout step on first install.
 
 ## Linux user timer
 
