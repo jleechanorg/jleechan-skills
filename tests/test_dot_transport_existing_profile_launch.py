@@ -131,10 +131,11 @@ exports.chromium = {
         script = r'''const fs = require("node:fs");
 const statePath = __STATE_PATH__;
 const externalComposerPath = __EXTERNAL_COMPOSER_PATH__;
-const state = {composer: __INITIAL_COMPOSER__, clicked: false, userMessages: [], replyClicked: false, replyOpened: false, scrolls: 0};
+const state = {composer: __INITIAL_COMPOSER__, clicked: false, userMessages: [], replyClicked: false, replyOpened: false, scrolls: 0, focusClicks: 0};
 const replyParent = process.env.DOT_TEST_REPLY_PARENT;
-let parentReads = 0, urlReads = 0, historyReads = 0;
+let urlReads = 0, historyReads = 0;
 const history = process.env.DOT_TEST_HISTORY;
+const changeAt = process.env.DOT_TEST_CHANGE_AT;
 const hasOlderRows = () => state.scrolls > 0 && ["grow", "hydrate"].includes(history) && historyReads > 2;
 const replyPanel = {
   async count() { return Number(state.replyOpened); },
@@ -145,8 +146,8 @@ const replyPanel = {
       first() { return this; },
       async count() { return 1; },
       async getAttribute() {
-        parentReads++;
-        if ((process.env.DOT_TEST_REPLY_CHANGED === "commit" && parentReads > 2) ||
+        if ((process.env.DOT_TEST_REPLY_CHANGED === "focus" && state.replyFocused) ||
+            (process.env.DOT_TEST_REPLY_CHANGED === "commit" && globalThis.fixturePrepared) ||
             (process.env.DOT_TEST_REPLY_CHANGED === "receipt" && state.replyClicked)) return "other-parent";
         return replyParent;
       },
@@ -155,7 +156,7 @@ const replyPanel = {
       async allInnerTexts() { return state.userMessages; },
     };
     if (selector.startsWith(".reply-chain-composer [contenteditable=true]")) {
-      return locator("fixture scoped composer");
+      return {...locator("fixture scoped composer"), async click() { state.replyFocused = true; }};
     }
     if (selector === ".reply-chain-composer") return {
       getByRole(role, options) {
@@ -222,14 +223,18 @@ function locator(selector) {
       if (fs.existsSync(externalComposerPath)) return fs.readFileSync(externalComposerPath, "utf8");
       return state.composer;
     },
-    async focus() {},
-    async isVisible() { return process.env.DOT_TEST_BUSY === "1"; },
+    async focus() { if (changeAt === "cleanup_focus") state.routeChanged = true; },
+    async isVisible() {
+      if (changeAt === "commit_ready" && globalThis.fixturePrepared) state.routeChanged = true;
+      return process.env.DOT_TEST_BUSY === "1";
+    },
     async click() {},
   };
 }
 const page = {
   async goto() {},
   url() {
+    if (state.routeChanged) return "https://chatgpt.com/c/00000000-0000-4000-8000-000000000002";
     if (globalThis.fixturePrepared && process.env.DOT_TEST_POST_PREPARED_URL) return process.env.DOT_TEST_POST_PREPARED_URL;
     if (state.clicked && process.env.DOT_TEST_POST_SEND_URL) return process.env.DOT_TEST_POST_SEND_URL;
     if (urlReads++ === 0 && process.env.DOT_TEST_DOT_HOME) return "https://chatgpt.com/dots/home";
@@ -242,7 +247,10 @@ const page = {
     if (fn.toString().includes("/api/auth/session")) {
       return {status: 200, hasUser: true, isJson: true, email: "fixture@example.invalid"};
     }
-    if (fn.toString().includes("usage limit")) return "";
+    if (fn.toString().includes("usage limit")) {
+      if (changeAt === "before_focus") state.routeChanged = true;
+      return "";
+    }
     return "Fixture conversation";
   },
   async click(selector) {
@@ -250,13 +258,18 @@ const page = {
       state.clicked = true;
       state.userMessages.push(state.composer);
       state.composer = "";
+    } else {
+      state.focusClicks++;
+      if (changeAt === "after_focus") state.routeChanged = true;
     }
   },
   keyboard: {
     selected: false,
     async press(key) {
-      if (key.endsWith("+A")) this.selected = true;
-      else if (key === "Backspace" && this.selected) state.composer = "";
+      if (key.endsWith("+A")) {
+        this.selected = true;
+        if (changeAt === "cleanup_selection") state.routeChanged = true;
+      } else if (key === "Backspace" && this.selected) state.composer = "";
     },
     async insertText(text) { state.composer += text; },
   },
@@ -396,6 +409,25 @@ process.stdout.write = (chunk, ...args) => {
                 self.assertIn("aborted ", result.stdout)
                 self.assertEqual(state["composer"], draft)
 
+    def test_private_chat_prepared_edits_stop_when_destination_changes(self):
+        url = "https://chatgpt.com/c/00000000-0000-4000-8000-000000000001"
+        cases = [
+            ("before_focus", "commit", 0, ""),
+            ("after_focus", "commit", 1, ""),
+            ("cleanup_focus", "abort", 1, "Synthetic proof"),
+            ("cleanup_selection", "abort", 1, "Synthetic proof"),
+            ("commit_ready", "commit", 1, "Synthetic proof"),
+        ]
+        for phase, decision, focus_clicks, draft in cases:
+            with self.subTest(phase=phase):
+                result, state = self._run_clocked_prepared(
+                    decision=decision, exact={"DOT_URL": url, "DOT_TEST_CHANGE_AT": phase},
+                )
+                self.assertEqual(state["focusClicks"], focus_clicks)
+                self.assertFalse(state["clicked"])
+                self.assertEqual(state["composer"], draft)
+                self.assertNotIn("DOT_SENT_VERIFIED", result.stdout)
+
     def test_private_chat_prepared_send_supports_a_standalone_entrypoint(self):
         url = "https://chatgpt.com/c/00000000-0000-4000-8000-000000000001"
         result, state = self._run_clocked_prepared(exact={"DOT_URL": url}, copy_only=True)
@@ -412,6 +444,7 @@ process.stdout.write = (chunk, ...args) => {
             ({"DOT_TEST_DOT_HOME": "1", "DOT_TEST_HISTORY": "grow"}, True, True, True),
             ({"DOT_TEST_HISTORY": "hydrate"}, True, True, True),
             ({"DOT_TEST_HISTORY": "end"}, False, False, False),
+            ({"DOT_TEST_REPLY_CHANGED": "focus"}, True, False, False),
             ({"DOT_TEST_REPLY_CHANGED": "commit"}, True, False, False),
             ({"DOT_TEST_REPLY_CHANGED": "timeout"}, True, False, False),
             ({"DOT_TEST_REPLY_CHANGED": "receipt"}, True, True, False),
@@ -424,6 +457,9 @@ process.stdout.write = (chunk, ...args) => {
                 self.assertFalse(state["clicked"], "the feed composer must never submit")
                 self.assertEqual(state["replyOpened"], opened)
                 self.assertEqual(state["replyClicked"], sent)
+                if observations.get("DOT_TEST_REPLY_CHANGED") == "focus":
+                    self.assertEqual(state["composer"], "")
+                    self.assertNotIn("prepared-exact ", result.stdout)
                 if "DOT_TEST_HISTORY" in observations:
                     self.assertEqual(state["scrolls"], 1)
                 self.assertEqual("DOT_SENT_VERIFIED" in result.stdout, verified)
