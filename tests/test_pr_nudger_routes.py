@@ -111,3 +111,16 @@ def test_native_active_lock_blocks_even_without_a_visible_writer(tmp_path):
         fcntl.flock(stream, fcntl.LOCK_EX)
         assert router.route(owner, PROMPT, True) == "busy"
         spawn.assert_not_called()
+
+
+
+def test_claude_stop_sequence_requires_a_completed_text_reply(tmp_path):
+    transcript = tmp_path / "claude.jsonl"
+    for reason, part, idle in [
+        ("stop_sequence", {"type": "text", "text": "Finished."}, True),
+        ("stop_sequence", {"type": "thinking"}, False),
+        ("tool_use", {"type": "text", "text": "Working."}, False),
+    ]:
+        message = {"stop_reason": reason, "content": [part]}
+        transcript.write_text(json.dumps({"type": "assistant", "message": message}) + "\n")
+        assert router._terminal_state("claude", transcript)[0] is idle

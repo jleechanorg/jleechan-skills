@@ -140,7 +140,12 @@ def _terminal_state(cli, path):
                 idle = event["type"] != "task_started"
         elif kind == "assistant":
             message = row["message"]
-            idle, model = message.get("stop_reason") == "end_turn", message.get("model", model)
+            reason = message.get("stop_reason")
+            idle = reason == "end_turn" or (reason == "stop_sequence" and any(
+                part.get("type") == "text" and (part.get("text") or "").strip()
+                for part in message.get("content") or []
+            ))
+            model = message.get("model", model)
         elif kind == "user":
             idle = False
     return idle, model

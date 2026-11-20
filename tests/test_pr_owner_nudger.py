@@ -35,6 +35,7 @@ class DispatcherTest(unittest.TestCase):
                    "head": {"ref": "feature", "sha": self.sha,
                             "repo": {"full_name": "fork/project"}},
                    "base": {"repo": {"full_name": "base/project"}}}
+        self.dual_fork = False
         self.config = {"enabled": True, "state_dir": str(self.root / "state"),
                        "owners": [self.owner]}
         self.enterContext(patch.object(nudger, "discover_owners", return_value={}))
@@ -48,12 +49,21 @@ class DispatcherTest(unittest.TestCase):
             return real_command(cwd, *args)
         target = f"repos/{self.pr['base']['repo']['full_name']}/pulls"
         self.assertEqual(args[-2:], ("--hostname", "github.com"))
+        if args[1:-2] == ("api", "repos/fork/project"):
+            return json.dumps({"full_name": "fork/project", "fork": True,
+                               "parent": {"full_name": "base/project"}})
         if args[1:-2] == ("api", f"{target}/{self.pr['number']}"):
             return json.dumps(self.pr)
         branch = "feature" if cwd == self.cwd else "main"
-        self.assertEqual(args[1:-2], ("api", "-X", "GET", target, "-f", f"head=fork:{branch}",
+        self.assertIn(args[4], (target, "repos/fork/project/pulls"))
+        self.assertEqual(args[1:-2], ("api", "-X", "GET", args[4], "-f", f"head=fork:{branch}",
                                        "-f", "state=open", "-F", "per_page=2"))
-        return json.dumps([self.pr] if branch == "feature" else [])
+        if branch == "feature" and args[4] == target:
+            return json.dumps([self.pr])
+        if branch == "feature" and self.dual_fork:
+            duplicate = dict(self.pr, base={"repo": {"full_name": "fork/project"}})
+            return json.dumps([duplicate])
+        return "[]"
 
     def status(self, apply=True):
         path = self.root / "config.json"
@@ -86,18 +96,24 @@ class DispatcherTest(unittest.TestCase):
     def test_stage_five_uses_current_owner_receipt(self):
         stage, hold = {"name": "stage:5-final-approval"}, {"name": "hold:operator"}
         body = f"## PR Stage\ncandidate: {self.sha}\nowner: driver\nendpoint: FINAL_READY\n"
+        next_action = "next_action: read missing closing receipts"
+        human_wait = "status: WAITING_HUMAN\nblocker: merge approval\nwake_condition: operator approves"
+        ready = body + "status: FINAL_READY"
         scenarios = [
-            ("[fa] Closing", [stage], body + "next_action: read receipts", "busy"),
-            ("[blocked] Example", [stage, hold], body + "blocker: needs MERGE APPROVED",
-             "awaiting_final_approval"),
-            ("[ready] Example", [stage], body, "final_ready"),
-            ("[ready] Example", [stage], body.replace(self.sha, "0" * 40), "busy"),
+            ("[fa] Closing", [stage], body + next_action, "busy"),
+            ("[ready] Closing", [stage], body + next_action, "busy"),
+            ("[blocked] Waiting", [stage, hold], body + "blocker: test handset", "busy"),
+            ("[blocked] Waiting", [stage, hold], body + human_wait + "\n" + next_action, "busy"),
+            ("[blocked] Waiting", [stage, hold], body + human_wait, "awaiting_final_approval"),
+            ("[fa] Closing", [stage], ready, "final_ready"),
+            ("[ready] Example", [stage], ready.replace(self.sha, "0" * 40), "busy"),
         ]
         with patch.object(nudger, "route", return_value="busy") as route:
             for title, labels, record, expected in scenarios:
-                self.pr.update(title=title, labels=labels, body=record)
-                self.assertEqual(self.status(), expected)
-        self.assertEqual(route.call_count, 2)
+                with self.subTest(title=title, expected=expected):
+                    self.pr.update(title=title, labels=labels, body=record)
+                    self.assertEqual(self.status(), expected)
+        self.assertEqual(route.call_count, 5)
 
     def test_rechecks_exact_pr_immediately_before_dispatch(self):
         def drift(owner, _prompt, _apply):
@@ -120,8 +136,8 @@ class DispatcherTest(unittest.TestCase):
 
     def test_discovered_owner_survives_surface_loss_only_for_same_pr(self):
         self.config.update(owners=[], worktree_roots=[str(self.repo)])
-        self.pr["base"]["repo"]["full_name"] = "fork/project"
-        live = {str(self.cwd): [dict(self.owner, repo="fork/project", cmux_discovered=True)]}
+        live = {str(self.cwd): [{"cwd": str(self.cwd), "cli": self.owner["cli"],
+                                "session": self.owner["session"], "cmux_discovered": True}]}
         allow_resume = []
 
         def route(owner, _prompt, _apply):
@@ -131,8 +147,12 @@ class DispatcherTest(unittest.TestCase):
                 owner["confirm_owner"]("workspace:1", "surface:1")
             return "busy"
 
-        with patch.object(nudger, "discover_owners", side_effect=[live, {}, {}]), \
+        with patch.object(nudger, "discover_owners", side_effect=[live, live, {}, {}]), \
                 patch.object(nudger, "route", side_effect=route) as send:
+            self.dual_fork = True
+            self.assertEqual(self.status(), "ambiguous_pr")
+            send.assert_not_called()
+            self.dual_fork = False
             self.assertEqual(self.status(), "busy")
             self.assertEqual(self.status(), "busy")
             self.pr["number"] = 13

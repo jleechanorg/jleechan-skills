@@ -48,38 +48,64 @@ def identity(pr):
 def pr_status(pr):
     if pr["state"] != "open":
         return "closed"
-    record = re.search(
+    records = re.findall(
         r"(?ms)^## (?:PR Stage|Execution Record)[ \t]*\n(.*?)(?=^## |\Z)",
         pr.get("body") or "",
     )
-    if not record:
+    if len(records) != 1:
         return "actionable"
     fields = defaultdict(list)
-    for key, value in re.findall(r"(?m)^([a-z_]+):[ \t]*(\S[^\n]*)$", record[1]):
+    for key, value in re.findall(r"(?m)^([a-z_]+):[ \t]*(\S[^\n]*)$", records[0]):
         fields[key].append(value.strip())
-    if fields["candidate"] != [pr["head"]["sha"]] or len(fields["owner"]) != 1:
+    missing = {"n/a", "none", "-", "unknown"}
+    if (fields["candidate"] != [pr["head"]["sha"]] or len(fields["owner"]) != 1
+            or fields["owner"][0].lower() in missing
+            or any(action.lower() not in missing for action in fields["next_action"])):
         return "actionable"
-    if fields["status"] == ["FINAL_READY"] or pr["title"].lower().startswith("[ready]"):
+    if fields["status"] == ["FINAL_READY"]:
         return "final_ready"
-    if fields["status"] == ["WAITING_HUMAN"] or (
-        any(label["name"] == "hold:operator" for label in pr["labels"])
-        and len(fields["blocker"]) == 1 and fields["blocker"][0].lower() not in {"n/a", "none", "-"}
+    if fields["status"] == ["WAITING_HUMAN"] and all(
+        len(fields[key]) == 1 and fields[key][0].lower() not in missing
+        for key in ("blocker", "wake_condition")
     ):
         return "awaiting_final_approval"
     return "actionable"
 
 
-def discover(cwd, repo, local):
+def repo_slug(value):
+    if not re.fullmatch(REPO, value) or value.split("/")[1] in {".", ".."}:
+        raise ValueError("Invalid repository name")
+    return value.lower()
+
+
+def inferred_bases(cwd, origin):
+    remote = github(cwd, f"repos/{origin}")
+    if repo_slug(remote["full_name"]) != origin:
+        raise ValueError("GitHub repository does not match the checkout origin")
+    if remote["fork"]:
+        return {origin, repo_slug(remote["parent"]["full_name"])}
+    return {origin}
+
+
+def discover(cwd, repos, local):
     origin, branch, sha = local
-    rows = github(cwd, "-X", "GET", f"repos/{repo}/pulls", "-f",
-                  f"head={origin.split('/')[0]}:{branch}", "-f", "state=open", "-F", "per_page=2")
-    if len(rows) != 1:
-        return ("ambiguous_pr" if rows else "no_open_pr"), None
-    pr, = rows
-    actual_repo, number, head_repo, head_branch, head_sha = identity(pr)
-    if type(number) is not int or number < 1 or (actual_repo, head_repo, head_branch) != (repo, origin, branch):
-        return "pr_mismatch", None
-    return ("stale_head" if head_sha != sha else pr_status(pr)), pr
+    matches = []
+    for repo in sorted(repos):
+        rows = github(cwd, "-X", "GET", f"repos/{repo}/pulls", "-f",
+                      f"head={origin.split('/')[0]}:{branch}", "-f", "state=open",
+                      "-F", "per_page=2")
+        if len(rows) > 1:
+            return "ambiguous_pr", None
+        if rows:
+            actual_repo, number, head_repo, head_branch, _ = identity(rows[0])
+            if (type(number) is not int or number < 1
+                    or (actual_repo, head_repo, head_branch) != (repo, origin, branch)):
+                return "pr_mismatch", None
+            matches.extend(rows)
+    if len(matches) != 1:
+        return ("ambiguous_pr" if matches else "no_open_pr"), None
+    pr, = matches
+    return ("stale_head" if pr["head"]["sha"] != sha else pr_status(pr)), pr
 
 
 def dispatch(cwd, owner, local, pr, receipts, cooldown, from_cache):
@@ -167,6 +193,7 @@ def tick(config, receipts):
             yield {"cwd": str(root), "status": "blocked_worktree_list"}
     discovered = discover_owners(enrolled) if enrolled else {}
     candidates = defaultdict(list)
+    inferred = {}
     for cwd, explicit in sorted(enrolled.items()):
         live = discovered.get(str(cwd), [])
         if len(explicit) == len(live) == 1 and all(
@@ -178,21 +205,24 @@ def tick(config, receipts):
         result = {"cwd": str(cwd)}
         try:
             local = checkout(cwd)
-            repos = {item.get("repo", local[0]).lower() for item in owners}
-            repo = next(iter(repos), local[0])
+            repos = {repo_slug(item["repo"]) for item in owners if "repo" in item}
             if len(repos) > 1:
                 yield dict(result, status="ambiguous_owner")
                 continue
-            if not re.fullmatch(REPO, repo) or repo.split("/")[1] in {".", ".."}:
-                raise ValueError("Invalid repository name")
-            status, pr = discover(cwd, repo, local)
+            if not repos:
+                origin = local[0]
+                if origin not in inferred:
+                    inferred[origin] = inferred_bases(cwd, origin)
+                repos = inferred[origin]
+            status, pr = discover(cwd, repos, local)
         except CHECK_ERRORS as error:
             yield dict(result, status="blocked_discovery", error=type(error).__name__)
             continue
         if pr is not None:
-            result.update(repo=repo, pr=pr["number"], sha=pr["head"]["sha"])
+            repo, number, _, _, sha = identity(pr)
+            result.update(repo=repo, pr=number, sha=sha)
         if status == "actionable":
-            candidates[repo, pr["number"]].append((cwd, result, local, pr, owners))
+            candidates[repo, number].append((cwd, result, local, pr, owners))
         else:
             yield dict(result, status=status)
     for key, rows in candidates.items():
