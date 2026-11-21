@@ -228,6 +228,8 @@ class DispatcherTest(unittest.TestCase):
             with sqlite3.connect(state_path) as db:
                 stored = json.loads(db.execute("SELECT owner FROM binding").fetchone()[0])
             self.assertEqual(stored["session"], owner["session"])
+            self.assertTrue(owner["managed_exclusive"])
+            self.assertEqual(owner["host"], "test-host")
             self.assertTrue(owner["recheck"]())
             return "delivered"
 
@@ -241,7 +243,13 @@ class DispatcherTest(unittest.TestCase):
             inspect.return_value = ("reconciliation_required", None)
             self.assertEqual(self.target_tick()[0]["status"], "reconciliation_required")
             route.assert_not_called()
-            inspect.return_value = ("bootstrapped", "only-native-session")
+            def acknowledged(_enrollment, _identity, _attempt, *, bind):
+                bind("only-native-session")
+                with sqlite3.connect(state_path) as db:
+                    self.assertIsNone(db.execute("SELECT bootstrap FROM target").fetchone()[0])
+                return "bootstrapped", "only-native-session"
+
+            inspect.side_effect = acknowledged
             self.assertEqual(self.target_tick()[0]["status"], "bootstrapped")
             self.assertEqual(self.target_tick()[0]["status"], "delivered")
             launch.assert_called_once()

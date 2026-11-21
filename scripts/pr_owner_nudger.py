@@ -397,15 +397,15 @@ def latest_push(identity, cwd, read, inspection):
     return timestamp if all(event.get("after") == sha for event in latest) else None
 
 
-def bootstrap_enrollment(target, expected):
+def bootstrap_enrollment(target, expected, *, require_launch=True):
     enrollment = target.get("enrollment")
     if not isinstance(enrollment, dict):
         return None, "missing_owner"
     _, _, head_repo, branch, _ = expected
     if enrollment.get("host") != socket.gethostname():
         return None, "owner_host_unverified"
-    if (enrollment.get("launch_authorized") is not True
-            or enrollment.get("managed_exclusive") is not True):
+    authorized = enrollment.get("launch_authorized") is True
+    if not enrollment.get("managed_exclusive") is True or (require_launch and not authorized):
         return None, "missing_launch_authority"
     if enrollment.get("cli") != "codex":
         return None, "bootstrap_cli_unsupported"
@@ -416,7 +416,7 @@ def bootstrap_enrollment(target, expected):
         return None, "enrollment_mismatch"
     fields = ("cwd", "head_repo", "branch", "cli", "cli_bin", "profile_dir", "model", "headless_only")
     return {field: enrollment[field] for field in fields if field in enrollment} | {
-        "managed_exclusive": True, "launch_authorized": True, "host": enrollment["host"]
+        "managed_exclusive": True, "launch_authorized": authorized, "host": enrollment["host"]
     }, None
 
 
@@ -434,10 +434,12 @@ def dispatch_target(key, target, pr, matches, store, config, read):
         if reason or enrolled != attempt["enrollment"]:
             return note(key, "reconciliation_required", "reconcile_bootstrap")
         status, session = pr_nudger_routes.inspect_codex_bootstrap(
-            enrolled, tuple(attempt["identity"]), attempt
+            enrolled, tuple(attempt["identity"]), attempt,
+            bind=lambda session: store.bind(key, expected, dict(enrolled, session=session)),
         )
-        if status == "bootstrapped" and session:
-            store.bind(key, expected, dict(enrolled, session=session))
+        if status == "bootstrapped":
+            if not session or store.row(key)["bootstrap"]:
+                return note(key, "reconciliation_required", "reconcile_bootstrap")
             return note(key, status, "dispatch_owner", progress=True)
         return note(key, status, "reconcile_bootstrap")
 
@@ -486,6 +488,14 @@ def dispatch_target(key, target, pr, matches, store, config, read):
             return note(key, "pickup_not_due", "verify_remote_push", earliest=pushed + pickup)
     if candidates:
         cwd, local, owner = candidates[0]
+        if isinstance(enrollment, dict) and enrollment.get("managed_exclusive") is True:
+            managed, reason = bootstrap_enrollment(target, expected, require_launch=False)
+            if reason or str(cwd) != managed["cwd"] or any(
+                field in owner and owner[field] != managed.get(field)
+                for field in ("cli", "cli_bin", "profile_dir", "model")
+            ):
+                return note(key, reason or "enrollment_mismatch", "verify_owner")
+            owner = dict(owner, **managed)
         status = dispatch(cwd, owner, local, pr, db, config, from_cache, read)
         cooldown = config.get("cooldown_seconds", 1800)
         if status == "delivered":
