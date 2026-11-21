@@ -450,6 +450,9 @@ def dispatch_target(key, target, pr, matches, store, config, read):
         return note(key, "reconciliation_required", "reconcile_delivery")
     if target.get("observe_only") is True:
         return note(key, "observing", "refresh_pr", progress=True)
+    enrollment = target.get("enrollment")
+    if isinstance(enrollment, dict) and enrollment.get("host") != socket.gethostname():
+        return note(key, "owner_host_unverified", "verify_owner")
     candidates = [(cwd, local, owner) for cwd, local, owners in matches for owner in owners]
     from_cache = not candidates
     if from_cache and db is not None:
@@ -465,8 +468,14 @@ def dispatch_target(key, target, pr, matches, store, config, read):
     if len(candidates) > 1:
         return note(key, "ambiguous_owner", "verify_owner")
     if row["next_due"] > store.now:
-        return dict(status=row["reason"], next_action=row["next_action"],
-                    attempts=row["attempts"], next_due=row["next_due"])
+        # A newly observed cmux owner can use the existing route without a launch.
+        launch_deferrals = {"missing_owner", "missing_launch_authority", "bootstrap_cli_unsupported",
+                            "blocked_launch_capacity", "stale_checkout"}
+        if not from_cache and candidates[0][2].get("cmux_discovered") and row["reason"] in launch_deferrals:
+            note(key, "owner_found", "dispatch_owner", progress=True)
+        else:
+            return dict(status=row["reason"], next_action=row["next_action"],
+                        attempts=row["attempts"], next_due=row["next_due"])
     pickup = target.get("pickup_after_seconds")
     if pickup:
         pushed = latest_push(expected, Path.cwd(), read, db is None)

@@ -244,6 +244,43 @@ class DispatcherTest(unittest.TestCase):
             self.assertEqual(self.target_tick()[0]["status"], "delivered")
             launch.assert_called_once()
 
+
+    def test_new_exact_cmux_owner_bypasses_only_missing_owner_backoff(self):
+        self.config["owners"] = []
+        self.config["targets"] = [{
+            "repo": "base/project", "number": 12,
+            "enrollment": {"cwd": str(self.cwd), "host": "test-host"},
+        }]
+        live = dict(self.owner, cmux_discovered=True)
+
+        def deliver(owner, _prompt, _apply):
+            self.assertTrue(owner["cmux_discovered"] and owner["recheck"]("cmux"))
+            return "delivered"
+
+        def read(_cwd, endpoint, **_kwargs):
+            if endpoint.endswith("/activity"):
+                return [{"ref": "refs/heads/feature", "activity_type": "push",
+                         "before": "0" * 40, "after": self.sha,
+                         "timestamp": "1970-01-01T00:15:00Z"}]
+            return self.pr
+
+        with patch.object(nudger, "github", side_effect=read), \
+                patch.object(nudger.socket, "gethostname", return_value="test-host"), \
+                patch.object(nudger.time, "time", return_value=1000) as clock, \
+                patch.object(nudger, "discover_owners", return_value={}) as discovery, \
+                patch.object(nudger, "route", side_effect=deliver) as route:
+            self.assertEqual(self.target_tick()[0]["status"], "missing_launch_authority")
+            clock.return_value = 1001
+            discovery.return_value = {str(self.cwd): [live]}
+            self.config["targets"][0]["pickup_after_seconds"] = 3600
+            self.assertEqual(self.target_tick()[0]["status"], "pickup_not_due")
+            route.assert_not_called()
+            clock.return_value = 4500
+            self.assertEqual(self.target_tick()[0]["status"], "delivered")
+            clock.return_value = 4501
+            self.assertEqual(self.target_tick()[0]["status"], "delivered")
+            route.assert_called_once()
+
     def test_only_local_auth_failure_allows_anonymous_inspection(self):
         failure_code = 4
 
