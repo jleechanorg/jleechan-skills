@@ -404,6 +404,39 @@ class DispatcherTest(unittest.TestCase):
             self.assertEqual(self.target_tick()[0]["ci_status"], "no_checks_observed")
 
 
+
+    def test_ci_ignores_only_superseded_attempts_for_the_same_workflow_check(self):
+        def attempt(minute, conclusion, workflow=123):
+            return {"name": "validate", "status": "COMPLETED", "conclusion": conclusion,
+                    "startedAt": f"2026-11-21T00:{minute:02}:00Z",
+                    "checkSuite": {"app": {"slug": "github-actions"}, "workflowRun": {
+                        "workflow": {"databaseId": workflow},
+                    }}}
+
+        pr = {"headRefOid": self.sha, "mergeStateStatus": "CLEAN", "commits": {"nodes": [{"commit": {
+            "oid": self.sha, "statusCheckRollup": {"contexts": {
+                "pageInfo": {"hasNextPage": False}, "nodes": [],
+            }},
+        }}]}}
+        contexts = pr["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]
+        store = nudger.Intake(None, None, 1000)
+        cases = [
+            ([attempt(2, "SUCCESS"), attempt(1, "CANCELLED")], "reported_success"),
+            ([attempt(1, "SUCCESS"), attempt(2, "CANCELLED")], "failing"),
+            ([attempt(2, "SUCCESS"), attempt(2, "CANCELLED")], "failing"),
+            ([attempt(2, "SUCCESS"), attempt(1, "CANCELLED", 456)], "failing"),
+            ([attempt(1, "FAILURE"), attempt(2, "SKIPPED"), attempt(2, "SUCCESS", 456)], "failing"),
+        ]
+        with patch.object(nudger, "_graphql", return_value=pr):
+            for nodes, expected in cases:
+                with self.subTest(expected=expected):
+                    contexts["nodes"] = nodes
+                    self.assertEqual(real_observe_ci("base/project", 12, self.sha, store), expected)
+            pr["mergeStateStatus"] = "BLOCKED"
+            contexts["nodes"] = [attempt(2, "SUCCESS")]
+            self.assertEqual(real_observe_ci("base/project", 12, self.sha, store),
+                             "unverified_required_checks")
+
     def test_ci_graphql_reset_does_not_suspend_rest_refresh(self):
         self.config["owners"] = []
         self.config["targets"] = [{"repo": "base/project", "number": 12}]

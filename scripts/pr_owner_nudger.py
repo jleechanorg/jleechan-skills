@@ -670,13 +670,16 @@ CI_QUERY = """
 query($owner:String!, $repo:String!, $number:Int!) {
   repository(owner:$owner, name:$repo) {
     pullRequest(number:$number) {
-      headRefOid
+      headRefOid mergeStateStatus
       commits(last:1) { nodes { commit {
         oid
         statusCheckRollup { contexts(first:100) {
           pageInfo { hasNextPage }
           nodes {
-            ... on CheckRun { status conclusion }
+            ... on CheckRun {
+              name status conclusion startedAt
+              checkSuite { createdAt app { slug } workflowRun { workflow { databaseId } } }
+            }
             ... on StatusContext { state }
           }
         } }
@@ -685,6 +688,31 @@ query($owner:String!, $repo:String!, $number:Int!) {
   }
 }
 """
+
+
+def _ci_states(checks):
+    states = set()
+    attempts = defaultdict(list)
+    for check in checks:
+        state = check.get("conclusion") or check.get("state") or check.get("status")
+        suite = check.get("checkSuite") or {}
+        app = (suite.get("app") or {}).get("slug")
+        workflow = ((suite.get("workflowRun") or {}).get("workflow") or {}).get("databaseId")
+        timestamp = check.get("startedAt") or suite.get("createdAt")
+        name = check.get("name")
+        if app and workflow and name and timestamp:
+            attempts[app, workflow, name].append((timestamp, state))
+        else:
+            states.add(state)
+    for history in attempts.values():
+        latest = max(timestamp for timestamp, _ in history)
+        current = {state for timestamp, state in history if timestamp == latest}
+        # A newer skipped/neutral check does not prove the older result was replaced.
+        if current <= {"SKIPPED", "NEUTRAL"}:
+            states.update(state for _, state in history)
+        else:
+            states.update(current)
+    return states
 
 
 def observe_ci(repo, number, head, budget):
@@ -699,8 +727,7 @@ def observe_ci(repo, number, head, budget):
         contexts = rollup["contexts"]
         if contexts["pageInfo"]["hasNextPage"]:
             return "incomplete"
-        states = {check.get("conclusion") or check.get("state") or check.get("status")
-                  for check in contexts["nodes"]}
+        states = _ci_states(contexts["nodes"])
     except RateLimited:
         return "rate_limited"
     except (*CHECK_ERRORS, AttributeError, IndexError):
@@ -711,7 +738,11 @@ def observe_ci(repo, number, head, budget):
         return "pending"
     if states - {"SUCCESS", "NEUTRAL", "SKIPPED"}:
         return "unavailable"
-    return "reported_success" if "SUCCESS" in states else "no_checks_observed"
+    if "SUCCESS" not in states:
+        return "no_checks_observed"
+    if pr.get("mergeStateStatus") == "BLOCKED":
+        return "unverified_required_checks"
+    return "reported_success"
 
 
 def tick(config, receipts, state=None):
