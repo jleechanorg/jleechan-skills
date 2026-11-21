@@ -353,6 +353,18 @@ class RetainedUsageShards(unittest.TestCase):
             actual.cleanup()
             self.assertFalse(actual.path.exists())
 
+    def test_retained_spool_matches_legacy_for_repeated_decoded_nan(self):
+        with tempfile.TemporaryDirectory() as root:
+            raw = json.dumps({"value": [float("nan")]})
+            events = [json.loads(raw), json.loads(raw)]
+            spool = m.RetainedUsageEventSpool(Path(root))
+            try:
+                for event in events:
+                    spool.add(event)
+                self.assertEqual(len(spool), len({m._json_equality_key(e) for e in events}))
+            finally:
+                spool.cleanup()
+
     def test_retained_usage_spool_rolls_back_a_corrupt_window(self):
         with tempfile.TemporaryDirectory() as temp:
             directory = Path(temp) / "20261109"

@@ -662,13 +662,13 @@ def _json_equality_key(value):
     return value
 
 
-def _usage_equality_token(value, nonce):
+def _usage_equality_token(value):
     """Portable token for the existing decoded-JSON equality relation."""
     if isinstance(value, dict):
-        pairs = [(key, _usage_equality_token(item, nonce)) for key, item in value.items()]
+        pairs = [(key, _usage_equality_token(item)) for key, item in value.items()]
         return ["dict", sorted(pairs, key=lambda pair: pair[0])]
     if isinstance(value, list):
-        return ["list", [_usage_equality_token(item, nonce) for item in value]]
+        return ["list", [_usage_equality_token(item) for item in value]]
     if value is None:
         return ["null"]
     if isinstance(value, bool):
@@ -677,9 +677,8 @@ def _usage_equality_token(value, nonce):
         return ["number", str(value), "1"]
     if isinstance(value, float):
         if math.isnan(value):
-            # JSON parsing creates a distinct NaN per value. Distinct NaNs are
-            # unequal in the legacy Python set, so never deduplicate them.
-            return ["nan", str(nonce)]
+            # The stdlib decoder reuses one NaN object across parsed records.
+            return ["nan"]
         if math.isinf(value):
             return ["infinity", "-" if value < 0 else "+"]
         numerator, denominator = value.as_integer_ratio()
@@ -728,7 +727,6 @@ class RetainedUsageEventSpool:
             "CREATE TABLE validated_usage_shards ("
             "sha256 TEXT PRIMARY KEY, byte_count INTEGER NOT NULL, record_count INTEGER NOT NULL)"
         )
-        self._nonce = 0
         self._sealed = False
         self._cleanup = weakref.finalize(self, _cleanup_usage_spool, self.path, self.connection)
 
@@ -749,9 +747,8 @@ class RetainedUsageEventSpool:
     def add(self, event):
         if self._sealed:
             raise RuntimeError("usage spool is sealed")
-        self._nonce += 1
         key = json.dumps(
-            _usage_equality_token(event, self._nonce), ensure_ascii=True,
+            _usage_equality_token(event), ensure_ascii=True,
             separators=(",", ":"),
         ).encode("utf-8")
         payload = json.dumps(event, ensure_ascii=True, separators=(",", ":"))
