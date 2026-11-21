@@ -98,4 +98,14 @@ macOS requires a GUI login. Check the job with `/bin/launchctl print "$domain/$l
 
 ## Interrupted delivery
 
+For Codex and Claude, the sender records the original transcript and byte
+position before issuing the prompt. Later ticks can verify a late matching
+receipt in that session and resume the normal cooldown. Uncertain receipts
+that cannot be verified stay held for reconciliation.
+
 Stop scheduling and inspect the original owner. In `receipts.sqlite3` in the configured state directory, update only the reconciled lowercase repo and PR. `UPDATE delivery SET status='no_delivery' WHERE repo='owner/repo' AND number=123 AND status IN ('pending_delivery','attempted_delivery');`. If delivery occurred, record `delivered` and its verified Unix timestamp in `time` instead. Restart scheduling and check GitHub independently for advancement. A detached owner can finish after the timer stops.
+
+After the PR head moves, an authorized managed checkout on the same repository
+and branch can receive a catch-up reminder through its saved owner. The owner
+verifies the head and updates a clean checkout by fast-forward before working
+on the next PR obligation. A stale checkout cannot start a fresh owner.

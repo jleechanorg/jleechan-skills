@@ -39,7 +39,7 @@ BOOTSTRAP_ACK = "PR_NUDGER_BOOTSTRAP_ACK"
 
 def bootstrap_enrollment(cwd):
     return {
-        "cwd": str(cwd), "cli": "codex", "cli_bin": "/bin/true",
+        "cwd": str(cwd), "cli": "codex", "cli_bin": sys.executable,
         "profile_dir": str(cwd), "model": "fixture-model", "headless_only": True,
         "host": socket.gethostname(), "managed_exclusive": True,
         "launch_authorized": True, "head_repo": "owned/head", "branch": "feature-branch",
@@ -61,7 +61,7 @@ class RouteTests(unittest.TestCase):
         tmp_path = self.tmp_path
         owner, _ = binding(tmp_path)
         owner["headless_resume"] = True
-        with patch.object(router.shutil, "which", return_value="/bin/true"), \
+        with patch.object(router.shutil, "which", return_value=sys.executable), \
              patch.object(router, "_surfaces", side_effect=[[], [SURFACE]]), \
              patch.object(router, "_writers", return_value=[]), \
              patch.object(router, "discover_owners", return_value={}), \
@@ -81,13 +81,13 @@ class RouteTests(unittest.TestCase):
     def test_unreachable_cmux_can_resume_only_on_enrolled_headless_host(self):
         owner, transcript = binding(self.tmp_path)
         owner.update(headless_only=True, host=socket.gethostname())
-        with patch.object(router.shutil, "which", return_value="/bin/true"), \
+        with patch.object(router.shutil, "which", return_value=sys.executable), \
              patch.object(router, "_surfaces", side_effect=ValueError("cmux unavailable")), \
              patch.object(router, "_writers", return_value=[]), \
              patch.object(router, "_resume", return_value="would_deliver") as resume, \
              patch.object(router.sys, "platform", "linux"), patch.dict(router.os.environ, {}, clear=True):
             assert router.route(owner, PROMPT, False) == "would_deliver"
-            assert resume.call_args.args[:4] == ("/bin/true", [], self.tmp_path, transcript)
+            assert resume.call_args.args[:4] == (sys.executable, [], self.tmp_path, transcript)
             resume.reset_mock()
             with patch.dict(router.os.environ, {"DISPLAY": ":0"}):
                 assert router.route(owner, PROMPT, False) == "blocked_route_unverified"
@@ -103,7 +103,7 @@ class RouteTests(unittest.TestCase):
         idle = "previous turn\n› Ask Codex to do anything\nfixture-gpt-6 · 92% left\n"
         snapshot = (idle, 0.0, (transcript.stat().st_ino, transcript.stat().st_size, 100))
         send = Mock(side_effect=["", "› Human draft\nfixture-gpt-6 · 92% left"])
-        with patch.object(router.shutil, "which", return_value="/bin/true"), \
+        with patch.object(router.shutil, "which", return_value=sys.executable), \
              patch.object(router, "_surfaces", return_value=[SURFACE]), \
              patch.object(router, "_writers", return_value=[WRITER]), \
              patch.object(router, "_matches_owner", return_value=True), \
@@ -150,7 +150,7 @@ else:
     def test_native_active_lock_blocks_even_without_a_visible_writer(self):
         tmp_path = self.tmp_path
         owner, _ = binding(tmp_path)
-        owner.update(headless_only=True, cli_bin="/bin/true")
+        owner.update(headless_only=True, cli_bin=sys.executable)
         lock = tmp_path / f"thread-writer-locks/{SESSION}.lock"
         with lock.open("wb") as stream, \
              patch.object(router.shutil, "which", return_value=None), \
@@ -233,7 +233,7 @@ else:
 
         def spawn(command, **kwargs):
             order.append("spawn")
-            assert command[4:7] == ("/bin/true", "exec", "--json")
+            assert command[4:7] == (sys.executable, "exec", "--json")
             assert len(kwargs["pass_fds"]) == 1
             with self.assertRaises(BlockingIOError), router._managed_claim(tmp_path / "managed.lock"):
                 self.fail("bootstrap launched without the shared claim")
@@ -395,7 +395,7 @@ else:
         tmp_path = self.tmp_path
         owner, _ = binding(tmp_path)
         reserve = Mock()
-        owner.update(headless_only=True, cli_bin="/bin/true", admit_launch=lambda: False, recheck=reserve)
+        owner.update(headless_only=True, cli_bin=sys.executable, admit_launch=lambda: False, recheck=reserve)
         with patch.object(router.shutil, "which", return_value=None), \
              patch.object(router, "_writers", return_value=[]), \
              patch.object(router, "_run", return_value=SimpleNamespace(
@@ -416,14 +416,14 @@ else:
              patch.object(router, "_wait_for_receipt", return_value="delivered"):
             assert router.route(owner, PROMPT, True) == "delivered"
             assert spawn.call_args.args[0] == (
-                "/bin/true", "exec", "resume", "-c", "project_doc_max_bytes=65536",
+                sys.executable, "exec", "resume", "-c", "project_doc_max_bytes=65536",
                 "--model", "fixture-model", SESSION, "-",
             )
 
             owner["resume_sandbox"] = "danger-full-access"
             assert router.route(owner, PROMPT, True) == "delivered"
             assert spawn.call_args.args[0] == (
-                "/bin/true", "exec", "--sandbox", "danger-full-access", "resume",
+                sys.executable, "exec", "--sandbox", "danger-full-access", "resume",
                 "-c", "project_doc_max_bytes=65536", "--model", "fixture-model", SESSION, "-",
             )
             spawn.reset_mock()
@@ -512,7 +512,7 @@ with r._managed_claim(r._managed_claim_path(cwd)) as claim:
         screen = ("idle", 0.0, (transcript.stat().st_ino, transcript.stat().st_size, 0))
         with router._managed_claim(claim_path), \
              patch.object(router, "_managed_claim_path", return_value=claim_path), \
-             patch.object(router.shutil, "which", return_value="/bin/true"), \
+             patch.object(router.shutil, "which", return_value=sys.executable), \
              patch.object(router, "_surfaces", return_value=[SURFACE]), \
              patch.object(router, "_writers", return_value=[WRITER]), \
              patch.object(router, "_matches_owner", return_value=True), \

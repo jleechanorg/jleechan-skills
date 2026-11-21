@@ -2,6 +2,7 @@ import fcntl
 import io
 import json
 import sqlite3
+import socket
 import subprocess
 import sys
 import tempfile
@@ -36,9 +37,46 @@ class FinalReadyTest(unittest.TestCase):
                 self.assertEqual(nudger.pr_status(dict(pr, labels=labels, body=record)), expected)
 
 
+class StaleOwnerTest(unittest.TestCase):
+    def test_same_owner_is_asked_to_catch_up_after_a_remote_push(self):
+        repo, number, branch = "base/project", 12, "feature"
+        old, new = "a" * 40, "b" * 40
+        key = repo, number
+        cwd = Path.cwd().resolve()
+        identity = (*key, repo, branch, new)
+        pr = {"state": "open", "number": number, "title": "Example", "labels": [],
+              "base": {"repo": {"full_name": repo}},
+              "head": {"repo": {"full_name": repo}, "ref": branch, "sha": new}}
+        enrollment = {"cwd": str(cwd), "head_repo": repo, "branch": branch, "cli": "codex",
+                      "host": socket.gethostname(), "managed_exclusive": True,
+                      "launch_authorized": True}
+        owner = dict(enrollment, session="fixture")
+        with sqlite3.connect(":memory:", isolation_level=None) as db:
+            db.execute("CREATE TABLE delivery (repo, number, status, time, sha, owner)")
+            db.execute("CREATE TABLE binding (cwd, repo, number, branch, owner, "
+                       "PRIMARY KEY (cwd, repo, number, branch))")
+            store = nudger.Intake(db, None, 100)
+            store.prepare([key])
+            nudger.remember_binding(db, identity, owner, "fixture")
+            def capture(routed_owner, prompt, apply):
+                self.assertTrue(apply)
+                self.assertEqual(routed_owner["session"], owner["session"])
+                self.assertIn(old, prompt)
+                self.assertIn(new, prompt)
+                self.assertIn("fast-forward", prompt)
+                return "delivered"
+            with patch.object(nudger, "checkout", return_value=(repo, branch, old)), \
+                 patch.object(nudger, "route", side_effect=capture) as route:
+                outcome = nudger.dispatch_target(
+                    key, {"enrollment": enrollment}, pr, [], store, {}, lambda *_, **__: pr,
+                )
+                self.assertEqual(outcome["status"], "delivered")
+                route.assert_called_once()
+
+
 class DispatcherTest(unittest.TestCase):
     def setUp(self):
-        self.root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.root = Path(self.enterContext(tempfile.TemporaryDirectory())).resolve()
         self.repo = self.root / "repository"
         self.cwd = self.root / "linked worktree"
         self.repo.mkdir()
@@ -699,6 +737,41 @@ class DispatcherTest(unittest.TestCase):
             self.assertEqual(self.status(), "missing_owner")
         self.assertEqual(allow_resume, [False, True])
         self.assertEqual(send.call_count, 2)
+
+    def test_late_receipt_uses_original_offset_without_sending_again(self):
+        root = self.root.resolve()
+        session = "00000000-0000-4000-8000-000000000001"
+        self.config["owners"] = [dict(self.owner, session=session, profile_dir=str(root))]
+        self.config["targets"] = [{"repo": "base/project", "number": 12}]
+        path = root / f"sessions/2026/11/21/rollout-{session}.jsonl"
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps({"type": "session_meta", "payload": {
+            "id": session, "cwd": str(self.cwd.resolve()), "git": {"branch": "feature"}
+        }}) + "\n")
+
+        def send(owner, prompt, apply):
+            self.assertTrue(apply)
+            self.assertTrue(owner["recheck"]("cmux"))
+            stat = path.stat()
+            checkpoint = owner.get("checkpoint_receipt")
+            if checkpoint:
+                checkpoint(path, (stat.st_ino, stat.st_size))
+            send.prompt = prompt
+            return "attempted_delivery"
+
+        with patch.object(nudger, "github", return_value=self.pr), \
+             patch.object(nudger, "legacy_tick", return_value=()), \
+             patch.object(nudger, "route", side_effect=send) as route:
+            self.assertEqual(self.target_tick()[0]["status"], "attempted_delivery")
+            self.assertEqual(self.target_tick()[0]["status"], "reconciliation_required")
+            with path.open("a") as stream:
+                stream.write(json.dumps({"type": "response_item", "payload": {
+                    "role": "user", "content": send.prompt,
+                }}) + "\n")
+            self.assertEqual(self.target_tick()[0]["status"], "delivered_reconciled")
+            route.assert_called_once()
+        with sqlite3.connect(Path(self.config["state_dir"]) / "receipts.sqlite3") as db:
+            self.assertEqual(db.execute("SELECT status FROM delivery").fetchone(), ("delivered",))
 
     def test_post_send_exception_leaves_reconciliation_hold(self):
         def interrupt(owner, _prompt, _apply):

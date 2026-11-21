@@ -308,6 +308,23 @@ def remember_configured(db, expected, cwd, owner):
     return True
 
 
+def pending_delivery(previous):
+    return previous and previous[0] in {"pending_delivery", "attempted_delivery"}
+
+
+def reconcile_delivery(db, key, previous, now):
+    """Accept a late positive receipt from the original transcript without resending."""
+    try:
+        owner = json.loads(previous[2])
+        if not pr_nudger_routes.verify_delivery_receipt(owner):
+            return False
+    except (TypeError, ValueError):
+        return False
+    db.execute("UPDATE delivery SET status=?, time=? WHERE repo=? AND number=?",
+               ("delivered", now, *key))
+    return True
+
+
 def dispatch(cwd, owner, local, pr, receipts, config, from_cache, read=None, *, resume_sandbox=None):
     read = read or github
     expected = identity(pr)
@@ -319,15 +336,19 @@ def dispatch(cwd, owner, local, pr, receipts, config, from_cache, read=None, *, 
     cooldown = config.get("cooldown_seconds", 1800)
     if receipts is not None:
         previous = receipts.execute(
-            "SELECT status, time FROM delivery WHERE repo=? AND number=?", key
+            "SELECT status, time, owner, sha FROM delivery WHERE repo=? AND number=?", key
         ).fetchone()
-        if previous and previous[0] in {"pending_delivery", "attempted_delivery"}:
+        if pending_delivery(previous):
+            if reconcile_delivery(receipts, key, previous, time.time()):
+                return "delivered_reconciled"
             return "reconciliation_required"
-        if previous and previous[0] == "delivered" and time.time() - previous[1] < cooldown:
+        if (previous and previous[0] == "delivered" and previous[3] == sha
+                and time.time() - previous[1] < cooldown):
             return "cooldown"
 
     reserved = False
     transport = None
+    receipt = None
     can_resume = (config.get("headless_resume", True) is True
                   and owner.get("headless_resume", True) is True
                   and (from_cache or not owner.get("cmux_discovered")
@@ -345,7 +366,7 @@ def dispatch(cwd, owner, local, pr, receipts, config, from_cache, read=None, *, 
         fields = ("cwd", "cli", "session", "workspace", "surface", "profile_dir",
                   "account", "destination", "parent_message_id")
         audit = json.dumps({**{key: owner[key] for key in fields if key in owner},
-                            "branch": branch, "transport": transport})
+                            "branch": branch, "transport": transport, "receipt": receipt})
         receipts.execute("INSERT OR REPLACE INTO delivery VALUES (?, ?, ?, ?, ?, ?)",
                          (*key, status, time.time(), sha, audit))
 
@@ -368,12 +389,25 @@ def dispatch(cwd, owner, local, pr, receipts, config, from_cache, read=None, *, 
         return True
 
     prompt = (f"PR owner reminder for https://github.com/{repo}/pull/{number} at {sha}. "
-              "Recheck the live PR and continue its next authorized /pr obligation in this "
-              "session. Preserve existing user constraints and stop for final operator approval.")
+              "Recheck the live PR. Continue authorized /pr actions until you publish Stage 5 "
+              "at the current head or identify a concrete human-only blocker. Preserve existing "
+              "user constraints and leave any operator approval or merge to the operator.")
+    if local[-1] != sha:
+        prompt += (f" Your checkout is at {local[-1]}. Before any stage work, fetch the exact "
+                   "enrolled branch and verify the remote head. Update only by fast-forward "
+                   "when clean. Preserve local work and record the blocker if it cannot fast-forward.")
+
+    def checkpoint_receipt(path, start):
+        nonlocal receipt
+        if reserved:
+            receipt = {"path": str(path), "start": list(start[:2]), "prompt": prompt}
+            record("pending_delivery")
+
     try:
         status = route(dict(owner, pr=number, sha=sha, branch=branch,
                             resume_sandbox=resume_sandbox, recheck=recheck,
                             revalidate=revalidate, confirm_owner=confirm_owner,
+                            checkpoint_receipt=checkpoint_receipt,
                             headless_resume=can_resume, admit_launch=launch_capacity),
                        prompt, receipts is not None)
     except Exception:
@@ -569,15 +603,28 @@ def dispatch_target(key, target, pr, matches, store, config, read):
     if pr_status(pr) != "actionable":
         return note(key, pr_status(pr), "refresh_pr", progress=True)
     previous = db.execute(
-        "SELECT status, time FROM delivery WHERE repo=? AND number=?", key
+        "SELECT status, time, owner, sha FROM delivery WHERE repo=? AND number=?", key
     ).fetchone() if db is not None else None
-    if previous and previous[0] in {"pending_delivery", "attempted_delivery"}:
+    if pending_delivery(previous):
+        if reconcile_delivery(db, key, previous, store.now):
+            cooldown = config.get("cooldown_seconds", 1800)
+            return note(key, "delivered_reconciled", "refresh_pr", progress=True,
+                        earliest=store.now + cooldown)
         return note(key, "reconciliation_required", "reconcile_delivery")
     if target.get("observe_only") is True:
         return note(key, "observing", "refresh_pr", progress=True)
     enrollment = target.get("enrollment")
     if isinstance(enrollment, dict) and enrollment.get("host") != socket.gethostname():
         return note(key, "owner_host_unverified", "verify_owner")
+    # A managed checkout may recover from a remote push through its saved owner.
+    # It cannot bootstrap a fresh owner until the checkout matches the PR head.
+    if not matches and db is not None and isinstance(enrollment, dict):
+        managed, _ = bootstrap_enrollment(target, expected)
+        if managed:
+            cwd = Path(managed["cwd"])
+            local = checkout(cwd)
+            if local[:2] == (head_repo, branch):
+                matches = [(cwd, local, [])]
     candidates = [(cwd, local, owner) for cwd, local, owners in matches for owner in owners]
     from_cache = not candidates
     if from_cache and db is not None:

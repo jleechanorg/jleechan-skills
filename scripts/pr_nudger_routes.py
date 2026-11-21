@@ -243,6 +243,24 @@ def _accepted(path, start, cli, prompt):
     return False
 
 
+def verify_delivery_receipt(owner):
+    """Check the original session beyond the checkpoint recorded before sending."""
+    try:
+        cli, session = owner["cli"], owner["session"]
+        if cli not in {"codex", "claude"} or str(UUID(session)) != session:
+            return False
+        receipt = owner["receipt"]
+        path, _ = _session(owner, Path(owner["cwd"]).resolve(strict=True))
+        if path is None or path != Path(receipt["path"]):
+            return False
+        inode, offset = receipt["start"]
+        if type(inode) is not int or type(offset) is not int or offset < 0:
+            return False
+        return _accepted(path, (inode, offset), cli, receipt["prompt"])
+    except (AttributeError, KeyError, OSError, TypeError, ValueError):
+        return False
+
+
 def _wait_for_receipt(path, start, cli, prompt, seconds, child=None):
     for _ in range(seconds):
         exited = child is not None and child.poll() is not None
@@ -277,6 +295,7 @@ def _cmux_route(cmux, surface, writer, cwd, path, owner, prompt, apply):
             or not _managed_cmux_claim(cwd, owner, writer[0])
             or not _input_is(cmux, workspace, surface_id, "empty")):
         return "no_delivery"
+    owner.get("checkpoint_receipt", lambda *_: None)(path, second[2])
     try:
         _checked(cmux, "send", *target, prompt)
         if not owner.get("revalidate", lambda: True)():
@@ -443,6 +462,7 @@ def _resume(cmux, surfaces, cwd, path, env, owner, prompt, apply):
             with tempfile.TemporaryFile() as incoming:
                 incoming.write(prompt.encode())
                 incoming.seek(0)
+                owner.get("checkpoint_receipt", lambda *_: None)(path, (stat.st_ino, stat.st_size))
                 sent = True
                 child = _spawn_claimed(
                     cmd, claim, cwd=cwd, env=env, stdin=incoming, stdout=subprocess.DEVNULL,
