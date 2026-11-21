@@ -7,10 +7,11 @@ description: "Mirror the current git dir/worktree/branch onto a Mac and continue
 
 Companion to [linux-mirror](../linux-mirror/SKILL.md) (same flow, opposite direction). Unlike a plain SSH-steering skill, this mirrors the **current repo's committed state** onto the target Mac and resumes work there in a persistent tmux session.
 
-For capacity-driven handoffs, follow
+Before every handoff, follow
 [host load balancing](../parallelize-to-ceiling/references/host-load-balancing.md)
-for host selection and task ownership; this skill owns Mac transport and
-response proof.
+for fresh resource checks on both hosts, host selection and task ownership; this
+skill owns Mac transport and response proof. Record the measurements and
+decision before starting the remote checkout or agent.
 
 If you're already running locally on the target Mac, there's nothing to mirror — say so and stop.
 
@@ -417,6 +418,8 @@ Pi treats each positional argument beginning with `@` as a file attachment, even
 Note: `printf` (not `echo`) for the session-name sanitizing is deliberate — piping `echo`'s output through `tr -c '...' '-'` turns the trailing newline into a literal `-`, corrupting the session name.
 
 ### 5. Hand off
+
+Follow the mandatory [agent submission and response proof contract](../linux-remote/SKILL.md#agent-submission-and-response-proof--mandatory). Verify and report the remote agent's first two or three attributable response sentences before claiming it started work.
 
 Report the session name, target path, and commit SHA from the `READY:`/`RESUMED:` line — cross-check that SHA against your local `git rev-parse HEAD`. `READY` proves the pane passed the launch and liveness checks; it does not prove the agent received or acted on `$CONTEXT`. `RESUMED` means an existing session was found as-is and nothing was typed into it — inspect that work directly rather than assuming it is idle. The preflight rejects local branches that are ahead of or diverged from the fetched remote branch, and the final HEAD is checked for exact equality before READY. Then give the attach command:
 
