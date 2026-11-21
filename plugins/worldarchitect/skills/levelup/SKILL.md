@@ -15,17 +15,13 @@ The results remain separate by scenario, and both affect the command exit status
 
 ## Run
 
-From the WorldArchitect checkout, the default selects the current PR's exact preview when available, then runs locally when no eligible preview exists.
+Run the level-up launcher from the WorldArchitect checkout you want to test. It selects that branch's exact PR preview when available, then uses its local server when no eligible preview exists.
 
 ```bash
-.claude/skills/levelup/levelup.sh
+export PROJECT_ROOT=/path/to/worldarchitect.ai
 ```
 
-The shared skill shim delegates to this repository-owned entry point. It resolves the product checkout from `PROJECT_ROOT`, then `REPO_ROOT`, then the current Git worktree. For example, when invoking the installed skill outside a checkout:
-
-```bash
-PROJECT_ROOT=/path/to/worldarchitect.ai ~/.claude/skills/levelup/local.sh
-```
+Then invoke `/levelup`. The installed skill is a thin wrapper around this checkout's runner. It resolves the product checkout from `PROJECT_ROOT`, then `REPO_ROOT`, then the current Git worktree.
 
 Pass `--local` to force a local server, `--server <url>` for an explicit target, or `--daily-scenario crossing-299` / `organic-level-3` to run one browser journey. `--model <registry-id>` overrides the default model.
 

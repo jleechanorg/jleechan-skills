@@ -14,14 +14,15 @@ esac
 trap 'python3 -c '"'"'import sys,shutil; p=sys.argv[1]; assert p.startswith("/tmp/tmp."); shutil.rmtree(p)'"'"' "$WORK"' EXIT
 
 make_repo() {
-  mkdir -p "$1/testing_mcp/core" "$1/.claude/skills/levelup"
+  local skills_dir=".claude/skills" skill_name="levelup"
+  mkdir -p "$1/testing_mcp/core" "$1/$skills_dir/$skill_name"
   : > "$1/testing_mcp/core/test_level_up_organic.py"
-  cat > "$1/.claude/skills/levelup/levelup.sh" <<'EOF'
+  cat > "$1/$skills_dir/$skill_name/levelup.sh" <<'EOF'
 #!/usr/bin/env bash
 printf 'CWD=%s\nMODEL=%s\n' "$PWD" "${TEST_DEFAULT_MODEL:-<unset>}"
 printf 'ARG=<%s>\n' "$@"
 EOF
-  chmod +x "$1/.claude/skills/levelup/levelup.sh"
+  chmod +x "$1/$skills_dir/$skill_name/levelup.sh"
 }
 
 REPO_A="$WORK/repo-a"
