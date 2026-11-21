@@ -7,9 +7,11 @@ description: Use when /roadmap is requested to survey, update, and coordinate ro
 
 ## Contract
 
-Run `/roadmap` by producing (or updating) ONE in-flight PR board document in the
-roadmap repo, committing it, pushing it, and showing the URL. Anything else — surveys,
-memory reads, nextsteps rotas — is supporting material, not the deliverable.
+Run `/roadmap` by producing or updating one current PR-status board document in the
+canonical roadmap repository, publishing its scoped Markdown commit to `origin/main`,
+and showing the verified board URL. The board tracks PR work; creating a PR merely to
+publish the board is not the deliverable. Surveys, memory reads, and nextsteps rotas
+are supporting material.
 
 Survey (optional context gathering). When the board needs history, consult
 whichever of these are available before writing: authorized project memory for prior
@@ -41,7 +43,7 @@ caller's current workspace. Resolve that workspace from caller context; if it is
 unavailable, query and verify cmux's current workspace. An installed CLI or reachable
 socket alone does not establish that this task is using cmux.
 
-Use the published branch's board URL so refresh loads the latest commit, while
+Use the `origin/main` board URL so refresh loads the latest published commit, while
 retaining the commit-pinned proof URL in the report. Inspect only that workspace's
 browser surfaces and their actual URLs. If this board is already open, refresh
 that surface with `cmux browser --surface <surface> reload`; navigate the same tab
@@ -231,12 +233,19 @@ decide, and to any report of open PRs with user-visible changes (user directive,
 ## Git rules
 
 - Commit only the board file (`git commit -- <path>`); never sweep unrelated dirty
-  files into the commit. Preserve other lanes' uncommitted work exactly as found.
-- Use an isolated branch/worktree and the roadmap repository's PR workflow.
-  Preserve unrelated dirty files and the shared index; do not stash another
-  lane's work to force a rebase or push directly to main.
-- Report the actual pushed commit, PR and commit-pinned board URLs. Do not claim
-  the board is on main before the verified merge; merge authority remains separate.
+  files into the commit. Preserve other lanes' uncommitted work and the shared index
+  exactly as found.
+- For routine, authorized roadmap Markdown, publish a scoped commit directly to
+  `origin/main` under the roadmap repository's `AGENTS.md` workflow. Check the remote
+  head immediately before publication and use a normal expected-head push. Never force
+  push. If `main` advances, reconcile the board against the new head, preserve other
+  writers' changes, and validate again before retrying.
+- A PR-status board documents code PRs; it does not create a PR for itself, approve a
+  tracked PR, or merge one. Report each tracked PR's live state separately. Its merge
+  owner and approval boundary remain governed by the target repository.
+- Report the published roadmap commit SHA and URL, verify the exact board file on
+  `origin/main`, and include both the current main board URL and commit-pinned board
+  URL. Report actual PR URLs only for tracked work items or a separately authorized PR.
 
 ## Canonical source
 
