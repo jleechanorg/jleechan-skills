@@ -17,6 +17,11 @@ experience and process; do not replace them with imagined objections. Reviewing
 prompts, LOC counts, and evidence does not mean reading production source line by
 line. A new UI flow is not automatically a bug fix or a before/after repair.
 
+When a short post accompanies a longer article, carry over the author's main
+point and a concrete detail from the article, and give readers a direct link to
+continue. If the article is still a draft, mark the link as a placeholder until
+there is a public permalink. Leave room for the link within the platform's limit.
+
 Verify material public factual claims against the actual linked sources. Preserve
 the author's stated experience as such; do not invent measurements or strengthen
 uncertain statements. If a source contradicts a claim, correct it directly or
