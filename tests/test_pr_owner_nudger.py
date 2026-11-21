@@ -527,6 +527,81 @@ class DispatcherTest(unittest.TestCase):
             self.assertEqual(self.status(), "pr_mismatch")
         route.assert_not_called()
 
+
+    def test_configured_verified_owner_is_remembered_before_route_and_recovers_without_config(self):
+        self.config["targets"] = [{"repo": "base/project", "number": 12}]
+        self.owner.update(session="f7392448-103a-46a7-a05e-41e75837c65b",
+                          headless_only=True, profile_dir=str(self.root))
+        transcript = self.root / "sessions/2026/11/20" / f"rollout-{self.owner['session']}.jsonl"
+        transcript.parent.mkdir(parents=True)
+        transcript.write_text(json.dumps({"type": "session_meta", "payload": {
+            "id": self.owner["session"], "cwd": str(self.cwd), "git": {"branch": "feature"},
+        }}) + "\n")
+        state = Path(self.config["state_dir"]) / "receipts.sqlite3"
+        calls = []
+
+        def deliver(owner, _prompt, _apply):
+            with sqlite3.connect(state) as db:
+                saved = json.loads(db.execute("SELECT owner FROM binding").fetchone()[0])
+            self.assertEqual(saved["session"], owner["session"])
+            self.assertEqual((saved["binding_source"], saved["verified_at"]), ("configured", 1000))
+            self.assertTrue(owner["headless_only"] and owner["headless_resume"])
+            calls.append(owner["session"])
+            return "blocked_launch_capacity"
+
+        with patch.object(nudger, "github", return_value=self.pr), \
+                patch.object(nudger.time, "time", return_value=1000) as clock, \
+                patch.object(nudger, "route", side_effect=deliver):
+            self.assertEqual(self.target_tick()[0]["status"], "blocked_launch_capacity")
+            self.config["owners"] = []
+            clock.return_value = 1600
+            self.assertEqual(self.target_tick()[0]["status"], "blocked_launch_capacity")
+            self.assertEqual(calls, [self.owner["session"]] * 2)
+
+
+    def test_stale_config_does_not_replace_verified_live_binding(self):
+        self.config["targets"] = [{"repo": "base/project", "number": 12}]
+        live = dict(self.owner, session="4d5fa869-381a-440a-bceb-caa0c31876d7",
+                    cmux_discovered=True)
+        self.config["owners"] = []
+
+        def confirm(owner, _prompt, _apply):
+            self.assertEqual(owner["session"], live["session"])
+            owner["confirm_owner"]("workspace:1", "surface:1", str(self.root))
+            return "busy"
+
+        with patch.object(nudger, "github", return_value=self.pr), \
+                patch.object(nudger.time, "time", return_value=1000) as clock, \
+                patch.object(nudger, "discover_owners", return_value={str(self.cwd): [live]}) as discovery, \
+                patch.object(nudger, "route", side_effect=confirm) as route:
+            self.config["worktree_roots"] = [str(self.repo)]
+            self.assertEqual(self.target_tick()[0]["status"], "busy")
+            self.config.update(owners=[self.owner], worktree_roots=[])
+            discovery.return_value = {}
+            clock.return_value = 1600
+            self.assertEqual(self.target_tick()[0]["status"], "ambiguous_owner")
+            route.assert_called_once()
+        path = Path(self.config["state_dir"]) / "receipts.sqlite3"
+        with sqlite3.connect(path) as db:
+            saved = json.loads(db.execute("SELECT owner FROM binding").fetchone()[0])
+        self.assertEqual((saved["session"], saved["binding_source"], saved["verified_at"]),
+                         (live["session"], "cmux", 1000))
+
+    def test_invalid_configured_transcript_never_becomes_remembered_owner(self):
+        self.config["targets"] = [{"repo": "base/project", "number": 12}]
+        self.owner.update(session="4d5fa869-381a-440a-bceb-caa0c31876d7",
+                          headless_only=True, profile_dir=str(self.root))
+        transcript = self.root / "sessions/2026/11/20" / f"rollout-{self.owner['session']}.jsonl"
+        transcript.parent.mkdir(parents=True)
+        transcript.write_text(json.dumps({"type": "session_meta", "payload": {
+            "id": self.owner["session"], "cwd": str(self.cwd), "git": {"branch": "main"},
+        }}) + "\n")
+        with patch.object(nudger, "github", return_value=self.pr):
+            self.assertEqual(self.target_tick()[0]["status"], "blocked_session_binding")
+        path = Path(self.config["state_dir"]) / "receipts.sqlite3"
+        with sqlite3.connect(path) as db:
+            self.assertEqual(db.execute("SELECT count(*) FROM binding").fetchone()[0], 0)
+
     def test_discovered_owner_survives_surface_loss_only_for_same_pr(self):
         self.config.update(owners=[], worktree_roots=[str(self.repo)])
         live = {str(self.cwd): [{"cwd": str(self.cwd), "cli": self.owner["cli"],

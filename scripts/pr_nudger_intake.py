@@ -19,6 +19,13 @@ class RateLimited(OSError):
         self.until = until
 
 
+def remember_binding(db, expected, owner, source):
+    repo, number, head_repo, branch, _ = expected
+    verified = dict(owner, binding_source=source, verified_at=time.time(), head_repo=head_repo)
+    db.execute("INSERT OR REPLACE INTO binding VALUES (?, ?, ?, ?, ?)",
+               (owner["cwd"], repo, number, branch, json.dumps(verified)))
+
+
 class Intake:
     def __init__(self, db, state, now):
         self.db, self.state, self.now = db, state, now
@@ -112,12 +119,10 @@ class Intake:
         return Path(name)
 
     def bind(self, key, expected, owner):
-        _, _, _, branch, _ = expected
         # Readers must not see a cleared attempt without the exact owner binding.
         self.db.execute("BEGIN IMMEDIATE")
         try:
-            self.db.execute("INSERT OR REPLACE INTO binding VALUES (?, ?, ?, ?, ?)",
-                            (owner["cwd"], *key, branch, json.dumps(owner)))
+            remember_binding(self.db, expected, owner, "bootstrap")
             self.set(key, bootstrap=None, owner_session=owner["session"])
             self.db.execute("COMMIT")
         except sqlite3.Error:

@@ -16,10 +16,11 @@ from pathlib import Path
 from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import HTTPRedirectHandler, Request, build_opener
+from uuid import UUID
 
 from pr_nudger_discovery import discover_owners
 import pr_nudger_routes
-from pr_nudger_intake import Intake, RateLimited, launch_capacity
+from pr_nudger_intake import Intake, RateLimited, launch_capacity, remember_binding
 from pr_nudger_routes import route
 
 REPO = r"[a-zA-Z0-9-]+/[a-zA-Z0-9_.-]+"
@@ -194,6 +195,35 @@ def discover(cwd, repos, local, inspection, read=None):
     return ("stale_head" if pr["head"]["sha"] != sha else pr_status(pr)), pr
 
 
+def remember_configured(db, expected, cwd, owner):
+    if db is None or owner.get("cmux_discovered") or owner.get("cli") not in {"codex", "claude"}:
+        return True
+    repo, number, _, branch, _ = expected
+    row = db.execute(
+        "SELECT owner FROM binding WHERE cwd=? AND repo=? AND number=? AND branch=?",
+        (str(cwd), repo, number, branch),
+    ).fetchone()
+    if row:
+        prior = json.loads(row[0])
+        if prior.get("binding_source") in {"cmux", "bootstrap"} or prior.get("cmux_discovered"):
+            return all(
+                field not in owner or field not in prior or owner[field] == prior[field]
+                for field in ("cli", "session", "profile_dir")
+            )
+    try:
+        if str(UUID(owner["session"])) != owner["session"]:
+            return True
+        path, env = pr_nudger_routes._session(dict(owner, branch=branch), cwd)
+    except CHECK_ERRORS:
+        return True
+    if path is not None:
+        profile_key = "CODEX_HOME" if owner["cli"] == "codex" else "CLAUDE_CONFIG_DIR"
+        verified = dict(owner, cwd=str(cwd), host=socket.gethostname(),
+                        profile_dir=str(Path(env[profile_key]).resolve()))
+        remember_binding(db, expected, verified, "configured")
+    return True
+
+
 def dispatch(cwd, owner, local, pr, receipts, config, from_cache, read=None):
     read = read or github
     expected = identity(pr)
@@ -212,16 +242,18 @@ def dispatch(cwd, owner, local, pr, receipts, config, from_cache, read=None):
 
     reserved = False
     transport = None
-    binding = (str(cwd), *key, branch)
     can_resume = (config.get("headless_resume", True) is True
                   and owner.get("headless_resume", True) is True
-                  and (from_cache or not owner.get("cmux_discovered")))
+                  and (from_cache or not owner.get("cmux_discovered")
+                       or owner.get("headless_only") is True))
 
-    def confirm_owner(workspace, surface):
+    def confirm_owner(workspace, surface, profile_dir=None):
         owner.update(workspace=workspace, surface=surface)
         if receipts is not None and owner.get("cmux_discovered") and revalidate():
-            receipts.execute("INSERT OR REPLACE INTO binding VALUES (?, ?, ?, ?, ?)",
-                             (*binding, json.dumps(owner)))
+            verified = dict(owner, host=socket.gethostname())
+            if profile_dir:
+                verified["profile_dir"] = profile_dir
+            remember_binding(receipts, expected, verified, "cmux")
 
     def record(status):
         fields = ("cwd", "cli", "session", "workspace", "surface", "profile_dir",
@@ -335,6 +367,10 @@ def legacy_tick(config, receipts, enrolled, discovered, skip=(), read=None):
                 status = "ambiguous_owner"
             elif not owners:
                 status = "missing_owner"
+            elif owners[0].get("host", socket.gethostname()) != socket.gethostname():
+                status = "owner_host_unverified"
+            elif not from_cache and not remember_configured(receipts, identity(pr), cwd, owners[0]):
+                status = "ambiguous_owner"
             else:
                 status = dispatch(cwd, owners[0], local, pr, receipts, config, from_cache, read)
             yield dict(result, status=status)
@@ -469,6 +505,21 @@ def dispatch_target(key, target, pr, matches, store, config, read):
                 candidates.append((cwd, local, json.loads(cached[0])))
     if len(candidates) > 1:
         return note(key, "ambiguous_owner", "verify_owner")
+    if candidates:
+        cwd, local, owner = candidates[0]
+        if isinstance(enrollment, dict) and enrollment.get("managed_exclusive") is True:
+            managed, reason = bootstrap_enrollment(target, expected, require_launch=False)
+            if reason or str(cwd) != managed["cwd"] or any(
+                field in owner and owner[field] != managed.get(field)
+                for field in ("cli", "cli_bin", "profile_dir", "model")
+            ):
+                return note(key, reason or "enrollment_mismatch", "verify_owner")
+            owner = dict(owner, **managed)
+        if owner.get("host", socket.gethostname()) != socket.gethostname():
+            return note(key, "owner_host_unverified", "verify_owner")
+        candidates[0] = cwd, local, owner
+        if not from_cache and not remember_configured(db, expected, cwd, owner):
+            return note(key, "ambiguous_owner", "verify_owner")
     authorized_enrollment = None
     if row["next_due"] > store.now:
         if not candidates and row["reason"] in {"missing_owner", "missing_launch_authority"}:
@@ -495,14 +546,6 @@ def dispatch_target(key, target, pr, matches, store, config, read):
             return note(key, "pickup_not_due", "verify_remote_push", earliest=pushed + pickup)
     if candidates:
         cwd, local, owner = candidates[0]
-        if isinstance(enrollment, dict) and enrollment.get("managed_exclusive") is True:
-            managed, reason = bootstrap_enrollment(target, expected, require_launch=False)
-            if reason or str(cwd) != managed["cwd"] or any(
-                field in owner and owner[field] != managed.get(field)
-                for field in ("cli", "cli_bin", "profile_dir", "model")
-            ):
-                return note(key, reason or "enrollment_mismatch", "verify_owner")
-            owner = dict(owner, **managed)
         status = dispatch(cwd, owner, local, pr, db, config, from_cache, read)
         cooldown = config.get("cooldown_seconds", 1800)
         if status == "delivered":
@@ -640,6 +683,19 @@ def tick(config, receipts, state=None):
         if isinstance(enrollment, dict) and Path(enrollment.get("cwd", "")).is_absolute():
             if enrollment.get("host") == socket.gethostname():
                 enrolled.setdefault(Path(enrollment["cwd"]).resolve(), [])
+    if receipts is not None:
+        for key, (pr, _) in observed.items():
+            _, _, head_repo, branch, _ = identity(pr)
+            for cwd, raw in receipts.execute(
+                "SELECT cwd, owner FROM binding WHERE repo=? AND number=? AND branch=?",
+                (*key, branch),
+            ):
+                remembered = json.loads(raw)
+                path = Path(cwd)
+                if (remembered.get("host") == socket.gethostname()
+                        and remembered.get("head_repo") == head_repo
+                        and path.is_absolute() and path.resolve() == path):
+                    enrolled.setdefault(path, [])
     discovered = discover_owners(enrolled) if enrolled else {}
     yield from errors
     for key in sorted(observed, key=lambda key: (store.row(key)["next_due"], key)):

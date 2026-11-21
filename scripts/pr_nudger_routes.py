@@ -106,6 +106,18 @@ def _surfaces(cmux):
     return terminal_surfaces(cmux, strict=True)
 
 
+def _owner_surfaces(cmux, owner):
+    try:
+        return _surfaces(cmux) if cmux else []
+    except (OSError, ValueError, subprocess.SubprocessError):
+        if (owner.get("headless_only") is True
+                and owner.get("host") == socket.gethostname()
+                and sys.platform.startswith("linux")
+                and not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))):
+            return []
+        raise
+
+
 def _matches_owner(cmux, item, cwd, owner):
     claims = list(surface_claims({cwd}, *item[:2], strict=True, cmux=cmux))
     return len(claims) == 1 and (claims[0]["cli"], claims[0]["session"]) == (
@@ -414,7 +426,7 @@ def _resume(cmux, surfaces, cwd, path, env, owner, prompt, apply):
             if not owner.get("recheck", lambda *_: True)("headless"):
                 return "stale_pr"
             reserved = True
-            if (cmux and (_surfaces(cmux) != surfaces or _cwd_claimed(cmux, cwd, surfaces))
+            if (cmux and (_owner_surfaces(cmux, owner) != surfaces or _cwd_claimed(cmux, cwd, surfaces))
                     or _writers(cwd, path) or not _native_writer_free(lock)):
                 return "no_delivery"
             with tempfile.TemporaryFile() as incoming:
@@ -530,7 +542,7 @@ def route(owner, prompt, apply):
         cmux = shutil.which("cmux")
         if not cmux and owner.get("headless_only") is not True:
             return "blocked_cmux_unavailable"
-        surfaces = _surfaces(cmux) if cmux else []
+        surfaces = _owner_surfaces(cmux, owner)
         writers = _writers(cwd, path)
         if not writers:
             if cmux and discover_owners([cwd], strict=True, surfaces=surfaces, cmux=cmux):
@@ -548,7 +560,8 @@ def route(owner, prompt, apply):
             return "blocked_surface_changed"
         if not _matches_owner(cmux, matches[0], cwd, owner):
             return "blocked_surface_binding"
-        owner.get("confirm_owner", lambda *_: None)(*matches[0][:2])
+        profile_key = "CODEX_HOME" if cli == "codex" else "CLAUDE_CONFIG_DIR"
+        owner.get("confirm_owner", lambda *_: None)(*matches[0][:2], str(Path(env[profile_key]).resolve()))
         return _cmux_route(cmux, matches[0], writers[0], cwd, path, owner, prompt, apply)
     except (KeyError, TypeError, ValueError, OSError, subprocess.SubprocessError):
         return "blocked_route_unverified"

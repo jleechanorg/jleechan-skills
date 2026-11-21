@@ -14,7 +14,16 @@ stage="$(mktemp -d)"
 python3 scripts/pr_owner_nudger.py --config "$config"
 ```
 
-Use `worktree_roots` for discovery and `"headless_only": true` on an explicit owner that runs without cmux. Explicit Codex owners default to exact-session resume after the cmux safety check. Set `"headless_resume": false` in the config or owner to disable fallback.
+Use `worktree_roots` for discovery. A configured CLI owner is remembered only
+after its canonical session transcript matches the actionable PR checkout. The
+binding records the host, profile, verification time, and source. An explicitly
+tracked PR can still resolve that binding if its owner is removed from config.
+Conflicting config cannot replace a verified live binding.
+
+Set `"headless_only": true` only for an owner on a known headless host. On such an
+enrolled Linux host, writer checks still apply if cmux inventory is unreachable.
+An inaccessible GUI inventory blocks resume. Set `"headless_resume": false` in
+the config or owner to disable fallback.
 
 For a Dot owner, set `cli` to `dot`, select its `account`, and set `identity_sha256` to the lowercase SHA-256 of its exact authenticated email. See the Dot skill for browser prerequisites. Both exact transports use the archived `dot_reply.mjs` companion. Bind the owner to one of these destinations.
 

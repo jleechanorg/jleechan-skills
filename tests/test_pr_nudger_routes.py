@@ -77,6 +77,26 @@ class RouteTests(unittest.TestCase):
         with patch.object(router.shutil, "which", return_value=None):
             assert router.route(owner, PROMPT, True) == "blocked_cmux_unavailable"
 
+
+    def test_unreachable_cmux_can_resume_only_on_enrolled_headless_host(self):
+        owner, transcript = binding(self.tmp_path)
+        owner.update(headless_only=True, host=socket.gethostname())
+        with patch.object(router.shutil, "which", return_value="/bin/true"), \
+             patch.object(router, "_surfaces", side_effect=ValueError("cmux unavailable")), \
+             patch.object(router, "_writers", return_value=[]), \
+             patch.object(router, "_resume", return_value="would_deliver") as resume, \
+             patch.object(router.sys, "platform", "linux"), patch.dict(router.os.environ, {}, clear=True):
+            assert router.route(owner, PROMPT, False) == "would_deliver"
+            assert resume.call_args.args[:4] == ("/bin/true", [], self.tmp_path, transcript)
+            resume.reset_mock()
+            with patch.dict(router.os.environ, {"DISPLAY": ":0"}):
+                assert router.route(owner, PROMPT, False) == "blocked_route_unverified"
+            with patch.object(router.sys, "platform", "darwin"):
+                assert router.route(owner, PROMPT, False) == "blocked_route_unverified"
+            owner["host"] = "another-host"
+            assert router.route(owner, PROMPT, False) == "blocked_route_unverified"
+            resume.assert_not_called()
+
     def test_exact_owner_detected_and_unrelated_draft_never_submitted(self):
         tmp_path = self.tmp_path
         owner, transcript = binding(tmp_path)
