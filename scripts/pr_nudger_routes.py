@@ -410,13 +410,14 @@ def _resume(cmux, surfaces, cwd, path, env, owner, prompt, apply):
     model = owner.get("model") or recorded_model
     if not model:
         return "blocked_session_model"
-    cmd = (exe, "exec", "resume", "--model", model, owner["session"], "-")
+    managed = owner.get("managed_exclusive") is True
+    project_config = _PROJECT_DOC_CONFIG if managed else ()
+    cmd = (exe, "exec", "resume", *project_config, "--model", model, owner["session"], "-")
     stat = path.stat()
     if _writers(cwd, path):
         return "busy"
     if not apply:
         return "would_deliver"
-    managed = owner.get("managed_exclusive") is True
     claim_context = _managed_claim(_managed_claim_path(cwd)) if managed else nullcontext(None)
     if managed and not callable(owner.get("recheck")):
         return "blocked_managed_writer_unverified"
@@ -567,6 +568,9 @@ def route(owner, prompt, apply):
         return "blocked_route_unverified"
 
 
+# Keep the enrolled project's full instructions available on seed and resume.
+_PROJECT_DOC_MAX_BYTES = 65536
+_PROJECT_DOC_CONFIG = ("-c", f"project_doc_max_bytes={_PROJECT_DOC_MAX_BYTES}")
 _BOOTSTRAP_ACK = "PR_NUDGER_BOOTSTRAP_ACK"
 _BOOTSTRAP_RECONCILE = "bootstrap_reconciliation_required"
 # Intake design: a missing terminal receipt after one ten-minute tick remains
@@ -578,6 +582,7 @@ _BOOTSTRAP_CONFIG = (
     "-c", "features.apps=false", "-c", "features.hooks=false",
     "-c", "features.plugins=false", "-c", "features.multi_agent=false",
     "-c", "features.goals=false", "-c", "features.view_image=false",
+    *_PROJECT_DOC_CONFIG,
 )
 
 
@@ -683,6 +688,25 @@ def start_codex_bootstrap(enrollment, identity, *, apply, recheck, begin_attempt
         return _BOOTSTRAP_RECONCILE if reserved else "blocked_bootstrap_unverified"
 
 
+def _legacy_project_doc_warning(frame, cwd):
+    """Recognize the exact pre-turn truncation diagnostic from old ACK-only seeds."""
+    item = frame.get("item", {})
+    if frame["type"] != "item.completed" or item.get("type") != "error":
+        return False
+    path = cwd / "AGENTS.md"
+    if not path.is_file():
+        return False
+    size = path.stat().st_size
+    if not 32768 < size <= _PROJECT_DOC_MAX_BYTES:
+        return False
+    return item.get("message") == (
+        f"Loaded only 32768 of {size} bytes from `{path}` in environment `local` "
+        "under the 32768-byte project instruction budget. Trim your project "
+        "instructions to fit the budget. If you need to keep them all, "
+        "increase `project_doc_max_bytes`."
+    )
+
+
 def inspect_codex_bootstrap(enrollment, identity, attempt, *, bind=None):
     """Verify one completed seed without sending any prompt or claiming delivery."""
     uncertain = (_BOOTSTRAP_RECONCILE, None)
@@ -703,6 +727,10 @@ def inspect_codex_bootstrap(enrollment, identity, attempt, *, bind=None):
             return pending
         frames = [json.loads(line) for line in payload.splitlines()]
         kinds = [frame["type"] for frame in frames]
+        if (kinds[:3] == ["thread.started", "item.completed", "turn.started"]
+                and _legacy_project_doc_warning(frames[1], cwd)):
+            del frames[1]
+            del kinds[1]
         if any(kind not in {"thread.started", "turn.started", "turn.completed",
                             "item.started", "item.updated", "item.completed"} for kind in kinds):
             return uncertain

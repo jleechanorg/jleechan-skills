@@ -239,6 +239,7 @@ else:
                 self.fail("bootstrap launched without the shared claim")
             assert command[-1] == "-"
             assert "read-only" in command and "features.shell_tool=false" in command
+            assert "project_doc_max_bytes=65536" in command
             assert kwargs["stdin"].read().decode() == (
                 f"Verify owner bootstrap for owned/repo#12 at {'a' * 40}. "
             f"Do not use tools or take any action. Reply exactly {BOOTSTRAP_ACK}."
@@ -323,6 +324,21 @@ else:
             {"type": "item.completed", "item": {"type": "agent_message", "text": BOOTSTRAP_ACK}},
             {"type": "turn.completed"},
         ]
+        instructions = tmp_path / "AGENTS.md"
+        instructions.write_bytes(b"x" * 34413)
+        diagnostic = {
+            "type": "item.completed",
+            "item": {
+                "type": "error",
+                "message": (
+                    f"Loaded only 32768 of 34413 bytes from `{instructions}` in environment "
+                    "`local` under the 32768-byte project instruction budget. Trim your "
+                    "project instructions to fit the budget. If you need to keep them all, "
+                    "increase `project_doc_max_bytes`."
+                ),
+            },
+        }
+        started = {"type": "turn.started"}
         bound = []
 
         def bind_owner(session):
@@ -338,6 +354,11 @@ else:
             assert router.inspect_codex_bootstrap(enrollment, BOOTSTRAP_IDENTITY, attempt, bind=bind_owner) == (
                 "bootstrapped", SESSION,
             )
+            recovered = [frames[0], diagnostic, started, *frames[1:]]
+            events.write_text("".join(json.dumps(row) + "\n" for row in recovered))
+            assert router.inspect_codex_bootstrap(
+                enrollment, BOOTSTRAP_IDENTITY, attempt, bind=bind_owner,
+            ) == ("bootstrapped", SESSION)
             assert router.inspect_codex_bootstrap(
                 enrollment, BOOTSTRAP_IDENTITY, dict(attempt, sha="b" * 40), bind=bind_owner,
             ) == ("bootstrap_reconciliation_required", None)
@@ -352,13 +373,22 @@ else:
             for bad_frames in (
                 frames[:1] + frames[-1:],
                 frames + [frames[0]],
+                [frames[0], started, diagnostic, *frames[1:]],
+                [frames[0], diagnostic, diagnostic, started, *frames[1:]],
+                [frames[0], diagnostic, *frames[1:]],
+                [frames[0], dict(diagnostic, item={"type": "error", "message": "unknown error"}), started, *frames[1:]],
+                [
+                    frames[0],
+                    dict(diagnostic, item=dict(diagnostic["item"], message=diagnostic["item"]["message"].replace("34413", "99999"))),
+                    started, *frames[1:],
+                ],
                 frames[:1] + [{"type": "item.started", "item": {"type": "command_execution"}}] + frames[1:],
             ):
                 events.write_text("".join(json.dumps(row) + "\n" for row in bad_frames))
                 assert router.inspect_codex_bootstrap(enrollment, BOOTSTRAP_IDENTITY, attempt, bind=bind_owner) == (
                     "bootstrap_reconciliation_required", None,
                 )
-        assert bound == [SESSION]
+        assert bound == [SESSION, SESSION]
 
     def test_existing_headless_resume_honors_process_admission(self):
         tmp_path = self.tmp_path
@@ -373,6 +403,21 @@ else:
             assert router.route(owner, PROMPT, True) == "blocked_launch_capacity"
             reserve.assert_not_called()
             spawn.assert_not_called()
+
+    def test_managed_resume_keeps_full_project_instruction_budget(self):
+        owner, _ = binding(self.tmp_path)
+        owner.update(bootstrap_enrollment(self.tmp_path), recheck=lambda _: True)
+        with patch.object(router, "_managed_claim_path", return_value=self.tmp_path / "managed.lock"), \
+             patch.object(router.shutil, "which", return_value=None), \
+             patch.object(router, "_writers", return_value=[]), \
+             patch.object(router, "_run", side_effect=bootstrap_cli_probe), \
+             patch.object(router, "_spawn_claimed") as spawn, \
+             patch.object(router, "_wait_for_receipt", return_value="delivered"):
+            assert router.route(owner, PROMPT, True) == "delivered"
+            assert spawn.call_args.args[0] == (
+                "/bin/true", "exec", "resume", "-c", "project_doc_max_bytes=65536",
+                "--model", "fixture-model", SESSION, "-",
+            )
 
     def test_managed_claim_blocks_competing_resume(self):
         tmp_path = self.tmp_path
