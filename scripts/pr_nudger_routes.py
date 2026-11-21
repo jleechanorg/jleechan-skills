@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 import select
 import shutil
+import socket
 import stat
 import subprocess
 import tempfile
@@ -75,7 +76,7 @@ def _fields(*args):
 
 
 def _writers(cwd, transcript):
-    holders = {pid for pid, _ in _fields("--", str(transcript))}
+    holders = {pid for pid, _ in _fields("--", str(transcript))} if transcript else set()
     editors = {}
     for line in _checked("ps", "-xww", "-o", "pid=,tty=,stat=,comm=").splitlines():
         pid, tty, state, command = line.split(maxsplit=3)
@@ -292,6 +293,16 @@ def _native_writer_free(lock):
     return True
 
 
+def _verified_lock_dir(path):
+    return path.is_dir() and not path.is_symlink() and path.stat().st_uid == os.getuid()
+
+
+def _supported_codex(executable, cwd, env):
+    version = _run(executable, "--version", cwd=cwd, env=env)
+    match = re.fullmatch(r"codex-cli (\d+)\.(\d+)\.(\d+)\s*", version.stdout)
+    return not version.returncode and bool(match and tuple(map(int, match.groups())) >= (0, 160, 0))
+
+
 def _resume(cmux, surfaces, cwd, path, env, owner, prompt, apply):
     if owner.get("headless_resume", owner.get("headless_only")) is not True:
         return "blocked_headless_disabled"
@@ -302,11 +313,9 @@ def _resume(cmux, surfaces, cwd, path, env, owner, prompt, apply):
     if not exe or not Path(exe).is_absolute() or not os.access(exe, os.X_OK):
         return "blocked_cli_unavailable"
     lock = Path(env["CODEX_HOME"]) / "thread-writer-locks" / f"{owner['session']}.lock"
-    version = _run(exe, "--version", cwd=cwd, env=env)
-    match = re.fullmatch(r"codex-cli (\d+)\.(\d+)\.(\d+)\s*", version.stdout)
-    if (not lock.parent.is_dir() or lock.parent.is_symlink()
-            or lock.parent.stat().st_uid != os.getuid()
-            or version.returncode or not match or tuple(map(int, match.groups())) < (0, 160, 0)):
+    if apply and not owner.get("admit_launch", lambda: True)():
+        return "blocked_launch_capacity"
+    if not _verified_lock_dir(lock.parent) or not _supported_codex(exe, cwd, env):
         return "blocked_headless_exclusion_unverified"
     if not _native_writer_free(lock):
         return "busy"
@@ -365,6 +374,8 @@ def _dot(owner, prompt, apply):
         return "blocked_dot_unavailable"
     if not apply:
         return "would_deliver"
+    if not owner.get("admit_launch", lambda: True)():
+        return "blocked_launch_capacity"
     if not owner.get("recheck", lambda *_: True)("dot"):
         return "stale_pr"
     try:
@@ -452,3 +463,171 @@ def route(owner, prompt, apply):
         return _cmux_route(cmux, matches[0], writers[0], cwd, path, owner, prompt, apply)
     except (KeyError, TypeError, ValueError, OSError, subprocess.SubprocessError):
         return "blocked_route_unverified"
+
+
+_BOOTSTRAP_ACK = "PR_NUDGER_BOOTSTRAP_ACK"
+_BOOTSTRAP_RECONCILE = "bootstrap_reconciliation_required"
+# Intake design: a missing terminal receipt after one ten-minute tick remains
+# unsettled. This horizon classifies evidence only; it never authorizes replay.
+_BOOTSTRAP_RECEIPT_SECONDS = 600
+_BOOTSTRAP_CONFIG = (
+    "-c", 'approval_policy="never"', "-c", 'web_search="disabled"',
+    "-c", "features.shell_tool=false", "-c", "features.shell_snapshot=false",
+    "-c", "features.apps=false", "-c", "features.hooks=false",
+    "-c", "features.plugins=false", "-c", "features.multi_agent=false",
+    "-c", "features.goals=false", "-c", "features.view_image=false",
+)
+
+
+def _bootstrap_scope(enrollment, identity):
+    repo, number, head_repo, branch, sha = identity
+    # Operator-enrolled exclusive context; the local tick lock does not exclude
+    # arbitrary editors. Each launch also rechecks live worktree and writers.
+    if (enrollment.get("launch_authorized") is not True
+            or enrollment.get("managed_exclusive") is not True
+            or enrollment.get("host") != socket.gethostname()
+            or enrollment.get("cli") != "codex"
+            or enrollment.get("head_repo") != head_repo or enrollment.get("branch") != branch
+            or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo)
+            or not re.fullmatch(r"[0-9a-f]{40}", sha)
+            or type(number) is not int or number <= 0):
+        raise ValueError("unverified bootstrap authority")
+    cwd, profile, executable = (Path(enrollment[key]) for key in ("cwd", "profile_dir", "cli_bin"))
+    if not all(path.is_absolute() for path in (cwd, profile, executable)):
+        raise ValueError("bootstrap requires exact absolute paths")
+    cwd, profile = cwd.resolve(strict=True), profile.resolve(strict=True)
+    if not cwd.is_dir() or not profile.is_dir() or not enrollment.get("model"):
+        raise ValueError("unverified bootstrap worktree, profile, or model")
+    prompt = (f"Verify owner bootstrap for {repo}#{number} at {sha}. "
+              f"Do not use tools or take any action. Reply exactly {_BOOTSTRAP_ACK}.")
+    return cwd, profile, str(executable), prompt
+
+
+def _bootstrap_events(path, write=False):
+    path = Path(path)
+    if not path.is_absolute() or path.resolve(strict=True) != path:
+        raise ValueError("bootstrap receipt path must be exact")
+    flags = os.O_WRONLY | os.O_APPEND if write else os.O_RDONLY
+    stream = os.fdopen(os.open(path, flags | os.O_NOFOLLOW | os.O_NONBLOCK), "wb" if write else "rb")
+    info = os.fstat(stream.fileno())
+    if (not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o600
+            or info.st_uid != os.getuid() or info.st_nlink != 1 or (write and info.st_size)):
+        stream.close()
+        raise ValueError("bootstrap receipt is not a private attempt file")
+    return stream
+
+
+def _bootstrap_writer_free(cwd, enrollment, transcript=None):
+    cmux = shutil.which("cmux")
+    if not cmux and enrollment.get("headless_only") is not True:
+        raise ValueError("cmux inventory unavailable")
+    return not _writers(cwd, transcript) and not (
+        cmux and _cwd_claimed(cmux, cwd, _surfaces(cmux))
+    )
+
+
+def start_codex_bootstrap(enrollment, identity, *, apply, recheck, begin_attempt):
+    """Launch an acknowledgment-only seed after the caller durably reserves it."""
+    reserved = False
+    try:
+        cwd, profile, executable, prompt = _bootstrap_scope(enrollment, identity)
+        if not os.access(executable, os.X_OK):
+            return "blocked_cli_unavailable"
+        if not _bootstrap_writer_free(cwd, enrollment):
+            return "busy"
+        if not apply:
+            return "would_bootstrap"
+        env = {**os.environ, "CODEX_HOME": str(profile)}
+        if not _supported_codex(executable, cwd, env):
+            return "blocked_headless_exclusion_unverified"
+        if _run(executable, "login", "status", cwd=cwd, env=env).returncode:
+            return "blocked_cli_auth"
+        # Ask the CLI about enabled MCP servers. An empty TOML table does not
+        # reliably replace servers inherited from project or machine config.
+        inventory = _run(executable, *_BOOTSTRAP_CONFIG, "mcp", "list", "--json", cwd=cwd, env=env)
+        if inventory.returncode:
+            return "blocked_bootstrap_tools"
+        servers = json.loads(inventory.stdout)
+        if not isinstance(servers, list) or any(
+            not isinstance(server, dict) or server.get("enabled") is not False for server in servers
+        ):
+            return "blocked_bootstrap_tools"
+        if not recheck():
+            return "stale_pr"
+        events = begin_attempt()
+        if events is None:
+            return "blocked_bootstrap_reservation"
+        reserved = True
+        if not _bootstrap_writer_free(cwd, enrollment):
+            return "no_bootstrap"
+        # A seed proves ownership only. Do not load personal integrations or
+        # expose shell, connector, hook, collaborator, or web-search actions.
+        command = (
+            executable, "exec", "--json", "--ignore-user-config", "--sandbox", "read-only",
+            *_BOOTSTRAP_CONFIG, "--model", enrollment["model"], "-",
+        )
+        with tempfile.TemporaryFile() as incoming, _bootstrap_events(events, write=True) as outgoing:
+            incoming.write(prompt.encode())
+            incoming.seek(0)
+            subprocess.Popen(
+                command, cwd=cwd, env=env, stdin=incoming, stdout=outgoing,
+                stderr=subprocess.DEVNULL, start_new_session=True,
+            )
+        return "bootstrap_started"
+    except (KeyError, TypeError, ValueError, OSError, subprocess.SubprocessError):
+        return _BOOTSTRAP_RECONCILE if reserved else "blocked_bootstrap_unverified"
+
+
+def inspect_codex_bootstrap(enrollment, identity, attempt):
+    """Verify one completed seed without sending any prompt or claiming delivery."""
+    uncertain = (_BOOTSTRAP_RECONCILE, None)
+    try:
+        cwd, profile, _, prompt = _bootstrap_scope(enrollment, identity)
+        age = time.time() - attempt["started_at"]
+        if attempt["sha"] != identity[4] or not 0 <= age:
+            return uncertain
+        pending = ("bootstrap_pending", None) if age < _BOOTSTRAP_RECEIPT_SECONDS else uncertain
+        with _bootstrap_events(attempt["events_path"]) as stream:
+            payload = stream.read(131073)
+        if len(payload) > 131072:
+            return uncertain
+        if not payload.endswith(b"\n"):
+            return pending
+        frames = [json.loads(line) for line in payload.splitlines()]
+        kinds = [frame["type"] for frame in frames]
+        if any(kind not in {"thread.started", "turn.started", "turn.completed",
+                            "item.started", "item.updated", "item.completed"} for kind in kinds):
+            return uncertain
+        items = [frame["item"] for frame in frames if frame["type"].startswith("item.")]
+        if any(item["type"] not in {"agent_message", "reasoning"} for item in items):
+            return uncertain
+        if kinds.count("thread.started") > 1 or kinds.count("turn.completed") > 1:
+            return uncertain
+        if "turn.completed" not in kinds:
+            return pending
+        if kinds[0] != "thread.started" or kinds[-1] != "turn.completed":
+            return uncertain
+        replies = [frame["item"]["text"] for frame in frames if frame["type"] == "item.completed"
+                   and frame["item"]["type"] == "agent_message"]
+        session = frames[0]["thread_id"]
+        if replies != [_BOOTSTRAP_ACK] or str(UUID(session)) != session:
+            return uncertain
+        path, _ = _session(dict(enrollment, session=session), cwd)
+        if path is None:
+            return pending
+        if not path.is_relative_to(profile / "sessions"):
+            return uncertain
+        info = path.stat()
+        first = next(_rows(path, (info.st_ino, 0)), {})
+        git = first.get("payload", {}).get("git", {}) if first.get("type") == "session_meta" else {}
+        if git.get("commit_hash") != identity[4] or not _accepted(path, (info.st_ino, 0), "codex", prompt):
+            return uncertain
+        lock = profile / "thread-writer-locks" / f"{session}.lock"
+        if not _verified_lock_dir(lock.parent):
+            return uncertain
+        if (not _terminal_state("codex", path)[0] or not _native_writer_free(lock)
+                or not _bootstrap_writer_free(cwd, enrollment, path)):
+            return pending
+        return "bootstrapped", session
+    except (AttributeError, KeyError, TypeError, ValueError, OSError, subprocess.SubprocessError):
+        return uncertain

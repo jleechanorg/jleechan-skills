@@ -1,8 +1,9 @@
 """Exercise route selection and submit boundaries with disposable sessions."""
 import fcntl
 import json
+import os
+import socket
 import sys
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -177,3 +178,160 @@ def test_dot_requires_nonce_bound_zero_exit_to_prove_no_delivery():
              patch.object(router.os, "read", return_value=b"prepared-exact " + nonce + b"\n"):
             assert router.route(owner, PROMPT, apply=True) == status
         child.communicate.assert_called_once_with(b"commit " + nonce + b"\n", timeout=18)
+
+
+BOOTSTRAP_IDENTITY = ("owned/repo", 12, "owned/head", "feature-branch", "a" * 40)
+BOOTSTRAP_ACK = "PR_NUDGER_BOOTSTRAP_ACK"
+
+
+def bootstrap_enrollment(cwd):
+    return {
+        "cwd": str(cwd), "cli": "codex", "cli_bin": "/bin/true",
+        "profile_dir": str(cwd), "model": "fixture-model", "headless_only": True,
+        "host": socket.gethostname(), "managed_exclusive": True,
+        "launch_authorized": True, "head_repo": "owned/head", "branch": "feature-branch",
+    }
+
+
+def bootstrap_cli_probe(*args, **kwargs):
+    output = "[]" if args[-3:] == ("mcp", "list", "--json") else "codex-cli 0.160.0"
+    return SimpleNamespace(returncode=0, stdout=output)
+
+
+def test_fresh_bootstrap_reserves_before_detached_seed_spawn(tmp_path):
+    enrollment = bootstrap_enrollment(tmp_path)
+    events = tmp_path / "attempt.jsonl"
+    events.touch(mode=0o600)
+    order = []
+
+    def reserve():
+        order.append("reserve")
+        return events
+
+    def spawn(command, **kwargs):
+        order.append("spawn")
+        assert command[:3] == ("/bin/true", "exec", "--json")
+        assert command[-1] == "-"
+        assert "read-only" in command and "features.shell_tool=false" in command
+        assert kwargs["stdin"].read().decode() == (
+            f"Verify owner bootstrap for owned/repo#12 at {'a' * 40}. "
+            f"Do not use tools or take any action. Reply exactly {BOOTSTRAP_ACK}."
+        )
+        assert os.fstat(kwargs["stdout"].fileno()).st_ino == events.stat().st_ino
+        assert kwargs["start_new_session"] is True
+
+    with patch.object(router.shutil, "which", return_value=None), \
+         patch.object(router, "_writers", return_value=[]), \
+         patch.object(router, "_run", side_effect=bootstrap_cli_probe), \
+         patch.object(router.subprocess, "Popen", side_effect=spawn):
+        assert router.start_codex_bootstrap(
+            enrollment, BOOTSTRAP_IDENTITY, apply=True, recheck=lambda: True,
+            begin_attempt=reserve,
+        ) == "bootstrap_started"
+    assert order == ["reserve", "spawn"]
+
+
+def test_fresh_bootstrap_blocks_stale_and_competing_owners(tmp_path):
+    enrollment = bootstrap_enrollment(tmp_path)
+    reserve = Mock()
+    with patch.object(router.shutil, "which", return_value=None), \
+         patch.object(router, "_writers", side_effect=[[], [WRITER]]), \
+         patch.object(router, "_run", side_effect=bootstrap_cli_probe), \
+         patch.object(router.subprocess, "Popen") as spawn:
+        assert router.start_codex_bootstrap(
+            enrollment, BOOTSTRAP_IDENTITY, apply=True, recheck=lambda: False,
+            begin_attempt=reserve,
+        ) == "stale_pr"
+        assert router.start_codex_bootstrap(
+            enrollment, BOOTSTRAP_IDENTITY, apply=True, recheck=lambda: True,
+            begin_attempt=reserve,
+        ) == "busy"
+        reserve.assert_not_called()
+        spawn.assert_not_called()
+
+
+def test_fresh_bootstrap_does_not_launch_with_unverified_tool_inventory(tmp_path):
+    enrollment = bootstrap_enrollment(tmp_path)
+    reserve = Mock()
+
+    def cli_probe(*args, **kwargs):
+        output = '[{"name":"connector","enabled":true}]' if "list" in args else "codex-cli 0.160.0"
+        return SimpleNamespace(returncode=0, stdout=output)
+
+    with patch.object(router.shutil, "which", return_value=None), \
+         patch.object(router, "_writers", return_value=[]), \
+         patch.object(router, "_run", side_effect=cli_probe), \
+         patch.object(router.subprocess, "Popen") as spawn:
+        assert router.start_codex_bootstrap(
+            enrollment, BOOTSTRAP_IDENTITY, apply=True, recheck=lambda: True,
+            begin_attempt=reserve,
+        ) == "blocked_bootstrap_tools"
+        reserve.assert_not_called()
+        spawn.assert_not_called()
+
+
+def test_bootstrap_inspection_requires_exact_ack_and_persisted_transcript(tmp_path):
+    enrollment = bootstrap_enrollment(tmp_path)
+    _, transcript = binding(tmp_path)
+    prompt = (
+        f"Verify owner bootstrap for owned/repo#12 at {'a' * 40}. "
+        f"Do not use tools or take any action. Reply exactly {BOOTSTRAP_ACK}."
+    )
+    rows = [
+        {"type": "session_meta", "payload": {
+            "id": SESSION, "cwd": str(tmp_path),
+            "git": {"branch": "feature-branch", "commit_hash": "a" * 40},
+        }},
+        {"type": "response_item", "payload": {"role": "user", "content": prompt}},
+        {"type": "event_msg", "payload": {"type": "task_complete"}},
+    ]
+    transcript.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    events = tmp_path / "attempt.jsonl"
+    events.touch(mode=0o600)
+    attempt = {"id": "attempt", "events_path": str(events), "sha": "a" * 40, "started_at": 60}
+    frames = [
+        {"type": "thread.started", "thread_id": SESSION},
+        {"type": "item.completed", "item": {"type": "agent_message", "text": BOOTSTRAP_ACK}},
+        {"type": "turn.completed"},
+    ]
+    with patch.object(router.shutil, "which", return_value=None), \
+         patch.object(router, "_writers", return_value=[]), \
+         patch.object(router.time, "time", return_value=61):
+        events.write_text("".join(json.dumps(row) + "\n" for row in frames))
+        assert router.inspect_codex_bootstrap(enrollment, BOOTSTRAP_IDENTITY, attempt) == (
+            "bootstrapped", SESSION,
+        )
+        assert router.inspect_codex_bootstrap(
+            enrollment, BOOTSTRAP_IDENTITY, dict(attempt, sha="b" * 40),
+        ) == ("bootstrap_reconciliation_required", None)
+        events.write_text("")
+        assert router.inspect_codex_bootstrap(
+            enrollment, BOOTSTRAP_IDENTITY, attempt
+        ) == ("bootstrap_pending", None)
+        with patch.object(router.time, "time", return_value=661):
+            assert router.inspect_codex_bootstrap(
+                enrollment, BOOTSTRAP_IDENTITY, attempt,
+            ) == ("bootstrap_reconciliation_required", None)
+        for bad_frames in (
+            frames[:1] + frames[-1:],
+            frames + [frames[0]],
+            frames[:1] + [{"type": "item.started", "item": {"type": "command_execution"}}] + frames[1:],
+        ):
+            events.write_text("".join(json.dumps(row) + "\n" for row in bad_frames))
+            assert router.inspect_codex_bootstrap(enrollment, BOOTSTRAP_IDENTITY, attempt) == (
+                "bootstrap_reconciliation_required", None,
+            )
+
+
+def test_existing_headless_resume_honors_process_admission(tmp_path):
+    owner, _ = binding(tmp_path)
+    reserve = Mock()
+    owner.update(headless_only=True, cli_bin="/bin/true", admit_launch=lambda: False, recheck=reserve)
+    with patch.object(router.shutil, "which", return_value=None), \
+         patch.object(router, "_writers", return_value=[]), \
+         patch.object(router, "_run", return_value=SimpleNamespace(
+             returncode=0, stdout="codex-cli 0.160.0")), \
+         patch.object(router.subprocess, "Popen") as spawn:
+        assert router.route(owner, PROMPT, True) == "blocked_launch_capacity"
+        reserve.assert_not_called()
+        spawn.assert_not_called()
