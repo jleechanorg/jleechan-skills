@@ -301,10 +301,16 @@ class DispatcherTest(unittest.TestCase):
         }
 
         def command(cwd, *args):
-            if args[:2] == ("gh", "pr"):
-                self.assertEqual(args, ("gh", "pr", "view", "12", "--repo", "base/project",
-                                        "--json", "headRefOid,statusCheckRollup"))
-                return json.dumps(ci)
+            if args[:3] == ("gh", "api", "graphql"):
+                self.assertEqual(args[:4], ("gh", "api", "graphql", "--include"))
+                self.assertEqual(args[-6:], ("-f", "owner=base", "-f", "repo=project", "-F", "number=12"))
+                commit = {"oid": self.sha, "statusCheckRollup": {"contexts": {
+                    "pageInfo": {"hasNextPage": ci.get("has_next", False)},
+                    "nodes": ci["statusCheckRollup"],
+                }}}
+                return json.dumps({"data": {"repository": {"pullRequest": {
+                    "headRefOid": ci["headRefOid"], "commits": {"nodes": [{"commit": commit}]},
+                }}}})
             return self.command(cwd, *args)
 
         with patch.object(nudger, "github", return_value=self.pr), \
@@ -327,6 +333,34 @@ class DispatcherTest(unittest.TestCase):
             ci["headRefOid"] = self.sha
             ci["statusCheckRollup"] = []
             self.assertEqual(self.target_tick()[0]["ci_status"], "no_checks_observed")
+
+
+    def test_ci_graphql_reset_does_not_suspend_rest_refresh(self):
+        self.config["owners"] = []
+        self.config["targets"] = [{"repo": "base/project", "number": 12}]
+        requests = []
+
+        def command(_cwd, *args):
+            if args[:3] == ("gh", "api", "graphql"):
+                requests.append("graphql")
+                raise subprocess.CalledProcessError(
+                    1, args, output="HTTP/2 429 Too Many Requests\nRetry-After: 900\n\n{}",
+                )
+            requests.append("core")
+            return json.dumps(self.pr)
+
+        with patch.object(nudger, "observe_ci", side_effect=real_observe_ci), \
+                patch.object(nudger, "command", side_effect=command), \
+                patch.object(nudger.time, "time", return_value=1000) as clock:
+            self.assertEqual(self.target_tick()[0]["ci_status"], "rate_limited")
+            clock.return_value = 1100
+            self.assertEqual(self.target_tick()[0]["ci_status"], "rate_limited")
+            self.assertEqual(requests, ["core", "graphql", "core"])
+            path = Path(self.config["state_dir"]) / "receipts.sqlite3"
+            with sqlite3.connect(path) as db:
+                self.assertEqual(db.execute(
+                    "SELECT bucket, reset_at FROM github_budget"
+                ).fetchall(), [("graphql", 1900)])
 
     def test_only_local_auth_failure_allows_anonymous_inspection(self):
         failure_code = 4

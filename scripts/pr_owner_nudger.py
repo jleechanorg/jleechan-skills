@@ -60,15 +60,15 @@ def _rate_reset(headers, body, now):
     return 0
 
 
-def _github_payload(output, budget):
+def _github_payload(output, budget, bucket="core"):
     lines, separator, body = output.replace("\r\n", "\n").partition("\n\n")
     if not separator or not lines.startswith("HTTP/"):
         return json.loads(output)
     headers = dict(line.split(": ", 1) for line in lines.splitlines()[1:] if ": " in line)
-    until = _rate_reset(headers, body, budget.now)
-    if until:
-        budget.rate_limit(until)
     code = int(lines.splitlines()[0].split()[1])
+    until = _rate_reset(headers, body, budget.now) or (budget.now + 60 if code == 429 else 0)
+    if until:
+        budget.rate_limit(until, bucket)
     if code in (403, 429) and until:
         raise RateLimited(until)
     if not 200 <= code < 300:
@@ -526,18 +526,62 @@ def dispatch_target(key, target, pr, matches, store, config, read):
     return note(key, status, "reconcile_bootstrap" if store.row(key)["bootstrap"] else "bootstrap_owner")
 
 
-def observe_ci(repo, number, head):
+CI_QUERY = """
+query($owner:String!, $repo:String!, $number:Int!) {
+  repository(owner:$owner, name:$repo) {
+    pullRequest(number:$number) {
+      headRefOid
+      commits(last:1) { nodes { commit {
+        oid
+        statusCheckRollup { contexts(first:100) {
+          pageInfo { hasNextPage }
+          nodes {
+            ... on CheckRun { status conclusion }
+            ... on StatusContext { state }
+          }
+        } }
+      } } }
+    }
+  }
+}
+"""
+
+
+def observe_ci(repo, number, head, budget):
+    bucket = "graphql"
+    if budget.budget_until(bucket) > budget.now:
+        return "rate_limited"
+    owner, name = repo.split("/")
     try:
-        response = json.loads(command(Path.cwd(), "gh", "pr", "view", str(number), "--repo", repo,
-                                      "--json", "headRefOid,statusCheckRollup"))
-        if response["headRefOid"] != head:
-            return "stale_head"
-        checks = response["statusCheckRollup"]
-        if not isinstance(checks, list):
+        try:
+            output = command(Path.cwd(), "gh", "api", "graphql", "--include",
+                             "-f", f"query={CI_QUERY}", "-f", f"owner={owner}",
+                             "-f", f"repo={name}", "-F", f"number={number}")
+        except subprocess.CalledProcessError as error:
+            if not isinstance(error.output, str) or not error.output.startswith("HTTP/"):
+                raise
+            output = error.output
+        response = _github_payload(output, budget, bucket)
+        if response.get("errors"):
+            if any(error.get("type") == "RATE_LIMITED" for error in response["errors"]):
+                budget.rate_limit(max(budget.budget_until(bucket), budget.now + 60), bucket)
+                return "rate_limited"
             return "unavailable"
+        pr = response["data"]["repository"]["pullRequest"]
+        commit = pr["commits"]["nodes"][-1]["commit"]
+        if pr["headRefOid"] != head or commit["oid"] != head:
+            return "stale_head"
+        rollup = commit["statusCheckRollup"]
+        if rollup is None:
+            return "no_checks_observed"
+        contexts = rollup["contexts"]
+        if contexts["pageInfo"]["hasNextPage"]:
+            return "incomplete"
         states = {check.get("conclusion") or check.get("state") or check.get("status")
-                  for check in checks}
-    except (*CHECK_ERRORS, AttributeError):
+                  for check in contexts["nodes"]}
+    except RateLimited:
+        return "rate_limited"
+    except (*CHECK_ERRORS, AttributeError, IndexError):
         return "unavailable"
     if states & {"ACTION_REQUIRED", "CANCELLED", "ERROR", "FAILURE", "STALE", "STARTUP_FAILURE", "TIMED_OUT"}:
         return "failing"
@@ -569,7 +613,7 @@ def tick(config, receipts, state=None):
                               if item["name"].startswith("stage:")] or [None]
             head = identity(pr)[-1]
             store.observation(key, head, pr_status(pr), None if others else stage)
-            ci_status = observe_ci(repo, number, head)
+            ci_status = observe_ci(repo, number, head, store)
             store.ci_observation(key, head, ci_status)
             observed[key] = pr, ci_status
         except RateLimited as error:

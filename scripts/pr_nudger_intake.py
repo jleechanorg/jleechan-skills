@@ -22,7 +22,7 @@ class RateLimited(OSError):
 class Intake:
     def __init__(self, db, state, now):
         self.db, self.state, self.now = db, state, now
-        self._until = 0
+        self._until = {}
 
     def prepare(self, keys):
         if self.db is None:
@@ -72,7 +72,7 @@ class Intake:
     def ci_observation(self, key, head, status):
         if self.db is not None:
             self.db.execute("INSERT OR REPLACE INTO target_ci VALUES (?, ?, ?, ?, ?)",
-                            (*key, head, status, self.now))
+                            (*key, head, status, time.time()))
 
     def schedule(self, key, reason, action, *, progress=False, earliest=0):
         row = self.row(key)
@@ -86,18 +86,19 @@ class Intake:
         self.set(key, reason=reason, next_action=action, attempts=attempts, next_due=due)
         return dict(status=reason, next_action=action, attempts=attempts, next_due=due)
 
-    def budget_until(self):
+    def budget_until(self, bucket="core"):
+        local = self._until.get(bucket, 0)
         if self.db is not None:
-            row = self.db.execute("SELECT reset_at FROM github_budget WHERE bucket='core'").fetchone()
-            return max(self._until, row[0] if row else 0)
-        return self._until
+            row = self.db.execute("SELECT reset_at FROM github_budget WHERE bucket=?", (bucket,)).fetchone()
+            return max(local, row[0] if row else 0)
+        return local
 
-    def rate_limit(self, until):
-        self._until = max(self._until, until)
+    def rate_limit(self, until, bucket="core"):
+        self._until[bucket] = max(self._until.get(bucket, 0), until)
         if self.db is not None:
             self.db.execute(
-                "INSERT INTO github_budget VALUES ('core', ?) ON CONFLICT(bucket)"
-                " DO UPDATE SET reset_at=max(reset_at, excluded.reset_at)", (until,)
+                "INSERT INTO github_budget VALUES (?, ?) ON CONFLICT(bucket)"
+                " DO UPDATE SET reset_at=max(reset_at, excluded.reset_at)", (bucket, until)
             )
 
     def begin(self, key, expected, enrollment):
