@@ -5,6 +5,7 @@ import argparse
 import fcntl
 import json
 import re
+import socket
 import sqlite3
 import subprocess
 import time
@@ -12,10 +13,13 @@ from collections import defaultdict
 from contextlib import ExitStack, closing
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from pr_nudger_discovery import discover_owners
+import pr_nudger_routes
+from pr_nudger_intake import Intake, RateLimited, launch_capacity
 from pr_nudger_routes import route
 
 REPO = r"[a-zA-Z0-9-]+/[a-zA-Z0-9_.-]+"
@@ -43,27 +47,71 @@ class NoRedirect(HTTPRedirectHandler):
         return None
 
 
-def github(cwd, endpoint, *, head=None, inspection=False):
+def _rate_reset(headers, body, now):
+    lower = {name.lower(): value for name, value in headers.items()}
+    retry = lower.get("retry-after", "")
+    reset = lower.get("x-ratelimit-reset", "")
+    if retry.isdecimal():
+        return now + max(1, int(retry))
+    if lower.get("x-ratelimit-remaining") == "0" and reset.isdecimal():
+        return max(now + 1, int(reset))
+    if "secondary rate limit" in body.lower():
+        return now + 60
+    return 0
+
+
+def _github_payload(output, budget):
+    lines, separator, body = output.replace("\r\n", "\n").partition("\n\n")
+    if not separator or not lines.startswith("HTTP/"):
+        return json.loads(output)
+    headers = dict(line.split(": ", 1) for line in lines.splitlines()[1:] if ": " in line)
+    until = _rate_reset(headers, body, budget.now)
+    if until:
+        budget.rate_limit(until)
+    code = int(lines.splitlines()[0].split()[1])
+    if code in (403, 429) and until:
+        raise RateLimited(until)
+    if not 200 <= code < 300:
+        raise ValueError("GitHub request failed")
+    return json.loads(body)
+
+
+def github(cwd, endpoint, *, head=None, inspection=False, params=None, budget=None):
+    if budget is not None and budget.budget_until() > budget.now:
+        raise RateLimited(budget.budget_until())
     args = (endpoint,)
     if head is not None:
         args = ("-X", "GET", endpoint, "-f", f"head={head}", "-f", "state=open", "-F", "per_page=2")
+    if params is not None:
+        args = (f"{endpoint}?{urlencode(params)}",)
+    include = ("--include",) if budget is not None else ()
     try:
-        return json.loads(command(cwd, "gh", "api", *args, "--hostname", "github.com"))
+        output = command(cwd, "gh", "api", *include, *args, "--hostname", "github.com")
+        return _github_payload(output, budget) if budget else json.loads(output)
     except subprocess.CalledProcessError as error:
+        if budget and isinstance(error.output, str) and error.output.startswith("HTTP/"):
+            return _github_payload(error.output, budget)
         # gh reserves exit 4 for its local authentication preflight.
         if not inspection or error.returncode != 4:
             raise
-    suffix = r"(?:/pulls/[1-9][0-9]*)?" if head is None else "/pulls"
+    suffix = r"(?:/pulls/[1-9][0-9]*|/activity)?" if head is None else "/pulls"
     match = re.fullmatch(rf"repos/({REPO}){suffix}", endpoint)
     if not match:
         raise ValueError("Unsupported public GitHub endpoint")
     repo_slug(match[1])
-    query = "?" + urlencode(dict(head=head, state="open", per_page=2)) if head is not None else ""
-    request = Request(f"https://api.github.com/{endpoint}{query}", headers={
+    query = params or (dict(head=head, state="open", per_page=2) if head is not None else {})
+    request = Request(f"https://api.github.com/{endpoint}" + ("?" + urlencode(query) if query else ""), headers={
         "Accept": "application/vnd.github+json", "User-Agent": "pr-owner-nudger",
     })
-    with build_opener(NoRedirect()).open(request, timeout=20) as response:
-        return json.load(response)
+    try:
+        with build_opener(NoRedirect()).open(request, timeout=20) as response:
+            return json.load(response)
+    except HTTPError as error:
+        until = _rate_reset(error.headers, "", budget.now) if budget else 0
+        if until:
+            budget.rate_limit(until)
+            raise RateLimited(until) from error
+        raise
 
 
 def identity(pr):
@@ -117,8 +165,8 @@ def repo_slug(value):
     return value.lower()
 
 
-def inferred_bases(cwd, origin, inspection):
-    remote = github(cwd, f"repos/{origin}", inspection=inspection)
+def inferred_bases(cwd, origin, inspection, read=None):
+    remote = (read or github)(cwd, f"repos/{origin}", inspection=inspection)
     if repo_slug(remote["full_name"]) != origin:
         raise ValueError("GitHub repository does not match the checkout origin")
     if remote["fork"]:
@@ -126,11 +174,11 @@ def inferred_bases(cwd, origin, inspection):
     return {origin}
 
 
-def discover(cwd, repos, local, inspection):
+def discover(cwd, repos, local, inspection, read=None):
     origin, branch, sha = local
     matches = []
     for repo in sorted(repos):
-        rows = github(cwd, f"repos/{repo}/pulls", head=f"{origin.split('/')[0]}:{branch}",
+        rows = (read or github)(cwd, f"repos/{repo}/pulls", head=f"{origin.split('/')[0]}:{branch}",
                       inspection=inspection)
         if len(rows) > 1:
             return "ambiguous_pr", None
@@ -146,7 +194,8 @@ def discover(cwd, repos, local, inspection):
     return ("stale_head" if pr["head"]["sha"] != sha else pr_status(pr)), pr
 
 
-def dispatch(cwd, owner, local, pr, receipts, config, from_cache):
+def dispatch(cwd, owner, local, pr, receipts, config, from_cache, read=None):
+    read = read or github
     expected = identity(pr)
     repo, number, _, branch, sha = expected
     owner = dict(owner, cwd=str(cwd))
@@ -184,7 +233,7 @@ def dispatch(cwd, owner, local, pr, receipts, config, from_cache):
 
     def revalidate():
         try:
-            current = github(cwd, f"repos/{repo}/pulls/{number}", inspection=receipts is None)
+            current = read(cwd, f"repos/{repo}/pulls/{number}", inspection=receipts is None)
             return (checkout(cwd) == local and identity(current) == expected
                     and pr_status(current) == "actionable")
         except CHECK_ERRORS:
@@ -206,7 +255,8 @@ def dispatch(cwd, owner, local, pr, receipts, config, from_cache):
     try:
         status = route(dict(owner, pr=number, sha=sha, branch=branch,
                             recheck=recheck, revalidate=revalidate, confirm_owner=confirm_owner,
-                            headless_resume=can_resume), prompt, receipts is not None)
+                            headless_resume=can_resume, admit_launch=launch_capacity),
+                       prompt, receipts is not None)
     except Exception:
         # An interrupted transport may already have acted. Keep its durable intent.
         return "reconciliation_required" if reserved else "blocked_route"
@@ -217,8 +267,7 @@ def dispatch(cwd, owner, local, pr, receipts, config, from_cache):
     return status
 
 
-def tick(config, receipts):
-    enrolled = defaultdict(list)
+def worktrees(config, enrolled, errors):
     for owner in config.get("owners", []):
         enrolled[Path(owner["cwd"]).expanduser().resolve()].append(owner)
     for root in config.get("worktree_roots", []):
@@ -229,8 +278,10 @@ def tick(config, receipts):
                 if item.startswith("worktree "):
                     enrolled.setdefault(Path(item.removeprefix("worktree ")).resolve(), [])
         except CHECK_ERRORS:
-            yield {"cwd": str(root), "status": "blocked_worktree_list"}
-    discovered = discover_owners(enrolled) if enrolled else {}
+            errors.append({"cwd": str(root), "status": "blocked_worktree_list"})
+
+
+def legacy_tick(config, receipts, enrolled, discovered, skip=(), read=None):
     candidates = defaultdict(list)
     inferred = {}
     inspection = receipts is None
@@ -252,14 +303,16 @@ def tick(config, receipts):
             if not repos:
                 origin = local[0]
                 if origin not in inferred:
-                    inferred[origin] = inferred_bases(cwd, origin, inspection)
+                    inferred[origin] = inferred_bases(cwd, origin, inspection, read)
                 repos = inferred[origin]
-            status, pr = discover(cwd, repos, local, inspection)
+            status, pr = discover(cwd, repos, local, inspection, read)
         except CHECK_ERRORS as error:
             yield dict(result, status="blocked_discovery", error=type(error).__name__)
             continue
         if pr is not None:
             repo, number, _, _, sha = identity(pr)
+            if (repo, number) in skip:
+                continue
             result.update(repo=repo, pr=number, sha=sha)
         if status == "actionable":
             candidates[repo, number].append((cwd, result, local, pr, owners))
@@ -283,8 +336,230 @@ def tick(config, receipts):
             elif not owners:
                 status = "missing_owner"
             else:
-                status = dispatch(cwd, owners[0], local, pr, receipts, config, from_cache)
+                status = dispatch(cwd, owners[0], local, pr, receipts, config, from_cache, read)
             yield dict(result, status=status)
+
+
+def configured_targets(config):
+    targets = {}
+    for item in config.get("targets", []):
+        repo, number = repo_slug(item["repo"]), item["number"]
+        pickup = item.get("pickup_after_seconds")
+        if (type(number) is not int or number < 1
+                or type(item.get("observe_only", False)) is not bool
+                or (pickup is not None and (type(pickup) is not int or pickup != 3600))):
+            raise ValueError("Invalid exact target or pickup policy")
+        key = repo, number
+        if key in targets and targets[key] != item:
+            raise ValueError("Conflicting target enrollment")
+        targets[key] = item
+    return targets
+
+
+def owners_for_target(enrolled, discovered, head_identity):
+    _, _, head_repo, branch, sha = head_identity
+    matches = []
+    for cwd, configured in sorted(enrolled.items()):
+        try:
+            local = checkout(cwd)
+        except CHECK_ERRORS:
+            continue
+        if local != (head_repo, branch, sha):
+            continue
+        live = discovered.get(str(cwd), [])
+        explicit = [item for item in configured if item.get("repo", head_identity[0]).lower() == head_identity[0]]
+        if len(explicit) == len(live) == 1 and all(
+            explicit[0].get(field) == live[0][field] for field in ("cli", "session")
+        ):
+            owners = [{**explicit[0], **live[0]}]
+        else:
+            owners = explicit + live
+        matches.append((cwd, local, owners))
+    return matches
+
+
+def latest_push(identity, cwd, read, inspection):
+    _, _, head_repo, branch, sha = identity
+    ref = f"refs/heads/{branch}"
+    events = read(cwd, f"repos/{head_repo}/activity", inspection=inspection,
+                  params={"ref": ref, "direction": "desc", "per_page": 30})
+    candidates = [
+        (datetime.fromisoformat(event["timestamp"].replace("Z", "+00:00")).timestamp(), event)
+        for event in events
+        if event.get("ref") == ref
+        and event.get("activity_type") in {"push", "force_push", "pr_merge", "merge_queue_merge", "branch_creation"}
+        and event.get("before") != event.get("after")
+    ]
+    if not candidates:
+        return None
+    timestamp = max(candidate[0] for candidate in candidates)
+    latest = [event for observed, event in candidates if observed == timestamp]
+    return timestamp if all(event.get("after") == sha for event in latest) else None
+
+
+def bootstrap_enrollment(target, expected):
+    enrollment = target.get("enrollment")
+    if not isinstance(enrollment, dict):
+        return None, "missing_owner"
+    _, _, head_repo, branch, _ = expected
+    if enrollment.get("host") != socket.gethostname():
+        return None, "owner_host_unverified"
+    if (enrollment.get("launch_authorized") is not True
+            or enrollment.get("managed_exclusive") is not True):
+        return None, "missing_launch_authority"
+    if enrollment.get("cli") != "codex":
+        return None, "bootstrap_cli_unsupported"
+    cwd = Path(enrollment["cwd"])
+    if not cwd.is_absolute() or cwd.resolve() != cwd or (
+        enrollment.get("head_repo"), enrollment.get("branch")
+    ) != (head_repo, branch):
+        return None, "enrollment_mismatch"
+    fields = ("cwd", "head_repo", "branch", "cli", "cli_bin", "profile_dir", "model", "headless_only")
+    return {field: enrollment[field] for field in fields if field in enrollment} | {
+        "managed_exclusive": True, "launch_authorized": True, "host": enrollment["host"]
+    }, None
+
+
+def dispatch_target(key, target, pr, matches, store, config, read):
+    expected = identity(pr)
+    _, _, head_repo, branch, sha = expected
+    note = store.schedule
+    row = store.row(key)
+    db = store.db
+    if row["bootstrap"]:
+        attempt = json.loads(row["bootstrap"])
+        if tuple(attempt["identity"][:-1]) != expected[:-1]:
+            return note(key, "reconciliation_required", "reconcile_bootstrap")
+        enrolled, reason = bootstrap_enrollment(target, expected)
+        if reason or enrolled != attempt["enrollment"]:
+            return note(key, "reconciliation_required", "reconcile_bootstrap")
+        status, session = pr_nudger_routes.inspect_codex_bootstrap(
+            enrolled, tuple(attempt["identity"]), attempt
+        )
+        if status == "bootstrapped" and session:
+            store.bind(key, expected, dict(enrolled, session=session))
+            return note(key, status, "dispatch_owner", progress=True)
+        return note(key, status, "reconcile_bootstrap")
+
+    if pr_status(pr) != "actionable":
+        return note(key, pr_status(pr), "refresh_pr", progress=True)
+    previous = db.execute(
+        "SELECT status, time FROM delivery WHERE repo=? AND number=?", key
+    ).fetchone() if db is not None else None
+    if previous and previous[0] in {"pending_delivery", "attempted_delivery"}:
+        return note(key, "reconciliation_required", "reconcile_delivery")
+    if target.get("observe_only") is True:
+        return note(key, "observing", "refresh_pr", progress=True)
+    candidates = [(cwd, local, owner) for cwd, local, owners in matches for owner in owners]
+    from_cache = not candidates
+    if from_cache and db is not None:
+        for cwd, local, _ in matches:
+            cached = db.execute(
+                "SELECT owner FROM binding WHERE cwd=? AND repo=? AND number=? AND branch=?",
+                (str(cwd), *key, branch)
+            ).fetchone()
+            if cached:
+                if config.get("headless_resume", True) is not True:
+                    return note(key, "blocked_headless_disabled", "verify_owner")
+                candidates.append((cwd, local, json.loads(cached[0])))
+    if len(candidates) > 1:
+        return note(key, "ambiguous_owner", "verify_owner")
+    if row["next_due"] > store.now:
+        return dict(status=row["reason"], next_action=row["next_action"],
+                    attempts=row["attempts"], next_due=row["next_due"])
+    pickup = target.get("pickup_after_seconds")
+    if pickup:
+        pushed = latest_push(expected, Path.cwd(), read, db is None)
+        store.set(key, remote_push_at=pushed)
+        if pushed is None:
+            return note(key, "remote_push_unverified", "verify_remote_push")
+        if pushed + pickup > store.now:
+            return note(key, "pickup_not_due", "verify_remote_push", earliest=pushed + pickup)
+    if candidates:
+        cwd, local, owner = candidates[0]
+        status = dispatch(cwd, owner, local, pr, db, config, from_cache, read)
+        cooldown = config.get("cooldown_seconds", 1800)
+        if status == "delivered":
+            return note(key, status, "refresh_pr", progress=True, earliest=store.now + cooldown)
+        earliest = previous[1] + cooldown if status == "cooldown" and previous else 0
+        action = "reconcile_delivery" if status in {"reconciliation_required", "attempted_delivery"} else "dispatch_owner"
+        return note(key, status, action, earliest=earliest)
+    enrollment, reason = bootstrap_enrollment(target, expected)
+    if reason:
+        return note(key, reason, "verify_owner")
+    cwd = Path(enrollment["cwd"])
+
+    def recheck():
+        try:
+            latest = read(cwd, f"repos/{key[0]}/pulls/{key[1]}", inspection=db is None)
+            return checkout(cwd) == (head_repo, branch, sha) and identity(latest) == expected and pr_status(latest) == "actionable"
+        except CHECK_ERRORS:
+            return False
+
+    if checkout(cwd) != (head_repo, branch, sha):
+        return note(key, "stale_checkout", "verify_checkout")
+    if db is not None and not launch_capacity():
+        return note(key, "blocked_launch_capacity", "bootstrap_owner")
+    status = pr_nudger_routes.start_codex_bootstrap(
+        enrollment, expected, apply=db is not None, recheck=recheck,
+        begin_attempt=lambda: store.begin(key, expected, enrollment)
+    )
+    return note(key, status, "reconcile_bootstrap" if store.row(key)["bootstrap"] else "bootstrap_owner")
+
+
+def tick(config, receipts, state=None):
+    targets = configured_targets(config)
+    store = Intake(receipts, state, time.time())
+    if targets:
+        store.prepare(sorted(targets))
+
+    def read(cwd, endpoint, **kwargs):
+        return github(cwd, endpoint, budget=store if targets else None, **kwargs)
+
+    observed = {}
+    for key in sorted(targets):
+        repo, number = key
+        result = {"repo": repo, "pr": number}
+        try:
+            pr = read(Path.cwd(), f"repos/{repo}/pulls/{number}", inspection=receipts is None)
+            if identity(pr)[:2] != key:
+                raise ValueError("GitHub PR identity mismatch")
+            stage, *others = [item["name"] for item in pr["labels"]
+                              if item["name"].startswith("stage:")] or [None]
+            head = identity(pr)[-1]
+            store.observation(key, head, pr_status(pr), None if others else stage)
+            observed[key] = pr
+        except RateLimited as error:
+            yield dict(result, **store.schedule(key, "blocked_github_rate", "refresh_pr",
+                                                earliest=error.until))
+        except CHECK_ERRORS:
+            yield dict(result, **store.schedule(key, "blocked_pr_refresh", "refresh_pr"))
+
+    legacy_enrolled = defaultdict(list)
+    errors = []
+    worktrees(config, legacy_enrolled, errors)
+    enrolled = dict(legacy_enrolled)
+    # A trusted worktree can host an existing owner even when bootstrap is disabled.
+    for item in targets.values():
+        enrollment = item.get("enrollment")
+        if isinstance(enrollment, dict) and Path(enrollment.get("cwd", "")).is_absolute():
+            if enrollment.get("host") == socket.gethostname():
+                enrolled.setdefault(Path(enrollment["cwd"]).resolve(), [])
+    discovered = discover_owners(enrolled) if enrolled else {}
+    yield from errors
+    for key in sorted(observed, key=lambda key: (store.row(key)["next_due"], key)):
+        pr = observed[key]
+        expected = identity(pr)
+        try:
+            outcome = dispatch_target(key, targets[key], pr,
+                                      owners_for_target(enrolled, discovered, expected), store, config, read)
+        except RateLimited as error:
+            outcome = store.schedule(key, "blocked_github_rate", "refresh_pr", earliest=error.until)
+        except CHECK_ERRORS:
+            action = "reconcile_bootstrap" if store.row(key)["bootstrap"] else "verify_owner"
+            outcome = store.schedule(key, "blocked_target_verification", action)
+        yield dict(repo=key[0], pr=key[1], sha=expected[-1], **outcome)
+    yield from legacy_tick(config, receipts, legacy_enrolled, discovered, targets, read if targets else None)
 
 
 def emit(status):
@@ -305,9 +580,9 @@ def main(argv=None):
         if type(cooldown) is not int or cooldown < 1:
             raise ValueError("Cooldown must be a positive integer")
         with ExitStack() as stack:
-            receipts = None
+            receipts = state = None
             if args.apply:
-                state = Path(config.get("state_dir", "~/.local/state/pr-owner-nudger")).expanduser()
+                state = Path(config.get("state_dir", "~/.local/state/pr-owner-nudger")).expanduser().resolve()
                 state.mkdir(mode=0o700, parents=True, exist_ok=True)
                 lock = stack.enter_context((state / "tick.lock").open("a"))
                 try:
@@ -326,7 +601,7 @@ def main(argv=None):
                         cwd TEXT, repo TEXT, number INTEGER, branch TEXT, owner TEXT,
                         PRIMARY KEY (cwd, repo, number, branch));
                 """)
-            for result in tick(config, receipts):
+            for result in tick(config, receipts, state):
                 emit(result)
     except (OSError, ValueError, TypeError, KeyError, AttributeError, sqlite3.Error):
         emit({"status": "blocked_configuration_or_state"})

@@ -78,6 +78,172 @@ class DispatcherTest(unittest.TestCase):
                 return row["status"]
         self.fail("No outcome for owner worktree")
 
+
+    def target_tick(self, *, apply=True):
+        path = self.root / "configuration.json"
+        path.write_text(json.dumps(self.config))
+        output = io.StringIO()
+        with redirect_stdout(output):
+            args = ["--config", str(path)] + (["--apply"] if apply else [])
+            self.assertEqual(nudger.main(args), 0)
+        return [json.loads(line) for line in output.getvalue().splitlines()]
+
+    def test_persists_five_targets_before_any_external_operation(self):
+        self.config["owners"] = []
+        self.config["targets"] = [
+            {"repo": "base/project", "number": number} for number in range(12, 17)
+        ]
+        state_path = Path(self.config["state_dir"]) / "receipts.sqlite3"
+
+        def read(_cwd, endpoint, **_kwargs):
+            number = int(endpoint.rsplit("/", 1)[1])
+            with sqlite3.connect(state_path) as db:
+                self.assertEqual(db.execute("SELECT count(*) FROM target").fetchone()[0], 5)
+                self.assertTrue(all(row[0] for row in db.execute("SELECT next_action FROM target")))
+            return dict(self.pr, number=number)
+
+        with patch.object(nudger, "github", side_effect=read) as github:
+            self.assertEqual(len(self.target_tick()), 5)
+            self.assertEqual(len(self.target_tick()), 5)
+            self.assertEqual(github.call_count, 10)
+
+    def test_refresh_continues_under_launch_backoff(self):
+        self.config["owners"] = []
+        self.config["targets"] = [{"repo": "base/project", "number": 12}]
+        with patch.object(nudger, "github", return_value=self.pr) as github,              patch.object(nudger.time, "time", return_value=1000) as clock:
+            first = self.target_tick()[0]
+            self.assertEqual(first["status"], "missing_owner")
+            self.assertEqual(first["next_due"], 1600)
+            clock.return_value = 1100
+            second = self.target_tick()[0]
+            self.assertEqual(second["next_due"], 1600)
+            self.assertEqual(github.call_count, 2)
+
+
+    def test_existing_owner_is_never_dispatched_in_observe_only_mode(self):
+        self.config["targets"] = [{"repo": "base/project", "number": 12, "observe_only": True}]
+        with patch.object(nudger, "github", return_value=self.pr), patch.object(nudger, "route") as route:
+            self.assertEqual(self.target_tick()[0]["status"], "observing")
+            route.assert_not_called()
+
+    def test_launch_uses_measured_five_percent_idle(self):
+        def mem(path):
+            self.assertEqual(str(path), "/proc/meminfo")
+            return "MemAvailable:  8000000 kB\n"
+
+        with patch("pr_nudger_intake.platform.system", return_value="Linux"), \
+                patch("pr_nudger_intake.time.sleep"), patch.object(Path, "read_text", autospec=True, side_effect=mem):
+            for idle, allowed in ((499, False), (500, True)):
+                with patch("pr_nudger_intake._linux_cpu", side_effect=[(0, 0), (10000, idle)]):
+                    self.assertIs(nudger.launch_capacity(), allowed)
+            with patch("pr_nudger_intake._linux_cpu", side_effect=OSError):
+                self.assertFalse(nudger.launch_capacity())
+
+    def test_rate_reset_and_backoff_survive_restart(self):
+        self.config["owners"] = []
+        self.config["targets"] = [{"repo": "base/project", "number": number} for number in (12, 13)]
+
+        def requests(_cwd, *args):
+            number = int(args[3].rsplit("/", 1)[1])
+            if clock.return_value < 1800:
+                response = 'HTTP/2 429 Too Many Requests\nRetry-After: 800\n\n{}'
+                raise subprocess.CalledProcessError(1, args, output=response)
+            return json.dumps(dict(self.pr, number=number))
+
+        with patch.object(nudger.time, "time", return_value=1000) as clock, \
+                patch.object(nudger, "command", side_effect=requests) as command:
+            self.assertEqual([row["next_due"] for row in self.target_tick()], [1800, 1800])
+            clock.return_value = 1799
+            self.assertEqual([row["attempts"] for row in self.target_tick()], [1, 1])
+            self.assertEqual(command.call_count, 1)
+            clock.return_value = 1800
+            self.assertEqual([row["status"] for row in self.target_tick()], ["missing_owner"] * 2)
+            self.assertEqual(command.call_count, 3)
+
+    def test_target_backoff_caps_without_affecting_the_other_target(self):
+        self.config["owners"] = []
+        self.config["targets"] = [{"repo": "base/project", "number": number} for number in (12, 13)]
+
+        def read(_cwd, endpoint, **_kwargs):
+            number = int(endpoint.rsplit("/", 1)[1])
+            return dict(self.pr, number=number, state="closed" if number == 13 else "open")
+
+        with patch.object(nudger, "github", side_effect=read), \
+                patch.object(nudger.time, "time", return_value=1000) as clock:
+            for delay in (600, 1200, 2400, 3600, 3600):
+                by_pr = {row["pr"]: row for row in self.target_tick()}
+                self.assertEqual(by_pr[12]["next_due"] - clock.return_value, delay)
+                self.assertEqual((by_pr[13]["attempts"], by_pr[13]["next_due"]), (0, 0))
+                clock.return_value += delay
+
+    def test_one_hour_pickup_uses_exact_remote_branch_activity(self):
+        self.config["owners"] = []
+        self.config["targets"] = [{"repo": "base/project", "number": 12, "pickup_after_seconds": 3600}]
+        events = [{"ref": "refs/heads/feature", "after": self.sha, "before": "0" * 40,
+                   "activity_type": "push", "timestamp": "1970-01-01T00:16:40Z"}]
+
+        def read(_cwd, endpoint, **kwargs):
+            if endpoint.endswith("/activity"):
+                self.assertEqual(endpoint, "repos/fork/project/activity")
+                self.assertEqual(kwargs["params"]["ref"], "refs/heads/feature")
+                return events
+            return self.pr
+
+        with patch.object(nudger, "github", side_effect=read), \
+                patch.object(nudger.time, "time", return_value=4599) as clock:
+            self.assertEqual(self.target_tick()[0]["status"], "pickup_not_due")
+            self.assertEqual(self.target_tick(apply=False)[0]["status"], "pickup_not_due")
+            clock.return_value = 4600
+            self.assertEqual(self.target_tick(apply=False)[0]["status"], "missing_owner")
+            clock.return_value = 5200
+            self.assertEqual(self.target_tick()[0]["status"], "missing_owner")
+            events.append(dict(events[0], after="1" * 40, timestamp="1970-01-01T01:23:20Z",
+                               activity_type="force_push"))
+            clock.return_value = 6400
+            self.assertEqual(self.target_tick()[0]["status"], "remote_push_unverified")
+
+    def test_bootstrap_attempt_is_persisted_before_process_and_bound_before_dispatch(self):
+        self.config["owners"] = []
+        self.config["targets"] = [{
+            "repo": "base/project", "number": 12, "enrollment": {
+                "cwd": str(self.cwd), "head_repo": "fork/project", "branch": "feature",
+                "host": "test-host", "cli": "codex", "launch_authorized": True,
+                "managed_exclusive": True,
+            }
+        }]
+        state_path = Path(self.config["state_dir"]) / "receipts.sqlite3"
+
+        def start(_enrollment, _identity, *, apply, recheck, begin_attempt):
+            self.assertTrue(apply and recheck())
+            path = begin_attempt()
+            with sqlite3.connect(state_path) as db:
+                attempt = json.loads(db.execute("SELECT bootstrap FROM target").fetchone()[0])
+            self.assertEqual(Path(attempt["events_path"]), path)
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            return "bootstrap_started"
+
+        def deliver(owner, _prompt, _apply):
+            with sqlite3.connect(state_path) as db:
+                stored = json.loads(db.execute("SELECT owner FROM binding").fetchone()[0])
+            self.assertEqual(stored["session"], owner["session"])
+            self.assertTrue(owner["recheck"]())
+            return "delivered"
+
+        with patch.object(nudger, "github", return_value=self.pr), \
+                patch.object(nudger.socket, "gethostname", return_value="test-host"), \
+                patch.object(nudger, "launch_capacity", return_value=True), \
+                patch.object(nudger.pr_nudger_routes, "start_codex_bootstrap", side_effect=start, create=True) as launch, \
+                patch.object(nudger.pr_nudger_routes, "inspect_codex_bootstrap", create=True) as inspect, \
+                patch.object(nudger, "route", side_effect=deliver) as route:
+            self.assertEqual(self.target_tick()[0]["status"], "bootstrap_started")
+            inspect.return_value = ("reconciliation_required", None)
+            self.assertEqual(self.target_tick()[0]["status"], "reconciliation_required")
+            route.assert_not_called()
+            inspect.return_value = ("bootstrapped", "only-native-session")
+            self.assertEqual(self.target_tick()[0]["status"], "bootstrapped")
+            self.assertEqual(self.target_tick()[0]["status"], "delivered")
+            launch.assert_called_once()
+
     def test_only_local_auth_failure_allows_anonymous_inspection(self):
         failure_code = 4
 

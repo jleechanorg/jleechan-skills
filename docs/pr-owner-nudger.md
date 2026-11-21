@@ -5,7 +5,7 @@ Enroll each PR on one owning host. Keep its mode-0600 config at `~/.config/pr-ow
 From the reviewed repository, make a seat package. Transfer the archive through the authorized channel and extract with `tar -xf pr-owner-nudger.tar` in the seat's workspace. Keep the extracted path stable and create the seat's own config.
 
 ```bash
-git archive --output=pr-owner-nudger.tar "$reviewed_sha" scripts/{pr_owner_nudger.py,pr_nudger_routes.py,pr_nudger_discovery.py,run_pr_owner_nudger.sh,render_pr_owner_nudger.py} \
+git archive --output=pr-owner-nudger.tar "$reviewed_sha" scripts/{pr_owner_nudger.py,pr_nudger_intake.py,pr_nudger_routes.py,pr_nudger_discovery.py,run_pr_owner_nudger.sh,render_pr_owner_nudger.py} \
   .claude/skills/dot/{SKILL.md,scripts/dot.sh,scripts/dot_chrome.mjs,scripts/dot_reply.mjs} \
   launchd/org.prw.pr-owner-nudger.plist.template systemd/pr-owner-nudger.{service,timer}.template docs/pr-owner-nudger.md
 # In the extracted workspace on the seat
@@ -22,6 +22,39 @@ For a Dot owner, set `cli` to `dot`, select its `account`, and set `identity_sha
 - For a Dot reply, set `session` to the account's configured seat UUID from `https://chatgpt.com/dots/<session>`. Set `destination` to the verified resolved `https://chatgpt.com/dots/<uuid>~<thread-token>` URL and `parent_message_id` to the observed parent article's complete `data-message-id`. The timer starts from the configured seat URL and only submits in the bound parent’s Replies panel.
 
 Both schedules run every ten minutes. To dispatch, set `"enabled": true` and add `--apply` when rendering. Skip the disable or bootout step on first install.
+
+
+## Durable targets and recovery
+
+Add exact targets to the same config. For example,
+`"targets":[{"repo":"owner/repo","number":123,"observe_only":true}]`.
+An enabled `--apply` tick persists all target rows before its first remote
+read. Observe-only targets refresh without sending messages or launching an
+owner. Inspection without `--apply` leaves SQLite and owner sessions untouched.
+
+A target can set `pickup_after_seconds` to `3600` when the operator requires
+one hour of inactivity on its exact remote branch. The activity must match the
+refreshed head. GitHub throttling pauses reads until the recorded reset. Target
+refresh runs independently of launch backoff. Due failures retry after 10, 20,
+40, then 60 minutes. New CLI or browser launches require at least 5% measured
+idle CPU and applicable memory admission.
+
+A target's optional `enrollment` names its `head_repo`, `branch`, canonical
+absolute `cwd`, owning `host` (the local hostname), `cli`, canonical absolute
+`cli_bin` and `profile_dir`, and `model`. Fresh bootstrap requires
+`launch_authorized: true` and `managed_exclusive: true`. Use that declaration
+only for a dedicated checkout reserved for the managed owner. The local tick
+lock serializes the timer's writes. Runtime checks still verify the branch and
+look for an existing writer. Fresh bootstrap currently supports Codex only.
+
+Unresolved starts persist in the target's `bootstrap` field with a private event
+file. The next tick checks that file and the exact session transcript before
+binding an acknowledged owner. If the outcome remains uncertain, stop
+scheduling and verify the original host, checkout, event file, and transcript.
+Only after establishing that no process or delivery exists, clear the
+`bootstrap` column for that exact repo and PR to allow another attempt. Keep
+the attempt file for reconciliation. Changing hosts requires the same positive
+handoff. An unreachable host leaves the attempt pending.
 
 ## Linux user timer
 
