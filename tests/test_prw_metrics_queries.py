@@ -2,20 +2,102 @@
 
 import json
 import tempfile
+from decimal import Decimal
 from types import SimpleNamespace
 import unittest
 from pathlib import Path
+import tracemalloc
 
 from scripts.prw_metrics import (
     _merge_pr_branch_metadata, aggregate_native_human_steering, aggregate_usage,
     load_rate_table, render_prw_query_summary,
 )
-from scripts.prw_metrics_queries import run_query
+from scripts.prw_metrics_queries import _load_jsonl_table, run_query
 
 try:
     import duckdb
 except ImportError:
     duckdb = None
+
+
+class _StreamingJsonlCapture:
+    """DuckDB-shaped test double that reads staged rows incrementally."""
+
+    def execute(self, query, parameters=None):
+        self.query = query
+        self.parameters = parameters or []
+        self.row_count = 0
+        self.first = None
+        self.last = None
+        if "read_ndjson_objects(?)" in query:
+            self.staged_path = Path(self.parameters[0])
+            with self.staged_path.open(encoding="utf-8") as stream:
+                for line in stream:
+                    row = json.loads(line)
+                    if self.first is None:
+                        self.first = row
+                    self.last = row
+                    self.row_count += 1
+        return self
+
+
+class _FailingJsonlCapture:
+    def execute(self, query, parameters=None):
+        self.staged_path = Path(parameters[0])
+        raise RuntimeError("simulated DuckDB scan failure")
+
+
+class TestIterableJsonlStaging(unittest.TestCase):
+    def test_list_rows_are_staged_incrementally_and_removed_after_scan(self):
+        rows = [{"index": index, "payload": "x" * 8192} for index in range(2048)]
+        capture = _StreamingJsonlCapture()
+
+        tracemalloc.start()
+        try:
+            _load_jsonl_table(capture, "prw_input_events", rows)
+            _, peak_bytes = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+
+        self.assertIn("read_ndjson_objects(?)", capture.query)
+        self.assertEqual(capture.row_count, len(rows))
+        self.assertEqual(capture.first["index"], 0)
+        self.assertEqual(capture.last["index"], len(rows) - 1)
+        self.assertFalse(capture.staged_path.exists())
+        self.assertLess(peak_bytes, 4 * 1024 * 1024)
+
+    def test_general_iterable_preserves_native_json_conversions(self):
+        rows = (
+            {"amount": Decimal("1.250"), "nested": {"index": index}}
+            for index in range(3)
+        )
+        capture = _StreamingJsonlCapture()
+
+        _load_jsonl_table(capture, "prw_input_events", rows)
+
+        self.assertEqual(capture.row_count, 3)
+        self.assertEqual(capture.first["amount"], "1.250")
+        self.assertEqual(capture.last["nested"], {"index": 2})
+        self.assertFalse(capture.staged_path.exists())
+
+    def test_empty_iterable_creates_empty_json_table(self):
+        capture = _StreamingJsonlCapture()
+
+        _load_jsonl_table(capture, "prw_input_events", iter(()))
+
+        self.assertIn("SELECT NULL::JSON AS json WHERE FALSE", capture.query)
+        self.assertEqual(capture.row_count, 0)
+        self.assertFalse(hasattr(capture, "staged_path"))
+
+    def test_scan_failure_removes_staged_file(self):
+        capture = _FailingJsonlCapture()
+
+        with self.assertRaisesRegex(RuntimeError, "simulated DuckDB scan failure"):
+            _load_jsonl_table(
+                capture, "prw_input_events", ({"index": index} for index in range(3))
+            )
+
+        self.assertFalse(capture.staged_path.exists())
 
 
 @unittest.skipUnless(
@@ -35,6 +117,33 @@ class TestPRWMetricsQueries(unittest.TestCase):
 
     def tearDown(self):
         self.tempdir.cleanup()
+
+    def test_iterable_rows_stream_through_ndjson_with_native_json_values(self):
+        connection = duckdb.connect(":memory:")
+        rows = (
+            {
+                "event": str(index),
+                "amount": Decimal("1.250"),
+                "nested": {"items": [index, "value"]},
+                "bytes": b"saved",
+            }
+            for index in range(3)
+        )
+
+        _load_jsonl_table(connection, "prw_input_events", rows)
+        loaded = connection.execute(
+            "SELECT json FROM prw_input_events "
+            "ORDER BY json_extract_string(json, '$.event')"
+        ).fetchall()
+        connection.close()
+
+        self.assertEqual(len(loaded), 3)
+        self.assertEqual(json.loads(loaded[0][0]), {
+            "event": "0",
+            "amount": "1.250",
+            "nested": {"items": [0, "value"]},
+            "bytes": "saved",
+        })
 
     def _write_jsonl(self, path, records):
         path.write_text(
