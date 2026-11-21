@@ -516,6 +516,28 @@ def dispatch_target(key, target, pr, matches, store, config, read):
     return note(key, status, "reconcile_bootstrap" if store.row(key)["bootstrap"] else "bootstrap_owner")
 
 
+def observe_ci(repo, number, head):
+    try:
+        response = json.loads(command(Path.cwd(), "gh", "pr", "view", str(number), "--repo", repo,
+                                      "--json", "headRefOid,statusCheckRollup"))
+        if response["headRefOid"] != head:
+            return "stale_head"
+        checks = response["statusCheckRollup"]
+        if not isinstance(checks, list):
+            return "unavailable"
+        states = {check.get("conclusion") or check.get("state") or check.get("status")
+                  for check in checks}
+    except (*CHECK_ERRORS, AttributeError):
+        return "unavailable"
+    if states & {"ACTION_REQUIRED", "CANCELLED", "ERROR", "FAILURE", "STALE", "STARTUP_FAILURE", "TIMED_OUT"}:
+        return "failing"
+    if states & {"EXPECTED", "IN_PROGRESS", "PENDING", "QUEUED", "REQUESTED", "WAITING"}:
+        return "pending"
+    if states - {"SUCCESS", "NEUTRAL", "SKIPPED"}:
+        return "unavailable"
+    return "reported_success" if "SUCCESS" in states else "no_checks_observed"
+
+
 def tick(config, receipts, state=None):
     targets = configured_targets(config)
     store = Intake(receipts, state, time.time())
@@ -537,7 +559,9 @@ def tick(config, receipts, state=None):
                               if item["name"].startswith("stage:")] or [None]
             head = identity(pr)[-1]
             store.observation(key, head, pr_status(pr), None if others else stage)
-            observed[key] = pr
+            ci_status = observe_ci(repo, number, head)
+            store.ci_observation(key, head, ci_status)
+            observed[key] = pr, ci_status
         except RateLimited as error:
             yield dict(result, **store.schedule(key, "blocked_github_rate", "refresh_pr",
                                                 earliest=error.until))
@@ -557,7 +581,7 @@ def tick(config, receipts, state=None):
     discovered = discover_owners(enrolled) if enrolled else {}
     yield from errors
     for key in sorted(observed, key=lambda key: (store.row(key)["next_due"], key)):
-        pr = observed[key]
+        pr, ci_status = observed[key]
         expected = identity(pr)
         try:
             outcome = dispatch_target(key, targets[key], pr,
@@ -567,7 +591,7 @@ def tick(config, receipts, state=None):
         except CHECK_ERRORS:
             action = "reconcile_bootstrap" if store.row(key)["bootstrap"] else "verify_owner"
             outcome = store.schedule(key, "blocked_target_verification", action)
-        yield dict(repo=key[0], pr=key[1], sha=expected[-1], **outcome)
+        yield dict(repo=key[0], pr=key[1], sha=expected[-1], ci_status=ci_status, **outcome)
     yield from legacy_tick(config, receipts, legacy_enrolled, discovered, targets, read if targets else None)
 
 

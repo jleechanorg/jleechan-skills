@@ -16,6 +16,7 @@ import pr_owner_nudger as nudger  # noqa: E402
 
 
 real_command = nudger.command
+real_observe_ci = nudger.observe_ci
 
 
 class DispatcherTest(unittest.TestCase):
@@ -41,6 +42,7 @@ class DispatcherTest(unittest.TestCase):
                        "owners": [self.owner]}
         self.enterContext(patch.object(nudger, "discover_owners", return_value={}))
         self.enterContext(patch.object(nudger, "command", side_effect=self.command))
+        self.enterContext(patch.object(nudger, "observe_ci", return_value="no_checks_observed"))
 
     def git(self, *args, cwd=None):
         return nudger.command(cwd or self.repo, "git", *args).strip()
@@ -280,6 +282,43 @@ class DispatcherTest(unittest.TestCase):
             clock.return_value = 4501
             self.assertEqual(self.target_tick()[0]["status"], "delivered")
             route.assert_called_once()
+
+
+    def test_current_head_ci_refreshes_during_launch_backoff(self):
+        self.config["owners"] = []
+        self.config["targets"] = [{"repo": "base/project", "number": 12}]
+        ci = {
+            "headRefOid": self.sha,
+            "statusCheckRollup": [{"status": "IN_PROGRESS", "conclusion": ""}],
+        }
+
+        def command(cwd, *args):
+            if args[:2] == ("gh", "pr"):
+                self.assertEqual(args, ("gh", "pr", "view", "12", "--repo", "base/project",
+                                        "--json", "headRefOid,statusCheckRollup"))
+                return json.dumps(ci)
+            return self.command(cwd, *args)
+
+        with patch.object(nudger, "github", return_value=self.pr), \
+                patch.object(nudger, "observe_ci", side_effect=real_observe_ci), \
+                patch.object(nudger, "command", side_effect=command), \
+                patch.object(nudger.time, "time", return_value=1000) as clock:
+            first = self.target_tick()[0]
+            self.assertEqual((first["ci_status"], first["next_due"]), ("pending", 1600))
+            ci["statusCheckRollup"] = [{"status": "COMPLETED", "conclusion": "FAILURE"}]
+            clock.return_value = 1100
+            second = self.target_tick()[0]
+            self.assertEqual((second["ci_status"], second["next_due"]), ("failing", 1600))
+            path = Path(self.config["state_dir"]) / "receipts.sqlite3"
+            with sqlite3.connect(path) as db:
+                self.assertEqual(db.execute(
+                    "SELECT head, status, observed_at FROM target_ci"
+                ).fetchone(), (self.sha, "failing", 1100))
+            ci["headRefOid"] = "0" * 40
+            self.assertEqual(self.target_tick()[0]["ci_status"], "stale_head")
+            ci["headRefOid"] = self.sha
+            ci["statusCheckRollup"] = []
+            self.assertEqual(self.target_tick()[0]["ci_status"], "no_checks_observed")
 
     def test_only_local_auth_failure_allows_anonymous_inspection(self):
         failure_code = 4

@@ -33,6 +33,9 @@ class Intake:
                 reason TEXT, attempts INTEGER DEFAULT 0, next_due REAL DEFAULT 0,
                 head TEXT, observed_at REAL, stage TEXT, remote_push_at REAL,
                 bootstrap TEXT, owner_session TEXT, PRIMARY KEY (repo, number));
+            CREATE TABLE IF NOT EXISTS target_ci (
+                repo TEXT, number INTEGER, head TEXT, status TEXT, observed_at REAL,
+                PRIMARY KEY (repo, number));
             CREATE TABLE IF NOT EXISTS github_budget (
                 bucket TEXT PRIMARY KEY, reset_at REAL NOT NULL);
         """)
@@ -65,6 +68,11 @@ class Intake:
         changed = old["head"] != head or old["observed_status"] != status
         self.set(key, head=head, observed_status=status, observed_at=self.now, stage=stage,
                  **({"attempts": 0, "next_due": 0, "remote_push_at": None} if changed else {}))
+
+    def ci_observation(self, key, head, status):
+        if self.db is not None:
+            self.db.execute("INSERT OR REPLACE INTO target_ci VALUES (?, ?, ?, ?, ?)",
+                            (*key, head, status, self.now))
 
     def schedule(self, key, reason, action, *, progress=False, earliest=0):
         row = self.row(key)

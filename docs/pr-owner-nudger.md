@@ -35,7 +35,9 @@ owner. Inspection without `--apply` leaves SQLite and owner sessions untouched.
 A target can set `pickup_after_seconds` to `3600` when the operator requires
 one hour of inactivity on its exact remote branch. The activity must match the
 refreshed head. GitHub throttling pauses reads until the recorded reset. Target
-refresh runs independently of launch backoff. Due failures retry after 10, 20,
+refresh runs independently of launch backoff. The exact-head CI rollup is
+recorded separately. Empty, stale, or unavailable rollups cannot establish CI
+success. Due failures retry after 10, 20,
 40, then 60 minutes. New CLI or browser launches require at least 5% measured
 idle CPU and applicable memory admission.
 
