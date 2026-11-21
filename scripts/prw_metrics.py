@@ -30,7 +30,6 @@ import subprocess
 import sys
 import tempfile
 import weakref
-from collections.abc import Sequence
 from contextlib import closing
 from itertools import chain
 from collections import defaultdict
@@ -775,23 +774,10 @@ class RetainedUsageEventSpool:
                 if names != {"usage_events.jsonl"}:
                     raise ValueError("retained usage shards lack manifest")
                 path = root / "usage_events.jsonl"
-                digest = hashlib.sha256()
-                size = records = 0
-                already_loaded = False
                 with path.open("rb") as stream:
                     for line in stream:
-                        digest.update(line)
-                        size += len(line)
                         if line.strip():
-                            records += 1
-                sha256 = digest.hexdigest()
-                already_loaded = self.has_validated_shard(sha256, size, records)
-                if not already_loaded:
-                    with path.open("rb") as stream:
-                        for line in stream:
-                            if line.strip():
-                                self.add(json.loads(line.decode("utf-8")))
-                    self.remember_shard(sha256, size, records)
+                            self.add(json.loads(line))
             else:
                 with (root / _USAGE_MANIFEST).open("rb") as stream:
                     manifest = _usage_manifest(stream.read().decode("utf-8"))
@@ -1010,7 +996,7 @@ def _write_summary_with_event_stream(summary, events, path):
         stream.write("[")
         count = 0
         for row in events:
-            projected = _project(row, event_spec)
+            projected = _project(_retained_usage_event(row), event_spec)
             if projected is None:
                 continue
             text = json.dumps(projected, indent=2)
@@ -1170,6 +1156,76 @@ def _read_summary_bundle(names, read):
             raise ValueError("invalid summary transport part")
         chunks.append(base64.b64decode(row["base64"], validate=True))
     return _project_summary(json.loads(b"".join(chunks)))
+
+
+def _validate_single_json_document(path, *, jq=None):
+    """Validate one arbitrarily large JSON document with bounded resident memory."""
+    jq = jq or shutil.which("jq")
+    if not jq:
+        raise RuntimeError("bounded retained-summary validation requires jq")
+
+    # jq emits [[], value] for scalar/empty roots and a one-component end
+    # marker for each completed nonempty root. Require exactly one document.
+    program = (
+        "reduce inputs as $e (0; "
+        "if (($e | length) == 2 and ($e[0] | length) == 0) or "
+        "(($e | length) == 1 and ($e[0] | length) == 1) "
+        "then . + 1 else . end) == 1"
+    )
+    with Path(path).open("rb") as stream:
+        result = subprocess.run(
+            [jq, "--stream", "-ne", program], stdin=stream,
+            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=600, check=False,
+        )
+    if result.returncode:
+        reason = result.stderr.decode("utf-8", "replace").strip()
+        raise ValueError(f"invalid retained summary JSON: {reason[:500]}")
+
+
+def _validate_summary_bundle_streamed(names, bundle_dir, spool_dir):
+    """Integrity-check and JSON-validate an unconsumed summary without loading its events."""
+    names = {name for name in names if _summary_candidate(name)}
+    if not names:
+        return
+    root = Path(bundle_dir)
+    if names == {"summary_snapshot.json"}:
+        _validate_single_json_document(root / "summary_snapshot.json")
+        return
+
+    manifest_name = "summary_snapshot.manifest.json"
+    if manifest_name not in names:
+        raise ValueError("summary shards lack manifest or have unexpected files")
+    with (root / manifest_name).open("rb") as stream:
+        manifest = _usage_manifest(stream.read().decode("utf-8"), stem="summary_snapshot")
+    if names != {manifest_name, *(entry["name"] for entry in manifest["parts"])}:
+        raise ValueError("summary family differs from manifest")
+
+    spool = Path(spool_dir)
+    with tempfile.TemporaryDirectory(prefix="summary-validate-", dir=spool) as temp:
+        combined = Path(temp) / "summary.json"
+        with combined.open("wb") as destination:
+            for entry in manifest["parts"]:
+                digest = hashlib.sha256()
+                size = 0
+                with (root / entry["name"]).open("rb") as source:
+                    for chunk in iter(lambda: source.read(64 * 1024), b""):
+                        size += len(chunk)
+                        if size > entry["bytes"]:
+                            raise ValueError("summary shard integrity mismatch")
+                        digest.update(chunk)
+                if (size != entry["bytes"] or digest.hexdigest() != entry["sha256"]
+                        or entry["records"] != 1):
+                    raise ValueError("summary shard integrity mismatch")
+                with (root / entry["name"]).open("r", encoding="utf-8") as source:
+                    part = json.load(source)
+                if not isinstance(part, dict) or set(part) != {"base64"} or not isinstance(part["base64"], str):
+                    raise ValueError("invalid summary transport part")
+                try:
+                    chunk = base64.b64decode(part["base64"], validate=True)
+                except (ValueError, TypeError) as exc:
+                    raise ValueError("invalid summary transport base64") from exc
+                destination.write(chunk)
+        _validate_single_json_document(combined)
 
 
 def retained_telemetry_dirs(root):
@@ -2374,6 +2430,8 @@ class Collector:
         """
         Load retained private telemetry store from roadmap repo or custom telemetry directory.
         Reconstructs pilot_events, human_episodes, calibration_audit, and retention_manifest.
+        When a usage spool is supplied, validate but do not materialize the summary snapshot;
+        collect_all does not consume summary_snapshots.
         """
         target_dir = telemetry_dir
         if not target_dir and roadmap_repo:
@@ -2426,13 +2484,15 @@ class Collector:
                 with open(os.path.join(bundle_dir, name), "rb") as f:
                     return f.read()
 
+            bundle_names = os.listdir(bundle_dir)
             if usage_spool is not None:
-                usage_spool.ingest_bundle(os.listdir(bundle_dir), bundle_dir)
+                _validate_summary_bundle_streamed(bundle_names, bundle_dir, usage_spool.directory)
+                usage_spool.ingest_bundle(bundle_names, bundle_dir)
             else:
-                usage_events.extend(_read_usage_bundle(os.listdir(bundle_dir), read_usage))
-            summary = _read_summary_bundle(os.listdir(bundle_dir), read_usage)
-            if summary is not None:
-                summary_snapshots.append(summary)
+                usage_events.extend(_read_usage_bundle(bundle_names, read_usage))
+                summary = _read_summary_bundle(bundle_names, read_usage)
+                if summary is not None:
+                    summary_snapshots.append(summary)
             rates_path = os.path.join(bundle_dir, "usage_rates.json")
             if os.path.exists(rates_path):
                 with open(rates_path, "r", encoding="utf-8") as f:
@@ -6433,7 +6493,8 @@ class Publisher:
                         if isinstance(t_content, Path):
                             with t_content.open("rb") as stream:
                                 t_hash_proc = subprocess.run(
-                                    blob_command, stdin=stream, check=True, capture_output=True, env=env,
+                                    blob_command, stdin=stream, check=True, capture_output=True,
+                                    text=True, env=env,
                                 )
                         else:
                             t_hash_proc = subprocess.run(
@@ -6959,7 +7020,7 @@ def _run_dashboard(parser, args, spool_dir=None):
             handoff_records=handoff_records,
             sources=sources,
             usage_events=_read_spooled_rows(normalized_path) if spool_dir else (usage_events if usage_summary is not None else None),
-            **({"usage_summary_events": usage_summary["events"], "spool_dir": spool_dir} if spool_dir else {}),
+            **({"usage_summary_events": usage_summary["events"].retained_rows(), "spool_dir": spool_dir} if spool_dir else {}),
             usage_rates=rates if usage_summary is not None else None,
         )
         print(f"Publication result: {pub_res}")
@@ -7392,11 +7453,18 @@ def _retained_usage_summary(summary, include_events=True):
         "rate_records": rates,
     }
     if include_events:
-        retained["events"] = [{"status": row["status"],
-                    "known_cost_usd": str(row["known_cost_usd"]) if row["known_cost_usd"] is not None else None,
-                    "unknown_buckets": row["unknown_buckets"],
-                    "tokens_by_bucket": row["tokens_by_bucket"]} for row in summary["events"]]
+        retained["events"] = [_retained_usage_event(row) for row in summary["events"]]
     return retained
+
+
+def _retained_usage_event(row):
+    """Return one event in the exact privacy-projected summary snapshot shape."""
+    return {
+        "status": row["status"],
+        "known_cost_usd": str(row["known_cost_usd"]) if row["known_cost_usd"] is not None else None,
+        "unknown_buckets": row["unknown_buckets"],
+        "tokens_by_bucket": row["tokens_by_bucket"],
+    }
 
 
 def _same_usage_except_observation_timestamp(left, right):
@@ -7407,7 +7475,7 @@ def _same_usage_except_observation_timestamp(left, right):
     )
 
 
-class JsonlUsageRows(Sequence):
+class JsonlUsageRows:
     """Repeatable bounded-memory view of canonical usage rows on disk."""
 
     def __init__(self, path, count):
@@ -7427,19 +7495,6 @@ class JsonlUsageRows(Sequence):
                 if isinstance(value, str):
                     row["known_cost_usd"] = Decimal(value)
                 yield row
-
-    def __getitem__(self, index):
-        if isinstance(index, slice):
-            start, stop, step = index.indices(self._count)
-            return [self[position] for position in range(start, stop, step)]
-        if index < 0:
-            index += self._count
-        if not 0 <= index < self._count:
-            raise IndexError(index)
-        for position, row in enumerate(self):
-            if position == index:
-                return row
-        raise IndexError(index)
 
     def retained_rows(self):
         """Stream the privacy-projected per-event rows used by summary snapshots."""
@@ -7462,8 +7517,7 @@ def _usage_spool_files(spool_dir):
     database_fd, database_path = tempfile.mkstemp(prefix="usage-dedup-", suffix=".sqlite3", dir=root)
     os.close(database_fd)
     output_fd, output_path = tempfile.mkstemp(prefix="usage-priced-", suffix=".jsonl", dir=root)
-    os.chmod(database_path, 0o600)
-    os.chmod(output_path, 0o600)
+    os.close(output_fd)
     return Path(database_path), Path(output_path)
 
 
@@ -7488,7 +7542,8 @@ def aggregate_usage(raw_events, rates, window_start=None, window_end=None, *, sp
         try:
             db.execute("CREATE TABLE usage_row (seq INTEGER PRIMARY KEY, identity TEXT UNIQUE, raw TEXT NOT NULL)")
             insert = "INSERT INTO usage_row(identity, raw) VALUES (?, ?)"
-            for index, original in enumerate(raw_events):
+            accepted_index = 0
+            for original in raw_events:
                 source_records += 1
                 timestamp = _parse_utc_instant(original.get("timestamp"))
                 if window_start is not None and window_end is not None:
@@ -7498,6 +7553,8 @@ def aggregate_usage(raw_events, rates, window_start=None, window_end=None, *, sp
                     if not window_start <= timestamp < window_end:
                         outside_window_count += 1
                         continue
+                index = accepted_index
+                accepted_index += 1
                 reason = list(original.get("unknown_reasons", []))
                 raw = original
                 usage_id = raw.get("usage_id")
@@ -7528,8 +7585,6 @@ def aggregate_usage(raw_events, rates, window_start=None, window_end=None, *, sp
             rows = (json.loads(row[0]) for row in db.execute("SELECT raw FROM usage_row ORDER BY seq"))
         except BaseException:
             db.close()
-            database_path.unlink(missing_ok=True)
-            priced_path.unlink(missing_ok=True)
             raise
     else:
         if window_start is not None and window_end is not None:
@@ -7580,181 +7635,187 @@ def aggregate_usage(raw_events, rates, window_start=None, window_end=None, *, sp
     if bounded:
         output_stream = priced_path.open("w", encoding="utf-8")
         priced_count = 0
-    for raw in rows:
-        for name, field in (("providers", "provider"), ("models", "sku"), ("service_tiers", "service_tier"),
-                            ("regions", "inference_geo"), ("speeds", "speed"), ("sessions", "session_id")):
-            if raw.get(field):
-                coverage[name].add(str(raw[field]))
-        billable = {bucket: raw.get(source) for source, bucket in _USAGE_TOKEN_BUCKETS.items()}
-        source_conflict = "source_usage_conflict" in raw.get("unknown_reasons", [])
-        if source_conflict:
-            billable = {bucket: None for bucket in billable}
-        reasoning = None if source_conflict else raw.get("reasoning_tokens")
-        if isinstance(reasoning, int) and not isinstance(reasoning, bool) and reasoning >= 0:
-            reasoning_tokens += reasoning
-        # Native input_tokens excludes cache tokens; reasoning is diagnostic and included in output.
-        ev = dict(raw, billable=billable)
-        cost, status, unknown_buckets = _price_usage_event(ev, rates)
-        priced += status == "priced"
-        partial += status == "partial"
-        unknown += status == "unknown"
-        known_cost += cost or Decimal(0)
-        priced_row = {
-            "status": status,
-            "known_cost_usd": cost,
-            "unknown_buckets": unknown_buckets,
-            "tokens_by_bucket": billable,
-        }
-        for bucket, count in billable.items():
-            if isinstance(count, int) and not isinstance(count, bool) and count >= 0:
-                totals[bucket] += count
-            elif count is not None:
-                totals[bucket] = None
-        attrs = raw.get("attributions") or []
-        weights = [_supported_usage_attribution(a) for a in attrs]
-        valid = (bool(attrs) and len({attr.get("pr") for attr in attrs}) == len(attrs)
-                 and all(w is not None for w in weights) and sum(weights) <= 1)
-        validated_attributions = []
-        if valid:
-            for attr, weight in zip(attrs, weights):
-                validated_attributions.append({
-                    "pr": attr["pr"],
-                    "weight": str(weight),
-                    "method": attr["method"],
-                    "basis": (
-                        "separable_breakdown"
-                        if attr.get("basis") == "separable_breakdown" else None
-                    ),
-                    "convention_ref": _usage_label(attr.get("convention_ref")),
-                    "receipt_refs": [
-                        receipt for value in attr["receipt_refs"]
-                        if (receipt := _usage_receipt_ref(value))
-                    ],
-                })
-                item = prs[attr["pr"]]
-                item["event_count"] += 1
-                if status != "priced":
-                    item["unknown"] = True
-                item["known_cost_usd"] += (cost or Decimal(0)) * weight
-            remainder = Decimal(1) - sum(weights)
-            if remainder:
-                unallocated += (cost or Decimal(0)) * remainder
-                unallocated_events += 1
-        else:
-            unallocated += cost or Decimal(0)
-            unallocated_events += 1
-            unallocated_unknown_cost_events += status == "unknown"
-            for attr in attrs:
-                if _safe_pr_id(attr.get("pr")):
-                    prs[attr["pr"]]["unknown"] = True
-
-        reasons = set(raw.get("unknown_reasons", []))
-        usage_id_missing = "usage_identity_missing" in reasons
-        provider = raw.get("provider")
-        usage_id = raw.get("usage_id")
-        event_id = None
-        if provider and usage_id and not usage_id_missing:
-            event_id = _retained_hash(f"{provider}\0{usage_id}")
-        source_identity = raw.get("source_fingerprint") or raw.get("source_id")
-        source_id = _retained_hash(source_identity) if source_identity else None
-        session_id_hash = (
-            _retained_hash(raw["session_id"]) if raw.get("session_id") else None
-        )
-
-        input_uncached = billable.get("input_uncached")
-        cache_read = billable.get("cache_read")
-        cache_write_5m = billable.get("cache_write_5m")
-        cache_write_1h = billable.get("cache_write_1h")
-        generic_cache_write = raw.get("cache_write_input_tokens")
-        if (
-            isinstance(generic_cache_write, bool)
-            or not isinstance(generic_cache_write, int)
-            or generic_cache_write < 0
-        ):
-            generic_cache_write = None
-        ttl_cache_writes = (cache_write_5m, cache_write_1h)
-        if generic_cache_write is not None:
-            cache_write_input = generic_cache_write
-        elif raw.get("provider") == "openai":
-            cache_write_input = None
-        elif all(
-            isinstance(value, int) and not isinstance(value, bool) and value >= 0
-            for value in ttl_cache_writes
-        ):
-            cache_write_input = cache_write_5m + cache_write_1h
-        else:
-            cache_write_input = None
-        output_tokens = billable.get("output")
-        if raw.get("provider") == "openai":
-            components = (input_uncached, cache_read, output_tokens)
-        else:
-            components = (input_uncached, cache_read, cache_write_input, output_tokens)
-        token_complete = all(
-            isinstance(value, int) and not isinstance(value, bool) and value >= 0
-            for value in components
-        )
-        total_tokens = sum(components) if token_complete else None
-        reasoning_tokens_value = raw.get("reasoning_tokens")
-        if (
-            not isinstance(reasoning_tokens_value, int)
-            or isinstance(reasoning_tokens_value, bool)
-            or reasoning_tokens_value < 0
-            or source_conflict
-        ):
-            reasoning_tokens_value = None
-        timestamp = _parse_utc_instant(raw.get("timestamp"))
-
-        safe_unknown_reasons = sorted(
-            reason for reason in reasons
-            if reason in {
-                "source_usage_conflict", "conflicting_duplicate",
-                "usage_identity_missing", "unsupported_sku",
+    try:
+        for raw in rows:
+            for name, field in (("providers", "provider"), ("models", "sku"), ("service_tiers", "service_tier"),
+                                ("regions", "inference_geo"), ("speeds", "speed"), ("sessions", "session_id")):
+                if raw.get(field):
+                    coverage[name].add(str(raw[field]))
+            billable = {bucket: raw.get(source) for source, bucket in _USAGE_TOKEN_BUCKETS.items()}
+            source_conflict = "source_usage_conflict" in raw.get("unknown_reasons", [])
+            if source_conflict:
+                billable = {bucket: None for bucket in billable}
+            reasoning = None if source_conflict else raw.get("reasoning_tokens")
+            if isinstance(reasoning, int) and not isinstance(reasoning, bool) and reasoning >= 0:
+                reasoning_tokens += reasoning
+            # Native input_tokens excludes cache tokens; reasoning is diagnostic and included in output.
+            ev = dict(raw, billable=billable)
+            cost, status, unknown_buckets = _price_usage_event(ev, rates)
+            priced += status == "priced"
+            partial += status == "partial"
+            unknown += status == "unknown"
+            known_cost += cost or Decimal(0)
+            priced_row = {
+                "status": status,
+                "known_cost_usd": cost,
+                "unknown_buckets": unknown_buckets,
+                "tokens_by_bucket": billable,
             }
-        )
-        if valid:
-            attribution_status = "VALIDATED"
-        elif attrs:
-            attribution_status = "INVALID_OR_UNSUPPORTED"
-        else:
-            attribution_status = "UNBOUND"
-        priced_row.update({
-            "event_id": event_id,
-            "source_id": source_id,
-            "request_id_present": not usage_id_missing and bool(usage_id),
-            "session_id_hash": session_id_hash,
-            "provider": _usage_label(provider),
-            "model": _usage_label(raw.get("sku")),
-            "timestamp": format_iso_utc(timestamp) if timestamp else None,
-            "request_duration_seconds": valid_duration_sec(
-                raw.get("request_duration_seconds")
-            ),
-            "dedup_conflict": "conflicting_duplicate" in reasons,
-            "source_conflict": "source_usage_conflict" in reasons,
-            "validated_attributions": validated_attributions,
-            "attribution_status": attribution_status,
-            "unknown_reasons": safe_unknown_reasons,
-            "token_complete": token_complete,
-            "total_tokens": total_tokens,
-            "reasoning_output_tokens": reasoning_tokens_value,
-            "cache_write_input_tokens": cache_write_input,
-            "observed_cost_usd": None,
-            "list_equivalent_cost_usd": (
-                str(cost) if rates and cost is not None else None
-            ),
-            "cost_currency": "USD" if rates and cost is not None else None,
-            "cost_basis": (
-                USAGE_LIST_PRICE_LABEL if rates and cost is not None else None
-            ),
-            "price_catalog_version": price_catalog_version,
-            "cost_status": status if rates else "UNKNOWN_NO_RATE_CARD",
-        })
+            for bucket, count in billable.items():
+                if isinstance(count, int) and not isinstance(count, bool) and count >= 0:
+                    totals[bucket] += count
+                elif count is not None:
+                    totals[bucket] = None
+            attrs = raw.get("attributions") or []
+            weights = [_supported_usage_attribution(a) for a in attrs]
+            valid = (bool(attrs) and len({attr.get("pr") for attr in attrs}) == len(attrs)
+                     and all(w is not None for w in weights) and sum(weights) <= 1)
+            validated_attributions = []
+            if valid:
+                for attr, weight in zip(attrs, weights):
+                    validated_attributions.append({
+                        "pr": attr["pr"],
+                        "weight": str(weight),
+                        "method": attr["method"],
+                        "basis": (
+                            "separable_breakdown"
+                            if attr.get("basis") == "separable_breakdown" else None
+                        ),
+                        "convention_ref": _usage_label(attr.get("convention_ref")),
+                        "receipt_refs": [
+                            receipt for value in attr["receipt_refs"]
+                            if (receipt := _usage_receipt_ref(value))
+                        ],
+                    })
+                    item = prs[attr["pr"]]
+                    item["event_count"] += 1
+                    if status != "priced":
+                        item["unknown"] = True
+                    item["known_cost_usd"] += (cost or Decimal(0)) * weight
+                remainder = Decimal(1) - sum(weights)
+                if remainder:
+                    unallocated += (cost or Decimal(0)) * remainder
+                    unallocated_events += 1
+            else:
+                unallocated += cost or Decimal(0)
+                unallocated_events += 1
+                unallocated_unknown_cost_events += status == "unknown"
+                for attr in attrs:
+                    if _safe_pr_id(attr.get("pr")):
+                        prs[attr["pr"]]["unknown"] = True
+
+            reasons = set(raw.get("unknown_reasons", []))
+            usage_id_missing = "usage_identity_missing" in reasons
+            provider = raw.get("provider")
+            usage_id = raw.get("usage_id")
+            event_id = None
+            if provider and usage_id and not usage_id_missing:
+                event_id = _retained_hash(f"{provider}\0{usage_id}")
+            source_identity = raw.get("source_fingerprint") or raw.get("source_id")
+            source_id = _retained_hash(source_identity) if source_identity else None
+            session_id_hash = (
+                _retained_hash(raw["session_id"]) if raw.get("session_id") else None
+            )
+
+            input_uncached = billable.get("input_uncached")
+            cache_read = billable.get("cache_read")
+            cache_write_5m = billable.get("cache_write_5m")
+            cache_write_1h = billable.get("cache_write_1h")
+            generic_cache_write = raw.get("cache_write_input_tokens")
+            if (
+                isinstance(generic_cache_write, bool)
+                or not isinstance(generic_cache_write, int)
+                or generic_cache_write < 0
+            ):
+                generic_cache_write = None
+            ttl_cache_writes = (cache_write_5m, cache_write_1h)
+            if generic_cache_write is not None:
+                cache_write_input = generic_cache_write
+            elif raw.get("provider") == "openai":
+                cache_write_input = None
+            elif all(
+                isinstance(value, int) and not isinstance(value, bool) and value >= 0
+                for value in ttl_cache_writes
+            ):
+                cache_write_input = cache_write_5m + cache_write_1h
+            else:
+                cache_write_input = None
+            output_tokens = billable.get("output")
+            if raw.get("provider") == "openai":
+                components = (input_uncached, cache_read, output_tokens)
+            else:
+                components = (input_uncached, cache_read, cache_write_input, output_tokens)
+            token_complete = all(
+                isinstance(value, int) and not isinstance(value, bool) and value >= 0
+                for value in components
+            )
+            total_tokens = sum(components) if token_complete else None
+            reasoning_tokens_value = raw.get("reasoning_tokens")
+            if (
+                not isinstance(reasoning_tokens_value, int)
+                or isinstance(reasoning_tokens_value, bool)
+                or reasoning_tokens_value < 0
+                or source_conflict
+            ):
+                reasoning_tokens_value = None
+            timestamp = _parse_utc_instant(raw.get("timestamp"))
+
+            safe_unknown_reasons = sorted(
+                reason for reason in reasons
+                if reason in {
+                    "source_usage_conflict", "conflicting_duplicate",
+                    "usage_identity_missing", "unsupported_sku",
+                }
+            )
+            if valid:
+                attribution_status = "VALIDATED"
+            elif attrs:
+                attribution_status = "INVALID_OR_UNSUPPORTED"
+            else:
+                attribution_status = "UNBOUND"
+            priced_row.update({
+                "event_id": event_id,
+                "source_id": source_id,
+                "request_id_present": not usage_id_missing and bool(usage_id),
+                "session_id_hash": session_id_hash,
+                "provider": _usage_label(provider),
+                "model": _usage_label(raw.get("sku")),
+                "timestamp": format_iso_utc(timestamp) if timestamp else None,
+                "request_duration_seconds": valid_duration_sec(
+                    raw.get("request_duration_seconds")
+                ),
+                "dedup_conflict": "conflicting_duplicate" in reasons,
+                "source_conflict": "source_usage_conflict" in reasons,
+                "validated_attributions": validated_attributions,
+                "attribution_status": attribution_status,
+                "unknown_reasons": safe_unknown_reasons,
+                "token_complete": token_complete,
+                "total_tokens": total_tokens,
+                "reasoning_output_tokens": reasoning_tokens_value,
+                "cache_write_input_tokens": cache_write_input,
+                "observed_cost_usd": None,
+                "list_equivalent_cost_usd": (
+                    str(cost) if rates and cost is not None else None
+                ),
+                "cost_currency": "USD" if rates and cost is not None else None,
+                "cost_basis": (
+                    USAGE_LIST_PRICE_LABEL if rates and cost is not None else None
+                ),
+                "price_catalog_version": price_catalog_version,
+                "cost_status": status if rates else "UNKNOWN_NO_RATE_CARD",
+            })
+            if bounded:
+                output_stream.write(json.dumps(
+                    priced_row, ensure_ascii=False, separators=(",", ":"), default=str
+                ) + "\n")
+                priced_count += 1
+            else:
+                priced_rows.append(priced_row)
+    except BaseException:
         if bounded:
-            output_stream.write(json.dumps(
-                priced_row, ensure_ascii=False, separators=(",", ":"), default=str
-            ) + "\n")
-            priced_count += 1
-        else:
-            priced_rows.append(priced_row)
+            output_stream.close()
+            db.close()
+        raise
     if bounded:
         output_stream.flush()
         os.fsync(output_stream.fileno())

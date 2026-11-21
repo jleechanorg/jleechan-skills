@@ -1,10 +1,11 @@
 import hashlib
 import json
 import os
-import subprocess
 import shutil
+import subprocess
 import tempfile
 import unittest
+from decimal import Decimal
 from pathlib import Path
 from unittest import mock
 
@@ -29,11 +30,12 @@ class PublisherSpoolTests(unittest.TestCase):
                 self.assertEqual(actual[name].read_bytes(), old_content.encode("utf-8"))
 
     def test_streamed_summary_is_byte_identical_to_legacy_snapshot(self):
-        events = [
-            {"status": "priced", "known_cost_usd": "0.001",
+        priced_rows = [
+            {"status": "priced", "known_cost_usd": Decimal("0.001"),
              "unknown_buckets": [], "tokens_by_bucket": {"output": index}}
             for index in range(4)
         ]
+        events = [metrics._retained_usage_event(row) for row in priced_rows]
         summary = {
             "w2_bounds": ["2026-11-20T00:00:00Z", "2026-11-21T00:00:00Z"],
             "status": "COMPLETE",
@@ -48,7 +50,7 @@ class PublisherSpoolTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             actual = metrics._write_streamed_summary_parts(
-                retained, iter(events), directory
+                retained, iter(priced_rows), directory
             )["summary_snapshot.json"]
             self.assertIsInstance(actual, Path)
             self.assertEqual(actual.read_bytes(), expected)
@@ -106,6 +108,7 @@ class PublisherSpoolTests(unittest.TestCase):
                     "gs://private-bucket/prw/telemetry",
                 )
 
+            self.assertEqual(upload.call_count, 1)
             self.assertEqual(entries[0]["bytes"], source.stat().st_size)
             self.assertEqual(entries[0]["sha256"], digest)
             self.assertEqual(zstd_inputs, [source])
@@ -196,12 +199,14 @@ class PublisherSpoolTests(unittest.TestCase):
                 )
 
             self.assertEqual(result["action"], "COMMITTED", result)
+            commit = subprocess.run(
+                ["git", "--git-dir", str(remote), "rev-parse", "refs/heads/main"],
+                check=True, capture_output=True, text=True,
+            ).stdout.strip()
+            window = "20261121"
             content = subprocess.run(
-                ["git", "-C", str(checkout), "show",
-                 "HEAD:dashboards/prw/telemetry/" + next(
-                     path.name for path in (checkout / "dashboards/prw/telemetry").iterdir()
-                     if path.is_dir()
-                 ) + "/summary_snapshot.json"],
+                ["git", "--git-dir", str(remote), "show",
+                 f"{commit}:dashboards/prw/telemetry/{window}/summary_snapshot.json"],
                 check=True, capture_output=True, text=True,
             ).stdout
             self.assertEqual(content, expected)

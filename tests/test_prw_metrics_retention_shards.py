@@ -374,6 +374,43 @@ class RetainedUsageShards(unittest.TestCase):
             spool.cleanup()
             self.assertFalse(path.exists())
 
+    def test_opt_in_spool_stream_validates_and_skips_unused_summary_snapshot(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "telemetry"
+            bundle_dir = root / "20261109"
+            bundle_dir.mkdir(parents=True)
+            summary = {"usage_summary": {"events": [
+                {"status": "UNKNOWN", "known_cost_usd": None,
+                 "unknown_buckets": {"unknown": index}, "tokens_by_bucket": {"input": index}}
+                for index in range(1200)
+            ]}}
+            with mock.patch.object(m, "USAGE_SHARD_BYTES", 1500):
+                files = m._summary_parts(summary)
+            self.assertIn("summary_snapshot.manifest.json", files)
+            for name, content in files.items():
+                (bundle_dir / name).write_text(content)
+            for name, content in m._usage_parts(self.rows(1)).items():
+                (bundle_dir / name).write_text(content)
+
+            spool = m.RetainedUsageEventSpool(Path(temp) / "spool")
+            with mock.patch.object(m, "_read_summary_bundle",
+                                   side_effect=AssertionError("bounded path materialized summary")):
+                retained = m.Collector().load_retained_telemetry(str(root), usage_spool=spool)
+            self.assertEqual(retained["summary_snapshots"], [])
+            self.assertEqual(len(spool), 1)
+            self.assertEqual(len(list(spool)), 1)
+            spool.cleanup()
+
+    def test_bounded_summary_validator_rejects_empty_trailing_and_truncated_json(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "summary.json"
+            for content in ("", '{"a":1}{"b":2}', '{"usage_summary":'):
+                path.write_text(content)
+                with self.subTest(content=content), self.assertRaises(ValueError):
+                    m._validate_single_json_document(path)
+            path.write_text('{"a":[1,{"b":"brace } in string"}]}\n')
+            m._validate_single_json_document(path)
+
     def test_real_git_publish_reload_shrink_empty_and_legacy(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp); remote = root/'remote.git'; local = root/'local'
