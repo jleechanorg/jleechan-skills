@@ -1,5 +1,6 @@
 """Bounded retained usage publication through real local Git and replay readers."""
 import json
+import os
 import subprocess
 import tempfile
 import unittest
@@ -306,6 +307,72 @@ class RetainedUsageShards(unittest.TestCase):
         # indexing must not regress to a full scan of every prior distinct row.
         self.assertLess(CountedRecord.comparisons, len(records) * 4)
         self.assertEqual(loaded, expected + large)
+
+    def test_opt_in_retained_usage_spool_preserves_window_order_and_json_equality(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "telemetry"
+            rows = self.rows(4)
+            # JSON decoding historically deduplicates numerically equal bool/int/float
+            # values while retaining the first record and full-record conflicts.
+            rows[0]["raw_usage"]["input_tokens"] = 1
+            numerically_equal = dict(rows[0], raw_usage={"input_tokens": 1.0, "output_tokens": 2})
+            later_unique = dict(rows[0], raw_usage={"input_tokens": 9, "output_tokens": 2})
+            large_integer = 2**53 + 1
+            rounded_float = float(large_integer)
+            self.assertNotEqual(large_integer, rounded_float)
+            large_value = {"boundary": large_integer}
+            rounded_value = {"boundary": rounded_float}
+            first = root / "20261108"
+            second = root / "20261109"
+            first.mkdir(parents=True)
+            second.mkdir()
+            with mock.patch.object(m, "USAGE_SHARD_BYTES", 1150):
+                for directory, bundle in (
+                    (first, m._usage_parts([rows[0], rows[1], rows[2]])),
+                    (second, m._usage_parts([numerically_equal, later_unique, large_value, rounded_value])),
+                ):
+                    for name, content in bundle.items():
+                        (directory / name).write_text(content)
+
+            expected = m.Collector().collect_all(
+                telemetry_dir=str(root), offline=True
+            )["usage_events"]
+            spool_root = Path(temp) / "spool"
+            actual = m.Collector().collect_all(
+                telemetry_dir=str(root), offline=True, usage_spool_dir=str(spool_root)
+            )["usage_events"]
+
+            self.assertIsInstance(actual, m.RetainedUsageEventSpool)
+            self.assertEqual(list(actual), expected)
+            self.assertEqual(list(actual), expected)  # a later consumer may replay the spool
+            self.assertEqual(len(actual), len(expected))
+            self.assertTrue(actual._sealed)
+            self.assertTrue(actual.path.is_file())
+            actual.close()
+            self.assertEqual(list(actual), expected)
+            actual.cleanup()
+            self.assertFalse(actual.path.exists())
+
+    def test_retained_usage_spool_rolls_back_a_corrupt_window(self):
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp) / "20261109"
+            directory.mkdir()
+            with mock.patch.object(m, "USAGE_SHARD_BYTES", 700):
+                bundle = m._usage_parts(self.rows(3))
+            self.assertIn(m._USAGE_MANIFEST, bundle)
+            for name, content in bundle.items():
+                (directory / name).write_text(content)
+            part = next(name for name in bundle if name.startswith("usage_events.part-"))
+            (directory / part).write_bytes((directory / part).read_bytes() + b"tamper")
+
+            spool = m.RetainedUsageEventSpool(Path(temp) / "spool")
+            with self.assertRaisesRegex(ValueError, "integrity mismatch"):
+                spool.ingest_bundle(os.listdir(directory), directory)
+            self.assertEqual(list(spool), [])
+            self.assertEqual(len(spool), 0)
+            path = spool.path
+            spool.cleanup()
+            self.assertFalse(path.exists())
 
     def test_real_git_publish_reload_shrink_empty_and_legacy(self):
         with tempfile.TemporaryDirectory() as temp:

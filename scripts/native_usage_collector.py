@@ -213,8 +213,8 @@ def disputing_copies(humans, outside):  # an out-of-window copy is kept only as 
     return [r for r in outside if (r.get("provider"), r.get("event_id")) in inside]
 
 
-def load_normalized_history(path, cutoff, days=14, annotation_path=None):
-    """Replay a typed normalized export without reopening native history sources."""
+def load_normalized_history(path, cutoff, days=14, annotation_path=None, *, on_usage=None):
+    """Replay one verified export. An optional sink retains usage and reports duplicate IDs."""
     if isinstance(cutoff, datetime) and cutoff.tzinfo:
         cutoff = cutoff.astimezone(timezone.utc)
     else:
@@ -285,14 +285,18 @@ def load_normalized_history(path, cutoff, days=14, annotation_path=None):
                 outside_humans += [record] if record["record_type"] == "human" and all(
                     isinstance(record.get(k), str) for k in ("provider", "event_id")) else []  # identity must be hashable
                 continue
-            exported.append(record)
+            if on_usage is None:
+                exported.append(record)
             if record["record_type"] == "usage":
                 identity = (record.get("provider"), record.get("request_id"))
-                if identity[1] and identity in seen_usage:
-                    stats["duplicate_usage_records"] += 1
-                elif identity[1]:
-                    seen_usage.add(identity)
-                usage.append(record)
+                if on_usage is not None:
+                    stats["duplicate_usage_records"] += bool(on_usage(record))
+                else:
+                    if identity[1] and identity in seen_usage:
+                        stats["duplicate_usage_records"] += 1
+                    elif identity[1]:
+                        seen_usage.add(identity)
+                    usage.append(record)
                 stats["usage_records_in_window"] += 1
                 attributions = record.get("attributions") or []
                 if any(isinstance(a, dict) and a.get("convention_ref") == "prw-session-binding.v1"
@@ -619,13 +623,14 @@ def _fill_snapshot_context(record, snapshot):
                 record["branch_basis"] = "state_db_thread_snapshot"
 
 
-def enrich_replay_state(records, state_db):
-    """Fill missing native Git context from read-only thread snapshots."""
+def iter_enriched_replay_state(records, state_db):
+    """Yield records after filling missing Git context from read-only thread snapshots."""
     snapshots = {}
     with sqlite3.connect(Path(state_db).resolve().as_uri() + "?mode=ro", uri=True) as conn:
         for record in records:
             session = record.get("session_id")
             if record.get("provider") != "openai" or not session:
+                yield record
                 continue
             if session not in snapshots:
                 row = conn.execute(
@@ -635,6 +640,13 @@ def enrich_replay_state(records, state_db):
                     {"git_branch": row[0], "repository_url": row[1]}, {}, {}
                 ) if row else {}
             _fill_snapshot_context(record, snapshots[session])
+            yield record
+
+
+def enrich_replay_state(records, state_db):
+    """Fill missing native Git context in a caller-owned record collection."""
+    for _ in iter_enriched_replay_state(records, state_db):
+        pass
 
 
 def collect_native_history(history_roots, *, cutoff, days=14, annotation_path=None,
