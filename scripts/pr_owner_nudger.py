@@ -469,12 +469,19 @@ def dispatch_target(key, target, pr, matches, store, config, read):
                 candidates.append((cwd, local, json.loads(cached[0])))
     if len(candidates) > 1:
         return note(key, "ambiguous_owner", "verify_owner")
+    authorized_enrollment = None
     if row["next_due"] > store.now:
+        if not candidates and row["reason"] in {"missing_owner", "missing_launch_authority"}:
+            managed, _ = bootstrap_enrollment(target, expected)
+            if managed and any(str(cwd) == managed["cwd"] for cwd, _, _ in matches):
+                authorized_enrollment = managed
         # A newly observed cmux owner can use the existing route without a launch.
         launch_deferrals = {"missing_owner", "missing_launch_authority", "bootstrap_cli_unsupported",
                             "blocked_launch_capacity", "stale_checkout"}
         if not from_cache and candidates[0][2].get("cmux_discovered") and row["reason"] in launch_deferrals:
             note(key, "owner_found", "dispatch_owner", progress=True)
+        elif authorized_enrollment:
+            note(key, "launch_authorized", "bootstrap_owner", progress=True)
         else:
             return dict(status=row["reason"], next_action=row["next_action"],
                         attempts=row["attempts"], next_due=row["next_due"])
@@ -503,7 +510,8 @@ def dispatch_target(key, target, pr, matches, store, config, read):
         earliest = previous[1] + cooldown if status == "cooldown" and previous else 0
         action = "reconcile_delivery" if status in {"reconciliation_required", "attempted_delivery"} else "dispatch_owner"
         return note(key, status, action, earliest=earliest)
-    enrollment, reason = bootstrap_enrollment(target, expected)
+    enrollment, reason = ((authorized_enrollment, None) if authorized_enrollment
+                          else bootstrap_enrollment(target, expected))
     if reason:
         return note(key, reason, "verify_owner")
     cwd = Path(enrollment["cwd"])
@@ -515,7 +523,7 @@ def dispatch_target(key, target, pr, matches, store, config, read):
         except CHECK_ERRORS:
             return False
 
-    if checkout(cwd) != (head_repo, branch, sha):
+    if not authorized_enrollment and checkout(cwd) != (head_repo, branch, sha):
         return note(key, "stale_checkout", "verify_checkout")
     if db is not None and not launch_capacity():
         return note(key, "blocked_launch_capacity", "bootstrap_owner")

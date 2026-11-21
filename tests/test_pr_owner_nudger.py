@@ -292,6 +292,53 @@ class DispatcherTest(unittest.TestCase):
             route.assert_called_once()
 
 
+
+    def test_new_managed_enrollment_replaces_only_obsolete_owner_backoff(self):
+        self.config["owners"] = []
+        target = {"repo": "base/project", "number": 12, "pickup_after_seconds": 3600}
+        self.config["targets"] = [target]
+        activity_reads = []
+
+        def read(_cwd, endpoint, **_kwargs):
+            if endpoint.endswith("/activity"):
+                activity_reads.append(endpoint)
+                return [{"ref": "refs/heads/feature", "activity_type": "push",
+                         "before": "0" * 40, "after": self.sha,
+                         "timestamp": "1970-01-01T00:15:00Z"}]
+            return self.pr
+
+        with patch.object(nudger, "github", side_effect=read), \
+                patch.object(nudger.socket, "gethostname", return_value="test-host"), \
+                patch.object(nudger.time, "time", return_value=5000) as clock, \
+                patch.object(nudger, "launch_capacity", return_value=False) as capacity, \
+                patch.object(nudger.pr_nudger_routes, "start_codex_bootstrap") as launch:
+            self.assertEqual(self.target_tick()[0]["status"], "missing_owner")
+            target["enrollment"] = {
+                "cwd": str(self.repo), "head_repo": "fork/project", "branch": "feature",
+                "host": "test-host", "cli": "codex", "launch_authorized": True,
+                "managed_exclusive": True, "cli_bin": "/fixture/codex",
+                "profile_dir": str(self.root), "model": "fixture-model",
+            }
+            clock.return_value = 5001
+            self.assertEqual(self.target_tick()[0]["status"], "missing_owner")
+            capacity.assert_not_called()
+            target["enrollment"]["cwd"] = str(self.cwd)
+            clock.return_value = 5002
+            row = self.target_tick()[0]
+            self.assertEqual((row["status"], row["attempts"], row["next_due"]),
+                             ("blocked_launch_capacity", 1, 5602))
+            self.assertEqual(len(activity_reads), 2)
+            clock.return_value = 5003
+            self.assertEqual(self.target_tick()[0]["next_due"], 5602)
+            self.assertEqual(len(activity_reads), 2)
+            capacity.assert_called_once()
+            clock.return_value = 5602
+            row = self.target_tick()[0]
+            self.assertEqual((row["status"], row["attempts"], row["next_due"]),
+                             ("blocked_launch_capacity", 2, 6802))
+            self.assertEqual(len(activity_reads), 3)
+            launch.assert_not_called()
+
     def test_current_head_ci_refreshes_during_launch_backoff(self):
         self.config["owners"] = []
         self.config["targets"] = [{"repo": "base/project", "number": 12}]
