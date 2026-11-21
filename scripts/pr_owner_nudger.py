@@ -67,8 +67,17 @@ def _github_payload(output, budget, bucket="core"):
         return json.loads(output)
     headers = dict(line.split(": ", 1) for line in lines.splitlines()[1:] if ": " in line)
     code = int(lines.splitlines()[0].split()[1])
-    until = _rate_reset(headers, body, budget.now) or (budget.now + 60 if code == 429 else 0)
+    limited = code in (403, 429)
+    until = _rate_reset(headers, body if limited else "", budget.now)
+    if not until and code == 429:
+        until = budget.now + 60
     if until:
+        remaining = next((value for name, value in headers.items()
+                          if name.lower() == "x-ratelimit-remaining"), None)
+        if limited and (
+            "secondary rate limit" in body.lower() or (bucket == "core" and remaining != "0")
+        ):
+            bucket = "secondary"
         budget.rate_limit(until, bucket)
     if code in (403, 429) and until:
         raise RateLimited(until)
@@ -78,8 +87,23 @@ def _github_payload(output, budget, bucket="core"):
 
 
 def github(cwd, endpoint, *, head=None, inspection=False, params=None, budget=None):
-    if budget is not None and budget.budget_until() > budget.now:
-        raise RateLimited(budget.budget_until())
+    try:
+        return _github_rest(cwd, endpoint, head=head, inspection=inspection,
+                            params=params, budget=budget)
+    except RateLimited:
+        exact = re.fullmatch(rf"repos/({REPO})/pulls/([1-9][0-9]*)", endpoint)
+        if (not exact or head is not None or params is not None
+                or budget.budget_until("secondary") > budget.now
+                or budget.budget_until("core") <= budget.now):
+            raise
+        return _graphql_pull(cwd, exact[1], int(exact[2]), budget)
+
+
+def _github_rest(cwd, endpoint, *, head, inspection, params, budget):
+    if budget is not None:
+        until = max(budget.budget_until(), budget.budget_until("secondary"))
+        if until > budget.now:
+            raise RateLimited(until)
     args = (endpoint,)
     if head is not None:
         args = ("-X", "GET", endpoint, "-f", f"head={head}", "-f", "state=open", "-F", "per_page=2")
@@ -110,9 +134,66 @@ def github(cwd, endpoint, *, head=None, inspection=False, params=None, budget=No
     except HTTPError as error:
         until = _rate_reset(error.headers, "", budget.now) if budget else 0
         if until:
-            budget.rate_limit(until)
+            primary = error.headers.get("X-RateLimit-Remaining") == "0"
+            budget.rate_limit(until, "core" if primary else "secondary")
             raise RateLimited(until) from error
         raise
+
+
+PULL_QUERY = """
+query($owner: String!, $repo: String!, $number: Int!) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $number) {
+      number state title body baseRefName headRefName headRefOid
+      baseRepository { nameWithOwner }
+      headRepository { nameWithOwner }
+      labels(first: 100) { nodes { name } pageInfo { hasNextPage } }
+    }
+  }
+}
+"""
+
+
+def _graphql(cwd, query, repo, number, budget):
+    bucket = "graphql"
+    until = max(budget.budget_until(bucket), budget.budget_until("secondary"))
+    if until > budget.now:
+        raise RateLimited(until)
+    owner, name = repo.split("/")
+    try:
+        output = command(cwd, "gh", "api", "graphql", "--include", "--hostname", "github.com",
+                         "-f", f"query={query}", "-f", f"owner={owner}",
+                         "-f", f"repo={name}", "-F", f"number={number}")
+    except subprocess.CalledProcessError as error:
+        if not isinstance(error.output, str) or not error.output.startswith("HTTP/"):
+            raise
+        output = error.output
+    response = _github_payload(output, budget, bucket)
+    if response.get("errors"):
+        if any(error.get("type") == "RATE_LIMITED" for error in response["errors"]):
+            until = max(budget.budget_until(bucket), budget.now + 60)
+            budget.rate_limit(until, bucket)
+            raise RateLimited(until)
+        raise ValueError("GitHub GraphQL response has errors")
+    return response["data"]["repository"]["pullRequest"]
+
+
+def _graphql_pull(cwd, repo, number, budget):
+    pr = _graphql(cwd, PULL_QUERY, repo, number, budget)
+    labels = pr["labels"]
+    base_repo = pr["baseRepository"]["nameWithOwner"]
+    if (pr["number"] != number or repo_slug(base_repo) != repo_slug(repo)
+            or not re.fullmatch(r"[0-9a-f]{40}", pr["headRefOid"])
+            or pr["state"] not in {"OPEN", "CLOSED", "MERGED"}
+            or labels["pageInfo"]["hasNextPage"]):
+        raise ValueError("Incomplete or mismatched GitHub pull request")
+    return {
+        "number": number, "state": "open" if pr["state"] == "OPEN" else "closed",
+        "title": pr["title"], "body": pr["body"], "labels": labels["nodes"],
+        "base": {"ref": pr["baseRefName"], "repo": {"full_name": base_repo}},
+        "head": {"ref": pr["headRefName"], "sha": pr["headRefOid"],
+                 "repo": {"full_name": repo_slug(pr["headRepository"]["nameWithOwner"])}},
+    }
 
 
 def identity(pr):
@@ -599,26 +680,8 @@ query($owner:String!, $repo:String!, $number:Int!) {
 
 
 def observe_ci(repo, number, head, budget):
-    bucket = "graphql"
-    if budget.budget_until(bucket) > budget.now:
-        return "rate_limited"
-    owner, name = repo.split("/")
     try:
-        try:
-            output = command(Path.cwd(), "gh", "api", "graphql", "--include",
-                             "-f", f"query={CI_QUERY}", "-f", f"owner={owner}",
-                             "-f", f"repo={name}", "-F", f"number={number}")
-        except subprocess.CalledProcessError as error:
-            if not isinstance(error.output, str) or not error.output.startswith("HTTP/"):
-                raise
-            output = error.output
-        response = _github_payload(output, budget, bucket)
-        if response.get("errors"):
-            if any(error.get("type") == "RATE_LIMITED" for error in response["errors"]):
-                budget.rate_limit(max(budget.budget_until(bucket), budget.now + 60), bucket)
-                return "rate_limited"
-            return "unavailable"
-        pr = response["data"]["repository"]["pullRequest"]
+        pr = _graphql(Path.cwd(), CI_QUERY, repo, number, budget)
         commit = pr["commits"]["nodes"][-1]["commit"]
         if pr["headRefOid"] != head or commit["oid"] != head:
             return "stale_head"
