@@ -1,6 +1,6 @@
 # Host load balancing
 
-Use this reference when independent work is heavy enough that CPU, RAM, disk capacity, or I/O may limit progress. Choose among hosts already available to the task; this guidance does not authorize new spending, VM provisioning, credential movement, cleanup, or data exposure.
+Use this reference for every `/lm` or `/mac-mirror` handoff and when independent work is heavy enough that CPU, RAM, disk capacity, or I/O may limit progress. Before a mirror, measure CPU, RAM, disk, and relevant I/O on both source and destination and record the results and task-specific placement decision. If a required measurement is unavailable, report the gap and assess it before launching; never present an unmeasured host as suitable. Choose among hosts already available to the task; this guidance does not authorize new spending, VM provisioning, credential movement, cleanup, or data exposure.
 
 ## Measure the constraint
 

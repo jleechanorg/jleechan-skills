@@ -144,9 +144,10 @@ resumed sessions, follow-ups, and existing composer drafts:
    inspect the actual transcript when screen output is ambiguous. Echoed input,
    prompts, spinners, process liveness, transport exit status, READY/RESUMED, and
    queue entries are never substitutes for an agent response.
-5. Echo the actual response excerpt into the calling/main terminal and the
+5. Echo the first two or three sentences of the attributable agent response into the calling/main terminal and the
    user-facing update, labeled with host, session/pane or surface, observation time,
-   and instruction or dispatch marker. Redact secrets. Report ACKNOWLEDGED only
+   and instruction or dispatch marker. If the response is shorter, quote what exists;
+   preserve its meaning and redact secrets. Report ACKNOWLEDGED only
    when that response exists; acknowledgment proves delivery, not task completion.
    Validate completion claims against the requested artifacts or checks.
 6. Continue monitoring with bounded asynchronous waits and regular progress
