@@ -366,6 +366,7 @@ def run_query(
     duckdb_module=None,
     duckdb_memory_limit=None,
     duckdb_temp_directory=None,
+    duckdb_threads=None,
 ):
     """Run the read-only query; event identities are deduplicated upstream."""
     if duckdb_module is None:
@@ -386,6 +387,8 @@ def run_query(
         duckdb_config["memory_limit"] = duckdb_memory_limit
     if duckdb_temp_directory is not None:
         duckdb_config["temp_directory"] = str(duckdb_temp_directory)
+    if duckdb_threads is not None:
+        duckdb_config["threads"] = duckdb_threads
     if duckdb_config:
         connection = duckdb_module.connect(
             database=":memory:", config=duckdb_config,

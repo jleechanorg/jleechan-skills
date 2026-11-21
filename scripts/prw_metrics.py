@@ -6750,6 +6750,8 @@ def main():
         help="Optional existing Scratch directory for DuckDB temp spill files",
     )
 
+    parser.add_argument("--query-threads", type=int, help="Number of DuckDB workers")
+
     args = parser.parse_args()
     if args.history_replay:
         with tempfile.TemporaryDirectory(prefix="prw_replay_", dir=args.query_temp_directory) as spool_dir:
@@ -7006,7 +7008,7 @@ def _run_dashboard(parser, args, spool_dir=None):
     query_summary = None
     if (
         args.query_metrics or args.scenario_catalog or args.history_replay
-        or args.query_memory_limit or args.query_temp_directory
+        or args.query_memory_limit or args.query_temp_directory or args.query_threads is not None
     ):
         try:
             from scripts.prw_metrics_queries import run_query
@@ -7020,6 +7022,7 @@ def _run_dashboard(parser, args, spool_dir=None):
             rate_catalog_path=args.scenario_catalog,
             duckdb_memory_limit=args.query_memory_limit,
             duckdb_temp_directory=args.query_temp_directory,
+            duckdb_threads=args.query_threads,
         )
 
     renderer = DashboardRenderer()

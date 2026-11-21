@@ -449,7 +449,7 @@ class TestPRWMetricsQueries(unittest.TestCase):
             rate_catalog_path=self.catalog_path,
         )
 
-    def test_duckdb_memory_and_temp_directory_options_reach_connection(self):
+    def test_duckdb_execution_options_reach_connection(self):
         observed = {}
 
         def connect(**kwargs):
@@ -460,9 +460,11 @@ class TestPRWMetricsQueries(unittest.TestCase):
             events_path=[], pr_snapshots_path=[], snapshot_at_utc=self.CUTOFF,
             duckdb_module=SimpleNamespace(connect=connect),
             duckdb_memory_limit="4GB", duckdb_temp_directory=self.root,
+            duckdb_threads=1,
         )
         self.assertEqual(observed["memory_limit"], "4GB")
         self.assertEqual(observed["temp_directory"], str(self.root))
+        self.assertEqual(observed["threads"], 1)
 
     def test_empty_catalog_cohort_returns_empty_scenario_results(self):
         self._base_files(events=[], prs=[])
