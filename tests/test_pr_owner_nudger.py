@@ -19,6 +19,23 @@ real_command = nudger.command
 real_observe_ci = nudger.observe_ci
 
 
+class FinalReadyTest(unittest.TestCase):
+    def test_execution_record_requires_stage_five_and_no_other_stage_or_blocker(self):
+        sha = "a" * 40
+        stage = {"name": "stage:5-final-approval"}
+        body = f"## Execution Record\ncandidate: {sha}\nowner: driver\nstatus: FINAL_READY"
+        pr = {"state": "open", "title": "[ready] Example", "head": {"sha": sha}}
+        cases = (
+            ([], body, "actionable"),
+            ([stage, {"name": "stage:3-evidence-review"}], body, "actionable"),
+            ([stage], body + "\nblocker: missing review", "actionable"),
+            ([stage], body, "final_ready"),
+        )
+        for labels, record, expected in cases:
+            with self.subTest(labels=labels, record=record):
+                self.assertEqual(nudger.pr_status(dict(pr, labels=labels, body=record)), expected)
+
+
 class DispatcherTest(unittest.TestCase):
     def setUp(self):
         self.root = Path(self.enterContext(tempfile.TemporaryDirectory()))

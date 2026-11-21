@@ -218,10 +218,13 @@ def pr_status(pr):
     if any(action.lower() not in missing for action in fields["next_action"]):
         return "actionable"
     head = pr["head"]["sha"]
+    stages = [item["name"] for item in pr["labels"] if item["name"].startswith("stage:")]
+    final_stage = stages == ["stage:5-final-approval"]
+    no_blocker = all(blocker.lower() in missing for blocker in fields["blocker"])
     if (section == "PR Stage" and pr["title"].lower().startswith("[ready]")
-            and any(label["name"] == "stage:5-final-approval" for label in pr["labels"])
+            and final_stage
             and fields["candidate"] in ([], [head]) and fields["status"] in ([], ["FINAL_READY"])
-            and all(blocker.lower() in missing for blocker in fields["blocker"])):
+            and no_blocker):
         published = re.findall(
             r"(?m)^Stage 5 (?:— |\(final approval\): )(?:FINAL_READY|\*\*FINAL_READY\*\*) "
             r"at `([0-9a-f]{40})`(?:[.,]|$)", record
@@ -231,7 +234,7 @@ def pr_status(pr):
     if (fields["candidate"] != [head] or len(fields["owner"]) != 1
             or fields["owner"][0].lower() in missing):
         return "actionable"
-    if fields["status"] == ["FINAL_READY"]:
+    if fields["status"] == ["FINAL_READY"] and final_stage and no_blocker:
         return "final_ready"
     if fields["status"] == ["WAITING_HUMAN"] and all(
         len(fields[key]) == 1 and fields[key][0].lower() not in missing
