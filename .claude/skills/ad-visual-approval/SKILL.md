@@ -24,7 +24,7 @@ Give a reviewer who did not edit the asset only the first three seconds of the p
 
 ## 4. Exercise interaction when offered
 
-For a playable or conversational demo, check every advertised choice, each visible result, restart or exit, and the final CTA in the intended preview. Label staged branches honestly and distinguish them from live responses. Verify the actual platform and placement behavior against current first-party docs and preview. A visual representation of a choice supports a video story. An apparent tap target requires a real action in that surface or a clear indication that it is footage.
+For a playable or conversational demo, check every advertised choice, each visible result, restart or exit, and the final CTA in the intended preview. Hold visual readiness while an advertised path remains unverified. Label staged branches honestly and distinguish them from live responses. Verify the actual platform and placement behavior against current first-party docs and preview. A visual representation of a choice supports a video story. An apparent tap target requires a real action in that surface or a clear indication that it is footage.
 
 ## 5. Record and route the decision
 
