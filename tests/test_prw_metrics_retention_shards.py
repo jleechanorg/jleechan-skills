@@ -1,5 +1,6 @@
 """Bounded retained usage publication through real local Git and replay readers."""
 import json
+import os
 import subprocess
 import tempfile
 import unittest
@@ -306,6 +307,177 @@ class RetainedUsageShards(unittest.TestCase):
         # indexing must not regress to a full scan of every prior distinct row.
         self.assertLess(CountedRecord.comparisons, len(records) * 4)
         self.assertEqual(loaded, expected + large)
+
+    def test_opt_in_retained_usage_spool_preserves_window_order_and_json_equality(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "telemetry"
+            rows = self.rows(4)
+            # JSON decoding historically deduplicates numerically equal bool/int/float
+            # values while retaining the first record and full-record conflicts.
+            rows[0]["raw_usage"]["input_tokens"] = 1
+            numerically_equal = dict(rows[0], raw_usage={"input_tokens": 1.0, "output_tokens": 2})
+            later_unique = dict(rows[0], raw_usage={"input_tokens": 9, "output_tokens": 2})
+            large_integer = 2**53 + 1
+            rounded_float = float(large_integer)
+            self.assertNotEqual(large_integer, rounded_float)
+            large_value = {"boundary": large_integer}
+            rounded_value = {"boundary": rounded_float}
+            first = root / "20261108"
+            second = root / "20261109"
+            first.mkdir(parents=True)
+            second.mkdir()
+            with mock.patch.object(m, "USAGE_SHARD_BYTES", 1150):
+                for directory, bundle in (
+                    (first, m._usage_parts([rows[0], rows[1], rows[2]])),
+                    (second, m._usage_parts([numerically_equal, later_unique, large_value, rounded_value])),
+                ):
+                    for name, content in bundle.items():
+                        (directory / name).write_text(content)
+
+            expected = m.Collector().collect_all(
+                telemetry_dir=str(root), offline=True
+            )["usage_events"]
+            spool_root = Path(temp) / "spool"
+            actual = m.Collector().collect_all(
+                telemetry_dir=str(root), offline=True, usage_spool_dir=str(spool_root)
+            )["usage_events"]
+
+            self.assertIsInstance(actual, m.RetainedUsageEventSpool)
+            self.assertEqual(list(actual), expected)
+            self.assertEqual(list(actual), expected)  # a later consumer may replay the spool
+            self.assertEqual(len(actual), len(expected))
+            self.assertTrue(actual._sealed)
+            self.assertTrue(actual.path.is_file())
+            actual.close()
+            self.assertEqual(list(actual), expected)
+            actual.cleanup()
+            self.assertFalse(actual.path.exists())
+
+    def test_retained_spool_matches_legacy_for_repeated_decoded_nan(self):
+        with tempfile.TemporaryDirectory() as root:
+            raw = json.dumps({"value": [float("nan")]})
+            events = [json.loads(raw), json.loads(raw)]
+            spool = m.RetainedUsageEventSpool(Path(root))
+            try:
+                for event in events:
+                    spool.add(event)
+                self.assertEqual(len(spool), len({m._json_equality_key(e) for e in events}))
+            finally:
+                spool.cleanup()
+
+    def test_retained_usage_spool_rolls_back_a_corrupt_window(self):
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp) / "20261109"
+            directory.mkdir()
+            with mock.patch.object(m, "USAGE_SHARD_BYTES", 700):
+                bundle = m._usage_parts(self.rows(3))
+            self.assertIn(m._USAGE_MANIFEST, bundle)
+            for name, content in bundle.items():
+                (directory / name).write_text(content)
+            part = next(name for name in bundle if name.startswith("usage_events.part-"))
+            (directory / part).write_bytes((directory / part).read_bytes() + b"tamper")
+
+            spool = m.RetainedUsageEventSpool(Path(temp) / "spool")
+            with self.assertRaisesRegex(ValueError, "integrity mismatch"):
+                spool.ingest_bundle(os.listdir(directory), directory)
+            self.assertEqual(list(spool), [])
+            self.assertEqual(len(spool), 0)
+            path = spool.path
+            spool.cleanup()
+            self.assertFalse(path.exists())
+
+    def test_opt_in_spool_stream_validates_and_skips_unused_summary_snapshot(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "telemetry"
+            bundle_dir = root / "20261109"
+            bundle_dir.mkdir(parents=True)
+            summary = {"usage_summary": {"events": [
+                {"status": "UNKNOWN", "known_cost_usd": None,
+                 "unknown_buckets": {"unknown": index}, "tokens_by_bucket": {"input": index}}
+                for index in range(1200)
+            ]}}
+            with mock.patch.object(m, "USAGE_SHARD_BYTES", 1500):
+                files = m._summary_parts(summary)
+            self.assertIn("summary_snapshot.manifest.json", files)
+            for name, content in files.items():
+                (bundle_dir / name).write_text(content)
+            for name, content in m._usage_parts(self.rows(1)).items():
+                (bundle_dir / name).write_text(content)
+
+            spool = m.RetainedUsageEventSpool(Path(temp) / "spool")
+            with mock.patch.object(m, "_read_summary_bundle",
+                                   side_effect=AssertionError("bounded path materialized summary")):
+                retained = m.Collector().load_retained_telemetry(str(root), usage_spool=spool)
+            self.assertEqual(retained["summary_snapshots"], [])
+            self.assertEqual(len(spool), 1)
+            self.assertEqual(len(list(spool)), 1)
+            spool.cleanup()
+
+    def test_bounded_summary_validator_rejects_empty_trailing_and_truncated_json(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "summary.json"
+            for content in ("", '{"a":1}{"b":2}', '{"usage_summary":'):
+                path.write_text(content)
+                with self.subTest(content=content), self.assertRaises(ValueError):
+                    m._validate_single_json_document(path)
+            path.write_text('{"a":[1,{"b":"brace } in string"}]}\n')
+            m._validate_single_json_document(path)
+            # json.loads historically accepts escaped lone surrogates; bounded
+            # validation must retain that compatibility.
+            path.write_text('{"legacy":"\\ud800"}')
+            m._validate_single_json_document(path)
+
+    def test_bounded_summary_validator_matches_legacy_stdlib_edge_cases(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "summary.json"
+            valid = (
+                '{ "nested" : [ true, false, null, -1.25e+4, '
+                '{"escaped":"quote: \\" slash: \\\\"} ] }',
+                '{"legacy-surrogate":"\\ud800"}',
+                '{"python-stdlib-constant":NaN}',
+                '{"python-stdlib-infinity":Infinity}',
+                '{"long":"' + ('x' * 65530) + '","number":-1.25e+4}',
+            )
+            for content in valid:
+                with self.subTest(content=content[:48]):
+                    path.write_text(content)
+                    json.loads(content)
+                    m._validate_single_json_document(path)
+
+            for content in ('{"a":1} trailing', '[1,]', '{"a":1,,"b":2}',
+                            '{"a":"bad\ncontrol"}', '{"a":truX}'):
+                with self.subTest(content=content), self.assertRaises(ValueError):
+                    path.write_text(content)
+                    m._validate_single_json_document(path)
+
+    def test_streamed_summary_part_is_read_once_for_integrity_and_decode(self):
+        summary = {"usage_summary": {"events": [{"status": "UNKNOWN",
+                    "known_cost_usd": None, "tokens_by_bucket": {"input": i}}
+                   for i in range(40)]}}
+        with tempfile.TemporaryDirectory() as temp, \
+                mock.patch.object(m, "USAGE_SHARD_BYTES", 900):
+            root = Path(temp)
+            files = m._summary_parts(summary)
+            for name, content in files.items():
+                target = root / name
+                if isinstance(content, Path):
+                    target.write_bytes(content.read_bytes())
+                else:
+                    target.write_text(content, encoding="utf-8")
+            shard = root / "summary_snapshot.part-000000.jsonl"
+            self.assertTrue(shard.exists())
+            original_open = Path.open
+            reads = 0
+
+            def counted_open(path, *args, **kwargs):
+                nonlocal reads
+                if path == shard:
+                    reads += 1
+                return original_open(path, *args, **kwargs)
+
+            with mock.patch.object(Path, "open", counted_open):
+                m._validate_summary_bundle_streamed(os.listdir(root), root, root)
+            self.assertEqual(reads, 1)
 
     def test_real_git_publish_reload_shrink_empty_and_legacy(self):
         with tempfile.TemporaryDirectory() as temp:

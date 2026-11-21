@@ -23,13 +23,19 @@ import json
 import math
 import os
 import re
+import sqlite3
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
+import weakref
+from contextlib import closing
+from itertools import chain
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
+from pathlib import Path
 from urllib.parse import urlsplit
 
 
@@ -656,6 +662,191 @@ def _json_equality_key(value):
     return value
 
 
+def _usage_equality_token(value):
+    """Portable token for the existing decoded-JSON equality relation."""
+    if isinstance(value, dict):
+        pairs = [(key, _usage_equality_token(item)) for key, item in value.items()]
+        return ["dict", sorted(pairs, key=lambda pair: pair[0])]
+    if isinstance(value, list):
+        return ["list", [_usage_equality_token(item) for item in value]]
+    if value is None:
+        return ["null"]
+    if isinstance(value, bool):
+        return ["number", str(int(value)), "1"]
+    if isinstance(value, int):
+        return ["number", str(value), "1"]
+    if isinstance(value, float):
+        if math.isnan(value):
+            # The stdlib decoder reuses one NaN object across parsed records.
+            return ["nan"]
+        if math.isinf(value):
+            return ["infinity", "-" if value < 0 else "+"]
+        numerator, denominator = value.as_integer_ratio()
+        return ["number", str(numerator), str(denominator)]
+    if isinstance(value, str):
+        return ["string", value]
+    raise TypeError(f"unsupported decoded JSON value: {type(value).__name__}")
+
+
+def _cleanup_usage_spool(path, connection):
+    try:
+        connection.close()
+    except sqlite3.Error:
+        pass
+    path.unlink(missing_ok=True)
+    path.with_name(path.name + "-journal").unlink(missing_ok=True)
+
+
+class RetainedUsageEventSpool:
+    """Disk-backed ordered set for retained telemetry across overlapping windows."""
+
+    def __init__(self, spool_dir):
+        requested = Path(spool_dir).expanduser()
+        if requested.is_symlink():
+            raise ValueError("usage spool directory must not be a symlink")
+        requested.mkdir(mode=0o700, parents=True, exist_ok=True)
+        self.directory = requested.resolve(strict=True)
+        directory_mode = self.directory.stat()
+        if (directory_mode.st_uid != os.getuid()
+                or directory_mode.st_mode & 0o077):
+            raise ValueError("usage spool directory must be private and owned")
+        self.path = self.directory / "retained-usage.sqlite3"
+        fd = os.open(self.path, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        os.close(fd)
+        self.connection = sqlite3.connect(self.path)
+        os.chmod(self.path, 0o600)
+        self.connection.execute("PRAGMA journal_mode=DELETE")
+        self.connection.execute("PRAGMA synchronous=NORMAL")
+        self.connection.execute("PRAGMA cache_size=-4096")
+        self.connection.execute(
+            "CREATE TABLE usage_events ("
+            "sequence INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "equality_key BLOB NOT NULL UNIQUE, event_json TEXT NOT NULL)"
+        )
+        self.connection.execute(
+            "CREATE TABLE validated_usage_shards ("
+            "sha256 TEXT PRIMARY KEY, byte_count INTEGER NOT NULL, record_count INTEGER NOT NULL)"
+        )
+        self._sealed = False
+        self._cleanup = weakref.finalize(self, _cleanup_usage_spool, self.path, self.connection)
+
+    def has_validated_shard(self, sha256, byte_count, record_count):
+        row = self.connection.execute(
+            "SELECT 1 FROM validated_usage_shards "
+            "WHERE sha256=? AND byte_count=? AND record_count=?",
+            (sha256, byte_count, record_count),
+        ).fetchone()
+        return row is not None
+
+    def remember_shard(self, sha256, byte_count, record_count):
+        self.connection.execute(
+            "INSERT OR IGNORE INTO validated_usage_shards(sha256, byte_count, record_count) "
+            "VALUES (?, ?, ?)", (sha256, byte_count, record_count)
+        )
+
+    def add(self, event):
+        if self._sealed:
+            raise RuntimeError("usage spool is sealed")
+        key = json.dumps(
+            _usage_equality_token(event), ensure_ascii=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        payload = json.dumps(event, ensure_ascii=True, separators=(",", ":"))
+        self.connection.execute(
+            "INSERT OR IGNORE INTO usage_events(equality_key, event_json) VALUES (?, ?)",
+            (sqlite3.Binary(key), payload),
+        )
+
+    def ingest_bundle(self, names, bundle_dir):
+        """Validate a whole retained window while streaming its rows into a savepoint."""
+        names = {name for name in names if _usage_candidate(name)}
+        if any(not _usage_file(name) for name in names):
+            raise ValueError("unexpected retained usage filename")
+        if not names:
+            return
+        root = Path(bundle_dir)
+        self.connection.execute("SAVEPOINT retained_usage_window")
+        try:
+            if _USAGE_MANIFEST not in names:
+                if names != {"usage_events.jsonl"}:
+                    raise ValueError("retained usage shards lack manifest")
+                path = root / "usage_events.jsonl"
+                with path.open("rb") as stream:
+                    for line in stream:
+                        if line.strip():
+                            self.add(json.loads(line))
+            else:
+                with (root / _USAGE_MANIFEST).open("rb") as stream:
+                    manifest = _usage_manifest(stream.read().decode("utf-8"))
+                if names != {_USAGE_MANIFEST, *(item["name"] for item in manifest["parts"])}:
+                    raise ValueError("retained usage family differs from manifest")
+                for item in manifest["parts"]:
+                    digest = hashlib.sha256()
+                    size = records = 0
+                    already_loaded = self.has_validated_shard(
+                        item["sha256"], item["bytes"], item["records"]
+                    )
+                    with (root / item["name"]).open("rb") as stream:
+                        for line in stream:
+                            size += len(line)
+                            if size > item["bytes"]:
+                                raise ValueError("retained usage shard integrity mismatch")
+                            digest.update(line)
+                            if line.strip():
+                                if not already_loaded:
+                                    self.add(json.loads(line.decode("utf-8")))
+                                records += 1
+                    if (size != item["bytes"] or digest.hexdigest() != item["sha256"]
+                            or records != item["records"]):
+                        raise ValueError("retained usage shard integrity mismatch")
+                    if not already_loaded:
+                        self.remember_shard(item["sha256"], size, records)
+            self.connection.execute("RELEASE retained_usage_window")
+            self.connection.commit()
+        except BaseException:
+            self.connection.execute("ROLLBACK TO retained_usage_window")
+            self.connection.execute("RELEASE retained_usage_window")
+            self.connection.commit()
+            raise
+
+    def __iter__(self):
+        self.seal()
+        connection = sqlite3.connect(self.path.as_uri() + "?mode=ro", uri=True)
+        try:
+            cursor = connection.execute(
+                "SELECT event_json FROM usage_events ORDER BY sequence"
+            )
+            try:
+                for (payload,) in cursor:
+                    yield json.loads(payload)
+            finally:
+                cursor.close()
+        finally:
+            connection.close()
+
+    def __len__(self):
+        self.seal()
+        connection = sqlite3.connect(self.path.as_uri() + "?mode=ro", uri=True)
+        try:
+            return connection.execute("SELECT COUNT(*) FROM usage_events").fetchone()[0]
+        finally:
+            connection.close()
+
+    def close(self):
+        self.seal()
+
+    def seal(self):
+        if not self._sealed:
+            self.connection.commit()
+            self.connection.close()
+            self.connection = None
+            self._sealed = True
+
+    def cleanup(self):
+        self.seal()
+        self._cleanup()
+
+
 def _usage_file(name):
     return name in ("usage_events.jsonl", _USAGE_MANIFEST) or bool(_USAGE_PART_RE.fullmatch(name))
 
@@ -776,6 +967,168 @@ def _summary_parts(summary):
     return files
 
 
+def _write_summary_with_event_stream(summary, events, path):
+    """Write the legacy pretty JSON snapshot while streaming its priced events."""
+    marker = "__PRW_STREAMED_USAGE_EVENTS_7fc5d6d7__"
+    value = dict(summary)
+    usage = value.get("usage_summary")
+    if not isinstance(usage, dict) or "events" in usage:
+        raise ValueError("streamed summary requires a retained usage summary without events")
+    usage = dict(usage)
+    usage["events"] = [{"status": marker}]
+    value["usage_summary"] = usage
+    serialized = json.dumps(_project_summary(value), indent=2)
+    encoded_marker = json.dumps(marker)
+    if serialized.count(encoded_marker) != 1:
+        raise ValueError("streamed summary marker is not unique")
+    marker_at = serialized.index(encoded_marker)
+    start = serialized.rfind("[", 0, marker_at)
+    end = serialized.find("]", marker_at)
+    if start < 0 or end < marker_at:
+        raise ValueError("streamed summary event array is malformed")
+    prefix, suffix = serialized[:start], serialized[end + 1:]
+    event_spec = SUMMARY_SCHEMA["usage_summary"]["events"][0]
+    with Path(path).open("w", encoding="utf-8", newline="\n") as stream:
+        stream.write(prefix)
+        stream.write("[")
+        count = 0
+        for row in events:
+            projected = _project(_retained_usage_event(row), event_spec)
+            if projected is None:
+                continue
+            text = json.dumps(projected, indent=2)
+            if count:
+                stream.write(",")
+            stream.write("\n      ")
+            stream.write(text.replace("\n", "\n      "))
+            count += 1
+        if count:
+            stream.write("\n    ")
+        stream.write("]")
+        stream.write(suffix)
+
+
+def _write_streamed_summary_parts(summary, events, spool_dir):
+    """Return the same bounded summary family without materializing its event list."""
+    directory = Path(spool_dir)
+    _validate_publish_spool(directory)
+    raw_path = directory / "summary_snapshot.raw.json"
+    _write_summary_with_event_stream(summary, events, raw_path)
+    raw_size = raw_path.stat().st_size
+    if raw_size <= USAGE_SHARD_BYTES:
+        return {"summary_snapshot.json": raw_path}
+
+    chunk_bytes = (USAGE_SHARD_BYTES - 128) // 4 * 3
+    entries = []
+    files = {}
+    with raw_path.open("rb") as source:
+        index = 0
+        while chunk := source.read(chunk_bytes):
+            name = f"summary_snapshot.part-{index:06d}.jsonl"
+            content = json.dumps({"base64": base64.b64encode(chunk).decode("ascii")}) + "\n"
+            part = directory / name
+            with part.open("w", encoding="utf-8", newline="\n") as output:
+                output.write(content)
+            encoded = content.encode("utf-8")
+            entries.append({"name": name, "bytes": len(encoded), "records": 1,
+                            "sha256": hashlib.sha256(encoded).hexdigest()})
+            files[name] = part
+            index += 1
+            if index > 999999:
+                raise ValueError("too many summary shards")
+    files["summary_snapshot.manifest.json"] = json.dumps({"version": 1, "parts": entries},
+                                                            sort_keys=True)
+    return files
+
+
+def _write_usage_parts(records, spool_dir, max_bytes=None):
+    """Serialize each retained usage record once to private, size-bounded disk shards."""
+    directory = Path(spool_dir)
+    _validate_publish_spool(directory)
+    limit = USAGE_SHARD_BYTES if max_bytes is None else max_bytes
+    if type(limit) is not int or limit < 1:
+        raise ValueError("usage shard byte limit must be positive")
+    temporary = directory / ".usage_events.current"
+    finalized = []
+    stream = temporary.open("wb")
+    digest = hashlib.sha256()
+    byte_count = record_count = 0
+
+    def finish(name):
+        nonlocal stream, digest, byte_count, record_count
+        stream.flush()
+        os.fsync(stream.fileno())
+        stream.close()
+        destination = directory / name
+        os.replace(temporary, destination)
+        finalized.append({"name": name, "bytes": byte_count, "records": record_count,
+                          "sha256": digest.hexdigest()})
+        stream = digest = None
+
+    try:
+        for record in records:
+            line = (json.dumps(_sanitize_usage_event_record(record), ensure_ascii=False) + "\n").encode("utf-8")
+            if len(line) > limit:
+                raise ValueError("one retained usage record exceeds shard byte limit")
+            if byte_count and byte_count + len(line) > limit:
+                finish(f"usage_events.part-{len(finalized):06d}.jsonl")
+                temporary = directory / ".usage_events.current"
+                stream = temporary.open("wb")
+                digest = hashlib.sha256()
+                byte_count = record_count = 0
+            stream.write(line)
+            digest.update(line)
+            byte_count += len(line)
+            record_count += 1
+        stream.flush()
+        os.fsync(stream.fileno())
+        stream.close()
+        if not finalized:
+            destination = directory / "usage_events.jsonl"
+            os.replace(temporary, destination)
+            return {"usage_events.jsonl": destination}
+        destination = directory / f"usage_events.part-{len(finalized):06d}.jsonl"
+        os.replace(temporary, destination)
+        finalized.append({"name": destination.name, "bytes": byte_count, "records": record_count,
+                          "sha256": digest.hexdigest()})
+        manifest = {"version": 1, "parts": finalized}
+        manifest_path = directory / _USAGE_MANIFEST
+        manifest_path.write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8")
+        return {**{entry["name"]: directory / entry["name"] for entry in finalized},
+                _USAGE_MANIFEST: manifest_path}
+    except Exception:
+        if stream is not None and not stream.closed:
+            stream.close()
+        temporary.unlink(missing_ok=True)
+        raise
+
+
+def _write_jsonl_records(records, path, project):
+    """Write sanitized JSONL one row at a time without a second retained list."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="\n") as stream:
+        for record in records:
+            stream.write(json.dumps(project(record)))
+            stream.write("\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+    return path
+
+
+def _validate_publish_spool(path, *, require_empty=False):
+    """Require an existing, private, caller-owned spool directory."""
+    path = Path(path)
+    if path.is_symlink() or not path.is_dir():
+        raise ValueError("publish spool must be an existing directory")
+    path = path.resolve(strict=True)
+    info = path.stat()
+    if info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) & 0o077:
+        raise ValueError("publish spool must be owned and private")
+    if require_empty and any(path.iterdir()):
+        raise ValueError("publish spool directory must be empty")
+
+
 def _read_summary_bundle(names, read):
     names = {name for name in names if _summary_candidate(name)}
     if not names:
@@ -800,6 +1153,132 @@ def _read_summary_bundle(names, read):
             raise ValueError("invalid summary transport part")
         chunks.append(base64.b64decode(row["base64"], validate=True))
     return _project_summary(json.loads(b"".join(chunks)))
+
+
+def _summary_json_tokens(source):
+    """Yield JSON token types using memory proportional to the longest scalar."""
+    block_size = 64 * 1024
+    whitespace = re.compile(r"[ \t\r\n]+")
+    bare = re.compile(r'[^ \t\r\n,:{}\[\]"]+')
+    decoder = json.JSONDecoder()
+    buf = ""
+    pos = 0
+    eof = False
+    while True:
+        if pos == len(buf):
+            if eof:
+                return
+            buf = source.read(block_size)
+            if not buf:
+                return
+            pos = 0
+        char = buf[pos]
+        if char in " \t\r\n":
+            pos = whitespace.match(buf, pos).end()
+            continue
+        if char in "[]{},:":
+            pos += 1
+            yield char
+            continue
+        if char == '"':
+            try:
+                _, end = decoder.raw_decode(buf, pos)
+            except json.JSONDecodeError as exc:
+                if eof or (not exc.msg.startswith("Unterminated string") and exc.pos < len(buf) - 5):
+                    raise
+            else:
+                pos = end
+                yield "string"
+                continue
+        else:
+            end = bare.match(buf, pos).end()
+            if end < len(buf) or eof:
+                json.loads(buf[pos:end])
+                pos = end
+                yield "value"
+                continue
+        # A scalar crosses the buffer boundary. Doubling avoids repeatedly
+        # rescanning a long token from its start with quadratic total work.
+        remainder = buf[pos:]
+        extra = source.read(max(block_size, len(remainder)))
+        eof = not extra
+        buf = remainder + extra
+        pos = 0
+
+
+def _validate_single_json_document(path):
+    """Discard parsed values while checking one complete retained summary."""
+    with Path(path).open(encoding="utf-8", newline="") as source:
+        tokens = iter(_summary_json_tokens(source))
+
+        def value(token):
+            if token in ("string", "value"):
+                return
+            if token not in ("[", "{"):
+                raise ValueError("expected JSON value")
+            closing = "]" if token == "[" else "}"
+            item = next(tokens, None)
+            if item == closing:
+                return
+            while True:
+                if token == "{":
+                    if item != "string" or next(tokens, None) != ":":
+                        raise ValueError("expected JSON object key and colon")
+                    item = next(tokens, None)
+                value(item)
+                separator = next(tokens, None)
+                if separator == closing:
+                    return
+                if separator != ",":
+                    raise ValueError("expected JSON separator")
+                item = next(tokens, None)
+
+        value(next(tokens, None))
+        if next(tokens, None) is not None:
+            raise ValueError("trailing data after JSON document")
+
+
+def _validate_summary_bundle_streamed(names, bundle_dir, spool_dir):
+    """Integrity-check and JSON-validate an unconsumed summary without loading its events."""
+    names = {name for name in names if _summary_candidate(name)}
+    if not names:
+        return
+    root = Path(bundle_dir)
+    if names == {"summary_snapshot.json"}:
+        _validate_single_json_document(root / "summary_snapshot.json")
+        return
+
+    manifest_name = "summary_snapshot.manifest.json"
+    if manifest_name not in names:
+        raise ValueError("summary shards lack manifest or have unexpected files")
+    with (root / manifest_name).open("rb") as stream:
+        manifest = _usage_manifest(stream.read().decode("utf-8"), stem="summary_snapshot")
+    if names != {manifest_name, *(entry["name"] for entry in manifest["parts"])}:
+        raise ValueError("summary family differs from manifest")
+
+    spool = Path(spool_dir)
+    with tempfile.TemporaryDirectory(prefix="summary-validate-", dir=spool) as temp:
+        combined = Path(temp) / "summary.json"
+        with combined.open("wb") as destination:
+            for entry in manifest["parts"]:
+                # Manifest validation caps entry["bytes"], so this allocation is
+                # bounded and ensures checksum and decode see the same snapshot.
+                with (root / entry["name"]).open("rb") as source:
+                    raw = source.read(entry["bytes"] + 1)
+                size = len(raw)
+                if size != entry["bytes"] or entry["records"] != 1:
+                    raise ValueError("summary shard integrity mismatch")
+                if hashlib.sha256(raw).hexdigest() != entry["sha256"]:
+                    raise ValueError("summary shard integrity mismatch")
+                part = json.loads(raw)
+                if not isinstance(part, dict) or set(part) != {"base64"} or not isinstance(part["base64"], str):
+                    raise ValueError("invalid summary transport part")
+                try:
+                    chunk = base64.b64decode(part["base64"], validate=True)
+                except (ValueError, TypeError) as exc:
+                    raise ValueError("invalid summary transport base64") from exc
+                destination.write(chunk)
+        _validate_single_json_document(combined)
 
 
 def retained_telemetry_dirs(root):
@@ -878,15 +1357,29 @@ def _upload_window(window, files, prefix):
     """Upload each file once under its raw-content key; returns the index entries for the window."""
     entries = []
     for name in sorted(files):
-        raw = files[name] if isinstance(files[name], bytes) else files[name].encode("utf-8")
-        digest = hashlib.sha256(raw).hexdigest()
+        source = files[name]
+        if isinstance(source, Path):
+            raw_size = source.stat().st_size
+            hasher = hashlib.sha256()
+            with source.open("rb") as stream:
+                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                    hasher.update(chunk)
+            digest = hasher.hexdigest()
+            raw = None
+        else:
+            raw = source if isinstance(source, bytes) else source.encode("utf-8")
+            raw_size = len(raw)
+            digest = hashlib.sha256(raw).hexdigest()
         uri = _object_uri(prefix, digest)
         found = _stored_object(uri)
         if found is None:
             with tempfile.TemporaryDirectory(prefix="prw_upload_") as tmp:
                 src, zst = os.path.join(tmp, "raw"), os.path.join(tmp, "raw.zst")
-                with open(src, "wb") as f:
-                    f.write(raw)
+                if raw is None:
+                    src = str(source)
+                else:
+                    with open(src, "wb") as f:
+                        f.write(raw)
                 compressed = _zstd("-19", "-f", "-o", zst, src)
                 if compressed.returncode != 0:
                     raise TelemetryStoreError(
@@ -910,7 +1403,8 @@ def _upload_window(window, files, prefix):
                     found = _stored_object(uri)
         if found is None or found[0] != digest:
             raise TelemetryStoreError(f"window {window} {name}: stored object does not match {digest}")
-        entries.append({"name": name, "bytes": len(raw), "sha256": digest, "zst_bytes": found[1], "uri": uri})
+        entries.append({"name": name, "bytes": raw_size, "sha256": digest,
+                        "zst_bytes": found[1], "uri": uri})
     return entries
 
 
@@ -1984,17 +2478,20 @@ class Collector:
             "handoff_records": handoffs,
         }
 
-    def load_retained_telemetry(self, telemetry_dir=None, roadmap_repo=None, telemetry_ref=None):
+    def load_retained_telemetry(self, telemetry_dir=None, roadmap_repo=None, telemetry_ref=None,
+                                usage_spool=None):
         """
         Load retained private telemetry store from roadmap repo or custom telemetry directory.
         Reconstructs pilot_events, human_episodes, calibration_audit, and retention_manifest.
+        When a usage spool is supplied, validate but do not materialize the summary snapshot;
+        collect_all does not consume summary_snapshots.
         """
         target_dir = telemetry_dir
         if not target_dir and roadmap_repo:
             published = tempfile.mkdtemp(prefix="prw_published_")
             try:
                 if export_published_telemetry(roadmap_repo, published, ref=telemetry_ref):
-                    return self.load_retained_telemetry(telemetry_dir=published)
+                    return self.load_retained_telemetry(telemetry_dir=published, usage_spool=usage_spool)
             finally:
                 shutil.rmtree(published, ignore_errors=True)
             target_dir = os.path.join(roadmap_repo, "dashboards", "prw", "telemetry")
@@ -2039,10 +2536,16 @@ class Collector:
             def read_usage(name):
                 with open(os.path.join(bundle_dir, name), "rb") as f:
                     return f.read()
-            usage_events.extend(_read_usage_bundle(os.listdir(bundle_dir), read_usage))
-            summary = _read_summary_bundle(os.listdir(bundle_dir), read_usage)
-            if summary is not None:
-                summary_snapshots.append(summary)
+
+            bundle_names = os.listdir(bundle_dir)
+            if usage_spool is not None:
+                _validate_summary_bundle_streamed(bundle_names, bundle_dir, usage_spool.directory)
+                usage_spool.ingest_bundle(bundle_names, bundle_dir)
+            else:
+                usage_events.extend(_read_usage_bundle(bundle_names, read_usage))
+                summary = _read_summary_bundle(bundle_names, read_usage)
+                if summary is not None:
+                    summary_snapshots.append(summary)
             rates_path = os.path.join(bundle_dir, "usage_rates.json")
             if os.path.exists(rates_path):
                 with open(rates_path, "r", encoding="utf-8") as f:
@@ -2085,6 +2588,7 @@ class Collector:
         roadmap_repo=None,
         receipts_dir=None,
         telemetry_ref=None,
+        usage_spool_dir=None,
     ):
         """
         Collect PRs, timeline, and handoffs from live GitHub API and/or cached scratch/state.
@@ -2144,8 +2648,9 @@ class Collector:
 
         pilot_events = []
         human_episodes = []
+        usage_spool = RetainedUsageEventSpool(usage_spool_dir) if usage_spool_dir else None
         retained_usage_events = []
-        seen_usage_records = set()
+        seen_usage_records = set() if usage_spool is None else None
         retained_usage_rates = []
         calibration_audit = {}
         retention_manifest = {}
@@ -2165,18 +2670,19 @@ class Collector:
             if not real or real in seen_telem_dirs or not retained_telemetry_dirs(t_dir):
                 return
             seen_telem_dirs.add(real)
-            retained = self.load_retained_telemetry(telemetry_dir=t_dir)
+            retained = self.load_retained_telemetry(telemetry_dir=t_dir, usage_spool=usage_spool)
             for ev in retained.get("pilot_events", []):
                 if ev not in pilot_events:
                     pilot_events.append(ev)
             for ep in retained.get("human_episodes", []):
                 if ep not in human_episodes:
                     human_episodes.append(ep)
-            for ev in retained.get("usage_events", []):
-                key = _json_equality_key(ev)
-                if key not in seen_usage_records:
-                    seen_usage_records.add(key)
-                    retained_usage_events.append(ev)
+            if usage_spool is None:
+                for ev in retained.get("usage_events", []):
+                    key = _json_equality_key(ev)
+                    if key not in seen_usage_records:
+                        seen_usage_records.add(key)
+                        retained_usage_events.append(ev)
             for rate in retained.get("usage_rates", {}).get("rates", []):
                 if rate not in retained_usage_rates:
                     retained_usage_rates.append(rate)
@@ -2395,6 +2901,8 @@ class Collector:
                 pass
 
         self.source_manifest = sources
+        if usage_spool is not None:
+            usage_spool.seal()
         return {
             "prs": all_prs,
             "timeline": all_timeline,
@@ -2406,7 +2914,7 @@ class Collector:
             "human_episodes": human_episodes,
             "calibration_audit": calibration_audit,
             "retention_manifest": retention_manifest,
-            "usage_events": retained_usage_events,
+            "usage_events": usage_spool if usage_spool is not None else retained_usage_events,
             "usage_rates": {"rates": retained_usage_rates},
         }
 
@@ -5028,7 +5536,7 @@ def _merge_pr_branch_metadata(prs, cached_prs):
     return [merged[key] for key in sorted(merged)]
 
 
-def _attach_usage_snapshot_attributions(query_events, native_records, prs):
+def _attributed_usage_rows(query_events, native_records, prs):
     """Associate unique session snapshots, without asserting request-time ownership."""
     by_branch = defaultdict(set)
     for pr in prs:
@@ -5044,9 +5552,11 @@ def _attach_usage_snapshot_attributions(query_events, native_records, prs):
             by_session[(record.get("provider"), _retained_hash(session))].add((repo.lower(), branch))
     for event in query_events:
         if event.get("branch_attributions"):
+            yield event
             continue
         snapshots = by_session.get((event.get("provider"), event.get("session_id_hash")), set())
         if len(snapshots) != 1:
+            yield event
             continue
         matches = by_branch.get(next(iter(snapshots)), set())
         if len(matches) == 1:
@@ -5054,6 +5564,24 @@ def _attach_usage_snapshot_attributions(query_events, native_records, prs):
                 "pr": next(iter(matches)), "weight": "1", "confidence": "low",
                 "basis": "repository_branch_snapshot_unique",
             }]
+        yield event
+
+
+def _attach_usage_snapshot_attributions(query_events, native_records, prs):
+    for _ in _attributed_usage_rows(query_events, native_records, prs):
+        pass
+
+
+def _read_spooled_rows(path):
+    with open(path, encoding="utf-8") as stream:
+        for line in stream:
+            yield json.loads(line)
+
+
+def _write_spooled_rows(path, rows):
+    with open(path, "x", encoding="utf-8") as stream:
+        for row in rows:
+            stream.write(json.dumps(row, default=str) + "\n")
 
 
 def aggregate_native_human_steering(
@@ -5604,6 +6132,8 @@ class Publisher:
         sources=None,
         usage_events=None,
         usage_rates=None,
+        usage_summary_events=None,
+        spool_dir=None,
     ):
         """Generate relative file paths and contents for telemetry publishing under dashboards/prw/telemetry/."""
         if not window_slug:
@@ -5618,20 +6148,54 @@ class Publisher:
         window_dir = f"{TELEMETRY_RELDIR}/{window_slug}"
 
         files = {}
+        spool_dir = Path(spool_dir) if spool_dir is not None else None
+        if usage_summary_events is not None and spool_dir is None:
+            raise ValueError("streamed summary events require a private spool directory")
+        if spool_dir is not None:
+            _validate_publish_spool(spool_dir)
+            spool_dir = spool_dir / "publisher-files"
+            spool_dir.mkdir(mode=0o700, exist_ok=False)
+            _validate_publish_spool(spool_dir, require_empty=True)
         if summary_data:
-            for name, content in _summary_parts(summary_data).items():
+            summary_files = (
+                _write_streamed_summary_parts(summary_data, usage_summary_events, spool_dir)
+                if usage_summary_events is not None and spool_dir is not None
+                else _summary_parts(summary_data)
+            )
+            for name, content in summary_files.items():
                 files[f"{window_dir}/{name}"] = content
 
         if pilot_events:
-            lines = [json.dumps(_sanitize_retained_record(ev, RETAINED_EVENT_FIELDS)) for ev in pilot_events]
-            files[f"{window_dir}/pilot_events.jsonl"] = "\n".join(lines) + "\n"
+            if spool_dir is not None:
+                path = spool_dir / "pilot_events.jsonl"
+                _write_jsonl_records(
+                    pilot_events, path,
+                    lambda row: _sanitize_retained_record(row, RETAINED_EVENT_FIELDS),
+                )
+                files[f"{window_dir}/pilot_events.jsonl"] = path
+            else:
+                lines = [json.dumps(_sanitize_retained_record(ev, RETAINED_EVENT_FIELDS)) for ev in pilot_events]
+                files[f"{window_dir}/pilot_events.jsonl"] = "\n".join(lines) + "\n"
 
         if human_episodes:
-            lines = [json.dumps(_sanitize_retained_record(ep, RETAINED_EPISODE_FIELDS)) for ep in human_episodes]
-            files[f"{window_dir}/human_episodes.jsonl"] = "\n".join(lines) + "\n"
+            if spool_dir is not None:
+                path = spool_dir / "human_episodes.jsonl"
+                _write_jsonl_records(
+                    human_episodes, path,
+                    lambda row: _sanitize_retained_record(row, RETAINED_EPISODE_FIELDS),
+                )
+                files[f"{window_dir}/human_episodes.jsonl"] = path
+            else:
+                lines = [json.dumps(_sanitize_retained_record(ep, RETAINED_EPISODE_FIELDS)) for ep in human_episodes]
+                files[f"{window_dir}/human_episodes.jsonl"] = "\n".join(lines) + "\n"
 
         if usage_events is not None:
-            for name, content in _usage_parts(_usage_event_record(ev) for ev in usage_events).items():
+            usage_files = (
+                _write_usage_parts((_usage_event_record(ev) for ev in usage_events), spool_dir)
+                if spool_dir is not None
+                else _usage_parts(_usage_event_record(ev) for ev in usage_events)
+            )
+            for name, content in usage_files.items():
                 files[f"{window_dir}/{name}"] = content
         if usage_rates is not None:
             rate_payload = {"rates": [{k: (format_iso_utc(v) if isinstance(v, datetime) else str(v) if isinstance(v, Decimal) else v)
@@ -5647,8 +6211,17 @@ class Publisher:
                 records = records.get("records") or records.get("handoffs") or []
             if records:
                 allowed = RETAINED_COLLECTION_FILES[fname]
-                lines = [json.dumps(_sanitize_retained_record(r, allowed, nested=True)) for r in records]
-                files[f"{window_dir}/{fname}"] = "\n".join(lines) + "\n"
+                if spool_dir is not None:
+                    path = spool_dir / fname
+                    _write_jsonl_records(
+                        records,
+                        path,
+                        lambda row: _sanitize_retained_record(row, allowed, nested=True),
+                    )
+                    files[f"{window_dir}/{fname}"] = path
+                else:
+                    lines = [json.dumps(_sanitize_retained_record(r, allowed, nested=True)) for r in records]
+                    files[f"{window_dir}/{fname}"] = "\n".join(lines) + "\n"
         if sources:
             files[f"{window_dir}/retained_sources.json"] = json.dumps(_sanitize_retained_sources(sources), indent=2)
 
@@ -5678,6 +6251,8 @@ class Publisher:
         sources=None,
         usage_events=None,
         usage_rates=None,
+        usage_summary_events=None,
+        spool_dir=None,
     ):
         if status == "FAILED":
             return {
@@ -5702,6 +6277,7 @@ class Publisher:
             }
 
         telemetry_staged_files = {}
+        generated_spool_paths = set()
         if telemetry_files:
             try:
                 for t_relpath, t_content in telemetry_files.items():
@@ -5713,6 +6289,8 @@ class Publisher:
                     "reason": f"Unsanitizable telemetry file rejected: {e}",
                 }
         if publish_telemetry and summary_data:
+            # The caller owns this directory's lifetime. It should place it under
+            # the configured DuckDB scratch directory so its capacity limit applies.
             tb = self.write_telemetry_bundle(
                 summary_data,
                 pilot_events=pilot_events,
@@ -5723,6 +6301,8 @@ class Publisher:
                 sources=sources,
                 usage_events=usage_events,
                 usage_rates=usage_rates,
+                usage_summary_events=usage_summary_events,
+                spool_dir=spool_dir,
             )
             # Generated families supersede caller-supplied versions atomically,
             # including legacy-singleton to sharded-format transitions.
@@ -5732,6 +6312,9 @@ class Publisher:
                     if os.path.dirname(path) in windows and candidate(os.path.basename(path)):
                         del telemetry_staged_files[path]
             telemetry_staged_files.update(tb)
+            generated_spool_paths.update(
+                path for path, content in tb.items() if isinstance(content, Path)
+            )
 
         # A usage family is one atomic replacement, including empty/shrinking snapshots.
         usage_windows = {os.path.dirname(path) for path in telemetry_staged_files
@@ -5740,7 +6323,13 @@ class Publisher:
             for window in usage_windows:
                 family = {os.path.basename(path): content for path, content in telemetry_staged_files.items()
                           if os.path.dirname(path) == window and _usage_file(os.path.basename(path))}
-                records = _read_usage_bundle(family, family.__getitem__)
+                family_paths = {f"{window}/{name}" for name in family}
+                if family_paths <= generated_spool_paths:
+                    records = None  # Generated shards were sanitized, bounded and hashed as written.
+                else:
+                    records = _read_usage_bundle(family, family.__getitem__)
+                if records is None:
+                    continue
                 if any(len(content.encode("utf-8")) > USAGE_SHARD_BYTES
                        for name, content in family.items() if name.endswith(".jsonl")):
                     for name in family:
@@ -5757,6 +6346,9 @@ class Publisher:
             for window in summary_windows:
                 family = {os.path.basename(path): content for path, content in telemetry_staged_files.items()
                           if os.path.dirname(path) == window and _summary_candidate(os.path.basename(path))}
+                family_paths = {f"{window}/{name}" for name in family}
+                if family_paths <= generated_spool_paths:
+                    continue
                 summary = _read_summary_bundle(family, family.__getitem__)
                 for name in family:
                     del telemetry_staged_files[f"{window}/{name}"]
@@ -5769,7 +6361,8 @@ class Publisher:
         # The part budget also bounds metadata: manifests and any other generated
         # telemetry must fail before Git writes, never truncate or partially publish.
         for path, content in telemetry_staged_files.items():
-            if len(content.encode("utf-8")) > TELEMETRY_BLOB_BYTES:
+            size = content.stat().st_size if isinstance(content, Path) else len(content.encode("utf-8"))
+            if size > TELEMETRY_BLOB_BYTES:
                 return {"action": "BLOCKED", "committed": False,
                         "reason": f"Telemetry blob exceeds byte limit: {path}"}
 
@@ -5949,14 +6542,18 @@ class Publisher:
 
                     # 5. Stage any telemetry bundle files into the same atomic commit
                     for t_relpath, t_content in staged.items():
-                        t_hash_proc = subprocess.run(
-                            ["git", "-C", self.repo_path, "hash-object", "-w", "--stdin"],
-                            input=t_content,
-                            text=True,
-                            check=True,
-                            capture_output=True,
-                            env=env,
-                        )
+                        blob_command = ["git", "-C", self.repo_path, "hash-object", "-w", "--stdin"]
+                        if isinstance(t_content, Path):
+                            with t_content.open("rb") as stream:
+                                t_hash_proc = subprocess.run(
+                                    blob_command, stdin=stream, check=True, capture_output=True,
+                                    text=True, env=env,
+                                )
+                        else:
+                            t_hash_proc = subprocess.run(
+                                blob_command, input=t_content, text=True, check=True,
+                                capture_output=True, env=env,
+                            )
                         t_blob_sha = t_hash_proc.stdout.strip()
                         subprocess.run(
                             [
@@ -6056,6 +6653,8 @@ def publish_dashboard(
     sources=None,
     usage_events=None,
     usage_rates=None,
+        usage_summary_events=None,
+        spool_dir=None,
 ):
     """Functional helper for Publisher."""
     publisher = Publisher(repo_path=repo_path, target_relpath=target_relpath)
@@ -6074,6 +6673,8 @@ def publish_dashboard(
         sources=sources,
         usage_events=usage_events,
         usage_rates=usage_rates,
+        usage_summary_events=usage_summary_events,
+        spool_dir=spool_dir,
     )
 
 
@@ -6149,8 +6750,16 @@ def main():
         help="Optional existing Scratch directory for DuckDB temp spill files",
     )
 
-    args = parser.parse_args()
+    parser.add_argument("--query-threads", type=int, help="Number of DuckDB workers")
 
+    args = parser.parse_args()
+    if args.history_replay:
+        with tempfile.TemporaryDirectory(prefix="prw_replay_", dir=args.query_temp_directory) as spool_dir:
+            return _run_dashboard(parser, args, spool_dir)
+    return _run_dashboard(parser, args)
+
+
+def _run_dashboard(parser, args, spool_dir=None):
     if args.publish and not args.roadmap_repo:
         sys.stderr.write("ERROR: --publish requires --roadmap-repo (or PRW_METRICS_ROADMAP_REPO)\n")
         sys.exit(1)
@@ -6189,13 +6798,13 @@ def main():
             from scripts.native_usage_collector import (
                 collect_native_history,
                 load_normalized_history, disputing_copies,
-                write_normalized_history, enrich_replay_state, write_nudge_packets,
+                write_normalized_history, enrich_replay_state, iter_enriched_replay_state, write_nudge_packets,
             )
         except ModuleNotFoundError:
             from native_usage_collector import (
                 collect_native_history,
                 load_normalized_history, disputing_copies,
-                write_normalized_history, enrich_replay_state, write_nudge_packets,
+                write_normalized_history, enrich_replay_state, iter_enriched_replay_state, write_nudge_packets,
             )
         if args.repository_map:
             with open(args.repository_map, encoding="utf-8") as stream:
@@ -6226,39 +6835,43 @@ def main():
                 "stats": None,
             }
             outside_humans = []
-            for replay_path in args.history_replay:
-                replay = load_normalized_history(
-                    replay_path, cutoff=history_cutoff, days=args.days,
-                    annotation_path=args.history_annotations,
-                )
-                for key in ("usage_records", "human_records", "export_records"):
-                    history_data[key].extend(replay[key])
-                outside_humans.extend(replay["outside_human_records"])
-                if history_data["stats"] is None:
-                    history_data["stats"] = replay["stats"]
-                else:
-                    for key, value in replay["stats"].items():
-                        if key == "source_exports":
-                            history_data["stats"][key].extend(value)
-                        elif isinstance(value, int) and not isinstance(value, bool):
-                            history_data["stats"][key] += value
+            raw_replay_path = os.path.join(spool_dir, "native-usage.jsonl")
+            identity_db = os.path.join(spool_dir, "usage-identity.sqlite3")
+            with open(raw_replay_path, "x", encoding="utf-8") as raw_file, closing(sqlite3.connect(identity_db)) as ids:
+                ids.execute("CREATE TABLE identity (key TEXT PRIMARY KEY) WITHOUT ROWID")
+
+                def store_usage(row):
+                    raw_file.write(json.dumps(row) + "\n")
+                    if not row.get("request_id"):
+                        return False
+                    key = json.dumps((row.get("provider"), row["request_id"]))
+                    return ids.execute("INSERT OR IGNORE INTO identity VALUES (?)", (key,)).rowcount == 0
+
+                for replay_path in args.history_replay:
+                    replay = load_normalized_history(
+                        replay_path, cutoff=history_cutoff, days=args.days,
+                        annotation_path=args.history_annotations, on_usage=store_usage,
+                    )
+                    history_data["human_records"].extend(replay["human_records"])
+                    outside_humans.extend(replay["outside_human_records"])
+                    if history_data["stats"] is None:
+                        history_data["stats"] = replay["stats"]
+                    else:
+                        for key, value in replay["stats"].items():
+                            if key == "source_exports":
+                                history_data["stats"][key].extend(value)
+                            elif isinstance(value, int) and not isinstance(value, bool):
+                                history_data["stats"][key] = history_data["stats"].get(key, 0) + value
             history_data["human_records"] += disputing_copies(history_data["human_records"], outside_humans)
             quality = [item["status"] for item in history_data["stats"]["source_exports"]]
             history_data["stats"]["source_quality"] = next(
                 (status for status in ("FAILED", "PARTIAL", "UNKNOWN", "COMPLETE") if status in quality),
                 "UNKNOWN",
             )
-            seen_replay_usage = set()
-            duplicate_replay_usage = 0
-            for row in history_data["usage_records"]:
-                identity = (row.get("provider"), row.get("request_id"))
-                if identity[1] and identity in seen_replay_usage:
-                    duplicate_replay_usage += 1
-                elif identity[1]:
-                    seen_replay_usage.add(identity)
-            history_data["stats"]["duplicate_usage_records"] = duplicate_replay_usage
             if args.state_db:
-                enrich_replay_state(history_data["usage_records"], args.state_db)
+                enriched = os.path.join(spool_dir, "native-enriched.jsonl")
+                _write_spooled_rows(enriched, iter_enriched_replay_state(_read_spooled_rows(raw_replay_path), args.state_db))
+                os.replace(enriched, raw_replay_path)
                 enrich_replay_state(history_data["human_records"], args.state_db)
         else:
             history_data = collect_native_history(
@@ -6294,6 +6907,7 @@ def main():
         roadmap_repo=args.roadmap_repo,
         receipts_dir=args.receipts_dir,
         telemetry_ref=args.telemetry_ref,
+        **({"usage_spool_dir": spool_dir} if spool_dir else {}),
     )
     prs = collected["prs"]
     timeline = collected["timeline"]
@@ -6318,11 +6932,12 @@ def main():
     usage_events = []
     rates = []
     native_source_stats = history_data["stats"] if history_data else None
+    load_events = iter_usage_events if spool_dir else load_usage_events
     if args.usage_events:
         rates = load_rate_table(args.usage_rates) if args.usage_rates else []
         providers = {rate["provider"] for rate in rates}
         provider = next(iter(providers)) if len(providers) == 1 else None
-        events = load_usage_events(args.usage_events, provider=provider)
+        events = load_events(args.usage_events, provider=provider)
     elif collected.get("usage_events"):
         rates = load_rate_table(args.usage_rates) if args.usage_rates else (
             load_rate_table(collected["usage_rates"])
@@ -6330,32 +6945,48 @@ def main():
         )
         providers = {rate["provider"] for rate in rates}
         provider = next(iter(providers)) if len(providers) == 1 else None
-        events = load_usage_events(collected["usage_events"], provider=provider)
+        events = load_events(collected["usage_events"], provider=provider)
     else:
         rates = load_rate_table(args.usage_rates) if args.usage_rates else []
         events = []
 
-    if history_data:
+    if spool_dir:
+        normalized_path = os.path.join(spool_dir, "normalized-usage.jsonl")
+        try:
+            _write_spooled_rows(normalized_path, chain(events, iter_usage_events(_read_spooled_rows(raw_replay_path))))
+        finally:
+            retained = collected.get("usage_events")
+            if isinstance(retained, RetainedUsageEventSpool):
+                retained.cleanup()
+        events = _read_spooled_rows(normalized_path)
+    elif history_data:
         native_events = load_usage_events(history_data["usage_records"])
         events.extend(native_events)
     if not events and not args.usage_events and not collected.get("usage_events") and not history_roots and not history_data:
         events = None
     if events is not None:
         usage_events = events
-        usage_summary = aggregate_usage(events, rates, window_start=aggregator.w1_start_dt, window_end=cutoff_dt)
+        usage_summary = aggregate_usage(events, rates, window_start=aggregator.w1_start_dt, window_end=cutoff_dt,
+                                        **({"spool_dir": spool_dir} if spool_dir else {}))
         if native_source_stats is not None:
             usage_summary["coverage"]["native_source"] = native_source_stats
-        summary_data["usage_summary"] = _retained_usage_summary(usage_summary)
+        summary_data["usage_summary"] = _retained_usage_summary(usage_summary, include_events=not spool_dir)
 
     if collected.get("status") in ("FAILED", "PARTIAL_FAILURE"):
         summary_data["status"] = collected["status"]
     query_prs = prs
+    query_input = usage_summary["query_events"] if usage_summary else []
     if history_data:
         branch_prs = _merge_pr_branch_metadata(
             prs, pr_lookup_cache.get("prs", []) if pr_lookup_cache else []
         )
         query_prs = branch_prs
-        if usage_summary is not None:
+        if spool_dir:
+            query_input_path = os.path.join(spool_dir, "attributed-query.jsonl")
+            _write_spooled_rows(query_input_path, _attributed_usage_rows(
+                query_input, _read_spooled_rows(raw_replay_path), branch_prs))
+            query_input = query_input_path
+        elif usage_summary is not None:
             _attach_usage_snapshot_attributions(
                 usage_summary["query_events"], history_data["usage_records"], branch_prs
             )
@@ -6377,20 +7008,21 @@ def main():
     query_summary = None
     if (
         args.query_metrics or args.scenario_catalog or args.history_replay
-        or args.query_memory_limit or args.query_temp_directory
+        or args.query_memory_limit or args.query_temp_directory or args.query_threads is not None
     ):
         try:
             from scripts.prw_metrics_queries import run_query
         except ModuleNotFoundError:
             from prw_metrics_queries import run_query
         query_summary = run_query(
-            events_path=usage_summary["query_events"] if usage_summary else [],
+            events_path=query_input,
             pr_snapshots_path=query_prs or [],
             snapshot_at_utc=cutoff_dt.isoformat().replace("+00:00", "Z"),  # full precision: stage entries compare against it
             human_summary_path=summary_data.get("human_summary"),
             rate_catalog_path=args.scenario_catalog,
             duckdb_memory_limit=args.query_memory_limit,
             duckdb_temp_directory=args.query_temp_directory,
+            duckdb_threads=args.query_threads,
         )
 
     renderer = DashboardRenderer()
@@ -6443,7 +7075,8 @@ def main():
             timeline=timeline,
             handoff_records=handoff_records,
             sources=sources,
-            usage_events=usage_events if usage_summary is not None else None,
+            usage_events=_read_spooled_rows(normalized_path) if spool_dir else (usage_events if usage_summary is not None else None),
+            **({"usage_summary_events": usage_summary["events"].retained_rows(), "spool_dir": spool_dir} if spool_dir else {}),
             usage_rates=rates if usage_summary is not None else None,
         )
         print(f"Publication result: {pub_res}")
@@ -6627,25 +7260,28 @@ def _sanitize_usage_rates_record(payload):
     return {"rates": clean}
 
 
-def load_usage_events(path, provider=None):
-    """Read native JSONL usage wrappers and retain only numeric billing metadata."""
-    if isinstance(path, list):
-        records = path
-    else:
-        with open(path, encoding="utf-8") as stream:
-            records = [json.loads(line) for line in stream if line.strip()]
-    records = [
-        row for row in records
-        if not (isinstance(row, dict) and row.get("record_type") == "human")
-    ]
-    events = []
-    for line_no, row in enumerate(records, 1):
-            if not isinstance(row, dict) or not isinstance(row.get("raw_usage"), dict):
-                raise ValueError(f"usage event line {line_no} must contain a raw_usage object")
-            raw_usage = row["raw_usage"]
-            raw_sku = row.get("model")
-            sku = _usage_label(raw_sku)
-            event = {
+def iter_usage_events(path, provider=None):
+    """Yield sanitized numeric usage records without retaining the source file."""
+    def records():
+        if isinstance(path, (str, os.PathLike)):
+            with open(path, encoding="utf-8") as stream:
+                for line in stream:
+                    if line.strip():
+                        yield json.loads(line)
+        else:
+            yield from path
+
+    line_no = 0
+    for row in records():
+        if isinstance(row, dict) and row.get("record_type") == "human":
+            continue
+        line_no += 1
+        if not isinstance(row, dict) or not isinstance(row.get("raw_usage"), dict):
+            raise ValueError(f"usage event line {line_no} must contain a raw_usage object")
+        raw_usage = row["raw_usage"]
+        raw_sku = row.get("model")
+        sku = _usage_label(raw_sku)
+        event = {
                 "provider": _usage_label(row.get("provider") or provider),
                 "sku": sku,
                 "usage_id": _retained_hash(row.get("request_id") or row.get("message_id")),
@@ -6666,38 +7302,42 @@ def load_usage_events(path, provider=None):
                 "inference_geo": _usage_label(raw_usage.get("inference_geo")),
                 "speed": _usage_label(raw_usage.get("speed")),
                 "attributions": [],
-            }
-            attrs = row.get("attributions")
-            if isinstance(attrs, list):
-                for attr in attrs:
-                    if not isinstance(attr, dict):
-                        continue
-                    refs = attr.get("receipt_refs")
-                    weight = attr.get("weight")
-                    try:
-                        parsed_weight = Decimal(str(weight))
-                    except (InvalidOperation, TypeError, ValueError):
-                        pass
-                    else:
-                        if parsed_weight.is_finite() and 0 < parsed_weight <= 1:
-                            weight = str(parsed_weight.normalize())
-                    event["attributions"].append({
+        }
+        attrs = row.get("attributions")
+        if isinstance(attrs, list):
+            for attr in attrs:
+                if not isinstance(attr, dict):
+                    continue
+                refs = attr.get("receipt_refs")
+                weight = attr.get("weight")
+                try:
+                    parsed_weight = Decimal(str(weight))
+                except (InvalidOperation, TypeError, ValueError):
+                    pass
+                else:
+                    if parsed_weight.is_finite() and 0 < parsed_weight <= 1:
+                        weight = str(parsed_weight.normalize())
+                event["attributions"].append({
                         "pr": attr.get("pr") if _safe_pr_id(attr.get("pr")) else None,
                         "weight": weight, "method": attr.get("method"),
                         "basis": attr.get("basis"), "convention_ref": attr.get("convention_ref"),
                         "receipt_refs": [clean for ref in refs if (clean := _usage_receipt_ref(ref))]
                         if isinstance(refs, list) else [],
                         "has_rationale": bool(isinstance(attr.get("rationale"), str) and attr["rationale"].strip()),
-                    })
-            if row.get("usage_conflict"):
-                event["unknown_reasons"] = ["source_usage_conflict"]
-            if sku is None:
-                event["sku"] = "<unsupported>"
-                event.setdefault("unknown_reasons", []).append("unsupported_sku")
-            if raw_sku == "<synthetic>":
-                event.setdefault("unknown_reasons", []).append("unsupported_sku")
-            events.append(event)
-    return events
+                })
+        if row.get("usage_conflict"):
+            event["unknown_reasons"] = ["source_usage_conflict"]
+        if sku is None:
+            event["sku"] = "<unsupported>"
+            event.setdefault("unknown_reasons", []).append("unsupported_sku")
+        if raw_sku == "<synthetic>":
+            event.setdefault("unknown_reasons", []).append("unsupported_sku")
+        yield event
+
+
+def load_usage_events(path, provider=None):
+    """Compatibility wrapper returning a list of sanitized numeric usage."""
+    return list(iter_usage_events(path, provider=provider))
 
 
 def load_rate_table(path):
@@ -6833,7 +7473,7 @@ def _summarize_observed_pr_costs(prs):
     }
 
 
-def _retained_usage_summary(summary):
+def _retained_usage_summary(summary, include_events=True):
     """Persist sanitized numeric totals, per-event buckets, and rate provenance only."""
     rates = []
     for rate in summary["rate_records"]:
@@ -6842,7 +7482,7 @@ def _retained_usage_summary(summary):
             "current_confirmation_url", "rate_basis", "unit", "service_tier", "inference_geo", "speed",
             "effective_from", "effective_to",
         )})
-    return {
+    retained = {
         "label": summary["label"],
         "source_records": summary["source_records"],
         "event_count": summary["event_count"],
@@ -6866,11 +7506,20 @@ def _retained_usage_summary(summary):
         "prs": {key: {"known_cost_usd": str(row["known_cost_usd"]), "unknown": row["unknown"],
                       "event_count": row["event_count"], "pricing_status": row["pricing_status"]}
                 for key, row in summary["prs"].items()},
-        "events": [{"status": row["status"],
-                    "known_cost_usd": str(row["known_cost_usd"]) if row["known_cost_usd"] is not None else None,
-                    "unknown_buckets": row["unknown_buckets"],
-                    "tokens_by_bucket": row["tokens_by_bucket"]} for row in summary["events"]],
         "rate_records": rates,
+    }
+    if include_events:
+        retained["events"] = [_retained_usage_event(row) for row in summary["events"]]
+    return retained
+
+
+def _retained_usage_event(row):
+    """Return one event in the exact privacy-projected summary snapshot shape."""
+    return {
+        "status": row["status"],
+        "known_cost_usd": str(row["known_cost_usd"]) if row["known_cost_usd"] is not None else None,
+        "unknown_buckets": row["unknown_buckets"],
+        "tokens_by_bucket": row["tokens_by_bucket"],
     }
 
 
@@ -6882,9 +7531,57 @@ def _same_usage_except_observation_timestamp(left, right):
     )
 
 
-def aggregate_usage(raw_events, rates, window_start=None, window_end=None):
+class JsonlUsageRows:
+    """Repeatable bounded-memory view of canonical usage rows on disk."""
+
+    def __init__(self, path, count):
+        self.path = Path(path)
+        self._count = count
+
+    def __len__(self):
+        return self._count
+
+    def __iter__(self):
+        with self.path.open(encoding="utf-8") as stream:
+            for line in stream:
+                if not line.strip():
+                    continue
+                row = json.loads(line)
+                value = row.get("known_cost_usd")
+                if isinstance(value, str):
+                    row["known_cost_usd"] = Decimal(value)
+                yield row
+
+    def retained_rows(self):
+        """Stream the privacy-projected per-event rows used by summary snapshots."""
+        for row in self:
+            yield {
+                "status": row["status"],
+                "known_cost_usd": (
+                    str(row["known_cost_usd"])
+                    if row["known_cost_usd"] is not None else None
+                ),
+                "unknown_buckets": row["unknown_buckets"],
+                "tokens_by_bucket": row["tokens_by_bucket"],
+            }
+
+
+def _usage_spool_files(spool_dir):
+    """Create private SQLite and JSONL files in a caller-owned run directory."""
+    root = Path(spool_dir)
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    database_fd, database_path = tempfile.mkstemp(prefix="usage-dedup-", suffix=".sqlite3", dir=root)
+    os.close(database_fd)
+    output_fd, output_path = tempfile.mkstemp(prefix="usage-priced-", suffix=".jsonl", dir=root)
+    os.close(output_fd)
+    return Path(database_path), Path(output_path)
+
+
+def aggregate_usage(raw_events, rates, window_start=None, window_end=None, *, spool_dir=None):
     """Aggregate real feed events without inventing missing cost or PR allocation."""
-    raw_events = list(raw_events)
+    bounded = spool_dir is not None
+    if not bounded:
+        raw_events = list(raw_events)
     price_catalog_version = (
         "sha256:" + hashlib.sha256(
             json.dumps(
@@ -6893,40 +7590,93 @@ def aggregate_usage(raw_events, rates, window_start=None, window_end=None):
         ).hexdigest()
         if rates else None
     )
-    source_records = len(raw_events)
+    source_records = len(raw_events) if not bounded else 0
     undated_count, outside_window_count = 0, 0
-    if window_start is not None and window_end is not None:
-        windowed = []
-        for event in raw_events:
-            timestamp = _parse_utc_instant(event.get("timestamp"))
-            if timestamp is None:
-                undated_count += 1
-            elif window_start <= timestamp < window_end:
-                windowed.append(event)
-            else:
-                outside_window_count += 1
-        raw_events = windowed
-    rows, seen = [], {}
-    for index, raw in enumerate(raw_events):
-        reason = list(raw.get("unknown_reasons", []))
-        usage_id = raw.get("usage_id")
-        identity = (raw.get("provider"), usage_id)
-        if not usage_id:
-            raw = dict(raw, usage_id=f"missing-identity-{index}",
-                       unknown_reasons=reason + ["usage_identity_missing"])
+    if bounded:
+        database_path, priced_path = _usage_spool_files(spool_dir)
+        db = sqlite3.connect(database_path)
+        try:
+            db.execute("CREATE TABLE usage_row (seq INTEGER PRIMARY KEY, identity TEXT UNIQUE, raw TEXT NOT NULL)")
+            insert = "INSERT INTO usage_row(identity, raw) VALUES (?, ?)"
+            accepted_index = 0
+            for original in raw_events:
+                source_records += 1
+                timestamp = _parse_utc_instant(original.get("timestamp"))
+                if window_start is not None and window_end is not None:
+                    if timestamp is None:
+                        undated_count += 1
+                        continue
+                    if not window_start <= timestamp < window_end:
+                        outside_window_count += 1
+                        continue
+                index = accepted_index
+                accepted_index += 1
+                reason = list(original.get("unknown_reasons", []))
+                raw = original
+                usage_id = raw.get("usage_id")
+                if not usage_id:
+                    raw = dict(raw, usage_id=f"missing-identity-{index}",
+                               unknown_reasons=reason + ["usage_identity_missing"])
+                    identity = None
+                else:
+                    identity = json.dumps((raw.get("provider"), usage_id), separators=(",", ":"))
+                payload = json.dumps(raw, ensure_ascii=False, separators=(",", ":"), default=str)
+                if identity is None:
+                    db.execute(insert, (None, payload))
+                    continue
+                prior = db.execute("SELECT seq, raw FROM usage_row WHERE identity=?", (identity,)).fetchone()
+                if prior is None:
+                    db.execute(insert, (identity, payload))
+                    continue
+                first = json.loads(prior[1])
+                if (first != raw and not _same_usage_except_observation_timestamp(first, raw)):
+                    prior_reasons = list(raw.get("unknown_reasons", [])) + ["conflicting_duplicate"]
+                    for field in _USAGE_TOKEN_BUCKETS:
+                        first[field] = None
+                    first["unknown_reasons"] = prior_reasons
+                    db.execute("UPDATE usage_row SET raw=? WHERE seq=?",
+                               (json.dumps(first, ensure_ascii=False, separators=(",", ":"), default=str), prior[0]))
+            db.commit()
+            row_count = db.execute("SELECT COUNT(*) FROM usage_row").fetchone()[0]
+            rows = (json.loads(row[0]) for row in db.execute("SELECT raw FROM usage_row ORDER BY seq"))
+        except BaseException:
+            db.close()
+            raise
+    else:
+        if window_start is not None and window_end is not None:
+            windowed = []
+            for event in raw_events:
+                timestamp = _parse_utc_instant(event.get("timestamp"))
+                if timestamp is None:
+                    undated_count += 1
+                elif window_start <= timestamp < window_end:
+                    windowed.append(event)
+                else:
+                    outside_window_count += 1
+            raw_events = windowed
+        rows, seen = [], {}
+        for index, raw in enumerate(raw_events):
+            reason = list(raw.get("unknown_reasons", []))
+            usage_id = raw.get("usage_id")
+            identity = (raw.get("provider"), usage_id)
+            if not usage_id:
+                raw = dict(raw, usage_id=f"missing-identity-{index}",
+                           unknown_reasons=reason + ["usage_identity_missing"])
+                rows.append(raw)
+                continue
+            if identity in seen:
+                prior_index = seen[identity]
+                if (rows[prior_index] != raw
+                        and not _same_usage_except_observation_timestamp(rows[prior_index], raw)):
+                    prior = dict(rows[prior_index], unknown_reasons=reason + ["conflicting_duplicate"])
+                    for field in _USAGE_TOKEN_BUCKETS:
+                        prior[field] = None
+                    rows[prior_index] = prior
+                continue
+            seen[identity] = len(rows)
             rows.append(raw)
-            continue
-        if identity in seen:
-            prior_index = seen[identity]
-            if (rows[prior_index] != raw
-                    and not _same_usage_except_observation_timestamp(rows[prior_index], raw)):
-                prior = dict(rows[prior_index], unknown_reasons=reason + ["conflicting_duplicate"])
-                for field in _USAGE_TOKEN_BUCKETS:
-                    prior[field] = None
-                rows[prior_index] = prior
-            continue
-        seen[identity] = len(rows)
-        rows.append(raw)
+        row_count = len(rows)
+        rows = iter(rows)
     totals = defaultdict(int)
     reasoning_tokens = 0
     coverage = {"providers": set(), "models": set(), "service_tiers": set(), "regions": set(), "speeds": set(), "sessions": set()}
@@ -6936,177 +7686,200 @@ def aggregate_usage(raw_events, rates, window_start=None, window_end=None):
     unallocated_unknown_cost_events = 0
     known_cost = Decimal(0)
     priced = partial = unknown = 0
-    priced_rows = []
-    for raw in rows:
-        for name, field in (("providers", "provider"), ("models", "sku"), ("service_tiers", "service_tier"),
-                            ("regions", "inference_geo"), ("speeds", "speed"), ("sessions", "session_id")):
-            if raw.get(field):
-                coverage[name].add(str(raw[field]))
-        billable = {bucket: raw.get(source) for source, bucket in _USAGE_TOKEN_BUCKETS.items()}
-        source_conflict = "source_usage_conflict" in raw.get("unknown_reasons", [])
-        if source_conflict:
-            billable = {bucket: None for bucket in billable}
-        reasoning = None if source_conflict else raw.get("reasoning_tokens")
-        if isinstance(reasoning, int) and not isinstance(reasoning, bool) and reasoning >= 0:
-            reasoning_tokens += reasoning
-        # Native input_tokens excludes cache tokens; reasoning is diagnostic and included in output.
-        ev = dict(raw, billable=billable)
-        cost, status, unknown_buckets = _price_usage_event(ev, rates)
-        priced += status == "priced"
-        partial += status == "partial"
-        unknown += status == "unknown"
-        known_cost += cost or Decimal(0)
-        priced_row = {
-            "status": status,
-            "known_cost_usd": cost,
-            "unknown_buckets": unknown_buckets,
-            "tokens_by_bucket": billable,
-        }
-        priced_rows.append(priced_row)
-        for bucket, count in billable.items():
-            if isinstance(count, int) and not isinstance(count, bool) and count >= 0:
-                totals[bucket] += count
-            elif count is not None:
-                totals[bucket] = None
-        attrs = raw.get("attributions") or []
-        weights = [_supported_usage_attribution(a) for a in attrs]
-        valid = (bool(attrs) and len({attr.get("pr") for attr in attrs}) == len(attrs)
-                 and all(w is not None for w in weights) and sum(weights) <= 1)
-        validated_attributions = []
-        if valid:
-            for attr, weight in zip(attrs, weights):
-                validated_attributions.append({
-                    "pr": attr["pr"],
-                    "weight": str(weight),
-                    "method": attr["method"],
-                    "basis": (
-                        "separable_breakdown"
-                        if attr.get("basis") == "separable_breakdown" else None
-                    ),
-                    "convention_ref": _usage_label(attr.get("convention_ref")),
-                    "receipt_refs": [
-                        receipt for value in attr["receipt_refs"]
-                        if (receipt := _usage_receipt_ref(value))
-                    ],
-                })
-                item = prs[attr["pr"]]
-                item["event_count"] += 1
-                if status != "priced":
-                    item["unknown"] = True
-                item["known_cost_usd"] += (cost or Decimal(0)) * weight
-            remainder = Decimal(1) - sum(weights)
-            if remainder:
-                unallocated += (cost or Decimal(0)) * remainder
-                unallocated_events += 1
-        else:
-            unallocated += cost or Decimal(0)
-            unallocated_events += 1
-            unallocated_unknown_cost_events += status == "unknown"
-            for attr in attrs:
-                if _safe_pr_id(attr.get("pr")):
-                    prs[attr["pr"]]["unknown"] = True
-
-        reasons = set(raw.get("unknown_reasons", []))
-        usage_id_missing = "usage_identity_missing" in reasons
-        provider = raw.get("provider")
-        usage_id = raw.get("usage_id")
-        event_id = None
-        if provider and usage_id and not usage_id_missing:
-            event_id = _retained_hash(f"{provider}\0{usage_id}")
-        source_identity = raw.get("source_fingerprint") or raw.get("source_id")
-        source_id = _retained_hash(source_identity) if source_identity else None
-        session_id_hash = (
-            _retained_hash(raw["session_id"]) if raw.get("session_id") else None
-        )
-
-        input_uncached = billable.get("input_uncached")
-        cache_read = billable.get("cache_read")
-        cache_write_5m = billable.get("cache_write_5m")
-        cache_write_1h = billable.get("cache_write_1h")
-        generic_cache_write = raw.get("cache_write_input_tokens")
-        if (
-            isinstance(generic_cache_write, bool)
-            or not isinstance(generic_cache_write, int)
-            or generic_cache_write < 0
-        ):
-            generic_cache_write = None
-        ttl_cache_writes = (cache_write_5m, cache_write_1h)
-        if generic_cache_write is not None:
-            cache_write_input = generic_cache_write
-        elif raw.get("provider") == "openai":
-            cache_write_input = None
-        elif all(
-            isinstance(value, int) and not isinstance(value, bool) and value >= 0
-            for value in ttl_cache_writes
-        ):
-            cache_write_input = cache_write_5m + cache_write_1h
-        else:
-            cache_write_input = None
-        output_tokens = billable.get("output")
-        if raw.get("provider") == "openai":
-            components = (input_uncached, cache_read, output_tokens)
-        else:
-            components = (input_uncached, cache_read, cache_write_input, output_tokens)
-        token_complete = all(
-            isinstance(value, int) and not isinstance(value, bool) and value >= 0
-            for value in components
-        )
-        total_tokens = sum(components) if token_complete else None
-        reasoning_tokens_value = raw.get("reasoning_tokens")
-        if (
-            not isinstance(reasoning_tokens_value, int)
-            or isinstance(reasoning_tokens_value, bool)
-            or reasoning_tokens_value < 0
-            or source_conflict
-        ):
-            reasoning_tokens_value = None
-        timestamp = _parse_utc_instant(raw.get("timestamp"))
-
-        safe_unknown_reasons = sorted(
-            reason for reason in reasons
-            if reason in {
-                "source_usage_conflict", "conflicting_duplicate",
-                "usage_identity_missing", "unsupported_sku",
+    priced_rows = [] if not bounded else None
+    output_stream = None
+    if bounded:
+        output_stream = priced_path.open("w", encoding="utf-8")
+        priced_count = 0
+    try:
+        for raw in rows:
+            for name, field in (("providers", "provider"), ("models", "sku"), ("service_tiers", "service_tier"),
+                                ("regions", "inference_geo"), ("speeds", "speed"), ("sessions", "session_id")):
+                if raw.get(field):
+                    coverage[name].add(str(raw[field]))
+            billable = {bucket: raw.get(source) for source, bucket in _USAGE_TOKEN_BUCKETS.items()}
+            source_conflict = "source_usage_conflict" in raw.get("unknown_reasons", [])
+            if source_conflict:
+                billable = {bucket: None for bucket in billable}
+            reasoning = None if source_conflict else raw.get("reasoning_tokens")
+            if isinstance(reasoning, int) and not isinstance(reasoning, bool) and reasoning >= 0:
+                reasoning_tokens += reasoning
+            # Native input_tokens excludes cache tokens; reasoning is diagnostic and included in output.
+            ev = dict(raw, billable=billable)
+            cost, status, unknown_buckets = _price_usage_event(ev, rates)
+            priced += status == "priced"
+            partial += status == "partial"
+            unknown += status == "unknown"
+            known_cost += cost or Decimal(0)
+            priced_row = {
+                "status": status,
+                "known_cost_usd": cost,
+                "unknown_buckets": unknown_buckets,
+                "tokens_by_bucket": billable,
             }
-        )
-        if valid:
-            attribution_status = "VALIDATED"
-        elif attrs:
-            attribution_status = "INVALID_OR_UNSUPPORTED"
-        else:
-            attribution_status = "UNBOUND"
-        priced_row.update({
-            "event_id": event_id,
-            "source_id": source_id,
-            "request_id_present": not usage_id_missing and bool(usage_id),
-            "session_id_hash": session_id_hash,
-            "provider": _usage_label(provider),
-            "model": _usage_label(raw.get("sku")),
-            "timestamp": format_iso_utc(timestamp) if timestamp else None,
-            "request_duration_seconds": valid_duration_sec(
-                raw.get("request_duration_seconds")
-            ),
-            "dedup_conflict": "conflicting_duplicate" in reasons,
-            "source_conflict": "source_usage_conflict" in reasons,
-            "validated_attributions": validated_attributions,
-            "attribution_status": attribution_status,
-            "unknown_reasons": safe_unknown_reasons,
-            "token_complete": token_complete,
-            "total_tokens": total_tokens,
-            "reasoning_output_tokens": reasoning_tokens_value,
-            "cache_write_input_tokens": cache_write_input,
-            "observed_cost_usd": None,
-            "list_equivalent_cost_usd": (
-                str(cost) if rates and cost is not None else None
-            ),
-            "cost_currency": "USD" if rates and cost is not None else None,
-            "cost_basis": (
-                USAGE_LIST_PRICE_LABEL if rates and cost is not None else None
-            ),
-            "price_catalog_version": price_catalog_version,
-            "cost_status": status if rates else "UNKNOWN_NO_RATE_CARD",
-        })
-    return {
+            for bucket, count in billable.items():
+                if isinstance(count, int) and not isinstance(count, bool) and count >= 0:
+                    totals[bucket] += count
+                elif count is not None:
+                    totals[bucket] = None
+            attrs = raw.get("attributions") or []
+            weights = [_supported_usage_attribution(a) for a in attrs]
+            valid = (bool(attrs) and len({attr.get("pr") for attr in attrs}) == len(attrs)
+                     and all(w is not None for w in weights) and sum(weights) <= 1)
+            validated_attributions = []
+            if valid:
+                for attr, weight in zip(attrs, weights):
+                    validated_attributions.append({
+                        "pr": attr["pr"],
+                        "weight": str(weight),
+                        "method": attr["method"],
+                        "basis": (
+                            "separable_breakdown"
+                            if attr.get("basis") == "separable_breakdown" else None
+                        ),
+                        "convention_ref": _usage_label(attr.get("convention_ref")),
+                        "receipt_refs": [
+                            receipt for value in attr["receipt_refs"]
+                            if (receipt := _usage_receipt_ref(value))
+                        ],
+                    })
+                    item = prs[attr["pr"]]
+                    item["event_count"] += 1
+                    if status != "priced":
+                        item["unknown"] = True
+                    item["known_cost_usd"] += (cost or Decimal(0)) * weight
+                remainder = Decimal(1) - sum(weights)
+                if remainder:
+                    unallocated += (cost or Decimal(0)) * remainder
+                    unallocated_events += 1
+            else:
+                unallocated += cost or Decimal(0)
+                unallocated_events += 1
+                unallocated_unknown_cost_events += status == "unknown"
+                for attr in attrs:
+                    if _safe_pr_id(attr.get("pr")):
+                        prs[attr["pr"]]["unknown"] = True
+
+            reasons = set(raw.get("unknown_reasons", []))
+            usage_id_missing = "usage_identity_missing" in reasons
+            provider = raw.get("provider")
+            usage_id = raw.get("usage_id")
+            event_id = None
+            if provider and usage_id and not usage_id_missing:
+                event_id = _retained_hash(f"{provider}\0{usage_id}")
+            source_identity = raw.get("source_fingerprint") or raw.get("source_id")
+            source_id = _retained_hash(source_identity) if source_identity else None
+            session_id_hash = (
+                _retained_hash(raw["session_id"]) if raw.get("session_id") else None
+            )
+
+            input_uncached = billable.get("input_uncached")
+            cache_read = billable.get("cache_read")
+            cache_write_5m = billable.get("cache_write_5m")
+            cache_write_1h = billable.get("cache_write_1h")
+            generic_cache_write = raw.get("cache_write_input_tokens")
+            if (
+                isinstance(generic_cache_write, bool)
+                or not isinstance(generic_cache_write, int)
+                or generic_cache_write < 0
+            ):
+                generic_cache_write = None
+            ttl_cache_writes = (cache_write_5m, cache_write_1h)
+            if generic_cache_write is not None:
+                cache_write_input = generic_cache_write
+            elif raw.get("provider") == "openai":
+                cache_write_input = None
+            elif all(
+                isinstance(value, int) and not isinstance(value, bool) and value >= 0
+                for value in ttl_cache_writes
+            ):
+                cache_write_input = cache_write_5m + cache_write_1h
+            else:
+                cache_write_input = None
+            output_tokens = billable.get("output")
+            if raw.get("provider") == "openai":
+                components = (input_uncached, cache_read, output_tokens)
+            else:
+                components = (input_uncached, cache_read, cache_write_input, output_tokens)
+            token_complete = all(
+                isinstance(value, int) and not isinstance(value, bool) and value >= 0
+                for value in components
+            )
+            total_tokens = sum(components) if token_complete else None
+            reasoning_tokens_value = raw.get("reasoning_tokens")
+            if (
+                not isinstance(reasoning_tokens_value, int)
+                or isinstance(reasoning_tokens_value, bool)
+                or reasoning_tokens_value < 0
+                or source_conflict
+            ):
+                reasoning_tokens_value = None
+            timestamp = _parse_utc_instant(raw.get("timestamp"))
+
+            safe_unknown_reasons = sorted(
+                reason for reason in reasons
+                if reason in {
+                    "source_usage_conflict", "conflicting_duplicate",
+                    "usage_identity_missing", "unsupported_sku",
+                }
+            )
+            if valid:
+                attribution_status = "VALIDATED"
+            elif attrs:
+                attribution_status = "INVALID_OR_UNSUPPORTED"
+            else:
+                attribution_status = "UNBOUND"
+            priced_row.update({
+                "event_id": event_id,
+                "source_id": source_id,
+                "request_id_present": not usage_id_missing and bool(usage_id),
+                "session_id_hash": session_id_hash,
+                "provider": _usage_label(provider),
+                "model": _usage_label(raw.get("sku")),
+                "timestamp": format_iso_utc(timestamp) if timestamp else None,
+                "request_duration_seconds": valid_duration_sec(
+                    raw.get("request_duration_seconds")
+                ),
+                "dedup_conflict": "conflicting_duplicate" in reasons,
+                "source_conflict": "source_usage_conflict" in reasons,
+                "validated_attributions": validated_attributions,
+                "attribution_status": attribution_status,
+                "unknown_reasons": safe_unknown_reasons,
+                "token_complete": token_complete,
+                "total_tokens": total_tokens,
+                "reasoning_output_tokens": reasoning_tokens_value,
+                "cache_write_input_tokens": cache_write_input,
+                "observed_cost_usd": None,
+                "list_equivalent_cost_usd": (
+                    str(cost) if rates and cost is not None else None
+                ),
+                "cost_currency": "USD" if rates and cost is not None else None,
+                "cost_basis": (
+                    USAGE_LIST_PRICE_LABEL if rates and cost is not None else None
+                ),
+                "price_catalog_version": price_catalog_version,
+                "cost_status": status if rates else "UNKNOWN_NO_RATE_CARD",
+            })
+            if bounded:
+                output_stream.write(json.dumps(
+                    priced_row, ensure_ascii=False, separators=(",", ":"), default=str
+                ) + "\n")
+                priced_count += 1
+            else:
+                priced_rows.append(priced_row)
+    except BaseException:
+        if bounded:
+            output_stream.close()
+            db.close()
+        raise
+    if bounded:
+        output_stream.flush()
+        os.fsync(output_stream.fileno())
+        output_stream.close()
+        db.close()
+        database_path.unlink()
+        priced_rows = JsonlUsageRows(priced_path, priced_count)
+    result = {
         "label": USAGE_LIST_PRICE_LABEL,
         "scope": "observed feed; population completeness not established",
         "source_records": source_records,
@@ -7114,7 +7887,7 @@ def aggregate_usage(raw_events, rates, window_start=None, window_end=None):
         "window_end": format_iso_utc(window_end) if window_end else None,
         "outside_window_count": outside_window_count,
         "undated_count": undated_count,
-        "event_count": len(rows),
+        "event_count": row_count,
         "priced_event_count": priced,
         "partially_priced_event_count": partial,
         "unknown_event_count": unknown,
@@ -7138,6 +7911,7 @@ def aggregate_usage(raw_events, rates, window_start=None, window_end=None):
         "query_events": priced_rows,
         "rate_records": [{k: (str(v) if isinstance(v, (Decimal, datetime)) else v) for k, v in r.items()} for r in rates],
     }
+    return result
 
 
 def render_prw_query_summary(result):

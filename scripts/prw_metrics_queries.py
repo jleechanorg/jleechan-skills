@@ -3,6 +3,10 @@
 
 import argparse
 import json
+import os
+import re
+import tempfile
+from collections.abc import Iterable
 from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -13,20 +17,44 @@ except ModuleNotFoundError:
     from prw_metrics import parse_iso_utc
 
 
-def _load_jsonl_table(connection, table_name, path):
+def _load_jsonl_table(connection, table_name, path, *, staging_dir=None):
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", table_name):
+        raise ValueError("table_name must be a SQL identifier")
     if path is None:
         connection.execute(
             f"CREATE TEMP TABLE {table_name} AS "
             "SELECT NULL::JSON AS json WHERE FALSE"
         )
         return
-    if isinstance(path, list):
-        connection.execute(f"CREATE TEMP TABLE {table_name} (json JSON)")
-        if path:
-            connection.executemany(
-                f"INSERT INTO {table_name} VALUES (CAST(? AS JSON))",
-                [(json.dumps(row, default=_native_value),) for row in path],
-            )
+    if isinstance(path, Iterable) and not isinstance(path, (str, bytes, dict)):
+        source_name = None
+        row_count = 0
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", suffix=".jsonl", delete=False, dir=staging_dir
+            ) as stream:
+                source_name = stream.name
+                for row in path:
+                    stream.write(json.dumps(row, default=_native_value))
+                    stream.write("\n")
+                    row_count += 1
+            if row_count:
+                connection.execute(
+                    f"CREATE TEMP TABLE {table_name} AS "
+                    "SELECT json FROM read_ndjson_objects(?)",
+                    [source_name],
+                )
+            else:
+                connection.execute(
+                    f"CREATE TEMP TABLE {table_name} AS "
+                    "SELECT NULL::JSON AS json WHERE FALSE"
+                )
+        finally:
+            if source_name is not None:
+                try:
+                    os.unlink(source_name)
+                except FileNotFoundError:
+                    pass
         return
     source = Path(path)
     if not source.is_file():
@@ -338,6 +366,7 @@ def run_query(
     duckdb_module=None,
     duckdb_memory_limit=None,
     duckdb_temp_directory=None,
+    duckdb_threads=None,
 ):
     """Run the read-only query; event identities are deduplicated upstream."""
     if duckdb_module is None:
@@ -358,6 +387,8 @@ def run_query(
         duckdb_config["memory_limit"] = duckdb_memory_limit
     if duckdb_temp_directory is not None:
         duckdb_config["temp_directory"] = str(duckdb_temp_directory)
+    if duckdb_threads is not None:
+        duckdb_config["threads"] = duckdb_threads
     if duckdb_config:
         connection = duckdb_module.connect(
             database=":memory:", config=duckdb_config,
@@ -365,10 +396,13 @@ def run_query(
     else:
         connection = duckdb_module.connect(database=":memory:")
     try:
-        _load_jsonl_table(connection, "prw_input_events", events_path)
-        _load_jsonl_table(connection, "prw_input_pr_snapshots", pr_snapshots_path)
-        _load_jsonl_table(connection, "prw_input_attempts", attempt_observations_path)
-        _load_jsonl_table(connection, "prw_input_time_metrics", time_metrics_path)
+        for table_name, source in (
+            ("prw_input_events", events_path),
+            ("prw_input_pr_snapshots", pr_snapshots_path),
+            ("prw_input_attempts", attempt_observations_path),
+            ("prw_input_time_metrics", time_metrics_path),
+        ):
+            _load_jsonl_table(connection, table_name, source, staging_dir=duckdb_temp_directory)
         _load_human_summary(connection, human_summary_path)
         connection.execute(
             "CREATE TEMP TABLE prw_query_parameters AS "
