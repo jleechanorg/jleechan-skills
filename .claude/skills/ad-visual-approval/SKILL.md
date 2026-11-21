@@ -11,14 +11,16 @@ Use this alongside [Visual Verification](../visual-verification/SKILL.md) for in
 
 Record the full export SHA-256 or exact playable package hash, placement, preview size and intended destination. Record source footage or artwork, supported claims, time edits and audio/asset rights. Bind each variant separately. A storyboard or old export can guide work. It cannot qualify the candidate.
 
-## 2. Watch once as a stranger
+## 2. Test comprehension with a cold viewer
 
-Give a reviewer who did not edit the asset only the first three seconds of the placement preview. Play once at normal speed, muted and without explaining the premise. Record what scene or stake they understood. Then play the whole asset from the start, muted and without pauses. Record the action, what changed and where the CTA leads before opening the brief. An early decisive failure can support HOLD with the remaining coverage recorded as incomplete.
+Give a reviewer who did not edit the asset only the first three seconds of the placement preview. Play once at normal speed, muted and without explaining its premise, characters, or game. Before opening the brief or discussing the asset, ask what is happening, who the viewer would play as, what is at stake now, and what they think the product lets them do. Record each answer in the reviewer's own words and mark an unsupported answer unclear. Test this with the exact audience and placement the ad targets; familiarity with the subject does not establish cold-view comprehension. An unfamiliar historical name, setting, or character must make sense from the opening scene and copy without outside knowledge. For example, an image of Caesar and the words "Caesar survived" assume the viewer recognizes Caesar, and do not explain what the player will do in this story game.
+
+Then play the whole asset from the start, muted and without pauses. Before opening the brief, record the sequence of actions, what changed, and where the CTA leads. Replay with audio only if the asset uses audio. A first-three-second comprehension failure can support HOLD without completing the remaining review, but record the incomplete coverage and why.
 
 ## 3. Review what the phone actually shows
 
 - Lead with a recognizable scene image and a visible stake. Let the picture carry the opening. A title, waiting screen or reading pane cannot carry the hook alone.
-- Use few short choice labels. Keep choices readable and interactive targets comfortably tappable. If the demo only features two choices, make the selected action and its consequence unmistakable.
+- Keep each choice short, readable and comfortably tappable. When an ad claims a branching or multi-layer story, inspect the played path at each claimed decision layer and verify that each selection leads to its shown consequence and the next choice. A single decision does not support a claim of a multi-layer playable. For a WorldAI live demo, verify that the presented turn offers three suggested moves and a discoverable freeform move, then verify the consequence after using each advertised interaction. If the candidate intentionally uses a different interaction, judge and record the actual candidate without assuming these controls exist.
 - Let the action and result carry the story. Keep one short caption idea visible at a time, with enough time to read it. Check contrast and placement chrome on the intended phone-size preview. A viewer should never need to read game prose and an overlay simultaneously to understand the beat.
 - Make the product, demo action and destination clear. Verify the CTA and what it opens. Show the actual gameplay where the claim depends on it. Label materially shortened waiting time, demo-only controls or a non-native source when relevant. Check the full export again with sound if the version uses audio.
 
@@ -28,14 +30,15 @@ For a playable or conversational demo, check every advertised choice, each visib
 
 ## 5. Record and route the decision
 
-Record reviewer, relationship to the edit, date, asset hash, placement/size, actual continuous coverage, cold answers, timestamps, and disposition. State gameplay proof, **visual HOLD / READY FOR OWNER REVIEW**, rights and destination status separately. Decoding, sampled frames, a subject-line approval or an author self-check cannot fill missing acceptance evidence.
+Record reviewer, relationship to the edit, date, asset hash, placement/size, actual continuous coverage, cold answers in the reviewer's words, timestamps, path coverage, and disposition. State gameplay proof, **visual HOLD / READY FOR OWNER REVIEW**, rights and destination status separately. Visual readiness means the exact candidate passed the stated visual and comprehension review for the recorded placement. It does not approve campaign setup, budgets, publishing, or release. A proof prototype or video establishes only the behavior actually exercised and does not establish that the package is accepted or works as a live ad placement. Decoding, sampled frames, a subject-line approval or an author self-check cannot fill missing acceptance evidence.
 
 The designated creative owner records release approval for the exact asset, placement and destination. Use the separate authority for account actions, spend and publication. Changes to visible or audible creative, interaction, placement or destination require checking the affected claim against the new candidate. Preserve prior receipts.
 
 ```text
 Asset hash / variant / placement / preview size / destination:
 Reviewer / role / date / normal-speed coverage / muted and audio checks:
-Cold answers — scene, action, consequence, next step:
-Evidence timestamps / target or source exceptions / rights:
-Visual disposition / remaining checks / owner approval if given:
+Cold answers before briefing — what is happening / player role / immediate stake / product action:
+Whole-asset sequence — choices and consequences at each claimed layer / CTA destination:
+Evidence timestamps / paths tried / target or source exceptions / rights:
+Visual disposition / remaining checks / separate release approval if given:
 ```
