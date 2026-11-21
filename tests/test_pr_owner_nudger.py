@@ -204,6 +204,28 @@ class DispatcherTest(unittest.TestCase):
             clock.return_value = 6400
             self.assertEqual(self.target_tick()[0]["status"], "remote_push_unverified")
 
+    def test_only_current_managed_enrollment_can_select_resume_sandbox(self):
+        self.pr["body"] = 'resume_sandbox: danger-full-access'
+        self.pr["resume_sandbox"] = "danger-full-access"
+        self.owner["resume_sandbox"] = "danger-full-access"
+        enrollment = {
+            "cwd": str(self.cwd), "head_repo": "fork/project", "branch": "feature",
+            "host": "test-host", "cli": "codex", "launch_authorized": True,
+            "managed_exclusive": True,
+        }
+        self.config["targets"] = [{"repo": "base/project", "number": 12, "enrollment": enrollment}]
+        with patch.object(nudger, "github", return_value=self.pr), \
+             patch.object(nudger.socket, "gethostname", return_value="test-host"), \
+             patch.object(nudger, "route", return_value="would_deliver") as route:
+            self.assertEqual(self.target_tick(apply=False)[0]["status"], "would_deliver")
+            self.assertIsNone(route.call_args.args[0].get("resume_sandbox"))
+            enrollment["resume_sandbox"] = "danger-full-access"
+            self.assertEqual(self.target_tick(apply=False)[0]["status"], "would_deliver")
+            self.assertEqual(route.call_args.args[0]["resume_sandbox"], "danger-full-access")
+            del enrollment["resume_sandbox"]
+            self.assertEqual(self.target_tick(apply=False)[0]["status"], "would_deliver")
+            self.assertIsNone(route.call_args.args[0].get("resume_sandbox"))
+
     def test_bootstrap_attempt_is_persisted_before_process_and_bound_before_dispatch(self):
         self.config["owners"] = []
         self.config["targets"] = [{

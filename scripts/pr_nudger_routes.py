@@ -412,7 +412,17 @@ def _resume(cmux, surfaces, cwd, path, env, owner, prompt, apply):
         return "blocked_session_model"
     managed = owner.get("managed_exclusive") is True
     project_config = _PROJECT_DOC_CONFIG if managed else ()
-    cmd = (exe, "exec", "resume", *project_config, "--model", model, owner["session"], "-")
+    sandbox = owner.get("resume_sandbox")
+    if sandbox is not None and (
+        not managed or owner.get("launch_authorized") is not True
+        or sandbox not in ("read-only", "workspace-write", "danger-full-access")
+    ):
+        return "blocked_resume_sandbox"
+    sandbox_config = ("--sandbox", sandbox) if sandbox is not None else ()
+    cmd = (
+        exe, "exec", *sandbox_config, "resume", *project_config,
+        "--model", model, owner["session"], "-",
+    )
     stat = path.stat()
     if _writers(cwd, path):
         return "busy"

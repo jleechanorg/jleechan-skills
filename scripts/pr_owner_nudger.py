@@ -305,11 +305,13 @@ def remember_configured(db, expected, cwd, owner):
     return True
 
 
-def dispatch(cwd, owner, local, pr, receipts, config, from_cache, read=None):
+def dispatch(cwd, owner, local, pr, receipts, config, from_cache, read=None, *, resume_sandbox=None):
     read = read or github
     expected = identity(pr)
     repo, number, _, branch, sha = expected
     owner = dict(owner, cwd=str(cwd))
+    # Execution permissions come from the current exact enrollment, never a saved owner.
+    owner.pop("resume_sandbox", None)
     key = (repo, number)
     cooldown = config.get("cooldown_seconds", 1800)
     if receipts is not None:
@@ -367,7 +369,8 @@ def dispatch(cwd, owner, local, pr, receipts, config, from_cache, read=None):
               "session. Preserve existing user constraints and stop for final operator approval.")
     try:
         status = route(dict(owner, pr=number, sha=sha, branch=branch,
-                            recheck=recheck, revalidate=revalidate, confirm_owner=confirm_owner,
+                            resume_sandbox=resume_sandbox, recheck=recheck,
+                            revalidate=revalidate, confirm_owner=confirm_owner,
                             headless_resume=can_resume, admit_launch=launch_capacity),
                        prompt, receipts is not None)
     except Exception:
@@ -586,6 +589,7 @@ def dispatch_target(key, target, pr, matches, store, config, read):
                 candidates.append((cwd, local, json.loads(cached[0])))
     if len(candidates) > 1:
         return note(key, "ambiguous_owner", "verify_owner")
+    resume_sandbox = None
     if candidates:
         cwd, local, owner = candidates[0]
         if isinstance(enrollment, dict) and enrollment.get("managed_exclusive") is True:
@@ -596,6 +600,7 @@ def dispatch_target(key, target, pr, matches, store, config, read):
             ):
                 return note(key, reason or "enrollment_mismatch", "verify_owner")
             owner = dict(owner, **managed)
+            resume_sandbox = enrollment.get("resume_sandbox")
         if owner.get("host", socket.gethostname()) != socket.gethostname():
             return note(key, "owner_host_unverified", "verify_owner")
         candidates[0] = cwd, local, owner
@@ -627,7 +632,10 @@ def dispatch_target(key, target, pr, matches, store, config, read):
             return note(key, "pickup_not_due", "verify_remote_push", earliest=pushed + pickup)
     if candidates:
         cwd, local, owner = candidates[0]
-        status = dispatch(cwd, owner, local, pr, db, config, from_cache, read)
+        status = dispatch(
+            cwd, owner, local, pr, db, config, from_cache, read,
+            resume_sandbox=resume_sandbox,
+        )
         cooldown = config.get("cooldown_seconds", 1800)
         if status == "delivered":
             return note(key, status, "refresh_pr", progress=True, earliest=store.now + cooldown)

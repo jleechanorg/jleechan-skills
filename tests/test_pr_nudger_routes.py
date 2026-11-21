@@ -222,7 +222,7 @@ else:
 
     def test_fresh_bootstrap_reserves_before_detached_seed_spawn(self):
         tmp_path = self.tmp_path
-        enrollment = bootstrap_enrollment(tmp_path)
+        enrollment = dict(bootstrap_enrollment(tmp_path), resume_sandbox="danger-full-access")
         events = tmp_path / "attempt.jsonl"
         events.touch(mode=0o600)
         order = []
@@ -240,6 +240,7 @@ else:
             assert command[-1] == "-"
             assert "read-only" in command and "features.shell_tool=false" in command
             assert "project_doc_max_bytes=65536" in command
+            assert "danger-full-access" not in command
             assert kwargs["stdin"].read().decode() == (
                 f"Verify owner bootstrap for owned/repo#12 at {'a' * 40}. "
             f"Do not use tools or take any action. Reply exactly {BOOTSTRAP_ACK}."
@@ -418,6 +419,17 @@ else:
                 "/bin/true", "exec", "resume", "-c", "project_doc_max_bytes=65536",
                 "--model", "fixture-model", SESSION, "-",
             )
+
+            owner["resume_sandbox"] = "danger-full-access"
+            assert router.route(owner, PROMPT, True) == "delivered"
+            assert spawn.call_args.args[0] == (
+                "/bin/true", "exec", "--sandbox", "danger-full-access", "resume",
+                "-c", "project_doc_max_bytes=65536", "--model", "fixture-model", SESSION, "-",
+            )
+            spawn.reset_mock()
+            assert router.route(dict(owner, launch_authorized=False), PROMPT, True) == "blocked_resume_sandbox"
+            assert router.route(dict(owner, resume_sandbox="unknown"), PROMPT, True) == "blocked_resume_sandbox"
+            spawn.assert_not_called()
 
     def test_managed_claim_blocks_competing_resume(self):
         tmp_path = self.tmp_path
