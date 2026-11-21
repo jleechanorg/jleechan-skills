@@ -7,10 +7,11 @@ description: "Mirror the current git dir/worktree/branch onto a Linux machine an
 
 Companion to [mac-mirror](../mac-mirror/SKILL.md) (same flow, opposite direction). Unlike a plain SSH-steering skill, this mirrors the **current repo's committed state** onto the target machine and resumes work there in a persistent tmux session.
 
-For capacity-driven handoffs, follow
+Before every handoff, follow
 [host load balancing](../parallelize-to-ceiling/references/host-load-balancing.md)
-for host selection and task ownership; this skill owns Linux transport and
-response proof.
+for fresh resource checks on both hosts, host selection and task ownership; this
+skill owns Linux transport and response proof. Record the measurements and
+decision before starting the remote checkout or agent.
 
 Follow the [lightweight caller contract](../linux-remote/SKILL.md#lightweight-caller-remote-execution-owner): the caller drives transport and verifies receipts; the target agent owns execution.
 
@@ -55,6 +56,8 @@ esac
 Also prepare `$CONTEXT`: a short, self-contained summary (1-3 sentences) of what should actually continue on the Linux machine — the real next action, not just "resume work." This isn't optional bookkeeping: step 4 types it as the first message to a freshly-launched coding agent on the target machine, which has no access to this conversation. Write it as if briefing a colleague who just walked in cold.
 
 If `$CONTEXT` is empty, stop here before pushing or opening SSH. The remote launcher checks it again before validating the CLI.
+
+Include a fresh dispatch marker in the handoff. Ask the Linux coder to perform the first task-specific action, then reply in **2–3 sentences** with the marker, the action it ran, the observed result or inspectable handle, and its next action or exact blocker. Use the same request for a resumed session or messaging-gateway handoff.
 
 Also resolve `$AGENT_CLI`: the CLI **that is calling this skill**, i.e. the operator's live runtime (pi → `pi`, Claude Code → `claude`, Codex → `codex`, Antigravity → `agy`). This skill deliberately has no default CLI. Launching a CLI the operator is not using hands the work to an agent with different tools, skills, model and quota — that is a substitution to state explicitly in the report, never a silent default. Only set a different `$AGENT_CLI` when the calling CLI is genuinely unusable on the target host (for example its seat is quota-walled), and say why.
 
@@ -549,9 +552,18 @@ Pi treats each positional argument beginning with `@` as a file attachment, even
 
 Note: `printf` (not `echo`) for the session-name sanitizing is deliberate — piping `echo`'s output through `tr -c '...' '-'` turns the trailing newline into a literal `-`, corrupting the session name.
 
-### 5. Continue with response proof
+### 5. Verify execution and print the Linux coder’s receipt
 
-Follow the mandatory [Agent submission and response proof contract](../linux-remote/SKILL.md#agent-submission-and-response-proof--mandatory) for every initial launch and follow-up. READY/RESUMED establish transport only; require a fresh, attributable agent response echoed into the calling terminal before reporting delivery or working status. Inspect the CLI controls, submit separately from typing, distinguish queued from acknowledged work, and preserve active jobs. Continue driving the session until the requested outcome or a verified blocker.
+Follow the mandatory [Agent submission and response proof contract](../linux-remote/SKILL.md#agent-submission-and-response-proof--mandatory) for every initial launch and follow-up. `READY` and `RESUMED` establish transport only. An acknowledgment establishes delivery only.
+
+Before reporting `MIRRORED` or that Linux work started, require both:
+
+1. A fresh, attributable **2–3 sentence response written by the Linux CLI coder** for this dispatch. Verify it in the coder's actual pane or transcript. A gateway can relay the coder's response with its source reference.
+2. Independent readback of the coder's **first task-specific action** on Linux. Match the dispatch and intended commit to a tool invocation and result in the transcript, a live job started by the coder for the task, or a fresh task artifact produced by the coder. A checkout, handoff file, Git head check performed by the caller, live pane, or queue entry cannot satisfy this gate.
+
+Print the coder's **2–3 sentences verbatim**, with secrets redacted, in the calling terminal and the user-facing response. Label the excerpt with Linux host, coder CLI, session or transcript reference, observation time, and dispatch marker. Include the verified action and its evidence reference alongside it. If the operator requests a one-line report, include the receipt on that same line.
+
+If either proof is missing, report `QUEUED`, `UNCONFIRMED`, or `BLOCKED` with the observed reason. Quote any fresh coder response that exists and explicitly say when no receipt is available. Preserve the session and use bounded monitoring or scoped recovery. Never substitute caller prose for the coder's receipt.
 
 Report the session name, target path, and commit SHA from the `READY:`/`RESUMED:` line — cross-check that SHA against your local `git rev-parse HEAD` before trusting the mirror is on the commit you think it is. `READY` proves the pane passed the launch and liveness checks; it does not prove the agent received or acted on `$CONTEXT`. `RESUMED` means an existing session was found as-is and nothing was typed into it — inspect that work directly rather than assuming it is idle. The preflight rejects local branches that are ahead of or diverged from the fetched remote branch, and the final HEAD is checked for exact equality before READY. Then give the user (or continue as) the attach command:
 
@@ -559,7 +571,7 @@ Report the session name, target path, and commit SHA from the `READY:`/`RESUMED:
 ssh -t "${SSH_ARGS[@]}" "$SSH_TARGET" "tmux attach -t <SESSION>"
 ```
 
-Work now continues inside that tmux session on the Linux machine, on the same branch.
+Continue driving the Linux session until the requested outcome or a verified blocker. Execution-start proof covers the first action. Verify completion separately at its source.
 
 ### 6. Push discipline while mirrored
 
