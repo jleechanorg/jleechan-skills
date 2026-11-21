@@ -3,9 +3,13 @@ import fcntl
 import json
 import os
 import socket
+import subprocess
 import sys
+import time
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
+
+import pytest
 
 from scripts import pr_nudger_routes as router
 
@@ -210,7 +214,10 @@ def test_fresh_bootstrap_reserves_before_detached_seed_spawn(tmp_path):
 
     def spawn(command, **kwargs):
         order.append("spawn")
-        assert command[:3] == ("/bin/true", "exec", "--json")
+        assert command[4:7] == ("/bin/true", "exec", "--json")
+        assert len(kwargs["pass_fds"]) == 1
+        with pytest.raises(BlockingIOError), router._managed_claim(tmp_path / "managed.lock"):
+            pytest.fail("bootstrap launched without the shared claim")
         assert command[-1] == "-"
         assert "read-only" in command and "features.shell_tool=false" in command
         assert kwargs["stdin"].read().decode() == (
@@ -220,7 +227,8 @@ def test_fresh_bootstrap_reserves_before_detached_seed_spawn(tmp_path):
         assert os.fstat(kwargs["stdout"].fileno()).st_ino == events.stat().st_ino
         assert kwargs["start_new_session"] is True
 
-    with patch.object(router.shutil, "which", return_value=None), \
+    with patch.object(router, "_managed_claim_path", return_value=tmp_path / "managed.lock"), \
+         patch.object(router.shutil, "which", return_value=None), \
          patch.object(router, "_writers", return_value=[]), \
          patch.object(router, "_run", side_effect=bootstrap_cli_probe), \
          patch.object(router.subprocess, "Popen", side_effect=spawn):
@@ -234,7 +242,8 @@ def test_fresh_bootstrap_reserves_before_detached_seed_spawn(tmp_path):
 def test_fresh_bootstrap_blocks_stale_and_competing_owners(tmp_path):
     enrollment = bootstrap_enrollment(tmp_path)
     reserve = Mock()
-    with patch.object(router.shutil, "which", return_value=None), \
+    with patch.object(router, "_managed_claim_path", return_value=tmp_path / "managed.lock"), \
+         patch.object(router.shutil, "which", return_value=None), \
          patch.object(router, "_writers", side_effect=[[], [WRITER]]), \
          patch.object(router, "_run", side_effect=bootstrap_cli_probe), \
          patch.object(router.subprocess, "Popen") as spawn:
@@ -258,7 +267,8 @@ def test_fresh_bootstrap_does_not_launch_with_unverified_tool_inventory(tmp_path
         output = '[{"name":"connector","enabled":true}]' if "list" in args else "codex-cli 0.160.0"
         return SimpleNamespace(returncode=0, stdout=output)
 
-    with patch.object(router.shutil, "which", return_value=None), \
+    with patch.object(router, "_managed_claim_path", return_value=tmp_path / "managed.lock"), \
+         patch.object(router.shutil, "which", return_value=None), \
          patch.object(router, "_writers", return_value=[]), \
          patch.object(router, "_run", side_effect=cli_probe), \
          patch.object(router.subprocess, "Popen") as spawn:
@@ -294,23 +304,31 @@ def test_bootstrap_inspection_requires_exact_ack_and_persisted_transcript(tmp_pa
         {"type": "item.completed", "item": {"type": "agent_message", "text": BOOTSTRAP_ACK}},
         {"type": "turn.completed"},
     ]
-    with patch.object(router.shutil, "which", return_value=None), \
+    bound = []
+
+    def bind_owner(session):
+        with pytest.raises(BlockingIOError), router._managed_claim(tmp_path / "managed.lock"):
+            pytest.fail("durable bind ran without the shared claim")
+        bound.append(session)
+
+    with patch.object(router, "_managed_claim_path", return_value=tmp_path / "managed.lock"), \
+         patch.object(router.shutil, "which", return_value=None), \
          patch.object(router, "_writers", return_value=[]), \
          patch.object(router.time, "time", return_value=61):
         events.write_text("".join(json.dumps(row) + "\n" for row in frames))
-        assert router.inspect_codex_bootstrap(enrollment, BOOTSTRAP_IDENTITY, attempt) == (
+        assert router.inspect_codex_bootstrap(enrollment, BOOTSTRAP_IDENTITY, attempt, bind=bind_owner) == (
             "bootstrapped", SESSION,
         )
         assert router.inspect_codex_bootstrap(
-            enrollment, BOOTSTRAP_IDENTITY, dict(attempt, sha="b" * 40),
+            enrollment, BOOTSTRAP_IDENTITY, dict(attempt, sha="b" * 40), bind=bind_owner,
         ) == ("bootstrap_reconciliation_required", None)
         events.write_text("")
         assert router.inspect_codex_bootstrap(
-            enrollment, BOOTSTRAP_IDENTITY, attempt
+            enrollment, BOOTSTRAP_IDENTITY, attempt, bind=bind_owner
         ) == ("bootstrap_pending", None)
         with patch.object(router.time, "time", return_value=661):
             assert router.inspect_codex_bootstrap(
-                enrollment, BOOTSTRAP_IDENTITY, attempt,
+                enrollment, BOOTSTRAP_IDENTITY, attempt, bind=bind_owner,
             ) == ("bootstrap_reconciliation_required", None)
         for bad_frames in (
             frames[:1] + frames[-1:],
@@ -318,9 +336,10 @@ def test_bootstrap_inspection_requires_exact_ack_and_persisted_transcript(tmp_pa
             frames[:1] + [{"type": "item.started", "item": {"type": "command_execution"}}] + frames[1:],
         ):
             events.write_text("".join(json.dumps(row) + "\n" for row in bad_frames))
-            assert router.inspect_codex_bootstrap(enrollment, BOOTSTRAP_IDENTITY, attempt) == (
+            assert router.inspect_codex_bootstrap(enrollment, BOOTSTRAP_IDENTITY, attempt, bind=bind_owner) == (
                 "bootstrap_reconciliation_required", None,
             )
+    assert bound == [SESSION]
 
 
 def test_existing_headless_resume_honors_process_admission(tmp_path):
@@ -335,3 +354,98 @@ def test_existing_headless_resume_honors_process_admission(tmp_path):
         assert router.route(owner, PROMPT, True) == "blocked_launch_capacity"
         reserve.assert_not_called()
         spawn.assert_not_called()
+
+
+def test_managed_claim_blocks_competing_resume(tmp_path):
+    owner, _ = binding(tmp_path)
+    subprocess.run(("git", "init", "-q", str(tmp_path)), check=True)
+    owner.update(bootstrap_enrollment(tmp_path))
+    reserve = Mock(return_value=True)
+    owner["recheck"] = reserve
+    claim_path = tmp_path / ".git/pr-owner-nudger.writer.lock"
+    with claim_path.open("wb") as independent_writer:
+        claim_path.chmod(0o600)
+        fcntl.flock(independent_writer, fcntl.LOCK_EX)
+        with patch.object(router, "_managed_claim_path", return_value=claim_path), \
+             patch.object(router.shutil, "which", return_value=None), \
+             patch.object(router, "_writers", return_value=[]), \
+             patch.object(router, "_run", side_effect=bootstrap_cli_probe), \
+             patch.object(router.subprocess, "Popen") as spawn:
+            assert router.route(owner, PROMPT, True) == "busy"
+            assert router.start_codex_bootstrap(
+                owner, BOOTSTRAP_IDENTITY, apply=True, recheck=lambda: True,
+                begin_attempt=reserve,
+            ) == "busy"
+            reserve.assert_not_called()
+            spawn.assert_not_called()
+
+
+def test_managed_claim_lives_past_scheduler_exit(tmp_path):
+    subprocess.run(("git", "init", "-q", str(tmp_path)), check=True)
+    release = tmp_path / "release"
+    writer = """
+import os
+import sys
+import time
+from pathlib import Path
+marker = Path(sys.argv[1])
+os.close(int(sys.argv[2]))
+stop = time.monotonic() + 10
+while not marker.exists() and time.monotonic() < stop:
+    time.sleep(0.01)
+"""
+    scheduler = """
+import subprocess
+import sys
+from pathlib import Path
+from scripts import pr_nudger_routes as r
+cwd, release, writer = sys.argv[1:]
+cwd = Path(cwd)
+with r._managed_claim(r._managed_claim_path(cwd)) as claim:
+    r._spawn_claimed(
+        (sys.executable, "-c", writer, release, str(claim)), claim, cwd=cwd,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+    )
+"""
+    try:
+        subprocess.run(
+            (sys.executable, "-c", scheduler, str(tmp_path), str(release), writer),
+            check=True, timeout=10,
+        )
+        claim_path = tmp_path / ".git/pr-owner-nudger.writer.lock"
+        with claim_path.open("rb") as independent_reader, pytest.raises(BlockingIOError):
+            fcntl.flock(independent_reader, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    finally:
+        release.touch()
+    deadline = time.monotonic() + 5
+    while True:
+        with claim_path.open("rb") as reader:
+            try:
+                fcntl.flock(reader, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    pytest.fail("managed claim remained held after the child exited")
+        time.sleep(0.01)
+
+
+def test_managed_cmux_steers_only_the_bound_claim_holder(tmp_path):
+    owner, transcript = binding(tmp_path)
+    owner.update(bootstrap_enrollment(tmp_path))
+    claim_path = tmp_path / "managed.lock"
+    screen = ("idle", 0.0, (transcript.stat().st_ino, transcript.stat().st_size, 0))
+    with router._managed_claim(claim_path), \
+         patch.object(router, "_managed_claim_path", return_value=claim_path), \
+         patch.object(router.shutil, "which", return_value="/bin/true"), \
+         patch.object(router, "_surfaces", return_value=[SURFACE]), \
+         patch.object(router, "_writers", return_value=[WRITER]), \
+         patch.object(router, "_matches_owner", return_value=True), \
+         patch.object(router, "_snapshot", return_value=screen), \
+         patch.object(router, "_input_is", return_value=True), \
+         patch.object(router.time, "sleep"), \
+         patch.object(router, "_checked", return_value="p456\nlW\n") as holders:
+        assert router.route(owner, PROMPT, False) == "blocked_managed_writer_unverified"
+        holders.return_value = f"p{WRITER[0]}\nl \n"
+        assert router.route(owner, PROMPT, False) == "blocked_managed_writer_unverified"
+        holders.return_value = f"p{WRITER[0]}\nlW\n"
+        assert router.route(owner, PROMPT, False) == "would_deliver"

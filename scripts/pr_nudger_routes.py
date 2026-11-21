@@ -1,4 +1,5 @@
 """Dispatch a PR reminder to the enrolled coding session."""
+from contextlib import contextmanager, nullcontext
 import fcntl
 import json
 import os
@@ -9,6 +10,7 @@ import shutil
 import socket
 import stat
 import subprocess
+import sys
 import tempfile
 import time
 from uuid import UUID
@@ -241,6 +243,8 @@ def _wait_for_receipt(path, start, cli, prompt, seconds, child=None):
 
 
 def _cmux_route(cmux, surface, writer, cwd, path, owner, prompt, apply):
+    if not _managed_cmux_claim(cwd, owner, writer[0]):
+        return "blocked_managed_writer_unverified"
     _, ref, workspace, surface_id, _ = surface
     target = ("--workspace", workspace, "--surface", surface_id)
     first = _snapshot(cmux, target, ref, path, writer[0])
@@ -258,6 +262,7 @@ def _cmux_route(cmux, surface, writer, cwd, path, owner, prompt, apply):
         return "stale_pr"
     if (_snapshot(cmux, target, ref, path, writer[0]) != second
             or _writers(cwd, path) != [writer]
+            or not _managed_cmux_claim(cwd, owner, writer[0])
             or not _input_is(cmux, workspace, surface_id, "empty")):
         return "no_delivery"
     try:
@@ -267,6 +272,7 @@ def _cmux_route(cmux, surface, writer, cwd, path, owner, prompt, apply):
         drafted = _capture(cmux, target)
         if (not _matches_draft(_composer(drafted, owner["cli"]), prompt)
                 or _writers(cwd, path) != [writer]
+                or not _managed_cmux_claim(cwd, owner, writer[0])
                 or not _input_is(cmux, workspace, surface_id, "draft")):
             return "attempted_delivery"
         _checked(cmux, "send-key", *target, "enter")
@@ -295,6 +301,73 @@ def _native_writer_free(lock):
 
 def _verified_lock_dir(path):
     return path.is_dir() and not path.is_symlink() and path.stat().st_uid == os.getuid()
+
+
+
+
+def _managed_claim_path(cwd):
+    root, git_dir = _checked(
+        "git", "-C", str(cwd), "rev-parse", "--show-toplevel", "--absolute-git-dir"
+    ).splitlines()
+    path = Path(git_dir)
+    if (Path(root).resolve() != cwd or not path.is_absolute()
+            or path.resolve(strict=True) != path or not _verified_lock_dir(path)):
+        raise ValueError("managed worktree admin directory is unverified")
+    return path / "pr-owner-nudger.writer.lock"
+
+
+@contextmanager
+def _managed_claim(path, *, create=True):
+    mode = os.O_RDWR | os.O_CREAT if create else os.O_RDONLY
+    fd = os.open(path, mode | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+    try:
+        info = os.fstat(fd)
+        if (not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o600
+                or info.st_uid != os.getuid() or info.st_nlink != 1):
+            raise ValueError("invalid managed writer claim")
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        yield fd
+    finally:
+        # Closing the scheduler's copy preserves the flock inherited by its
+        # child. LOCK_UN would also unlock the child's shared description.
+        os.close(fd)
+
+
+def _spawn_claimed(command, claim, **kwargs):
+    if claim is None:
+        return subprocess.Popen(command, **kwargs)
+    # Some Codex wrappers spawn the native binary without forwarding extra
+    # descriptors. The detached holder waits for the enrolled executable.
+    hold = (
+        "import subprocess, sys\n"
+        "claim = int(sys.argv[1])\n"
+        "raise SystemExit(subprocess.call(sys.argv[2:], pass_fds=(claim,)))"
+    )
+    return subprocess.Popen(
+        (sys.executable, "-c", hold, str(claim), *command),
+        pass_fds=(claim,), **kwargs,
+    )
+
+
+def _managed_cmux_claim(cwd, owner, pid):
+    if owner.get("managed_exclusive") is not True:
+        return True
+    path = _managed_claim_path(cwd)
+    try:
+        with _managed_claim(path, create=False):
+            return False
+    except FileNotFoundError:
+        return False
+    except BlockingIOError:
+        holder = None
+        exclusive = set()
+        report = _checked("lsof", "-w", "-Fpl", "--", str(path))
+        for line in report.splitlines():
+            if line.startswith("p"):
+                holder = line[1:]
+            elif line == "lW" and holder:
+                exclusive.add(holder)
+        return exclusive == {pid}
 
 
 def _supported_codex(executable, cwd, env):
@@ -331,23 +404,34 @@ def _resume(cmux, surfaces, cwd, path, env, owner, prompt, apply):
         return "busy"
     if not apply:
         return "would_deliver"
-    if not owner.get("recheck", lambda *_: True)("headless"):
-        return "stale_pr"
-    if (cmux and (_surfaces(cmux) != surfaces or discover_owners([cwd], strict=True, surfaces=surfaces, cmux=cmux))
-            or _writers(cwd, path) or not _native_writer_free(lock)):
-        return "no_delivery"
+    managed = owner.get("managed_exclusive") is True
+    claim_context = _managed_claim(_managed_claim_path(cwd)) if managed else nullcontext(None)
+    if managed and not callable(owner.get("recheck")):
+        return "blocked_managed_writer_unverified"
+    reserved = sent = False
     try:
-        with tempfile.TemporaryFile() as incoming:
-            incoming.write(prompt.encode())
-            incoming.seek(0)
-            child = subprocess.Popen(
-                cmd, cwd=cwd, env=env, stdin=incoming, stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL, start_new_session=True,
-            )
+        with claim_context as claim:
+            if not owner.get("recheck", lambda *_: True)("headless"):
+                return "stale_pr"
+            reserved = True
+            if (cmux and (_surfaces(cmux) != surfaces or _cwd_claimed(cmux, cwd, surfaces))
+                    or _writers(cwd, path) or not _native_writer_free(lock)):
+                return "no_delivery"
+            with tempfile.TemporaryFile() as incoming:
+                incoming.write(prompt.encode())
+                incoming.seek(0)
+                sent = True
+                child = _spawn_claimed(
+                    cmd, claim, cwd=cwd, env=env, stdin=incoming, stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL, start_new_session=True,
+                )
         return _wait_for_receipt(path, (stat.st_ino, stat.st_size), cli, prompt, 20, child)
+    except BlockingIOError:
+        return "attempted_delivery" if sent else "busy"
     except (OSError, ValueError, subprocess.SubprocessError):
-        pass
-    return "attempted_delivery"
+        if managed and not reserved:
+            return "blocked_managed_writer_unverified"
+        return "attempted_delivery" if sent else "no_delivery"
 
 
 def _dot(owner, prompt, apply):
@@ -434,6 +518,11 @@ def route(owner, prompt, apply):
             return _dot(owner, prompt, apply)
         if cli not in {"codex", "claude"}:
             return "blocked_cli_unsupported"
+        if owner.get("managed_exclusive") is True and (
+            cli != "codex" or owner.get("host") != socket.gethostname()
+            or not Path(owner.get("profile_dir", "")).is_absolute()
+        ):
+            return "blocked_managed_writer_unverified"
         cwd = Path(owner["cwd"]).resolve(strict=True)
         path, env = _session(owner, cwd)
         if path is None:
@@ -552,35 +641,41 @@ def start_codex_bootstrap(enrollment, identity, *, apply, recheck, begin_attempt
             not isinstance(server, dict) or server.get("enabled") is not False for server in servers
         ):
             return "blocked_bootstrap_tools"
-        if not recheck():
-            return "stale_pr"
-        events = begin_attempt()
-        if events is None:
-            return "blocked_bootstrap_reservation"
-        reserved = True
-        if not _bootstrap_writer_free(cwd, enrollment):
-            return "no_bootstrap"
-        # A seed proves ownership only. Do not load personal integrations or
-        # expose shell, connector, hook, collaborator, or web-search actions.
-        command = (
-            executable, "exec", "--json", "--ignore-user-config", "--sandbox", "read-only",
-            *_BOOTSTRAP_CONFIG, "--model", enrollment["model"], "-",
-        )
-        with tempfile.TemporaryFile() as incoming, _bootstrap_events(events, write=True) as outgoing:
-            incoming.write(prompt.encode())
-            incoming.seek(0)
-            subprocess.Popen(
-                command, cwd=cwd, env=env, stdin=incoming, stdout=outgoing,
-                stderr=subprocess.DEVNULL, start_new_session=True,
+        with _managed_claim(_managed_claim_path(cwd)) as claim:
+            if not recheck():
+                return "stale_pr"
+            events = begin_attempt()
+            if events is None:
+                return "blocked_bootstrap_reservation"
+            reserved = True
+            if not _bootstrap_writer_free(cwd, enrollment):
+                return "no_bootstrap"
+            # The seed uses a read-only sandbox, disabled side-effect tools and
+            # no personal integrations. Acknowledgment is not PR delivery.
+            command = (
+                executable, "exec", "--json", "--ignore-user-config", "--sandbox", "read-only",
+                *_BOOTSTRAP_CONFIG, "--model", enrollment["model"], "-",
             )
+            with tempfile.TemporaryFile() as incoming, _bootstrap_events(events, write=True) as outgoing:
+                incoming.write(prompt.encode())
+                incoming.seek(0)
+                _spawn_claimed(
+                    command, claim, cwd=cwd, env=env, stdin=incoming, stdout=outgoing,
+                    stderr=subprocess.DEVNULL, start_new_session=True,
+                )
         return "bootstrap_started"
+    except BlockingIOError:
+        return _BOOTSTRAP_RECONCILE if reserved else "busy"
     except (KeyError, TypeError, ValueError, OSError, subprocess.SubprocessError):
         return _BOOTSTRAP_RECONCILE if reserved else "blocked_bootstrap_unverified"
 
 
-def inspect_codex_bootstrap(enrollment, identity, attempt):
+def inspect_codex_bootstrap(enrollment, identity, attempt, *, bind=None):
     """Verify one completed seed without sending any prompt or claiming delivery."""
     uncertain = (_BOOTSTRAP_RECONCILE, None)
+    pending = uncertain
+    if not callable(bind):
+        return uncertain
     try:
         cwd, profile, _, prompt = _bootstrap_scope(enrollment, identity)
         age = time.time() - attempt["started_at"]
@@ -625,9 +720,13 @@ def inspect_codex_bootstrap(enrollment, identity, attempt):
         lock = profile / "thread-writer-locks" / f"{session}.lock"
         if not _verified_lock_dir(lock.parent):
             return uncertain
-        if (not _terminal_state("codex", path)[0] or not _native_writer_free(lock)
-                or not _bootstrap_writer_free(cwd, enrollment, path)):
-            return pending
+        with _managed_claim(_managed_claim_path(cwd)):
+            if (not _terminal_state("codex", path)[0] or not _native_writer_free(lock)
+                    or not _bootstrap_writer_free(cwd, enrollment, path)):
+                return pending
+            bind(session)
         return "bootstrapped", session
+    except BlockingIOError:
+        return pending
     except (AttributeError, KeyError, TypeError, ValueError, OSError, subprocess.SubprocessError):
         return uncertain
