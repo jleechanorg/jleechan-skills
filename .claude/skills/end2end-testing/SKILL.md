@@ -92,12 +92,13 @@ and scrub manifest separately from the test execution receipt. Preserve failed
 responses and omissions; never relabel a synthetic adapter as a real capture.
 
 Provide a revision-pinned Gist URL to a reviewer-accessible, sanitized capture
-receipt binding the original UTC capture time, backend or model identity, request
-ID, verified revision if available, and the scrubbed fixture hash to that real
-capture. Keep the original source and private correlation data in authorized
-storage. Never publish or widen access simply to obtain a URL: if no safe Gist
-receipt can be supplied, mark real-capture provenance unverified and do not count
-that fixture as authentic capture proof.
+receipt binding the original UTC capture time, backend or model identity,
+a safe opaque receipt ID, the verified revision when available, and the scrubbed
+fixture hash. An independent reviewer corroborates origin at the authorized
+source or through an independently verified capture receipt; a Gist and digest
+alone prove neither origin nor live behavior. Keep private correlation data and
+originals in authorized storage. If provenance cannot be verified without
+widening access, keep it unverified and do not count it as real-capture proof.
 
 For an SDK or platform regression, trace the actual response ownership boundary:
 body getter side effects, shared buffer ownership, single-consumption behavior,

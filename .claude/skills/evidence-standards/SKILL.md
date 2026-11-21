@@ -106,9 +106,11 @@ headers and request body, response status and body, and separate readback of any
 claimed write, event or other effect. Keep originals in authorized storage. Share only authorized, traceable
 sanitized evidence; never expose credentials or sensitive payloads.
 
-- **Deployed behavior or existing-record compatibility:** prove the relevant
-  revision, route, configuration and record shape using an authorized production
-  or staging observation. Do not mutate real user data for proof.
+- **Deployed behavior:** observe the relevant revision, route and configuration
+  in the claimed environment. Do not mutate real user data for proof.
+- **Existing-record compatibility:** use an authorized observation or an approved
+  faithful copy in isolation. Verify the record's origin and preserve the structure
+  that triggers the case. Copy-based proof does not establish deployed behavior.
 - **Service behavior with controlled data:** an isolated running stack and a real
   store with seeded test records can prove that boundary without touching
   production data. State the actual target and dependencies; an emulator proves
