@@ -91,6 +91,14 @@ fixture SHA-256, original capture timestamp, source identity/revision mapping,
 and scrub manifest separately from the test execution receipt. Preserve failed
 responses and omissions; never relabel a synthetic adapter as a real capture.
 
+Provide a revision-pinned Gist URL to a reviewer-accessible, sanitized capture
+receipt binding the original UTC capture time, backend or model identity, request
+ID, verified revision if available, and the scrubbed fixture hash to that real
+capture. Keep the original source and private correlation data in authorized
+storage. Never publish or widen access simply to obtain a URL: if no safe Gist
+receipt can be supplied, mark real-capture provenance unverified and do not count
+that fixture as authentic capture proof.
+
 For an SDK or platform regression, trace the actual response ownership boundary:
 body getter side effects, shared buffer ownership, single-consumption behavior,
 stream chunk ordering, cancellation, and error paths where relevant. Prefer the

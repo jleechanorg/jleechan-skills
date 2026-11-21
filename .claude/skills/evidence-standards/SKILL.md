@@ -97,13 +97,35 @@ For claims about integrated or live production behavior:
 
 Real beats fast: a 30-second test against the real local server beats a 200-test mock suite for proving "the server behaves like X."
 
+### Backend comparison by claim
+
+For a changed backend boundary, exercise the real entry point, middleware,
+handler and every dependency needed by the claim on both revisions. Use the same
+request and equivalent starting state. Retain the raw method/path, relevant
+headers and request body, response status and body, and separate readback of any
+claimed write, event or other effect. Keep originals in authorized storage. Share only authorized, traceable
+sanitized evidence; never expose credentials or sensitive payloads.
+
+- **Deployed behavior or existing-record compatibility:** prove the relevant
+  revision, route, configuration and record shape using an authorized production
+  or staging observation. Do not mutate real user data for proof.
+- **Service behavior with controlled data:** an isolated running stack and a real
+  store with seeded test records can prove that boundary without touching
+  production data. State the actual target and dependencies; an emulator proves
+  the emulator path, not the hosted service.
+- **Handling a captured response:** when the external system is not under test,
+  replay the same real fixture across both application revisions using
+  [end2end-testing](../end2end-testing/SKILL.md#qualify-the-incidents-behavior-boundary).
+  Do not claim live provider behavior, auth, persistence or timing for an external
+  boundary replaced by replay.
+
 ### Strict UI Evidence Invariant: Mocks Forbidden — Real Server UI Required
 
 Synthetic mock JSON, DOM fixture injection, or calling frontend rendering functions with hand-crafted JSON in the browser console is **strictly forbidden for UI evidence**. Only UI driven by a **real running server** (local development server or live deployed preview) rendering real backend responses is valid Layer 2 UI evidence. Unit and mocked-fixture captures are supporting evidence only and do NOT prove UI integration correctness.
 
 ### UI changes require a genuine implementation BEFORE/AFTER comparison
 
-Every UI change, except a diff on the pr-lifecycle one-liner fast path (literal-text-only), requires paired screenshots or video of the **pre-change implementation (BEFORE)** and **candidate implementation (AFTER)**. Prefer captioned video; video is required for interaction, navigation, streaming, animation, timing or multi-step claims. Paired screenshots suffice only for a simple static visual change whose claim does not depend on motion or sequence; state why that exception fits. Keep required desktop/mobile coverage.
+Every UI change, except a source-only literal claim that qualifies for the pr-lifecycle one-liner fast path, requires paired screenshots or video of the **pre-change implementation (BEFORE)** and **candidate implementation (AFTER)**. Captioned video is required for interaction, navigation, streaming, animation, timing or multi-step claims. Paired captioned screenshots suffice only for a simple static visual change whose claim does not depend on motion or sequence; state why that format fits. Keep required desktop/mobile coverage.
 
 - Use comparable route, scenario, account/role, starting data/state, viewport and theme on both revisions; disclose unavoidable differences. For a new feature, BEFORE shows its actual prior absence or previous experience.
 - Bind each capture to the actual served app/build SHA and capture-driver revision (plus any dirty diff/hash), exact launch/capture commands, original UTC capture time, environment, and raw artifact paths/hashes. A checkout SHA alone does not establish which code the browser received.
