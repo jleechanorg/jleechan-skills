@@ -19,8 +19,11 @@ Then play the whole asset from the start, muted and without pauses. Before openi
 
 ## 3. Review what the phone actually shows
 
+- **Full-frame composition.** Inspect the whole exported frame, with the ad's title, art, copy, and CTA visible together at placement size. Look for dead space, gaps that disconnect the copy from the CTA, clipping, and competing focal points. Record where the eye lands and how it gets to the CTA. Hold a still or end card if a large empty region splits the story from the action and serves no visible purpose.
 - Lead with a recognizable scene image and a visible stake. Let the picture carry the opening. A title, waiting screen or reading pane cannot carry the hook alone.
-- Keep each choice short, readable and comfortably tappable. When an ad claims a branching or multi-layer story, inspect the played path at each claimed decision layer and verify that each selection leads to its shown consequence and the next choice. A single decision does not support a claim of a multi-layer playable. For a WorldAI live demo, verify that the presented turn offers three suggested moves and a discoverable freeform move, then verify the consequence after using each advertised interaction. If the candidate intentionally uses a different interaction, judge and record the actual candidate without assuming these controls exist.
+- **Player viewpoint.** Write down who the player controls, then read every visible choice on every shown turn, including choices nobody selects. Each must be a coherent action for that character in the state shown. Check whether narration and consequences preserve that role after each action. A choice to “Step up beside Caesar” while playing Caesar is a HOLD even if it goes unselected.
+- **Story payoff.** Play the advertised decision layers. For each shown scripted beat, say what the player learns, what their action changes, and why the next decision matters. Read the copy in the time the export gives it. Hold if a consequence only restates the move, withholds the context needed for the next choice, or promises a payoff the preview never shows. Keep choice labels short while giving the story enough room to carry the consequence.
+- Keep each choice readable and comfortably tappable. A single decision does not support a claim of a multi-layer playable. For a WorldAI live demo, verify three suggested moves and a discoverable freeform move, then verify the consequence after using each advertised interaction. If the candidate uses a different interaction, record what it actually offers.
 - Let the action and result carry the story. Keep one short caption idea visible at a time, with enough time to read it. Check contrast and placement chrome on the intended phone-size preview. A viewer should never need to read game prose and an overlay simultaneously to understand the beat.
 - Make the product, demo action and destination clear. Verify the CTA and what it opens. Show the actual gameplay where the claim depends on it. Label materially shortened waiting time, demo-only controls or a non-native source when relevant. Check the full export again with sound if the version uses audio.
 
@@ -39,6 +42,9 @@ Asset hash / variant / placement / preview size / destination:
 Reviewer / role / date / normal-speed coverage / muted and audio checks:
 Cold answers before briefing — what is happening / player role / immediate stake / product action:
 Whole-asset sequence — choices and consequences at each claimed layer / CTA destination:
+Full-frame composition — focal point, copy and CTA, any distracting gaps:
+Player viewpoint — player character, visible choices checked, any contradictions:
+Story payoff — new information, consequence, next decision, read time:
 Evidence timestamps / paths tried / target or source exceptions / rights:
 Visual disposition / remaining checks / separate release approval if given:
 ```
