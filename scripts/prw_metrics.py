@@ -6806,7 +6806,7 @@ def _run_dashboard(parser, args, spool_dir=None):
                             if key == "source_exports":
                                 history_data["stats"][key].extend(value)
                             elif isinstance(value, int) and not isinstance(value, bool):
-                                history_data["stats"][key] += value
+                                history_data["stats"][key] = history_data["stats"].get(key, 0) + value
             history_data["human_records"] += disputing_copies(history_data["human_records"], outside_humans)
             quality = [item["status"] for item in history_data["stats"]["source_exports"]]
             history_data["stats"]["source_quality"] = next(
