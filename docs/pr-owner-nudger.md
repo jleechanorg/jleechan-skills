@@ -50,6 +50,11 @@ success. Due failures retry after 10, 20,
 40, then 60 minutes. New CLI or browser launches require at least 5% measured
 idle CPU and applicable memory admission.
 
+The cooldown begins at confirmed delivery and does not accumulate retry
+backoff. A same-head stage change or a transition from failing or pending
+checks to reported success can wake an existing owner on the next tick.
+This event still goes through owner, checkout, and receipt verification.
+
 A target's optional `enrollment` names its `head_repo`, `branch`, canonical
 absolute `cwd`, owning `host` (the local hostname), `cli`, canonical absolute
 `cli_bin` and `profile_dir`, and `model`. Fresh bootstrap requires

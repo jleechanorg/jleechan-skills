@@ -325,7 +325,8 @@ def reconcile_delivery(db, key, previous, now):
     return True
 
 
-def dispatch(cwd, owner, local, pr, receipts, config, from_cache, read=None, *, resume_sandbox=None):
+def dispatch(cwd, owner, local, pr, receipts, config, from_cache, read=None, *,
+             resume_sandbox=None, wake_reason=None):
     read = read or github
     expected = identity(pr)
     repo, number, _, branch, sha = expected
@@ -342,7 +343,7 @@ def dispatch(cwd, owner, local, pr, receipts, config, from_cache, read=None, *, 
             if reconcile_delivery(receipts, key, previous, time.time()):
                 return "delivered_reconciled"
             return "reconciliation_required"
-        if (previous and previous[0] == "delivered" and previous[3] == sha
+        if (not wake_reason and previous and previous[0] == "delivered" and previous[3] == sha
                 and time.time() - previous[1] < cooldown):
             return "cooldown"
 
@@ -396,6 +397,10 @@ def dispatch(cwd, owner, local, pr, receipts, config, from_cache, read=None, *, 
         prompt += (f" Your checkout is at {local[-1]}. Before any stage work, fetch the exact "
                    "enrolled branch and verify the remote head. Update only by fast-forward "
                    "when clean. Preserve local work and record the blocker if it cannot fast-forward.")
+    if wake_reason == "ci_completed":
+        prompt += " GitHub now reports passing checks for this head. Verify the applicable checks and resume the next gate."
+    elif wake_reason == "stage_changed":
+        prompt += " The PR stage changed at this head. Verify the new stage and continue its next obligation."
 
     def checkpoint_receipt(path, start):
         nonlocal receipt
@@ -577,7 +582,7 @@ def bootstrap_enrollment(target, expected, *, require_launch=True):
     }, None
 
 
-def dispatch_target(key, target, pr, matches, store, config, read):
+def dispatch_target(key, target, pr, matches, store, config, read, *, wake_reason=None):
     expected = identity(pr)
     _, _, head_repo, branch, sha = expected
     note = store.schedule
@@ -608,8 +613,9 @@ def dispatch_target(key, target, pr, matches, store, config, read):
     if pending_delivery(previous):
         if reconcile_delivery(db, key, previous, store.now):
             cooldown = config.get("cooldown_seconds", 1800)
+            earliest = store.now + cooldown if previous[3] == sha else 0
             return note(key, "delivered_reconciled", "refresh_pr", progress=True,
-                        earliest=store.now + cooldown)
+                        earliest=earliest)
         return note(key, "reconciliation_required", "reconcile_delivery")
     if target.get("observe_only") is True:
         return note(key, "observing", "refresh_pr", progress=True)
@@ -657,7 +663,7 @@ def dispatch_target(key, target, pr, matches, store, config, read):
         if not from_cache and not remember_configured(db, expected, cwd, owner):
             return note(key, "ambiguous_owner", "verify_owner")
     authorized_enrollment = None
-    if row["next_due"] > store.now:
+    if row["next_due"] > store.now and not (wake_reason and candidates):
         if not candidates and row["reason"] in {"missing_owner", "missing_launch_authority"}:
             managed, _ = bootstrap_enrollment(target, expected)
             if managed and any(str(cwd) == managed["cwd"] for cwd, _, _ in matches):
@@ -670,7 +676,8 @@ def dispatch_target(key, target, pr, matches, store, config, read):
         elif authorized_enrollment:
             note(key, "launch_authorized", "bootstrap_owner", progress=True)
         else:
-            return dict(status=row["reason"], next_action=row["next_action"],
+            status = "cooldown" if row["reason"] in {"delivered", "delivered_reconciled"} else row["reason"]
+            return dict(status=status, next_action=row["next_action"],
                         attempts=row["attempts"], next_due=row["next_due"])
     pickup = target.get("pickup_after_seconds")
     if pickup:
@@ -684,14 +691,16 @@ def dispatch_target(key, target, pr, matches, store, config, read):
         cwd, local, owner = candidates[0]
         status = dispatch(
             cwd, owner, local, pr, db, config, from_cache, read,
-            resume_sandbox=resume_sandbox,
+            resume_sandbox=resume_sandbox, wake_reason=wake_reason,
         )
         cooldown = config.get("cooldown_seconds", 1800)
         if status == "delivered":
-            return note(key, status, "refresh_pr", progress=True, earliest=store.now + cooldown)
-        earliest = previous[1] + cooldown if status == "cooldown" and previous else 0
+            return note(key, status, "refresh_pr", progress=True, earliest=time.time() + cooldown)
+        if status == "cooldown" and previous:
+            return note(key, status, "dispatch_owner", progress=True,
+                        earliest=previous[1] + cooldown)
         action = "reconcile_delivery" if status in {"reconciliation_required", "attempted_delivery"} else "dispatch_owner"
-        return note(key, status, action, earliest=earliest)
+        return note(key, status, action)
     enrollment, reason = ((authorized_enrollment, None) if authorized_enrollment
                           else bootstrap_enrollment(target, expected))
     if reason:
@@ -815,10 +824,12 @@ def tick(config, receipts, state=None):
             stage, *others = [item["name"] for item in pr["labels"]
                               if item["name"].startswith("stage:")] or [None]
             head = identity(pr)[-1]
-            store.observation(key, head, pr_status(pr), None if others else stage)
+            stage_changed = store.observation(key, head, pr_status(pr), None if others else stage)
             ci_status = observe_ci(repo, number, head, store)
-            store.ci_observation(key, head, ci_status)
-            observed[key] = pr, ci_status
+            wake_reason = "stage_changed" if stage_changed else None
+            if store.ci_observation(key, head, ci_status):
+                wake_reason = "ci_completed"
+            observed[key] = pr, ci_status, wake_reason
         except RateLimited as error:
             yield dict(result, **store.schedule(key, "blocked_github_rate", "refresh_pr",
                                                 earliest=error.until))
@@ -836,7 +847,7 @@ def tick(config, receipts, state=None):
             if enrollment.get("host") == socket.gethostname():
                 enrolled.setdefault(Path(enrollment["cwd"]).resolve(), [])
     if receipts is not None:
-        for key, (pr, _) in observed.items():
+        for key, (pr, _, _) in observed.items():
             _, _, head_repo, branch, _ = identity(pr)
             for cwd, raw in receipts.execute(
                 "SELECT cwd, owner FROM binding WHERE repo=? AND number=? AND branch=?",
@@ -851,11 +862,13 @@ def tick(config, receipts, state=None):
     discovered = discover_owners(enrolled) if enrolled else {}
     yield from errors
     for key in sorted(observed, key=lambda key: (store.row(key)["next_due"], key)):
-        pr, ci_status = observed[key]
+        pr, ci_status, wake_reason = observed[key]
         expected = identity(pr)
         try:
-            outcome = dispatch_target(key, targets[key], pr,
-                                      owners_for_target(enrolled, discovered, expected), store, config, read)
+            outcome = dispatch_target(
+                key, targets[key], pr, owners_for_target(enrolled, discovered, expected),
+                store, config, read, wake_reason=wake_reason,
+            )
         except RateLimited as error:
             outcome = store.schedule(key, "blocked_github_rate", "refresh_pr", earliest=error.until)
         except CHECK_ERRORS:

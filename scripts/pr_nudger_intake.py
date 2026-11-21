@@ -75,11 +75,17 @@ class Intake:
         changed = old["head"] != head or old["observed_status"] != status
         self.set(key, head=head, observed_status=status, observed_at=self.now, stage=stage,
                  **({"attempts": 0, "next_due": 0, "remote_push_at": None} if changed else {}))
+        return old["head"] == head and bool(old.get("stage") and stage and old["stage"] != stage)
 
     def ci_observation(self, key, head, status):
-        if self.db is not None:
-            self.db.execute("INSERT OR REPLACE INTO target_ci VALUES (?, ?, ?, ?, ?)",
-                            (*key, head, status, time.time()))
+        if self.db is None:
+            return False
+        prior = self.db.execute(
+            "SELECT head, status FROM target_ci WHERE repo=? AND number=?", key,
+        ).fetchone()
+        self.db.execute("INSERT OR REPLACE INTO target_ci VALUES (?, ?, ?, ?, ?)",
+                        (*key, head, status, time.time()))
+        return status == "reported_success" and prior in ((head, "pending"), (head, "failing"))
 
     def schedule(self, key, reason, action, *, progress=False, earliest=0):
         row = self.row(key)

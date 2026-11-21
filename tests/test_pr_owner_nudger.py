@@ -145,6 +145,72 @@ class DispatcherTest(unittest.TestCase):
             self.assertEqual(nudger.main(args), 0)
         return [json.loads(line) for line in output.getvalue().splitlines()]
 
+    def test_cooldown_preserves_the_delivery_deadline_without_backoff(self):
+        clock = [100.0]
+        self.config["targets"] = [{"repo": "base/project", "number": 12}]
+        self.config["cooldown_seconds"] = 600
+
+        def send(owner, _prompt, _apply):
+            self.assertTrue(owner["recheck"]("cmux"))
+            clock[0] += 45  # delivery is confirmed later than the poll's start
+            return "delivered"
+
+        with patch.object(nudger, "github", return_value=self.pr), \
+             patch.object(nudger, "legacy_tick", return_value=()), \
+             patch.object(nudger.time, "time", side_effect=lambda: clock[0]), \
+             patch.object(nudger, "route", side_effect=send) as route:
+            self.assertEqual(self.target_tick()[0]["status"], "delivered")
+            clock[0] = 700
+            waiting = self.target_tick()[0]
+            self.assertEqual((waiting["status"], waiting["attempts"], waiting["next_due"]),
+                             ("cooldown", 0, 745))
+            clock[0] = 746
+            self.assertEqual(self.target_tick()[0]["status"], "delivered")
+            self.assertEqual(route.call_count, 2)
+
+    def test_same_head_ci_completion_wakes_owner_before_reminder_cooldown(self):
+        clock = [100.0]
+        self.config["targets"] = [{"repo": "base/project", "number": 12}]
+        self.config["cooldown_seconds"] = 600
+
+        def send(owner, prompt, _apply):
+            self.assertTrue(owner["recheck"]("cmux"))
+            if clock[0] > 100:
+                self.assertIn("GitHub now reports passing checks", prompt)
+            return "delivered"
+
+        with patch.object(nudger, "github", return_value=self.pr), \
+             patch.object(nudger, "legacy_tick", return_value=()), \
+             patch.object(nudger, "observe_ci", side_effect=["pending", "reported_success"]), \
+             patch.object(nudger.time, "time", side_effect=lambda: clock[0]), \
+             patch.object(nudger, "route", side_effect=send) as route:
+            self.assertEqual(self.target_tick()[0]["status"], "delivered")
+            clock[0] = 200
+            self.assertEqual(self.target_tick()[0]["status"], "delivered")
+            self.assertEqual(route.call_count, 2)
+
+    def test_same_head_stage_change_wakes_owner_before_reminder_cooldown(self):
+        clock = [100.0]
+        self.config["targets"] = [{"repo": "base/project", "number": 12}]
+        self.config["cooldown_seconds"] = 600
+        self.pr["labels"] = [{"name": "stage:2-evidence"}]
+
+        def send(owner, prompt, _apply):
+            self.assertTrue(owner["recheck"]("cmux"))
+            if clock[0] > 100:
+                self.assertIn("The PR stage changed", prompt)
+            return "delivered"
+
+        with patch.object(nudger, "github", return_value=self.pr), \
+             patch.object(nudger, "legacy_tick", return_value=()), \
+             patch.object(nudger.time, "time", side_effect=lambda: clock[0]), \
+             patch.object(nudger, "route", side_effect=send) as route:
+            self.assertEqual(self.target_tick()[0]["status"], "delivered")
+            clock[0] = 200
+            self.pr["labels"] = [{"name": "stage:3-evidence-review"}]
+            self.assertEqual(self.target_tick()[0]["status"], "delivered")
+            self.assertEqual(route.call_count, 2)
+
     def test_persists_five_targets_before_any_external_operation(self):
         self.config["owners"] = []
         self.config["targets"] = [
@@ -365,7 +431,7 @@ class DispatcherTest(unittest.TestCase):
             clock.return_value = 4500
             self.assertEqual(self.target_tick()[0]["status"], "delivered")
             clock.return_value = 4501
-            self.assertEqual(self.target_tick()[0]["status"], "delivered")
+            self.assertEqual(self.target_tick()[0]["status"], "cooldown")
             route.assert_called_once()
 
 
@@ -768,7 +834,9 @@ class DispatcherTest(unittest.TestCase):
                 stream.write(json.dumps({"type": "response_item", "payload": {
                     "role": "user", "content": send.prompt,
                 }}) + "\n")
-            self.assertEqual(self.target_tick()[0]["status"], "delivered_reconciled")
+            self.pr["head"]["sha"] = "b" * 40
+            recovered = self.target_tick()[0]
+            self.assertEqual((recovered["status"], recovered["next_due"]), ("delivered_reconciled", 0))
             route.assert_called_once()
         with sqlite3.connect(Path(self.config["state_dir"]) / "receipts.sqlite3") as db:
             self.assertEqual(db.execute("SELECT status FROM delivery").fetchone(), ("delivered",))
