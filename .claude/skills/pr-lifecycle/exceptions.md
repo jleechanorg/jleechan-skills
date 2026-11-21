@@ -28,7 +28,7 @@ For alerting-only changes, focused `/es` and `/er` may prove the alerting claim 
 
 Non-production tests, fixtures, drivers and CI changes need proportionate checks of changed assertions and affected contracts, not automatic runtime capture and not automatic exemption. Never weaken assertions or mock away a claimed boundary to qualify.
 
-Copy displayed on a supported UI path needs matched, captioned before/after screenshots of the real rendered UI, even for a single label. A change to an interaction, motion or streaming sequence needs its applicable captioned video. Source-only proof is sufficient for verified non-rendered text with no runtime impact. These narrow exceptions govern generic all-UI-media wording in linked skills; named risk-specific requirements, explicit user-required proof and safety controls still apply.
+Copy displayed on a supported application UI path needs matched, captioned before/after screenshots of the real rendered UI, even for a single label. A change to an interaction, motion or streaming sequence needs its applicable captioned video. Source-only proof is sufficient for verified non-rendered text with no runtime impact. These narrow exceptions govern generic all-UI-media wording in linked skills; named risk-specific requirements, explicit user-required proof and safety controls still apply.
 
 ### Documentation-only CI exception
 

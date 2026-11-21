@@ -13,7 +13,7 @@ Before producing or reviewing any video, apply the canonical [`evidence-standard
 
 ## When UI Video Is Required
 
-Apply the narrow proportional exceptions in [pr-lifecycle](../pr-lifecycle/SKILL.md) first. Source-only harmless display-copy may justify media N/A; a bounded static-copy rendering claim may use an actual screenshot. Other UI/browser video is mandatory for user-facing behavior, including:
+Use the [lifecycle proof rules](../pr-lifecycle/exceptions.md#proportional-exceptions-and-fast-paths). Static application UI changes, including a single visible label, require captioned before/after screenshots from the rendered builds. Verified non-rendered text with no runtime effect may record media as N/A. Captioned before/after video is required for UI behavior that depends on a sequence, including:
 - Visual/UI layout or styling changes
 - Click flows, form submit flows, navigation, or modal behavior
 - New/changed browser interactions
