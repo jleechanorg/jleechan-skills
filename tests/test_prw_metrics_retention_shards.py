@@ -410,6 +410,62 @@ class RetainedUsageShards(unittest.TestCase):
                     m._validate_single_json_document(path)
             path.write_text('{"a":[1,{"b":"brace } in string"}]}\n')
             m._validate_single_json_document(path)
+            # json.loads historically accepts escaped lone surrogates; bounded
+            # validation must retain that compatibility.
+            path.write_text('{"legacy":"\\ud800"}')
+            m._validate_single_json_document(path)
+
+    def test_bounded_summary_validator_matches_legacy_stdlib_edge_cases(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "summary.json"
+            valid = (
+                '{ "nested" : [ true, false, null, -1.25e+4, '
+                '{"escaped":"quote: \\" slash: \\\\"} ] }',
+                '{"legacy-surrogate":"\\ud800"}',
+                '{"python-stdlib-constant":NaN}',
+                '{"python-stdlib-infinity":Infinity}',
+                '{"long":"' + ('x' * 65530) + '","number":-1.25e+4}',
+            )
+            for content in valid:
+                with self.subTest(content=content[:48]):
+                    path.write_text(content)
+                    json.loads(content)
+                    m._validate_single_json_document(path)
+
+            for content in ('{"a":1} trailing', '[1,]', '{"a":1,,"b":2}',
+                            '{"a":"bad\ncontrol"}', '{"a":truX}'):
+                with self.subTest(content=content), self.assertRaises(ValueError):
+                    path.write_text(content)
+                    m._validate_single_json_document(path)
+
+    def test_streamed_summary_part_is_read_once_for_integrity_and_decode(self):
+        summary = {"usage_summary": {"events": [{"status": "UNKNOWN",
+                    "known_cost_usd": None, "tokens_by_bucket": {"input": i}}
+                   for i in range(40)]}}
+        with tempfile.TemporaryDirectory() as temp, \
+                mock.patch.object(m, "USAGE_SHARD_BYTES", 900):
+            root = Path(temp)
+            files = m._summary_parts(summary)
+            for name, content in files.items():
+                target = root / name
+                if isinstance(content, Path):
+                    target.write_bytes(content.read_bytes())
+                else:
+                    target.write_text(content, encoding="utf-8")
+            shard = root / "summary_snapshot.part-000000.jsonl"
+            self.assertTrue(shard.exists())
+            original_open = Path.open
+            reads = 0
+
+            def counted_open(path, *args, **kwargs):
+                nonlocal reads
+                if path == shard:
+                    reads += 1
+                return original_open(path, *args, **kwargs)
+
+            with mock.patch.object(Path, "open", counted_open):
+                m._validate_summary_bundle_streamed(os.listdir(root), root, root)
+            self.assertEqual(reads, 1)
 
     def test_real_git_publish_reload_shrink_empty_and_legacy(self):
         with tempfile.TemporaryDirectory() as temp:

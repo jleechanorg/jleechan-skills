@@ -1158,28 +1158,87 @@ def _read_summary_bundle(names, read):
     return _project_summary(json.loads(b"".join(chunks)))
 
 
-def _validate_single_json_document(path, *, jq=None):
-    """Validate one arbitrarily large JSON document with bounded resident memory."""
-    jq = jq or shutil.which("jq")
-    if not jq:
-        raise RuntimeError("bounded retained-summary validation requires jq")
+def _summary_json_tokens(source):
+    """Yield JSON token types using memory proportional to the longest scalar."""
+    block_size = 64 * 1024
+    whitespace = re.compile(r"[ \t\r\n]+")
+    bare = re.compile(r'[^ \t\r\n,:{}\[\]"]+')
+    decoder = json.JSONDecoder()
+    buf = ""
+    pos = 0
+    eof = False
+    while True:
+        if pos == len(buf):
+            if eof:
+                return
+            buf = source.read(block_size)
+            if not buf:
+                return
+            pos = 0
+        char = buf[pos]
+        if char in " \t\r\n":
+            pos = whitespace.match(buf, pos).end()
+            continue
+        if char in "[]{},:":
+            pos += 1
+            yield char
+            continue
+        if char == '"':
+            try:
+                _, end = decoder.raw_decode(buf, pos)
+            except json.JSONDecodeError as exc:
+                if eof or (not exc.msg.startswith("Unterminated string") and exc.pos < len(buf) - 5):
+                    raise
+            else:
+                pos = end
+                yield "string"
+                continue
+        else:
+            end = bare.match(buf, pos).end()
+            if end < len(buf) or eof:
+                json.loads(buf[pos:end])
+                pos = end
+                yield "value"
+                continue
+        # A scalar crosses the buffer boundary. Doubling avoids repeatedly
+        # rescanning a long token from its start with quadratic total work.
+        remainder = buf[pos:]
+        extra = source.read(max(block_size, len(remainder)))
+        eof = not extra
+        buf = remainder + extra
+        pos = 0
 
-    # jq emits [[], value] for scalar/empty roots and a one-component end
-    # marker for each completed nonempty root. Require exactly one document.
-    program = (
-        "reduce inputs as $e (0; "
-        "if (($e | length) == 2 and ($e[0] | length) == 0) or "
-        "(($e | length) == 1 and ($e[0] | length) == 1) "
-        "then . + 1 else . end) == 1"
-    )
-    with Path(path).open("rb") as stream:
-        result = subprocess.run(
-            [jq, "--stream", "-ne", program], stdin=stream,
-            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=600, check=False,
-        )
-    if result.returncode:
-        reason = result.stderr.decode("utf-8", "replace").strip()
-        raise ValueError(f"invalid retained summary JSON: {reason[:500]}")
+
+def _validate_single_json_document(path):
+    """Discard parsed values while checking one complete retained summary."""
+    with Path(path).open(encoding="utf-8", newline="") as source:
+        tokens = iter(_summary_json_tokens(source))
+
+        def value(token):
+            if token in ("string", "value"):
+                return
+            if token not in ("[", "{"):
+                raise ValueError("expected JSON value")
+            closing = "]" if token == "[" else "}"
+            item = next(tokens, None)
+            if item == closing:
+                return
+            while True:
+                if token == "{":
+                    if item != "string" or next(tokens, None) != ":":
+                        raise ValueError("expected JSON object key and colon")
+                    item = next(tokens, None)
+                value(item)
+                separator = next(tokens, None)
+                if separator == closing:
+                    return
+                if separator != ",":
+                    raise ValueError("expected JSON separator")
+                item = next(tokens, None)
+
+        value(next(tokens, None))
+        if next(tokens, None) is not None:
+            raise ValueError("trailing data after JSON document")
 
 
 def _validate_summary_bundle_streamed(names, bundle_dir, spool_dir):
@@ -1205,19 +1264,16 @@ def _validate_summary_bundle_streamed(names, bundle_dir, spool_dir):
         combined = Path(temp) / "summary.json"
         with combined.open("wb") as destination:
             for entry in manifest["parts"]:
-                digest = hashlib.sha256()
-                size = 0
+                # Manifest validation caps entry["bytes"], so this allocation is
+                # bounded and ensures checksum and decode see the same snapshot.
                 with (root / entry["name"]).open("rb") as source:
-                    for chunk in iter(lambda: source.read(64 * 1024), b""):
-                        size += len(chunk)
-                        if size > entry["bytes"]:
-                            raise ValueError("summary shard integrity mismatch")
-                        digest.update(chunk)
-                if (size != entry["bytes"] or digest.hexdigest() != entry["sha256"]
-                        or entry["records"] != 1):
+                    raw = source.read(entry["bytes"] + 1)
+                size = len(raw)
+                if size != entry["bytes"] or entry["records"] != 1:
                     raise ValueError("summary shard integrity mismatch")
-                with (root / entry["name"]).open("r", encoding="utf-8") as source:
-                    part = json.load(source)
+                if hashlib.sha256(raw).hexdigest() != entry["sha256"]:
+                    raise ValueError("summary shard integrity mismatch")
+                part = json.loads(raw)
                 if not isinstance(part, dict) or set(part) != {"base64"} or not isinstance(part["base64"], str):
                     raise ValueError("invalid summary transport part")
                 try:
