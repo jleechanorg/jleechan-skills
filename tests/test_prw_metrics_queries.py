@@ -73,7 +73,9 @@ class TestIterableJsonlStaging(unittest.TestCase):
         )
         capture = _StreamingJsonlCapture()
 
-        _load_jsonl_table(capture, "prw_input_events", rows)
+        with tempfile.TemporaryDirectory() as staging_dir:
+            _load_jsonl_table(capture, "prw_input_events", rows, staging_dir=staging_dir)
+            self.assertEqual(capture.staged_path.parent, Path(staging_dir))
 
         self.assertEqual(capture.row_count, 3)
         self.assertEqual(capture.first["amount"], "1.250")

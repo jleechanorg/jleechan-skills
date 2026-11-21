@@ -17,7 +17,7 @@ except ModuleNotFoundError:
     from prw_metrics import parse_iso_utc
 
 
-def _load_jsonl_table(connection, table_name, path):
+def _load_jsonl_table(connection, table_name, path, *, staging_dir=None):
     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", table_name):
         raise ValueError("table_name must be a SQL identifier")
     if path is None:
@@ -31,7 +31,7 @@ def _load_jsonl_table(connection, table_name, path):
         row_count = 0
         try:
             with tempfile.NamedTemporaryFile(
-                mode="w", encoding="utf-8", suffix=".jsonl", delete=False
+                mode="w", encoding="utf-8", suffix=".jsonl", delete=False, dir=staging_dir
             ) as stream:
                 source_name = stream.name
                 for row in path:
@@ -393,10 +393,13 @@ def run_query(
     else:
         connection = duckdb_module.connect(database=":memory:")
     try:
-        _load_jsonl_table(connection, "prw_input_events", events_path)
-        _load_jsonl_table(connection, "prw_input_pr_snapshots", pr_snapshots_path)
-        _load_jsonl_table(connection, "prw_input_attempts", attempt_observations_path)
-        _load_jsonl_table(connection, "prw_input_time_metrics", time_metrics_path)
+        for table_name, source in (
+            ("prw_input_events", events_path),
+            ("prw_input_pr_snapshots", pr_snapshots_path),
+            ("prw_input_attempts", attempt_observations_path),
+            ("prw_input_time_metrics", time_metrics_path),
+        ):
+            _load_jsonl_table(connection, table_name, source, staging_dir=duckdb_temp_directory)
         _load_human_summary(connection, human_summary_path)
         connection.execute(
             "CREATE TEMP TABLE prw_query_parameters AS "
