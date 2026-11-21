@@ -419,7 +419,7 @@ Note: `printf` (not `echo`) for the session-name sanitizing is deliberate — pi
 
 ### 5. Hand off
 
-Follow the mandatory [agent submission and response proof contract](../linux-remote/SKILL.md#agent-submission-and-response-proof--mandatory). Verify and report the remote agent's first two or three attributable response sentences before claiming it started work.
+Follow the mandatory [agent submission and response proof contract](../linux-remote/SKILL.md#agent-submission-and-response-proof--mandatory). Before claiming work started, require a fresh response attributable to the dispatch and independently verify a task-specific first action or artifact produced by the remote agent. Report the first two or three response sentences verbatim, with secrets redacted, alongside the action and evidence reference. If either proof is missing, report the observed unconfirmed or blocked state and continue scoped recovery.
 
 Report the session name, target path, and commit SHA from the `READY:`/`RESUMED:` line — cross-check that SHA against your local `git rev-parse HEAD`. `READY` proves the pane passed the launch and liveness checks; it does not prove the agent received or acted on `$CONTEXT`. `RESUMED` means an existing session was found as-is and nothing was typed into it — inspect that work directly rather than assuming it is idle. The preflight rejects local branches that are ahead of or diverged from the fetched remote branch, and the final HEAD is checked for exact equality before READY. Then give the attach command:
 
