@@ -17,9 +17,13 @@ check() { # name file cap
 }
 
 check "dot.sh" "scripts/dot.sh" 520
-check "dot_chrome.mjs" "scripts/dot_chrome.mjs" 900
 
-combined=$(( $(wc -l < scripts/dot.sh) + $(wc -l < scripts/dot_chrome.mjs) ))
+transport_modules=(scripts/*.mjs)
+combined=$(wc -l < scripts/dot.sh)
+for module in "${transport_modules[@]}"; do
+  check "${module##*/}" "$module" 900
+  combined=$(( combined + $(wc -l < "$module") ))
+done
 if [[ "$combined" -gt 1400 ]]; then
   echo "BUDGET BREACH: transport scripts combined = $combined LOC > cap 1400" >&2
   fail=1
@@ -50,7 +54,9 @@ if [[ -z "$NODE_BIN" ]]; then
   NODE_BIN="$(ls -1 "$HOME"/.nvm/versions/node/*/bin/node /usr/local/bin/node /opt/homebrew/bin/node 2>/dev/null | tail -1 || true)"
 fi
 if [[ -n "$NODE_BIN" ]]; then
-  "$NODE_BIN" --check scripts/dot_chrome.mjs
+  for module in "${transport_modules[@]}"; do
+    "$NODE_BIN" --check "$module"
+  done
 else
   echo "warn: node not found on runner; skipped mjs syntax check (LOC caps still enforced)" >&2
 fi

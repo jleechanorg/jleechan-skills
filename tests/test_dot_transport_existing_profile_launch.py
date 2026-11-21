@@ -121,7 +121,7 @@ exports.chromium = {
             check=False,
         )
 
-    def _install_fake_send_playwright(self, initial_composer=""):
+    def _install_fake_send_playwright(self, initial_composer="", *, usage_limit=False):
         state_path = self.root / "prepared-send-state.json"
         external_composer_path = self.root / "external-composer.txt"
         state_path.unlink(missing_ok=True)
@@ -131,8 +131,95 @@ exports.chromium = {
         script = r'''const fs = require("node:fs");
 const statePath = __STATE_PATH__;
 const externalComposerPath = __EXTERNAL_COMPOSER_PATH__;
-const state = {composer: __INITIAL_COMPOSER__, clicked: false, userMessages: []};
+const state = {composer: __INITIAL_COMPOSER__, clicked: false, userMessages: [], replyClicked: false, replyOpened: false, scrolls: 0, focusClicks: 0};
+const replyParent = process.env.DOT_TEST_REPLY_PARENT;
+let urlReads = 0, historyReads = 0;
+const history = process.env.DOT_TEST_HISTORY;
+const changeAt = process.env.DOT_TEST_CHANGE_AT;
+const hasOlderRows = () => state.scrolls > 0 && ["grow", "hydrate"].includes(history) && historyReads > 2;
+const parentIsLoaded = () => !history || hasOlderRows() ||
+  (["deep", "quiet_then_grow"].includes(history) && state.scrolls >= 7);
+const replyPanel = {
+  async count() { return Number(state.replyOpened); },
+  async isVisible() { return state.replyOpened; },
+  async waitFor() { if (!state.replyOpened) throw Error("Reply panel never opened"); },
+  locator(selector) {
+    if (selector === ".message-list article.message-row[data-message-id]") return {
+      first() { return this; },
+      async count() { return 1; },
+      async getAttribute() {
+        if ((process.env.DOT_TEST_REPLY_CHANGED === "focus" && state.replyFocused) ||
+            (process.env.DOT_TEST_REPLY_CHANGED === "commit" && globalThis.fixturePrepared) ||
+            (process.env.DOT_TEST_REPLY_CHANGED === "receipt" && state.replyClicked)) return "other-parent";
+        return replyParent;
+      },
+    };
+    if (selector === ".message-list article.self .message-text") return {
+      async allInnerTexts() { return state.userMessages; },
+    };
+    if (selector.startsWith(".reply-chain-composer [contenteditable=true]")) {
+      return {...locator("fixture scoped composer"), async click() { state.replyFocused = true; }};
+    }
+    if (selector === ".reply-chain-composer") return {
+      getByRole(role, options) {
+        if (role !== "button" || options.name !== "Send" || !options.exact) throw Error("Unexpected reply control");
+        return {
+          async count() { return 1; },
+          async isEnabled() {
+            if (process.env.DOT_TEST_REPLY_CHANGED === "timeout") globalThis.advanceClock(120000);
+            return true;
+          },
+          async click() {
+            state.replyClicked = true;
+            state.userMessages.push(state.composer);
+            state.composer = "";
+          },
+        };
+      },
+    };
+    throw Error("Unscoped reply read: " + selector);
+  },
+};
 function locator(selector) {
+  if (selector === '.reply-chain-container[aria-label="Replies"]') return replyPanel;
+  if (selector === '.messages-scroll:visible') return {
+    async count() { return 1; },
+    async waitFor() {},
+    async evaluate(scroll, url) {
+      const positions = [];
+      const fixture = {isConnected: true, ownerDocument: {URL: process.env.DOT_TEST_RESOLVED_URL},
+        set scrollTop(value) { positions.push(value); }};
+      if (!await scroll(fixture, url) || positions.join(",") !== "35,0") throw Error("Unexpected history scroll");
+      state.scrolls++;
+      if (history === "growing_missing") globalThis.advanceClock(5000);
+      return true;
+    },
+    locator(selector) {
+      if (selector === 'article.message-row[data-message-id]') return {
+        async count() {
+          historyReads++;
+          if (history === "quiet_then_grow") return 52 + (state.scrolls === 6 ? 5 : state.scrolls) * 8;
+          if (["deep", "growing_missing"].includes(history)) return 52 + state.scrolls * 8;
+          if (history === "hydrate" && historyReads <= 2) return 0;
+          return hasOlderRows() ? 84 : 52;
+        },
+      };
+      return locator(selector);
+    },
+  };
+  if (selector.startsWith('article.message-row[data-message-id=')) return {
+    filter() { return this; },
+    last() { return this; },
+    getByRole() {
+      return {
+        async count() {
+          return Number(parentIsLoaded() &&
+            selector === `article.message-row[data-message-id="${replyParent}"]`);
+        },
+        async click() { state.replyOpened = true; },
+      };
+    },
+  };
   if (selector.includes("data-message-author-role=user")) {
     return {async allInnerTexts() { return state.userMessages; }};
   }
@@ -143,39 +230,143 @@ function locator(selector) {
       if (fs.existsSync(externalComposerPath)) return fs.readFileSync(externalComposerPath, "utf8");
       return state.composer;
     },
-    async focus() {},
+    async focus() { if (changeAt === "cleanup_focus") state.routeChanged = true; },
+    async isVisible() {
+      if (changeAt === "commit_ready" && globalThis.fixturePrepared) state.routeChanged = true;
+      return process.env.DOT_TEST_BUSY === "1";
+    },
     async click() {},
   };
 }
+let activeEditor;
+function runExactFixture(fn, binding) {
+  const { action, parent } = binding;
+  if (action === "fill" && changeAt === "late_fill") state.composer = "Other draft";
+  if (action === "clear" && changeAt === "cleanup_focus") activeEditor = {};
+  if (action === "submit") {
+    if (changeAt === "commit_ready") state.routeChanged = true;
+    if (changeAt === "late_submit") state.composer = "Other draft";
+    if (process.env.DOT_TEST_REPLY_CHANGED === "timeout") globalThis.advanceClock(120000);
+  }
+  const visible = () => [{}];
+  const editor = {
+    isContentEditable: true, get innerText() { return state.composer; },
+    getClientRects: visible, contains(node) { return node === "composer"; },
+    focus() {
+      activeEditor = "composer";
+      if (parent) state.replyFocused = true;
+      else state.focusClicks++;
+      if (changeAt === "after_focus") state.routeChanged = true;
+    },
+  };
+  const send = {getClientRects: visible, matches() { return false; }, click() {
+    if (parent) state.replyClicked = true;
+    else state.clicked = true;
+    state.userMessages.push(state.composer);
+    state.composer = "";
+    if (changeAt === "submit_error") throw Error("execution context lost after click");
+  }};
+  const lists = selector => {
+    if (selector === binding.composerSelector) return [editor];
+    if (selector === binding.userMessageSelector) return state.userMessages.map(text => ({innerText: text}));
+    if (selector.includes("stop-button")) return process.env.DOT_TEST_BUSY ? [{getClientRects: visible}] : [];
+    if (selector.includes('aria-label="Send"')) return [send];
+    throw Error("Unexpected exact selector " + selector);
+  };
+  const panel = {getClientRects: visible, querySelectorAll: lists, querySelector() {
+    const changed = process.env.DOT_TEST_REPLY_CHANGED;
+    const moved = (changed === "focus" && state.replyFocused) ||
+      (changed === "commit" && globalThis.fixturePrepared) || (changed === "receipt" && state.replyClicked);
+    return {dataset: {messageId: moved ? "other-parent" : replyParent}};
+  }};
+  globalThis.getComputedStyle = element => ({
+    visibility: element === send && changeAt === "hidden_submit" ? "hidden" : "visible",
+    pointerEvents: "auto",
+  });
+  globalThis.location = { origin: "https://chatgpt.com", get href() {
+    return action === "observe" && state.clicked && changeAt === "receipt_transient"
+      ? "https://chatgpt.com/c/00000000-0000-4000-8000-000000000002" : page.url();
+  }};
+  globalThis.window = {getSelection: () => ({removeAllRanges() {}, addRange() {
+    if (changeAt === "cleanup_selection") state.routeChanged = true;
+  }})};
+  globalThis.document = {
+    get activeElement() { return activeEditor; },
+    createRange() { return {selectNodeContents() {}}; },
+    execCommand(op, _, value) {
+      if (op === "delete" && changeAt === "cleanup_persistence") {
+        state.persistedComposer = state.composer;
+        setTimeout(() => { state.persistedComposer = ""; }, 700);
+      }
+      if (op === "delete" && changeAt === "cleanup_scope_changed") {
+        setTimeout(() => { state.routeChanged = true; }, 700);
+      }
+      state.composer = op === "insertText" ? value : "";
+      return true;
+    },
+    querySelectorAll(selector) {
+      return selector.includes("reply-chain-container") ? [panel] : lists(selector);
+    },
+  };
+  try { return fn(binding); }
+  finally { delete globalThis.document; delete globalThis.location; delete globalThis.window; delete globalThis.getComputedStyle; }
+}
 const page = {
   async goto() {},
+  url() {
+    if (state.routeChanged) return "https://chatgpt.com/c/00000000-0000-4000-8000-000000000002";
+    if (globalThis.fixturePrepared && process.env.DOT_TEST_POST_PREPARED_URL) return process.env.DOT_TEST_POST_PREPARED_URL;
+    if (state.clicked && process.env.DOT_TEST_POST_SEND_URL) return process.env.DOT_TEST_POST_SEND_URL;
+    if (urlReads++ === 0 && process.env.DOT_TEST_DOT_HOME) return "https://chatgpt.com/dots/home";
+    return process.env.DOT_TEST_RESOLVED_URL || process.env.DOT_URL;
+  },
   async title() { return "ChatGPT"; },
   locator,
-  async evaluate(fn) {
+  getByRole() { return {}; },
+  async evaluate(fn, binding) {
+    if (binding?.action) return runExactFixture(fn, binding);
     if (fn.toString().includes("/api/auth/session")) {
-      return {status: 200, hasUser: true, isJson: true};
+      return {status: 200, hasUser: true, isJson: true, email: "fixture@example.invalid"};
     }
-    if (fn.toString().includes("usage limit")) return "";
+    if (fn.toString().includes("usage limit")) {
+      if (changeAt === "before_focus") state.routeChanged = true;
+      return __USAGE_LIMIT_ALERT__;
+    }
     return "Fixture conversation";
   },
   async click(selector) {
     if (selector.includes("send-button")) {
       state.clicked = true;
+      if (process.env.DOT_TEST_HANG_SEND_MS) {
+        globalThis.advanceClock(Number(process.env.DOT_TEST_HANG_SEND_MS));
+        await new Promise(() => {});
+      }
       state.userMessages.push(state.composer);
       state.composer = "";
+    } else {
+      state.focusClicks++;
+      if (changeAt === "after_focus") state.routeChanged = true;
     }
   },
   keyboard: {
     selected: false,
     async press(key) {
-      if (key.endsWith("+A")) this.selected = true;
-      else if (key === "Backspace" && this.selected) state.composer = "";
+      if (key.endsWith("+A")) {
+        this.selected = true;
+        if (changeAt === "cleanup_selection") state.routeChanged = true;
+      } else if (key === "Backspace" && this.selected) state.composer = "";
     },
-    async insertText(text) { state.composer += text; },
+    async insertText(text) {
+      state.composer += process.env.DOT_TEST_MISMATCH_COMPOSER === "1" ? "different fixture" : text;
+    },
   },
 };
 exports.chromium = {
   async launchPersistentContext() {
+    if (process.env.DOT_TEST_HANG_LAUNCH === "1") {
+      setImmediate(() => globalThis.advanceClock(120000));
+      await new Promise(() => {});
+    }
     return {
       async newPage() { return page; },
       async close() { fs.writeFileSync(statePath, JSON.stringify(state)); },
@@ -187,6 +378,8 @@ exports.chromium = {
             "__EXTERNAL_COMPOSER_PATH__", json.dumps(str(external_composer_path))
         )
         script = script.replace("__INITIAL_COMPOSER__", json.dumps(initial_composer))
+        alert = "synthetic usage limit" if usage_limit else ""
+        script = script.replace("__USAGE_LIMIT_ALERT__", json.dumps(alert))
         (modules / "index.js").write_text(script, encoding="utf-8")
         return state_path
 
@@ -194,20 +387,8 @@ exports.chromium = {
                               initial_composer="", usage_limit=False,
                               mismatched_composer=False, missing_profile=False,
                               hang_launch=False, hang_after_commit=False,
-                              send_advance_ms=120000):
-        state_path = self._install_fake_send_playwright(initial_composer)
-        module = self.root / "node_modules" / "playwright" / "index.js"
-        source = module.read_text()
-        if usage_limit:
-            source = source.replace('includes("usage limit")) return ""', 'includes("usage limit")) return "synthetic usage limit"')
-        if mismatched_composer:
-            source = source.replace('state.composer += text', 'state.composer += "different fixture"')
-        if hang_launch:
-            source = source.replace('async launchPersistentContext() {', 'async launchPersistentContext() { setImmediate(() => globalThis.advanceClock(120000)); await new Promise(() => {});')
-        if hang_after_commit:
-            source = source.replace('state.clicked = true;',
-                                    f'state.clicked = true; globalThis.advanceClock({send_advance_ms}); await new Promise(() => {{}});')
-        module.write_text(source)
+                              send_advance_ms=120000, exact=None, reply=None, copy_only=False):
+        state_path = self._install_fake_send_playwright(initial_composer, usage_limit=usage_limit)
         if missing_profile:
             self.profile.rmdir()
         message_path = self.root / "clocked-message.txt"
@@ -234,16 +415,41 @@ global.advanceClock = (ms) => {
 const write = process.stdout.write.bind(process.stdout);
 process.stdout.write = (chunk, ...args) => {
   const result = write(chunk, ...args);
-  const match = /^prepared ([a-f0-9]{32})\n$/.exec(String(chunk));
+  const match = /^prepared(?:-exact)? ([a-f0-9]{32})\n$/.exec(String(chunk));
   if (match) setImmediate(() => {
+    globalThis.fixturePrepared = true;
     global.advanceClock(__ADVANCE__);
     setImmediate(() => process.stdin.emit('data', Buffer.from('__DECISION__ ' + match[1] + '\n')));
   });
   return result;
 };
 '''.replace("__ADVANCE__", str(advance_ms)).replace("__DECISION__", decision))
-        command = [str(NODE22), "--require", str(preload), str(SCRIPT), "send-prepared", str(message_path)]
-        with subprocess.Popen(command, env=dict(self.env, DOT_PREPARED="1"),
+        entry = SCRIPT
+        if copy_only:
+            entry = self.root / SCRIPT.name
+            shutil.copyfile(SCRIPT, entry)
+        command = [str(NODE22), "--require", str(preload), str(entry), "send-prepared", str(message_path)]
+        env = dict(
+            self.env, DOT_PREPARED="1",
+            DOT_TEST_MISMATCH_COMPOSER="1" if mismatched_composer else "",
+            DOT_TEST_HANG_LAUNCH="1" if hang_launch else "",
+            DOT_TEST_HANG_SEND_MS=str(send_advance_ms) if hang_after_commit else "",
+        )
+        if exact is not None:
+            exact = dict(exact)
+            email = exact.pop("expected_email", "fixture@example.invalid")
+            command.extend(("--exact-destination", hashlib.sha256(email.encode()).hexdigest()))
+            env.update(exact)
+        if reply is not None:
+            seat, target, parent, observations = reply
+            config = json.loads(self.config.read_text())
+            config["accounts"]["fixture"]["url"] = f"https://chatgpt.com/dots/{seat}"
+            self.config.write_text(json.dumps(config))
+            command.extend(("--exact-dot-reply", hashlib.sha256(b"fixture@example.invalid").hexdigest(),
+                            target, parent, seat))
+            env.update(DOT_TEST_RESOLVED_URL=target, DOT_TEST_REPLY_PARENT=parent)
+            env.update(observations)
+        with subprocess.Popen(command, env=env,
                               stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                               stderr=subprocess.PIPE, text=True) as child:
             try:
@@ -255,6 +461,150 @@ process.stdout.write = (chunk, ...args) => {
             proc = subprocess.CompletedProcess(command, child.returncode, stdout, stderr)
         state = json.loads(state_path.read_text()) if state_path.exists() else None
         return proc, state
+
+    def test_exact_prepared_send_rejects_redirect_and_busy_destination(self):
+        url = "https://chatgpt.com/c/00000000-0000-4000-8000-000000000001"
+        for flags, clicked in [
+            ({}, True), ({"DOT_TEST_RESOLVED_URL": "https://chatgpt.com/"}, False),
+            ({"DOT_TEST_BUSY": "1"}, False), ({"expected_email": "other@example.invalid"}, False),
+        ]:
+            with self.subTest(flags=flags):
+                result, state = self._run_clocked_prepared(exact={"DOT_URL": url, **flags})
+                self.assertEqual(state["clicked"], clicked)
+                self.assertEqual("prepared-exact " in result.stdout, clicked)
+                self.assertEqual("DOT_SENT_VERIFIED" in result.stdout, clicked)
+
+    def test_private_chat_receipt_rejects_destination_switch_after_click(self):
+        chat = "https://chatgpt.com/c/00000000-0000-4000-8000-000000000001"
+        other = "https://chatgpt.com/c/00000000-0000-4000-8000-000000000002"
+        result, state = self._run_clocked_prepared(exact={"DOT_URL": chat, "DOT_TEST_POST_SEND_URL": other})
+        self.assertTrue(state["clicked"])
+        self.assertEqual(state["userMessages"], ["Synthetic proof"])
+        self.assertNotIn("DOT_SENT_VERIFIED", result.stdout)
+        self.assertIn("DOT_SEND_UNVERIFIED", result.stdout)
+
+    def test_private_chat_abort_clears_identical_draft_only_at_bound_destination(self):
+        chat = "https://chatgpt.com/c/00000000-0000-4000-8000-000000000001"
+        other = "https://chatgpt.com/c/00000000-0000-4000-8000-000000000002"
+        for current, draft in ((chat, ""), (other, "Synthetic proof")):
+            with self.subTest(current=current):
+                result, state = self._run_clocked_prepared(
+                    decision="abort", exact={"DOT_URL": chat, "DOT_TEST_POST_PREPARED_URL": current},
+                )
+                self.assertFalse(state["clicked"])
+                self.assertIn("aborted ", result.stdout)
+                self.assertEqual(state["composer"], draft)
+                cleanup = "refused" if draft else "empty_in_context"
+                self.assertIn(f"DOT_DRAFT_CLEANUP {cleanup}", result.stderr)
+
+    def test_dot_reply_abort_waits_for_owned_draft_cleanup_before_close(self):
+        seat = "00000000-0000-4000-8000-000000000001"
+        target = "https://chatgpt.com/dots/00000000-0000-4000-8000-000000000002~" + "1" * 32
+        parent = "~".join(("2" * 32, "2" * 32, "CalpicoMessage", "Sentinel_" + "3" * 32))
+        cases = (("cleanup_persistence", "empty_in_context"), ("cleanup_scope_changed", "unverified"))
+        for behavior, diagnostic in cases:
+            with self.subTest(behavior=behavior):
+                result, state = self._run_clocked_prepared(
+                    decision="abort", reply=(seat, target, parent, {"DOT_TEST_CHANGE_AT": behavior}),
+                )
+                self.assertFalse(state["replyClicked"])
+                self.assertEqual(state["composer"], "")
+                if behavior == "cleanup_persistence":
+                    self.assertEqual(state["persistedComposer"], "")
+                self.assertRegex(result.stdout.splitlines()[-1], r"^aborted [0-9a-f]{32}$")
+                self.assertIn(f"DOT_DRAFT_CLEANUP {diagnostic}", result.stderr)
+
+    def test_private_chat_prepared_edits_stop_when_destination_changes(self):
+        url = "https://chatgpt.com/c/00000000-0000-4000-8000-000000000001"
+        cases = [
+            ("before_focus", "commit", 0, ""),
+            ("after_focus", "commit", 1, ""),
+            ("late_fill", "commit", 1, "Other draft"),
+            ("late_submit", "commit", 1, "Other draft"),
+            ("hidden_submit", "commit", 1, "Synthetic proof"),
+            ("cleanup_focus", "abort", 1, "Synthetic proof"),
+            ("cleanup_selection", "abort", 1, "Synthetic proof"),
+            ("commit_ready", "commit", 1, "Synthetic proof"),
+        ]
+        for phase, decision, focus_clicks, draft in cases:
+            with self.subTest(phase=phase):
+                result, state = self._run_clocked_prepared(
+                    decision=decision, exact={"DOT_URL": url, "DOT_TEST_CHANGE_AT": phase},
+                )
+                self.assertEqual(state["focusClicks"], focus_clicks)
+                self.assertFalse(state["clicked"])
+                self.assertEqual(state["composer"], draft)
+                self.assertNotIn("DOT_SENT_VERIFIED", result.stdout)
+                if phase in {"late_submit", "hidden_submit"}:
+                    self.assertIn("aborted ", result.stdout)
+
+    def test_private_chat_disconnect_after_click_remains_unverified(self):
+        url = "https://chatgpt.com/c/00000000-0000-4000-8000-000000000001"
+        result, state = self._run_clocked_prepared(exact={"DOT_URL": url, "DOT_TEST_CHANGE_AT": "submit_error"})
+        self.assertTrue(state["clicked"])
+        self.assertIn("DOT_SEND_UNVERIFIED", result.stdout)
+        self.assertNotIn("aborted ", result.stdout)
+
+    def test_legacy_prepared_send_supports_a_standalone_entrypoint(self):
+        result, state = self._run_clocked_prepared(copy_only=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(state["clicked"])
+        self.assertIn("DOT_SENT_VERIFIED", result.stdout)
+
+    def test_private_chat_receipt_cannot_use_an_intermediate_conversation(self):
+        url = "https://chatgpt.com/c/00000000-0000-4000-8000-000000000001"
+        result, state = self._run_clocked_prepared(exact={"DOT_URL": url, "DOT_TEST_CHANGE_AT": "receipt_transient"})
+        self.assertTrue(state["clicked"])
+        self.assertEqual(state["userMessages"], ["Synthetic proof"])
+        self.assertNotIn("DOT_SENT_VERIFIED", result.stdout)
+
+    def test_dot_reply_delivery_is_bound_to_the_parent_panel(self):
+        seat = "00000000-0000-4000-8000-000000000001"
+        target = "https://chatgpt.com/dots/00000000-0000-4000-8000-000000000002~" + "1" * 32
+        parent = "~".join(("2" * 32, "2" * 32, "CalpicoMessage", "Sentinel_" + "3" * 32))
+        cases = [
+            ({}, True, True, True),
+            ({"DOT_TEST_DOT_HOME": "1", "DOT_TEST_HISTORY": "grow"}, True, True, True),
+            ({"DOT_TEST_HISTORY": "hydrate"}, True, True, True),
+            ({"DOT_TEST_HISTORY": "deep"}, True, True, True),
+            ({"DOT_TEST_HISTORY": "quiet_then_grow"}, True, True, True),
+            ({"DOT_TEST_HISTORY": "growing_missing"}, False, False, False),
+            ({"DOT_TEST_HISTORY": "end"}, False, False, False),
+            ({"DOT_TEST_REPLY_CHANGED": "focus"}, True, False, False),
+            ({"DOT_TEST_REPLY_CHANGED": "commit"}, True, False, False),
+            ({"DOT_TEST_CHANGE_AT": "late_submit"}, True, False, False),
+            ({"DOT_TEST_CHANGE_AT": "hidden_submit"}, True, False, False),
+            ({"DOT_TEST_CHANGE_AT": "submit_error"}, True, True, False),
+            ({"DOT_TEST_CHANGE_AT": "late_fill"}, True, False, False),
+            ({"DOT_TEST_REPLY_CHANGED": "timeout"}, True, False, False),
+            ({"DOT_TEST_REPLY_CHANGED": "receipt"}, True, True, False),
+            ({"DOT_TEST_RESOLVED_URL": "https://chatgpt.com/"}, False, False, False),
+            ({"DOT_TEST_REPLY_PARENT": "absent-parent"}, False, False, False),
+        ]
+        for observations, opened, sent, verified in cases:
+            with self.subTest(observations=observations):
+                result, state = self._run_clocked_prepared(reply=(seat, target, parent, observations))
+                self.assertFalse(state["clicked"], "the feed composer must never submit")
+                self.assertEqual(state["replyOpened"], opened)
+                self.assertEqual(state["replyClicked"], sent)
+                if observations.get("DOT_TEST_CHANGE_AT") in {"late_submit", "hidden_submit"}:
+                    self.assertIn("aborted ", result.stdout)
+                if observations.get("DOT_TEST_CHANGE_AT") == "submit_error":
+                    self.assertIn("DOT_SEND_UNVERIFIED", result.stdout)
+                    self.assertNotIn("aborted ", result.stdout)
+                if observations.get("DOT_TEST_CHANGE_AT") in {"late_fill", "late_submit"}:
+                    self.assertEqual(state["composer"], "Other draft")
+                if observations.get("DOT_TEST_REPLY_CHANGED") == "focus":
+                    self.assertEqual(state["composer"], "")
+                    self.assertNotIn("prepared-exact ", result.stdout)
+                history = observations.get("DOT_TEST_HISTORY")
+                if history in {"deep", "quiet_then_grow", "growing_missing"}:
+                    self.assertEqual(state["scrolls"], 7)
+                elif history == "end":
+                    self.assertTrue(1 < state["scrolls"] <= 12, state["scrolls"])
+                elif history:
+                    self.assertEqual(state["scrolls"], 1)
+                self.assertEqual("DOT_SENT_VERIFIED" in result.stdout, verified)
 
     def test_prepared_callback_can_outlast_launch_deadline(self):
         proc, state = self._run_clocked_prepared()
@@ -814,13 +1164,57 @@ process.stdout.write = (chunk, ...args) => {
         )
         self.assertFalse(self.profile.exists())
 
+    def _fixture_xvfb_path(self):
+        xvfb = self.root / "xvfb-run"
+        xvfb.write_text('#!/bin/bash\n[[ "$1" == -a ]] || exit 1\nshift\nexport DISPLAY=:99\nexec 3>&-\nexec "$@" 2>&1\n')
+        xvfb.chmod(0o700)
+        return f"{self.root}:{self.env['PATH']}"
+
+    @unittest.skipUnless(os.uname().sysname == "Linux", "Linux keyring contract")
+    def test_dot_sh_prepared_streams_with_same_linux_keyring_environment(self):
+        msg = self.root / "fixture-message.txt"
+        msg.write_text("Hello dot")
+        node = self.root / "fixture-node"
+        node.write_text(
+            '#!/bin/bash\n'
+            'if [[ "${2:-}" == send-prepared ]]; then\n'
+            '  printf "%s|%s|%s\\n" "$XDG_RUNTIME_DIR" "$DBUS_SESSION_BUS_ADDRESS" "$DISPLAY" >&2\n'
+            '  printf "prepared-exact 00000000000000000000000000000000\\n"\n'
+            '  IFS= read -r decision && printf "%s\\n" "$decision"\n'
+            'else\n'
+            f'  exec {shlex.quote(str(NODE22))} "$@"\n'
+            'fi\n'
+        )
+        node.chmod(0o700)
+        path = self._fixture_xvfb_path()
+        for explicit in (False, True):
+            with self.subTest(explicit=explicit):
+                env = dict(self.env, DOT_NODE=str(node), PATH=path)
+                env.pop("XDG_RUNTIME_DIR", None)
+                env.pop("DBUS_SESSION_BUS_ADDRESS", None)
+                runtime = f"/run/user/{os.getuid()}"
+                bus = f"unix:path={runtime}/bus"
+                if explicit:
+                    runtime, bus = "/fixture/runtime", "unix:path=/fixture/custom-bus"
+                    env.update(XDG_RUNTIME_DIR=runtime, DBUS_SESSION_BUS_ADDRESS=bus)
+                with subprocess.Popen([str(DOT_SH), "send-prepared", str(msg)], env=env,
+                                      stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                      stderr=subprocess.PIPE, text=True) as child:
+                    with selectors.DefaultSelector() as output_ready:
+                        output_ready.register(child.stdout, selectors.EVENT_READ)
+                        self.assertTrue(output_ready.select(timeout=5), "prepared output was buffered")
+                        self.assertEqual(child.stdout.readline().strip(), "prepared-exact " + "0" * 32)
+                    stdout, stderr = child.communicate("commit fixture\n", timeout=5)
+                    self.assertEqual(child.returncode, 0, stderr)
+                    self.assertEqual(stdout.strip(), "commit fixture")
+                    self.assertEqual(stderr.strip(), f"{runtime}|{bus}|:99")
+
     def test_dot_sh_prepared_send_mode_blocks_when_lock_present(self):
         lock = self.profile / "SingletonLock"
         lock.symlink_to("unknown-host-12345")
         msg_file = self.root / "msg.txt"
         msg_file.write_text("Hello dot", encoding="utf-8")
-        env = dict(self.env)
-        env["DOT_PREPARED"] = "1"
+        env = dict(self.env, DOT_PREPARED="1", PATH=self._fixture_xvfb_path())
         proc = subprocess.run(
             [str(DOT_SH), "send-once", str(msg_file)],
             env=env,
@@ -829,13 +1223,14 @@ process.stdout.write = (chunk, ...args) => {
             timeout=30,
             check=False,
         )
-        self.assertEqual(proc.returncode, 10, proc.stderr)
+        self.assertEqual(proc.returncode, 10, proc.stdout + proc.stderr)
         self.assertEqual(
             json.loads(proc.stdout.removeprefix("DOT_PRECOMMIT_NO_SEND ")),
             {"schema_version": 1, "phase": "precommit", "reason": "profile_unavailable",
              "message_sha256": hashlib.sha256(b"Hello dot").hexdigest()},
         )
         self.assertTrue(lock.is_symlink())
+        self.assertFalse(self.launch_record.exists())
 
 
 if __name__ == "__main__":
