@@ -1,8 +1,8 @@
 # jleechan-skills
 
-Start with the [portable PR workflow spec](docs/pr-workflow/README.md). It defines what to prove before and after a change and what reviewers need to see. Use it as a checklist or build your own workflow around it.
+Give the [PR workflow spec](docs/specs/pr-workflow.md) to your AI and ask it to build a workflow for your repository. Then compare what it builds against the spec: does it require the right before-and-after proof and independent review?
 
-This repository’s [PR Workflow Manager](.claude/skills/pr-workflow-manager/SKILL.md) is one implementation, available through `/prw` or `/pr-workflow`.
+For comparison, see [my implementation](.claude/skills/pr-workflow-manager/SKILL.md), available through `/prw` or `/pr-workflow`.
 
 ## Executive Summary
 

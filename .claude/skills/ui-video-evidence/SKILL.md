@@ -13,17 +13,16 @@ Before producing or reviewing any video, apply the canonical [`evidence-standard
 
 ## When UI Video Is Required
 
-Use the [lifecycle proof rules](../pr-lifecycle/exceptions.md#proportional-exceptions-and-fast-paths). Static application UI changes, including a single visible label, require captioned before/after screenshots from the rendered builds. Verified non-rendered text with no runtime effect may record media as N/A. Captioned before/after video is required for UI behavior that depends on a sequence, including:
+Use the [lifecycle proof rules](../pr-lifecycle/exceptions.md#proportional-exceptions-and-fast-paths). Those rules select whether rendered proof is required. Use captioned before/after video for claims that depend on a sequence, including:
 - Layout or styling during a transition, animation, or scroll
 - Click flows, form submissions, navigation, or opening and closing a modal
 - Streaming, loading, and other claims about the order or timing of frames
 
-Missing video withholds a sequence claim. Missing screenshots withholds a static-only claim. Static screenshots do not waive explicitly requested video or applicable platform coverage.
+Missing video withholds a sequence claim. No static proof format waives explicitly requested video or applicable platform coverage.
 
 ## Required Outputs
 
-Use this checklist for video runs. Static-only claims use the canonical paired
-screenshots with provenance and independent visual review:
+Use this checklist for video runs. For static-only claims, use the [canonical evidence standard](../evidence-standards/SKILL.md#ui-changes-require-a-genuine-implementation-beforeafter-comparison):
 - UI video (`.mp4` preferred)
 - UI fallback media (`.gif` recommended when player embed is not required)
 - Captions (burned-in preferred; `.vtt`/`.srt` acceptable)
