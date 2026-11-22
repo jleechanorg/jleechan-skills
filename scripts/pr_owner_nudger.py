@@ -389,10 +389,13 @@ def dispatch(cwd, owner, local, pr, receipts, config, from_cache, read=None, *,
             reserved = True
         return True
 
-    prompt = (f"PR owner reminder for https://github.com/{repo}/pull/{number} at {sha}. "
-              "Recheck the live PR. Continue authorized /pr actions until you publish Stage 5 "
-              "at the current head or identify a concrete human-only blocker. Preserve existing "
-              "user constraints and leave any operator approval or merge to the operator.")
+    prompt = (f"/pr https://github.com/{repo}/pull/{number} (PR owner reminder at {sha}). "
+              "Recheck the live PR and keep its /ironclad contract current. Continue authorized "
+              "/pr actions until you publish Stage 5 at the current head or reach a blocker that "
+              "needs the operator's own authority (merge approval, force-push, credentials, new "
+              "spend, destructive actions). Fixtures, evidence capture and publication, evidence "
+              "routes and finding records are your work. Preserve existing user constraints and "
+              "leave any operator approval or merge to the operator.")
     if local[-1] != sha:
         prompt += (f" Your checkout is at {local[-1]}. Before any stage work, fetch the exact "
                    "enrolled branch and verify the remote head. Update only by fast-forward "
