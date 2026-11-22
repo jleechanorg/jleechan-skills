@@ -1,0 +1,58 @@
+{
+  "data": {
+    "search": {
+      "issueCount": 1,
+      "pageInfo": {
+        "hasNextPage": false,
+        "endCursor": "CURSOR_TRUNC_1"
+      },
+      "nodes": [
+        {
+          "__typename": "PullRequest",
+          "number": 107,
+          "url": "https://github.com/example-org/example-repo/pull/107",
+          "title": "[working][large timeline] Big change",
+          "createdAt": "2026-11-05T00:00:00Z",
+          "mergedAt": null,
+          "closedAt": null,
+          "isDraft": false,
+          "author": {
+            "login": "alice-dev",
+            "__typename": "User"
+          },
+          "labels": {
+            "nodes": []
+          },
+          "timelineItems": {
+            "pageInfo": {
+              "hasNextPage": true,
+              "endCursor": "TL_107"
+            },
+            "nodes": [
+              {
+                "__typename": "PullRequestCommit",
+                "commit": {
+                  "committedDate": "2026-10-31T00:00:00Z",
+                  "author": {
+                    "user": {
+                      "login": "alice-dev",
+                      "__typename": "User"
+                    }
+                  }
+                }
+              },
+              {
+                "__typename": "ReadyForReviewEvent",
+                "createdAt": "2026-11-01T00:00:00Z",
+                "actor": {
+                  "login": "alice-dev",
+                  "__typename": "User"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}
