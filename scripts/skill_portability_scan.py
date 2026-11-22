@@ -29,6 +29,19 @@ PERSONAL_PATTERNS = (
     ("private lan ip", re.compile(r"\b192\.168\.\d+\.\d+\b")),
     ("tailnet ip", re.compile(r"\b100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d+\.\d+\b")),
     ("named ssh key", re.compile(r"\.ssh/id_(?!(?:rsa|ed25519|ecdsa|dsa)\b)[A-Za-z0-9]+(?:_[A-Za-z0-9]+)*")),
+    # A phone number in a skill is somebody's real contact detail. NANP E.164 and its
+    # formatted forms, minus obvious non-phone numeric expressions: the lookbehind
+    # rejects arithmetic and path context (the Chrome-epoch `+11644473600` in
+    # dot/tests is a constant, not a phone), and the lookahead rejects longer digit runs.
+    # A skill document that shows a phone must show a placeholder, so both conventional
+    # placeholder forms are spared: area code 555 and the NANP fiction exchange 555
+    # (e.g. 415-555-1212). That keeps the guard on real digits.
+    ("phone number", re.compile(r"(?<![\w)\]/*+=.])\+1(?!555)[2-9]\d{2}(?!555)\d{7}(?!\d)")),
+    # The `\(?` inside the area-code lookahead matters: it runs BEFORE the optional open
+    # paren is consumed, so a bare `(?!555)` lets "(555) ..." slip through. The
+    # `(?<!\d )` lookbehind spares space-separated number lists like "100 101 999 9999".
+    ("phone number", re.compile(
+        r"(?<![\d.])(?<!\d )\(?(?!\(?555)\d{3}\)?[ .-](?!555)\d{3}[ .-]\d{4}(?!\d)")),
 )
 
 
