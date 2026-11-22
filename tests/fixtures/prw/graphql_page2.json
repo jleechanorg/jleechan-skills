@@ -1,0 +1,221 @@
+{
+  "data": {
+    "search": {
+      "issueCount": 5,
+      "pageInfo": {
+        "hasNextPage": false,
+        "endCursor": "CURSOR_PAGE_2"
+      },
+      "nodes": [
+        {
+          "__typename": "PullRequest",
+          "number": 102,
+          "url": "https://github.com/example-org/example-repo/pull/102",
+          "title": "[ready][await merge] Fix retry",
+          "createdAt": "2026-10-20T00:00:00Z",
+          "mergedAt": "2026-11-03T12:00:00Z",
+          "closedAt": "2026-11-03T12:00:00Z",
+          "isDraft": false,
+          "author": {
+            "login": "alice-dev",
+            "__typename": "User"
+          },
+          "labels": {
+            "nodes": []
+          },
+          "timelineItems": {
+            "pageInfo": {
+              "hasNextPage": false,
+              "endCursor": null
+            },
+            "nodes": [
+              {
+                "__typename": "PullRequestCommit",
+                "commit": {
+                  "committedDate": "2026-10-20T00:30:00Z",
+                  "author": {
+                    "user": {
+                      "login": "alice-dev",
+                      "__typename": "User"
+                    }
+                  }
+                }
+              },
+              {
+                "__typename": "ReviewRequestedEvent",
+                "createdAt": "2026-11-01T10:00:00Z",
+                "actor": {
+                  "login": "alice-dev",
+                  "__typename": "User"
+                },
+                "requestedReviewer": {
+                  "__typename": "User",
+                  "login": "reviewer-two"
+                }
+              },
+              {
+                "__typename": "ReviewRequestedEvent",
+                "createdAt": "2026-11-02T10:00:00Z",
+                "actor": {
+                  "login": "alice-dev",
+                  "__typename": "User"
+                },
+                "requestedReviewer": {
+                  "__typename": "User",
+                  "login": "reviewer-two"
+                }
+              },
+              {
+                "__typename": "PullRequestReview",
+                "submittedAt": "2026-11-02T16:00:00Z",
+                "author": {
+                  "login": "reviewer-two",
+                  "__typename": "User"
+                },
+                "state": "APPROVED"
+              },
+              {
+                "__typename": "IssueComment",
+                "createdAt": "2026-11-03T12:00:00Z",
+                "author": {
+                  "login": "alice-dev",
+                  "__typename": "User"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "__typename": "PullRequest",
+          "number": 101,
+          "url": "https://github.com/example-org/example-repo/pull/101",
+          "title": "[ready][await merge] Add parser",
+          "createdAt": "2026-10-29T09:00:00Z",
+          "mergedAt": "2026-11-01T09:00:00Z",
+          "closedAt": "2026-11-01T09:00:00Z",
+          "isDraft": false,
+          "author": {
+            "login": "alice-dev",
+            "__typename": "User"
+          },
+          "labels": {
+            "nodes": []
+          },
+          "timelineItems": {
+            "pageInfo": {
+              "hasNextPage": false,
+              "endCursor": null
+            },
+            "nodes": [
+              {
+                "__typename": "LabeledEvent",
+                "createdAt": "2026-10-29T09:30:00Z",
+                "actor": {
+                  "login": "alice-dev",
+                  "__typename": "User"
+                },
+                "label": {
+                  "name": "stage:1-code"
+                }
+              },
+              {
+                "__typename": "PullRequestCommit",
+                "commit": {
+                  "committedDate": "2026-10-29T10:00:00Z",
+                  "author": {
+                    "user": {
+                      "login": "alice-dev",
+                      "__typename": "User"
+                    }
+                  }
+                }
+              },
+              {
+                "__typename": "ReadyForReviewEvent",
+                "createdAt": "2026-10-31T09:00:00Z",
+                "actor": {
+                  "login": "alice-dev",
+                  "__typename": "User"
+                }
+              },
+              {
+                "__typename": "UnlabeledEvent",
+                "createdAt": "2026-10-31T09:00:00Z",
+                "actor": {
+                  "login": "alice-dev",
+                  "__typename": "User"
+                },
+                "label": {
+                  "name": "stage:1-code"
+                }
+              },
+              {
+                "__typename": "LabeledEvent",
+                "createdAt": "2026-10-31T09:00:00Z",
+                "actor": {
+                  "login": "alice-dev",
+                  "__typename": "User"
+                },
+                "label": {
+                  "name": "stage:3-review"
+                }
+              },
+              {
+                "__typename": "ReviewRequestedEvent",
+                "createdAt": "2026-10-31T10:00:00Z",
+                "actor": {
+                  "login": "alice-dev",
+                  "__typename": "User"
+                },
+                "requestedReviewer": {
+                  "__typename": "User",
+                  "login": "reviewer-one"
+                }
+              },
+              {
+                "__typename": "PullRequestCommit",
+                "commit": {
+                  "committedDate": "2026-10-31T11:00:00Z",
+                  "author": {
+                    "user": {
+                      "login": "alice-dev",
+                      "__typename": "User"
+                    }
+                  }
+                }
+              },
+              {
+                "__typename": "PullRequestReview",
+                "submittedAt": "2026-10-31T12:30:00Z",
+                "author": {
+                  "login": "reviewer-one",
+                  "__typename": "User"
+                },
+                "state": "COMMENTED"
+              },
+              {
+                "__typename": "IssueComment",
+                "createdAt": "2026-11-01T08:00:00Z",
+                "author": {
+                  "login": "alice-dev",
+                  "__typename": "User"
+                }
+              },
+              {
+                "__typename": "UnlabeledEvent",
+                "createdAt": "2026-11-01T09:00:00Z",
+                "actor": {
+                  "login": "alice-dev",
+                  "__typename": "User"
+                },
+                "label": {
+                  "name": "stage:3-review"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

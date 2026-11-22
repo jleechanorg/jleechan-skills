@@ -1,0 +1,257 @@
+{
+  "data": {
+    "search": {
+      "issueCount": 5,
+      "pageInfo": {
+        "hasNextPage": true,
+        "endCursor": "CURSOR_PAGE_1"
+      },
+      "nodes": [
+        {
+          "__typename": "PullRequest",
+          "number": 105,
+          "url": "https://github.com/example-org/example-repo/pull/105",
+          "title": "[waiting][review requested] Add cache layer",
+          "createdAt": "2026-11-10T00:00:00Z",
+          "mergedAt": null,
+          "closedAt": null,
+          "isDraft": false,
+          "author": {
+            "login": "alice-dev",
+            "__typename": "User"
+          },
+          "labels": {
+            "nodes": [
+              {
+                "name": "stage:3-review"
+              }
+            ]
+          },
+          "timelineItems": {
+            "pageInfo": {
+              "hasNextPage": false,
+              "endCursor": null
+            },
+            "nodes": [
+              {
+                "__typename": "PullRequestCommit",
+                "commit": {
+                  "committedDate": "2026-11-10T00:30:00Z",
+                  "author": {
+                    "user": {
+                      "login": "alice-dev",
+                      "__typename": "User"
+                    }
+                  }
+                }
+              },
+              {
+                "__typename": "LabeledEvent",
+                "createdAt": "2026-11-11T09:00:00Z",
+                "actor": {
+                  "login": "alice-dev",
+                  "__typename": "User"
+                },
+                "label": {
+                  "name": "stage:3-review"
+                }
+              },
+              {
+                "__typename": "ReviewRequestedEvent",
+                "createdAt": "2026-11-11T09:00:00Z",
+                "actor": {
+                  "login": "alice-dev",
+                  "__typename": "User"
+                },
+                "requestedReviewer": {
+                  "__typename": "User",
+                  "login": "reviewer-one"
+                }
+              },
+              {
+                "__typename": "ReviewRequestedEvent",
+                "createdAt": "2026-11-12T09:00:00Z",
+                "actor": {
+                  "login": "alice-dev",
+                  "__typename": "User"
+                },
+                "requestedReviewer": {
+                  "__typename": "User",
+                  "login": "reviewer-two"
+                }
+              },
+              {
+                "__typename": "IssueComment",
+                "createdAt": "2026-11-12T10:00:00Z",
+                "author": {
+                  "login": "review-bot",
+                  "__typename": "Bot"
+                }
+              },
+              {
+                "__typename": "IssueComment",
+                "createdAt": "2026-11-14T01:00:00Z",
+                "author": {
+                  "login": "alice-dev",
+                  "__typename": "User"
+                }
+              },
+              {
+                "__typename": "PullRequestReview",
+                "submittedAt": "2026-11-14T02:00:00Z",
+                "author": {
+                  "login": "reviewer-one",
+                  "__typename": "User"
+                },
+                "state": "APPROVED"
+              }
+            ]
+          }
+        },
+        {
+          "__typename": "PullRequest",
+          "number": 104,
+          "url": "https://github.com/example-org/example-repo/pull/104",
+          "title": "[ready][await merge] Add logging",
+          "createdAt": "2026-11-08T06:00:00Z",
+          "mergedAt": "2026-11-10T18:00:00Z",
+          "closedAt": "2026-11-10T18:00:00Z",
+          "isDraft": false,
+          "author": {
+            "login": "ci-agent",
+            "__typename": "Bot"
+          },
+          "labels": {
+            "nodes": []
+          },
+          "timelineItems": {
+            "pageInfo": {
+              "hasNextPage": false,
+              "endCursor": null
+            },
+            "nodes": [
+              {
+                "__typename": "PullRequestCommit",
+                "commit": {
+                  "committedDate": "2026-11-08T06:30:00Z",
+                  "author": {
+                    "user": {
+                      "login": "ci-agent",
+                      "__typename": "Bot"
+                    }
+                  }
+                }
+              },
+              {
+                "__typename": "ReviewRequestedEvent",
+                "createdAt": "2026-11-08T12:00:00Z",
+                "actor": {
+                  "login": "ci-agent",
+                  "__typename": "Bot"
+                },
+                "requestedReviewer": {
+                  "__typename": "User",
+                  "login": "reviewer-one"
+                }
+              },
+              {
+                "__typename": "PullRequestReview",
+                "submittedAt": "2026-11-08T13:00:00Z",
+                "author": {
+                  "login": "reviewer-one",
+                  "__typename": "User"
+                },
+                "state": "APPROVED"
+              },
+              {
+                "__typename": "IssueComment",
+                "createdAt": "2026-11-10T17:00:00Z",
+                "author": {
+                  "login": "alice-dev",
+                  "__typename": "User"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "__typename": "PullRequest",
+          "number": 103,
+          "url": "https://github.com/example-org/example-repo/pull/103",
+          "title": "[ready][await merge] Update docs",
+          "createdAt": "2026-10-31T00:00:00Z",
+          "mergedAt": "2026-11-07T00:00:00Z",
+          "closedAt": "2026-11-07T00:00:00Z",
+          "isDraft": false,
+          "author": {
+            "login": "alice-dev",
+            "__typename": "User"
+          },
+          "labels": {
+            "nodes": [
+              {
+                "name": "stage:4-ci"
+              }
+            ]
+          },
+          "timelineItems": {
+            "pageInfo": {
+              "hasNextPage": false,
+              "endCursor": null
+            },
+            "nodes": [
+              {
+                "__typename": "PullRequestCommit",
+                "commit": {
+                  "committedDate": "2026-10-31T00:00:00Z",
+                  "author": {
+                    "user": {
+                      "login": "alice-dev",
+                      "__typename": "User"
+                    }
+                  }
+                }
+              },
+              {
+                "__typename": "ReadyForReviewEvent",
+                "createdAt": "2026-11-01T00:00:00Z",
+                "actor": {
+                  "login": "alice-dev",
+                  "__typename": "User"
+                }
+              },
+              {
+                "__typename": "PullRequestReview",
+                "submittedAt": "2026-11-01T03:00:00Z",
+                "author": {
+                  "login": "review-bot",
+                  "__typename": "Bot"
+                },
+                "state": "COMMENTED"
+              },
+              {
+                "__typename": "LabeledEvent",
+                "createdAt": "2026-11-05T00:00:00Z",
+                "actor": {
+                  "login": "alice-dev",
+                  "__typename": "User"
+                },
+                "label": {
+                  "name": "stage:4-ci"
+                }
+              },
+              {
+                "__typename": "IssueComment",
+                "createdAt": "2026-11-06T12:00:00Z",
+                "author": {
+                  "login": "review-bot",
+                  "__typename": "Bot"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}
