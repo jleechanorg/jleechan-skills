@@ -781,7 +781,7 @@ def _render_usage(usage, cutoff):
              sum(v["tokens"][k] for k in ("input", "cache_read", "cache_write"))]
             for repo, v in usage["per_repo"].items()]
     if rows:
-        out += _table(["Repository", "Sessions", "Active time", "Output tokens",
+        out += _table(["Repository", "Sessions", "Agent time (summed)", "Output tokens",
                        "Input tokens (incl. cache)"], rows)
     else:
         out.append("No sessions in the window.")
@@ -795,7 +795,7 @@ def _render_usage(usage, cutoff):
             % (un["sessions"], format_duration(un["active_sec"]), un["output"]),
             "Feed problems: %s." % ("; ".join(_cell(p) for p in usage["problems"]) or "none"),
             "",
-            "Active time is the sum of gaps between logged events up to the idle gap; tokens are from"
+            "Active time is summed per session (gaps between logged events up to the idle gap), so parallel agent sessions add up and the total can exceed wall-clock time; tokens are from"
             " local session logs on contributing machines only; machines without a feed are not counted."]
     return out
 
