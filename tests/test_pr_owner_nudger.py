@@ -735,6 +735,66 @@ class DispatcherTest(unittest.TestCase):
             self.assertEqual(calls, [self.owner["session"]] * 2)
 
 
+    def _deferred_owner_calls(self, retry_at):
+        self.config["targets"] = [{"repo": "base/project", "number": 12}]
+        self.owner.update(session="f7392448-103a-46a7-a05e-41e75837c65b",
+                          headless_only=True, profile_dir=str(self.root))
+        transcript = self.root / "sessions/2026/11/20" / f"rollout-{self.owner['session']}.jsonl"
+        transcript.parent.mkdir(parents=True)
+        transcript.write_text(json.dumps({"type": "session_meta", "payload": {
+            "id": self.owner["session"], "cwd": str(self.cwd), "git": {"branch": "feature"},
+        }}) + "\n")
+        calls = []
+
+        def deliver(owner, _prompt, _apply):
+            calls.append(owner["session"])
+            return "blocked_launch_capacity"
+
+        with patch.object(nudger, "github", return_value=self.pr), \
+                patch.object(nudger.time, "time", return_value=1000) as clock, \
+                patch.object(nudger, "route", side_effect=deliver):
+            row = self.target_tick()[0]
+            self.assertEqual((row["status"], row["next_due"]), ("blocked_launch_capacity", 1600))
+            clock.return_value = retry_at
+            row = self.target_tick()[0]
+            return len(calls), row
+
+    def test_retry_due_within_slack_fires_on_next_tick(self):
+        # A ten-minute tick that starts 1.5 s before a ten-minute retry must not skip it.
+        calls, _ = self._deferred_owner_calls(1598.5)
+        self.assertEqual(calls, 2)
+
+    def test_retry_at_slack_edge_fires(self):
+        calls, _ = self._deferred_owner_calls(1600 - nudger.DUE_SLACK_SECONDS)
+        self.assertEqual(calls, 2)
+
+    def test_retry_outside_slack_still_waits(self):
+        calls, row = self._deferred_owner_calls(1500)
+        self.assertEqual((calls, row["status"], row["next_due"]), (1, "blocked_launch_capacity", 1600))
+
+    def test_due_retry_below_capacity_floor_still_defers(self):
+        self.config["owners"] = []
+        self.config["targets"] = [{"repo": "base/project", "number": 12, "enrollment": {
+            "cwd": str(self.cwd), "head_repo": "fork/project", "branch": "feature",
+            "host": "test-host", "cli": "codex", "launch_authorized": True,
+            "managed_exclusive": True, "cli_bin": "/fixture/codex",
+            "profile_dir": str(self.root), "model": "fixture-model",
+        }}]
+        with patch.object(nudger, "github", return_value=self.pr), \
+                patch.object(nudger.socket, "gethostname", return_value="test-host"), \
+                patch.object(nudger.time, "time", return_value=5000) as clock, \
+                patch.object(nudger, "launch_capacity", return_value=False), \
+                patch.object(nudger.pr_nudger_routes, "start_codex_bootstrap") as launch:
+            row = self.target_tick()[0]
+            self.assertEqual((row["status"], row["attempts"], row["next_due"]),
+                             ("blocked_launch_capacity", 1, 5600))
+            clock.return_value = 5598.5
+            row = self.target_tick()[0]
+            self.assertEqual((row["status"], row["attempts"], row["next_due"]),
+                             ("blocked_launch_capacity", 2, 5598.5 + 1200))
+            launch.assert_not_called()
+
+
     def test_stale_config_does_not_replace_verified_live_binding(self):
         self.config["targets"] = [{"repo": "base/project", "number": 12}]
         live = dict(self.owner, session="4d5fa869-381a-440a-bceb-caa0c31876d7",

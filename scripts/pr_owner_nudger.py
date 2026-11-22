@@ -20,7 +20,7 @@ from uuid import UUID
 
 from pr_nudger_discovery import discover_owners
 import pr_nudger_routes
-from pr_nudger_intake import Intake, RateLimited, launch_capacity, remember_binding
+from pr_nudger_intake import DUE_SLACK_SECONDS, Intake, RateLimited, launch_capacity, remember_binding  # noqa: F401
 from pr_nudger_routes import route
 
 REPO = r"[a-zA-Z0-9-]+/[a-zA-Z0-9_.-]+"
@@ -663,7 +663,7 @@ def dispatch_target(key, target, pr, matches, store, config, read, *, wake_reaso
         if not from_cache and not remember_configured(db, expected, cwd, owner):
             return note(key, "ambiguous_owner", "verify_owner")
     authorized_enrollment = None
-    if row["next_due"] > store.now and not (wake_reason and candidates):
+    if not store.is_due(row) and not (wake_reason and candidates):
         if not candidates and row["reason"] in {"missing_owner", "missing_launch_authority"}:
             managed, _ = bootstrap_enrollment(target, expected)
             if managed and any(str(cwd) == managed["cwd"] for cwd, _, _ in matches):

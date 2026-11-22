@@ -11,6 +11,8 @@ import time
 from pathlib import Path
 from uuid import uuid4
 
+DUE_SLACK_SECONDS = 60
+
 
 class RateLimited(OSError):
     """The current GitHub request bucket is exhausted until reset."""
@@ -87,11 +89,16 @@ class Intake:
                         (*key, head, status, time.time()))
         return status == "reported_success" and prior in ((head, "pending"), (head, "failing"))
 
+    def is_due(self, row):
+        # Ticks share the first retry's ten-minute period; slack keeps a slightly early tick from skipping it.
+        return row["next_due"] <= self.now + DUE_SLACK_SECONDS
+
     def schedule(self, key, reason, action, *, progress=False, earliest=0):
         row = self.row(key)
         if progress:
             attempts, due = 0, earliest
-        elif row["next_due"] > self.now:
+        elif not self.is_due(row) or (row["next_due"] > self.now and earliest >= row["next_due"]):
+            # Inside the slack window, a still-pending external reset (a GitHub rate limit) is a wait, not a new attempt.
             attempts, due = row["attempts"], max(row["next_due"], earliest)
         else:
             attempts = row["attempts"] + 1
