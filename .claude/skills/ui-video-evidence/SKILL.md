@@ -13,18 +13,16 @@ Before producing or reviewing any video, apply the canonical [`evidence-standard
 
 ## When UI Video Is Required
 
-Apply the narrow proportional exceptions in [pr-lifecycle](../pr-lifecycle/SKILL.md) first. Source-only harmless display-copy may justify media N/A; a bounded static-copy rendering claim may use an actual screenshot. Other UI/browser video is mandatory for user-facing behavior, including:
-- Visual/UI layout or styling changes
-- Click flows, form submit flows, navigation, or modal behavior
-- New/changed browser interactions
-- Any claim of visual correctness or lack of visual regression
+Use the [lifecycle proof rules](../pr-lifecycle/exceptions.md#proportional-exceptions-and-fast-paths). Those rules select whether rendered proof is required. Use captioned before/after video for claims that depend on a sequence, including:
+- Layout or styling during a transition, animation, or scroll
+- Click flows, form submissions, navigation, or opening and closing a modal
+- Streaming, loading, and other claims about the order or timing of frames
 
-Outside those explicit exceptions, missing applicable UI video is an evidence failure. Never waive requested interaction, streaming or native proof by calling it a string change.
+Missing video withholds a sequence claim. No static proof format waives explicitly requested video or applicable platform coverage.
 
 ## Required Outputs
 
-Each video run must provide the following; the simple-static screenshot exception
-retains the canonical paired-capture, provenance, and visual-review requirements:
+Use this checklist for video runs. For static-only claims, use the [canonical evidence standard](../evidence-standards/SKILL.md#ui-changes-require-a-genuine-implementation-beforeafter-comparison):
 - UI video (`.mp4` preferred)
 - UI fallback media (`.gif` recommended when player embed is not required)
 - Captions (burned-in preferred; `.vtt`/`.srt` acceptable)
@@ -47,16 +45,17 @@ documented as blocked.
 
 ## Mandatory Frames
 
-Capture this journey on each compared implementation. The pre-action frame below
-is not by itself the pre-change-code baseline; preserve both revisions and their
-original capture provenance under the canonical BEFORE/AFTER rule.
+Capture both implementations under the [canonical BEFORE/AFTER rule](../evidence-standards/SKILL.md#ui-changes-require-a-genuine-implementation-beforeafter-comparison). The
+pre-action frame is not by itself a pre-change-code baseline. Apply the action
+rows only on revisions where the action exists; otherwise show the actual prior
+experience or the action's absence in the matching state.
 
 | # | Frame | Must show |
 |---|-------|-----------|
 | 1 | URL + Page Load | Full native browser URL bar with route under test, OR — when the scoped owner mandates headless capture — a genuine route/URL provenance marker (printed navigation URL/log line, on-page route text, or window title) captured from the same automated session and tied to the frame timestamp |
-| 2 | Pre-action State | Initial state before action on this revision |
-| 3 | Action | Click/input/navigation action |
-| 4 | Post-action State | Resulting state after action on this revision |
+| 2 | Pre-action State | Initial state before an available action |
+| 3 | Action | Click/input/navigation action, where available |
+| 4 | Post-action State | Result of an available action |
 | 5 | Git Linkage | Terminal split, devtools log, or on-page SHA marker |
 
 ## Recording Options
@@ -466,15 +465,14 @@ Rules:
 1. Video is linked from the review receipt at an authorized, reviewer-accessible destination
 2. Any publication follows the authorized destination and applicable automation workflow
 3. Captions are present
-4. When a user action exists, the pre-action/action/post-action flow is visible on both compared implementations; otherwise the applicable before→after transition is visible
+4. Each clip meets the [action-window rule](#action-must-be-in-the-window-mandatory), including proof of absence where applicable
 5. URL and route match claim
 6. Actual baseline and candidate source linkage is verified, not inferred from captions
 7. The reviewed evidence receipt includes matching metadata/caption artifacts
 8. mpdecimate retained-frame count reported as kept/nominal (see Frozen-frame detection); a low count triggers provenance/timeline review, while a constructed slideshow always fails under the canonical rule
-9. When a user action exists, each clip contains the action itself plus the before state; otherwise each clip contains the applicable before→after transition
-10. Before/after provenance is fresh runs of each build, or labeled `derived` with source
-11. `/er` and second-opinion (`advice` skill) verdicts come from a different agent/lane than the evidence producer, and name that lane
-12. An independent AI reviewer (not the author or orchestrator) judged frames extracted from the
+9. Before/after provenance is fresh runs of each build, or labeled `derived` with source
+10. `/er` and second-opinion (`advice` skill) verdicts come from a different agent/lane than the evidence producer, and name that lane
+11. An independent AI reviewer (not the author or orchestrator) judged frames extracted from the
     published video against each acceptance step, with PASS/FAIL and timestamps;
     privacy, playback, and upload checks are separate and do not substitute
     (`evidence-review` check 4)
@@ -505,15 +503,14 @@ caption, or successful decode.
 
 ## Action must be in the window (MANDATORY)
 
-When a user action exists, each clip must include the user action under test
-(for example the Send tap) and the before state that precedes it. A capture
-window anchored only to completion (e.g. trimmed to the DONE state) that omits
-the action fails.
+On each revision where the action exists, show the starting state, the actual
+action, and the result continuously. A result-only clip fails. If the action
+does not exist on one revision, show the actual prior experience or its absence
+in the matching state on that side. Do not substitute a no-op for the action.
 
-When the change's observable has no user action (first paint, an error state
-rendered on load, a theme token applied at mount), record this rule as N/A with
-the reason and instead provide a state-transition clip showing the before-state
-frame and the after-state frame.
+When there is no in-app action, mark it N/A and record the observable transition
+through its result. For load or mount claims, start recording before navigation
+or the triggering event, and keep the ordinary loading sequence in the clip.
 
 ## Provenance of before/after clips (MANDATORY)
 
@@ -530,21 +527,27 @@ gate.
 
 ## First-frame verification (MANDATORY)
 
-Moved here from `~/.claude/CLAUDE.md` on 2026-07-25. Applies to AGY CLI and any browser-capture pipeline.
-
-1. **Wait for page readiness before capture.** Replace fixed-delay sleeps with `page.wait_for_load_state("networkidle")` AND `page.wait_for_selector(<expected-ui-element>, state="visible")`. A blank/white first frame is invalid evidence — it means the page had not rendered.
-2. **Verify the first frame visually before pushing.** Extract frame 1 from the MP4 and confirm it shows the expected starting state (dashboard, modal opener, etc.), not a loading screen:
+1. **Match the start to the claim.** For a journey starting on a ready page,
+   use the expected visible UI state, not a fixed sleep, as the recording
+   boundary. For load or mount claims, readiness is a check during recording,
+   not a prerequisite to start.
+2. **Verify the first frame visually before pushing.** Extract frame 1 and
+   confirm the expected starting boundary. A genuine blank or loading frame
+   before the page appears is valid for a load claim only if the trigger,
+   relevant frames, and resulting state are visible in the same continuous clip:
 
    ```bash
    ffmpeg -i video.mp4 -vf "select=eq(n\,0)" -vframes 1 frame1.png
    ```
 
-3. **Reject evidence with a white/blank first frame.** Re-capture with stronger wait conditions. Do not publish a blank capture and label it as evidence.
-4. **Evidence Gate caveat:** the `evidence-gate` CI check validates `metadata.json` freshness, NOT visual content. Visual verification is the responsibility of the agent presenting the evidence — a green evidence-gate says nothing about whether the video shows anything.
+3. **Evidence Gate caveat:** the `evidence-gate` CI check validates `metadata.json` freshness, NOT visual content. Visual verification is the responsibility of the agent presenting the evidence — a green evidence-gate says nothing about whether the video shows anything.
 
-### Capture script standard *(your-project.com-specific)*
+### Project capture helpers
 
-Every `testing_ui/capture_*.py` script must use the shared `browser_test_helpers.py` helpers — `wait_for_page_ready()` and `verify_first_frame_not_blank()`. New scripts that re-implement waits inline are a regression.
+Use the project's shared capture helpers for ready-page recordings where
+available. For a load or mount claim, use readiness helpers after starting the
+recorder and verify the starting boundary visually; do not apply a blanket
+nonblank-first-frame check.
 
 ## Slack Distribution — Native Attachments Only
 

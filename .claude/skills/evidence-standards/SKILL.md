@@ -46,7 +46,7 @@ metadata. Source hashes alone do not prove execution.
 
 Evidence must **prove what you claim**. The strongest evidence is a raw request/response capture from the real production code path; a unit test in isolation proves only its bounded deterministic claim, not a live boundary. Match proof to the claim, label every claim with its evidence layer, and never substitute a green test suite for proof of integration correctness. This file is the policy; the companion files (see § Cross-references) cover structure and recording.
 
-- **Diff-Derived Claim Coverage (Including Platform-Divergent Paths):** Evidence must cover every user-visible behavior the diff adds or changes, not only the PR's stated claims; build the claim list from the diff itself (see `evidence-coverage`). On the pr-lifecycle one-liner fast path (literal-text-only change), that behavior is the literal text, and the PR-body before/after quote (plus its pinning assertion where a test already covers the text) is the evidence. Code that runs on only one platform (`Platform.OS` branches, `*.web.*`/`*.native.*` files, `window`/`document`/`history` listeners, native-only modules) must be listed path by path, with its user-visible behavior proved on the platform where it executes.
+- **Diff-Derived Claim Coverage (Including Platform-Divergent Paths):** Evidence must cover every user-visible behavior the diff adds or changes, not only the PR's stated claims; build the claim list from the diff itself (see `evidence-coverage`). For visible copy, show the label or its absence in the matching rendered state on each revision. Source quotes alone apply only to verified non-rendered changes with no runtime impact. Code that runs on only one platform (`Platform.OS` branches, `*.web.*`/`*.native.*` files, `window`/`document`/`history` listeners, native-only modules) must be listed path by path, with its user-visible behavior proved on the platform where it executes.
 
 **After any evidence-gathering pass, you MUST reconfirm** what the evidence proves and what it does NOT prove, in your response to the user as well as in the bundle's "What This Evidence Does NOT Prove" section. That section lists untested scope only: observed behavior that the user's acceptance or the UI's own disclosure forbids is a FAIL, never a limit or follow-up (`evidence-review` check 9).
 
@@ -97,13 +97,37 @@ For claims about integrated or live production behavior:
 
 Real beats fast: a 30-second test against the real local server beats a 200-test mock suite for proving "the server behaves like X."
 
+### Backend comparison by claim
+
+For a changed backend boundary, exercise the real entry point, middleware,
+handler and every dependency needed by the claim on both revisions. Use the same
+request and equivalent starting state. Retain the raw method/path, relevant
+headers and request body, response status and body, and separate readback of any
+claimed write, event or other effect. Keep originals in authorized storage. Share only authorized, traceable
+sanitized evidence; never expose credentials or sensitive payloads.
+
+- **Deployed behavior:** observe the relevant revision, route and configuration
+  in the claimed environment. Do not mutate real user data for proof.
+- **Existing-record compatibility:** use an authorized observation or an approved
+  faithful copy in isolation. Verify the record's origin and preserve the structure
+  that triggers the case. Copy-based proof does not establish deployed behavior.
+- **Service behavior with controlled data:** an isolated running stack and a real
+  store with seeded test records can prove that boundary without touching
+  production data. State the actual target and dependencies; an emulator proves
+  the emulator path, not the hosted service.
+- **Handling a captured response:** when the external system is not under test,
+  replay the same real fixture across both application revisions using
+  [end2end-testing](../end2end-testing/SKILL.md#qualify-the-incidents-behavior-boundary).
+  Do not claim live provider behavior, auth, persistence or timing for an external
+  boundary replaced by replay.
+
 ### Strict UI Evidence Invariant: Mocks Forbidden — Real Server UI Required
 
 Synthetic mock JSON, DOM fixture injection, or calling frontend rendering functions with hand-crafted JSON in the browser console is **strictly forbidden for UI evidence**. Only UI driven by a **real running server** (local development server or live deployed preview) rendering real backend responses is valid Layer 2 UI evidence. Unit and mocked-fixture captures are supporting evidence only and do NOT prove UI integration correctness.
 
 ### UI changes require a genuine implementation BEFORE/AFTER comparison
 
-Every UI change, except a diff on the pr-lifecycle one-liner fast path (literal-text-only), requires paired screenshots or video of the **pre-change implementation (BEFORE)** and **candidate implementation (AFTER)**. Prefer captioned video; video is required for interaction, navigation, streaming, animation, timing or multi-step claims. Paired screenshots suffice only for a simple static visual change whose claim does not depend on motion or sequence; state why that exception fits. Keep required desktop/mobile coverage.
+Compare the rendered **pre-change implementation (BEFORE)** and **candidate implementation (AFTER)** for every user-visible change. Apply the [lifecycle proof rules](../pr-lifecycle/exceptions.md#proportional-exceptions-and-fast-paths): matched captioned screenshots or readable settled frames in captioned video for static claims; continuous captioned video for sequence claims. Keep required desktop/mobile coverage.
 
 - Use comparable route, scenario, account/role, starting data/state, viewport and theme on both revisions; disclose unavoidable differences. For a new feature, BEFORE shows its actual prior absence or previous experience.
 - Bind each capture to the actual served app/build SHA and capture-driver revision (plus any dirty diff/hash), exact launch/capture commands, original UTC capture time, environment, and raw artifact paths/hashes. A checkout SHA alone does not establish which code the browser received.

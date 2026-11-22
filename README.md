@@ -1,3 +1,9 @@
+# jleechan-skills
+
+Give the [PR workflow spec](docs/specs/pr-workflow.md) to your AI and ask it to build a workflow for your repository. Then compare what it builds against the spec: does it require the right before-and-after proof and independent review?
+
+For comparison, see [my implementation](.claude/skills/pr-workflow-manager/SKILL.md), available through `/prw` or `/pr-workflow`.
+
 ## Executive Summary
 
 Six highlighted skills form a portable quality loop around implementation.
@@ -27,11 +33,10 @@ installs only with `--profile web` or `--with web-advice`.
 
 Strategy source: [“Shift left, shift right — a portable skill system”](https://docs.google.com/presentation/d/1rGk2ZUIlJw3AkVJmJbdVB5OqAixR6M_xp7lc6lP2awA/edit?slide=id.gogSlide1787597443235634000#slide=id.gogSlide1787597443235634000).
 
-### PR workflow entry point
+### Using the bundled PR workflow
 
-Start with [PR Workflow Manager](.claude/skills/pr-workflow-manager/SKILL.md)
-when opening or driving a PR. It discovers repository-specific instructions,
-verifies source ownership and the branch, and uses
+The manager discovers repository-specific instructions, verifies source
+ownership and the branch, and uses
 [PR Lifecycle](.claude/skills/pr-lifecycle/SKILL.md) as the shared contract rather
 than duplicating its rules. The [`prw`](.claude/skills/prw/SKILL.md) and
 [`pr-workflow`](.claude/skills/pr-workflow/SKILL.md) aliases read PR Lifecycle

@@ -78,7 +78,7 @@ Also record:
 
 - source kind and stable request/capture identifier;
 - timestamp, event type, agent, model, and finish-reason shape;
-- deployed revision and any separately verified revision-to-source mapping;
+- deployed revision (or explicitly unknown) and any separately verified revision-to-source mapping;
 - fields scrubbed and the structurally equivalent placeholders used.
 
 A deployment identifier is not a source commit unless that mapping was
@@ -87,9 +87,25 @@ verified separately.
 ## Qualify the incident's behavior boundary
 
 Fixture provenance is not SDK/transport behavior proof. Record the sanitized
-fixture SHA-256, original capture timestamp, source identity/revision mapping,
-and scrub manifest separately from the test execution receipt. Preserve failed
-responses and omissions; never relabel a synthetic adapter as a real capture.
+fixture SHA-256, original capture timestamp, source identity, any verified
+serving revision and mapping, and scrub manifest separately from the test
+execution receipt. Preserve failed responses and omissions; never relabel a
+synthetic adapter as a real capture.
+
+Link a reviewer-accessible, sanitized capture receipt from a revision-pinned
+Gist by default. Only if Gist publication is prohibited, use an equally
+verifiable, immutable private receipt already accessible to the intended
+reviewers. This is a provenance exception, not a waiver of separate PR
+publication requirements. In either case, bind the original UTC capture
+time, source environment and backend identity or provider/model, safe opaque
+receipt ID, and scrubbed fixture hash. Require a verified serving revision
+for revision-specific claims; if
+it is unknown, say so and limit the claim to replay of the verified capture.
+An independent reviewer corroborates origin at the authorized source or
+through an independently verified capture receipt; a Gist and digest alone
+prove neither origin nor live behavior. Keep private correlation data and
+originals in authorized storage. If provenance cannot be verified without
+widening access, keep it unverified and do not count it as real-capture proof.
 
 For an SDK or platform regression, trace the actual response ownership boundary:
 body getter side effects, shared buffer ownership, single-consumption behavior,
