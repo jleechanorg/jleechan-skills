@@ -24,7 +24,8 @@
         "label": "stage:0-spec"
       }
     ],
-    "attempts": []
+    "attempts": [],
+    "branch": "feature/pr-100-work"
   },
   {
     "repo": "example-org/example-repo",
@@ -127,7 +128,8 @@
         "closed_reason": "review",
         "closed_by": "reviewer-one"
       }
-    ]
+    ],
+    "branch": "feature/pr-101-work"
   },
   {
     "repo": "example-org/example-repo",
@@ -197,7 +199,8 @@
         "closed_reason": "review",
         "closed_by": "reviewer-two"
       }
-    ]
+    ],
+    "branch": "feature/pr-102-work"
   },
   {
     "repo": "example-org/example-repo",
@@ -259,7 +262,8 @@
         "closed_reason": "review",
         "closed_by": "review-bot"
       }
-    ]
+    ],
+    "branch": "feature/pr-103-work"
   },
   {
     "repo": "example-org/example-repo",
@@ -313,7 +317,8 @@
         "closed_reason": "review",
         "closed_by": "reviewer-one"
       }
-    ]
+    ],
+    "branch": "feature/pr-104-work"
   },
   {
     "repo": "example-org/example-repo",
@@ -398,6 +403,7 @@
         "closed_reason": null,
         "closed_by": null
       }
-    ]
+    ],
+    "branch": "feature/pr-105-work"
   }
 ]

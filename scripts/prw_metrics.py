@@ -3,9 +3,10 @@
 
 Pipeline (pure-function core, Python 3 stdlib only):
     collect(repos, cutoff, runner) -> (records, health)
-    aggregate(records, health, annotations, cutoff) -> metrics
+    load_usage_feeds(paths, remote, branch) -> (feeds, problems)      [optional local usage feeds]
+    aggregate(records, health, annotations, cutoff, usage=None, usage_problems=()) -> metrics
     render(metrics) -> markdown
-    publish(markdown, remote, branch, fallback_path) -> exit code
+    publish(markdown, remote, branch, fallback_path, *, path, message) -> exit code
 
 DATA CONTRACT (frozen by Task 0; fixtures in tests/fixtures/prw/ are the executable form)
 
@@ -13,12 +14,13 @@ All timestamps are ISO-8601 UTC strings "YYYY-MM-DDTHH:MM:SSZ". All durations ar
 seconds; None means UNKNOWN and is never rendered or computed as 0.
 
 PR record (one per (repo, number); collect returns them sorted by (repo, number)):
-  {repo, number, url, title, author, author_type, created_at, merged_at, closed_at, is_draft,
+  {repo, number, url, title, branch, author, author_type, created_at, merged_at, closed_at, is_draft,
    labels: [str], status: str|None, timeline_complete: bool,
    events: [{type, at, actor, actor_type, label?, reviewer?, review_state?, new_title?}],
    attempts: [{key, kind: "requested"|"readiness", reviewer: str|None, opened_at,
                closed_at: str|None, closed_reason: "review"|"superseded"|None,
                closed_by: str|None}]}
+  - branch is the PR head branch (headRefName), str or None.
   - author_type / actor_type are GitHub __typename: "User" or "Bot".
   - labels are the labels applied at collection time (names only).
   - events are stored once, sorted by `at` (stable for equal times, GitHub timeline order).
@@ -65,6 +67,23 @@ metrics:
     stage label currently applied (lowest stage number if several), None if none; status is the
     record's status.
 
+  usage: present ONLY when usage feeds are configured (aggregate(usage=[...]); absent otherwise).
+    Input is a list of prw-local-usage.v1 feeds {schema, machine, generated_at, window, idle_gap_sec,
+    sessions: [{tool, session_id, repo|None, branch|None, first_at, last_at, active_sec,
+    models: {model: {input, output, cache_read, cache_write}}}]}. Only sessions whose
+    [first_at, last_at] overlaps [cutoff-14d, cutoff) count.
+    {machines: {machine: {generated_at, stale}}, problems: [str],
+     per_repo: {repo|"unattributed": {sessions, active_sec, tokens: {input, output, cache_read,
+       cache_write}, by_tool: {tool: {sessions, active_sec, output}}}},
+     per_pr: {"<repo>#<n>": {active_sec, output, input, sessions}},
+     unattributed: {sessions, active_sec, output}}
+    stale = generated_at more than 12h before cutoff. A session is attributed to a PR when its
+    branch is non-null, not in {main, master, trunk, develop}, equals the PR's branch, and its repo
+    is null or equals the PR's repo; matches in more than one repo (null repo) are NOT attributed;
+    several PRs of one repo (reused branch) go to the most recently created. per_repo counts every
+    in-window session (key "unattributed" is a bucket for repo None, never a repo); the top-level
+    unattributed totals are the sessions that matched no PR. per_pr.input is plain input tokens.
+
 Time rule: every metric ignores events with at >= cutoff.
 A record with timeline_complete False contributes to merge_stats/elapsed/open_attention but its
 attempts, stage dwell and activity are excluded from those metrics (UNKNOWN, never 0).
@@ -78,6 +97,7 @@ Stub signatures: collect(repos, cutoff, runner) -> (records, health);
 aggregate(records, health, annotations, cutoff) -> metrics (annotations is load_annotations'
 {labels, status}); render(metrics) -> str; publish(markdown, remote, branch, fallback_path) -> int
 (0 ok or no change, 2 no remote, 3 push failure); main(argv=None) -> int.
+publish also takes keyword-only path (default the dashboard README) and commit message.
 """
 
 import argparse
@@ -201,7 +221,7 @@ query($search: String!, $cursor: String) {
     nodes {
       __typename
       ... on PullRequest {
-        id number url title createdAt mergedAt closedAt isDraft
+        id number url title headRefName createdAt mergedAt closedAt isDraft
         author { login __typename }
         labels(first: 50) { nodes { name } }
         timelineItems(first: 100, itemTypes: """ + _TIMELINE_TYPES + ") " + _TIMELINE_BODY + """
@@ -348,6 +368,7 @@ def _record(repo, node):
         "number": node["number"],
         "url": node["url"],
         "title": node["title"],
+        "branch": node.get("headRefName"),
         "author": login,
         "author_type": author_type,
         "created_at": node["createdAt"],
@@ -435,6 +456,75 @@ def collect(repos, cutoff, runner):
     return [records[key] for key in sorted(records)], health
 
 
+_USAGE_SCHEMA = "prw-local-usage.v1"
+_USAGE_REMOTE_DIR = "dashboards/prw/usage"
+_SESSION_KEYS = ("tool", "session_id", "first_at", "last_at", "active_sec", "models")
+
+
+def _valid_session(s):
+    try:
+        parse_iso_utc(s["first_at"]), parse_iso_utc(s["last_at"])
+        return (isinstance(s, dict) and all(k in s for k in _SESSION_KEYS) and isinstance(s["active_sec"], int)
+                and all(isinstance(m.get(t), int) for m in s["models"].values()
+                        for t in ("input", "output", "cache_read", "cache_write")))
+    except (TypeError, KeyError, ValueError, AttributeError):
+        return False
+
+
+def _read_feed(path, problems):
+    name = Path(path).name
+    try:
+        doc = json.loads(Path(path).read_text(encoding="utf-8"))
+        if not isinstance(doc, dict) or doc.get("schema") != _USAGE_SCHEMA:
+            problems.append("%s: not a %s feed" % (name, _USAGE_SCHEMA))
+            return None
+        missing = [k for k in ("machine", "generated_at", "sessions") if k not in doc]
+        if missing or not isinstance(doc["sessions"], list) or not isinstance(doc["machine"], str):
+            problems.append("%s: missing or invalid %s" % (name, ", ".join(missing) or "sessions"))
+            return None
+        parse_iso_utc(doc["generated_at"])
+    except (OSError, ValueError, TypeError) as exc:
+        problems.append("%s: unreadable (%s)" % (name, type(exc).__name__))
+        return None
+    good = [s for s in doc["sessions"] if _valid_session(s)]
+    if len(good) != len(doc["sessions"]):
+        problems.append("%s: dropped %d invalid sessions" % (name, len(doc["sessions"]) - len(good)))
+    return dict(doc, sessions=good)
+
+
+def load_usage_feeds(paths, remote=None, branch="main"):
+    """Load prw-local-usage.v1 feeds from files/directories (and, read-only, from a shallow clone of
+    `remote`). Returns (feeds, problems); a bad feed is skipped and reported, never fatal. Only the
+    newest feed per machine is kept, sorted by machine."""
+    problems, files = [], []
+    for raw in paths or []:
+        path = Path(raw)
+        if path.is_dir():
+            files += sorted(path.glob("*.json"))
+        elif path.is_file():
+            files.append(path)
+        else:
+            problems.append("%s: no such feed file or directory" % path.name)
+    cloned = tempfile.TemporaryDirectory(prefix="prw-usage-") if remote else None
+    try:
+        if remote:
+            done = _git(cloned.name, "clone", "--depth", "1", "--branch", branch, remote, ".")
+            if done.returncode:
+                problems.append("usage remote: clone failed")
+            else:
+                files += sorted(Path(cloned.name, _USAGE_REMOTE_DIR).glob("*.json"))
+        newest = {}
+        for path in files:
+            feed = _read_feed(path, problems)
+            if feed and (feed["machine"] not in newest
+                         or feed["generated_at"] > newest[feed["machine"]]["generated_at"]):
+                newest[feed["machine"]] = feed
+    finally:
+        if cloned:
+            cloned.cleanup()
+    return [newest[m] for m in sorted(newest)], problems
+
+
 
 # --- aggregate ---
 
@@ -515,8 +605,58 @@ def _measure_attempts(record, cutoff):
             yield att["kind"], "superseded", None
 
 
-def aggregate(records, health, annotations, cutoff):
-    """Pure aggregation of collected PR records into the metrics structure (see module docstring)."""
+_TRIVIAL_BRANCHES = {"main", "master", "trunk", "develop"}
+_STALE_AFTER = 12 * 3600
+_TOKENS = ("input", "output", "cache_read", "cache_write")
+
+
+def _usage_metrics(feeds, problems, records, cutoff):
+    start = cutoff - timedelta(days=14)
+    by_branch = {}
+    for rec in records:
+        if rec.get("branch") and rec["branch"] not in _TRIVIAL_BRANCHES:
+            by_branch.setdefault(rec["branch"], []).append(rec)
+    machines, per_repo, per_pr = {}, {}, {}
+    loose = {"sessions": 0, "active_sec": 0, "output": 0}
+    for feed in feeds:
+        generated = parse_iso_utc(feed["generated_at"])
+        machines[feed["machine"]] = {"generated_at": format_iso_utc(generated),
+                                     "stale": _secs(cutoff - generated) > _STALE_AFTER}
+        for s in feed["sessions"]:
+            if not (parse_iso_utc(s["first_at"]) < cutoff and parse_iso_utc(s["last_at"]) >= start):
+                continue
+            tokens = {t: sum(m[t] for m in s["models"].values()) for t in _TOKENS}
+            repo = s.get("repo")
+            slot = per_repo.setdefault(repo or "unattributed", {
+                "sessions": 0, "active_sec": 0, "tokens": dict.fromkeys(_TOKENS, 0), "by_tool": {}})
+            tool = slot["by_tool"].setdefault(s["tool"], {"sessions": 0, "active_sec": 0, "output": 0})
+            for target in (slot, tool):
+                target["sessions"] += 1
+                target["active_sec"] += s["active_sec"]
+            tool["output"] += tokens["output"]
+            for t in _TOKENS:
+                slot["tokens"][t] += tokens[t]
+            matches = [r for r in by_branch.get(s.get("branch"), []) if repo is None or r["repo"] == repo]
+            if matches and len({r["repo"] for r in matches}) == 1:
+                best = max(matches, key=lambda r: (r["created_at"], r["number"]))
+                pr = per_pr.setdefault("%s#%d" % (best["repo"], best["number"]),
+                                       {"active_sec": 0, "output": 0, "input": 0, "sessions": 0})
+                pr["active_sec"] += s["active_sec"]
+                pr["output"] += tokens["output"]
+                pr["input"] += tokens["input"]
+                pr["sessions"] += 1
+            else:
+                loose["sessions"] += 1
+                loose["active_sec"] += s["active_sec"]
+                loose["output"] += tokens["output"]
+    return {"machines": dict(sorted(machines.items())), "problems": list(problems),
+            "per_repo": dict(sorted(per_repo.items())), "per_pr": dict(sorted(per_pr.items())),
+            "unattributed": loose}
+
+
+def aggregate(records, health, annotations, cutoff, usage=None, usage_problems=()):
+    """Pure aggregation of collected PR records into the metrics structure (see module docstring).
+    `usage` (a list of loaded feeds) adds the optional metrics["usage"]; None leaves it absent."""
     cutoff_dt = parse_iso_utc(cutoff) if isinstance(cutoff, str) else cutoff
     horizon_start = cutoff_dt - timedelta(days=14)
     repos = sorted(health)
@@ -577,7 +717,7 @@ def aggregate(records, health, annotations, cutoff):
     open_attention.sort(key=lambda r: (-r["age_sec"], r["repo"], r["number"]))
 
     status = annotations["status"]
-    return {
+    metrics = {
         "cutoff": format_iso_utc(cutoff_dt),
         "repos": repos,
         "annotations_status": status,
@@ -594,6 +734,9 @@ def aggregate(records, health, annotations, cutoff):
         "episode_labels": dict(annotations["labels"]) if status == "OK" else {},
         "open_attention": open_attention,
     }
+    if usage is not None:
+        metrics["usage"] = _usage_metrics(usage, usage_problems, records, cutoff_dt)
+    return metrics
 
 
 
@@ -627,6 +770,34 @@ def _dur(dist, key):
 
 def _n(dist):
     return dist["n"] if dist else "UNKNOWN"
+
+
+def _render_usage(usage, cutoff):
+    if usage is None:
+        return ["", "Local agent usage: no feed configured"]
+    out = ["", "### Local agent usage (observed on contributing machines)", ""]
+    rows = [[_cell(repo if repo != "unattributed" else "unattributed (no repo)"), v["sessions"],
+             format_duration(v["active_sec"]), v["tokens"]["output"],
+             sum(v["tokens"][k] for k in ("input", "cache_read", "cache_write"))]
+            for repo, v in usage["per_repo"].items()]
+    if rows:
+        out += _table(["Repository", "Sessions", "Active time", "Output tokens",
+                       "Input tokens (incl. cache)"], rows)
+    else:
+        out.append("No sessions in the window.")
+    ages = []
+    for name, m in usage["machines"].items():
+        age = format_duration(max(0, int((parse_iso_utc(cutoff) - parse_iso_utc(m["generated_at"])).total_seconds())))
+        ages.append("%s (feed age %s%s)" % (_cell(name), age, ", STALE" if m["stale"] else ""))
+    un = usage["unattributed"]
+    out += ["", "Contributing machines: %s." % ("; ".join(ages) or "none"),
+            "Not attributed to any PR: %d sessions, %s active, %d output tokens."
+            % (un["sessions"], format_duration(un["active_sec"]), un["output"]),
+            "Feed problems: %s." % ("; ".join(_cell(p) for p in usage["problems"]) or "none"),
+            "",
+            "Active time is the sum of gaps between logged events up to the idle gap; tokens are from"
+            " local session logs on contributing machines only; machines without a feed are not counted."]
+    return out
 
 
 def render(metrics):
@@ -684,6 +855,7 @@ def render(metrics):
                                    "UNKNOWN", "UNKNOWN", "UNKNOWN", "UNKNOWN"]))
     out += _table(["Repository", "Operation elapsed (n)", "Median", "p75", "Active wall time",
                    "Agent effort", "Waiting time", "Residual"], rows)
+    out += _render_usage(metrics.get("usage"), metrics.get("cutoff"))
 
     # 4 handoff
     out += ["", "## 4. Handoff Delays (review requested/readiness -> review)", ""]
@@ -762,6 +934,9 @@ def render(metrics):
         " residual are not collected and stay UNKNOWN.",
         "- Telemetry retention, usage cost and web views were removed from this dashboard.",
     ]
+    if metrics.get("usage") is not None:
+        out.append("- Local agent usage is attributed to a PR only when the session branch equals the PR head"
+                   " branch (and the repository matches when known); other sessions count per repository only.")
     return "\n".join(out) + "\n"
 
 
@@ -791,18 +966,18 @@ def _stable(markdown):
     return "\n".join(l for l in markdown.split("\n") if not l.startswith("**Data cutoff (UTC)**"))
 
 
-def _publish_to_clone(markdown, remote, branch, clone):
+def _publish_to_clone(markdown, remote, branch, clone, path, message):
     """Return 0 on success or no change; raise RuntimeError(message) on any git failure."""
     done = _git(clone, "clone", "--depth", "1", "--branch", branch, remote, ".")
     if done.returncode:
         raise RuntimeError("clone failed: " + done.stderr.strip())
-    target = Path(clone, _README_PATH)
+    target = Path(clone, path)
     if target.exists() and _stable(target.read_text(encoding="utf-8")) == _stable(markdown):
         print("no change")
         return 0
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(markdown, encoding="utf-8")
-    for step in (("add", "--", _README_PATH), ("commit", "-m", "chore(prw-metrics): update PRW dashboard", "--", _README_PATH)):
+    for step in (("add", "--", path), ("commit", "-m", message, "--", path)):
         done = _git(clone, *step)
         if done.returncode:
             raise RuntimeError("git %s failed: %s" % (step[0], (done.stderr or done.stdout).strip()))
@@ -814,18 +989,19 @@ def _publish_to_clone(markdown, remote, branch, clone):
         done = _push_once(clone, branch)
     if done.returncode:
         raise RuntimeError("push failed: " + done.stderr.strip())
-    print("published %s to %s" % (_README_PATH, branch))
+    print("published %s to %s" % (path, branch))
     return 0
 
 
-def publish(markdown, remote, branch, fallback_path):
-    """Shallow-clone remote@branch, update the dashboard file, push. 0 ok/no change, 2 no remote, 3 failure."""
+def publish(markdown, remote, branch, fallback_path, *, path=_README_PATH,
+            message="chore(prw-metrics): update PRW dashboard"):
+    """Shallow-clone remote@branch, update `path` (default the dashboard), push. 0 ok/no change, 2 no remote, 3 failure."""
     if not remote:
         print("publish requested but no roadmap remote configured", file=sys.stderr)
         return 2
     with tempfile.TemporaryDirectory(prefix="prw-publish-") as clone:
         try:
-            return _publish_to_clone(markdown, remote, branch, clone)
+            return _publish_to_clone(markdown, remote, branch, clone, path, message)
         except (RuntimeError, OSError) as exc:
             print("publish failed: %s" % exc, file=sys.stderr)
     try:
@@ -846,6 +1022,10 @@ def _parser():
     p.add_argument("--publish", action="store_true", default=os.environ.get("PRW_METRICS_PUBLISH") == "1")
     p.add_argument("--roadmap-remote", default=os.environ.get("PRW_METRICS_ROADMAP_REMOTE", ""))
     p.add_argument("--roadmap-branch", default="main")
+    p.add_argument("--usage-feed", action="append", default=[p for p in os.environ.get("PRW_METRICS_USAGE_FEEDS", "").split(":") if p],
+                   help="local usage feed file or directory (repeatable; env PRW_METRICS_USAGE_FEEDS, colon-separated)")
+    p.add_argument("--usage-remote", default=os.environ.get("PRW_METRICS_USAGE_REMOTE", ""),
+                   help="git remote whose dashboards/prw/usage/*.json feeds are read (default: the roadmap remote when publishing)")
     p.add_argument("--annotations", default=os.path.join(_state_dir(), "annotations.json"))
     return p
 
@@ -856,8 +1036,11 @@ def main(argv=None):
     if not repos:
         print("no repos given (--repos or PRW_METRICS_REPOS)", file=sys.stderr)
         return 2
-    if args.publish and re.search(r"^[a-z]+://[^/]*(:[^/@]*)?@", args.roadmap_remote or "") and not args.roadmap_remote.startswith("ssh://"):
-        print("roadmap remote must not embed credentials; use an SSH remote or a credential helper", file=sys.stderr)
+    def embeds_credentials(url):
+        return bool(re.search(r"^[a-z]+://[^/]*(:[^/@]*)?@", url or "")) and not url.startswith("ssh://")
+
+    if (args.publish and embeds_credentials(args.roadmap_remote)) or embeds_credentials(args.usage_remote):
+        print("remotes must not embed credentials; use an SSH remote or a credential helper", file=sys.stderr)
         return 2
     if args.publish and not args.roadmap_remote:
         print("publish requested but no roadmap remote configured (--roadmap-remote)", file=sys.stderr)
@@ -865,7 +1048,12 @@ def main(argv=None):
     cutoff = format_iso_utc(parse_iso_utc(args.cutoff) if args.cutoff else datetime.now(timezone.utc))
     runner = replay_runner(args.input_dir) if args.input_dir else gh_runner
     records, health = collect(repos, cutoff, runner)
-    metrics = aggregate(records, health, load_annotations(args.annotations), cutoff)
+    usage_remote = args.usage_remote or (args.roadmap_remote if args.publish else "")
+    extra = {}
+    if args.usage_feed or usage_remote:
+        feeds, problems = load_usage_feeds(args.usage_feed, usage_remote or None, args.roadmap_branch)
+        extra = {"usage": feeds, "usage_problems": problems}
+    metrics = aggregate(records, health, load_annotations(args.annotations), cutoff, **extra)
     markdown = render(metrics)
     if args.output:
         Path(args.output).write_text(markdown, encoding="utf-8")
