@@ -45,16 +45,17 @@ documented as blocked.
 
 ## Mandatory Frames
 
-Capture this journey on each compared implementation. The pre-action frame below
-is not by itself the pre-change-code baseline; preserve both revisions and their
-original capture provenance under the canonical BEFORE/AFTER rule.
+Capture both implementations under the [canonical BEFORE/AFTER rule](../evidence-standards/SKILL.md#ui-changes-require-a-genuine-implementation-beforeafter-comparison). The
+pre-action frame is not by itself a pre-change-code baseline. Apply the action
+rows only on revisions where the action exists; otherwise show the actual prior
+experience or the action's absence in the matching state.
 
 | # | Frame | Must show |
 |---|-------|-----------|
 | 1 | URL + Page Load | Full native browser URL bar with route under test, OR — when the scoped owner mandates headless capture — a genuine route/URL provenance marker (printed navigation URL/log line, on-page route text, or window title) captured from the same automated session and tied to the frame timestamp |
-| 2 | Pre-action State | Initial state before action on this revision |
-| 3 | Action | Click/input/navigation action |
-| 4 | Post-action State | Resulting state after action on this revision |
+| 2 | Pre-action State | Initial state before an available action |
+| 3 | Action | Click/input/navigation action, where available |
+| 4 | Post-action State | Result of an available action |
 | 5 | Git Linkage | Terminal split, devtools log, or on-page SHA marker |
 
 ## Recording Options
@@ -464,15 +465,14 @@ Rules:
 1. Video is linked from the review receipt at an authorized, reviewer-accessible destination
 2. Any publication follows the authorized destination and applicable automation workflow
 3. Captions are present
-4. When a user action exists, the pre-action/action/post-action flow is visible on both compared implementations; otherwise the applicable before→after transition is visible
+4. Each clip meets the [action-window rule](#action-must-be-in-the-window-mandatory), including proof of absence where applicable
 5. URL and route match claim
 6. Actual baseline and candidate source linkage is verified, not inferred from captions
 7. The reviewed evidence receipt includes matching metadata/caption artifacts
 8. mpdecimate retained-frame count reported as kept/nominal (see Frozen-frame detection); a low count triggers provenance/timeline review, while a constructed slideshow always fails under the canonical rule
-9. When a user action exists, each clip contains the action itself plus the before state; otherwise each clip contains the applicable before→after transition
-10. Before/after provenance is fresh runs of each build, or labeled `derived` with source
-11. `/er` and second-opinion (`advice` skill) verdicts come from a different agent/lane than the evidence producer, and name that lane
-12. An independent AI reviewer (not the author or orchestrator) judged frames extracted from the
+9. Before/after provenance is fresh runs of each build, or labeled `derived` with source
+10. `/er` and second-opinion (`advice` skill) verdicts come from a different agent/lane than the evidence producer, and name that lane
+11. An independent AI reviewer (not the author or orchestrator) judged frames extracted from the
     published video against each acceptance step, with PASS/FAIL and timestamps;
     privacy, playback, and upload checks are separate and do not substitute
     (`evidence-review` check 4)
@@ -503,10 +503,10 @@ caption, or successful decode.
 
 ## Action must be in the window (MANDATORY)
 
-When a user action exists, each clip must include the user action under test
-(for example the Send tap) and the before state that precedes it. A capture
-window anchored only to completion (e.g. trimmed to the DONE state) that omits
-the action fails.
+On each revision where the action exists, show the starting state, the actual
+action, and the result continuously. A result-only clip fails. If the action
+does not exist on one revision, show the actual prior experience or its absence
+in the matching state on that side. Do not substitute a no-op for the action.
 
 When there is no in-app action, mark it N/A and record the observable transition
 through its result. For load or mount claims, start recording before navigation
