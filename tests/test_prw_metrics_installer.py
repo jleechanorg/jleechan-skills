@@ -54,6 +54,7 @@ def env(tmp_path):
     ctx.calls = lambda: calls.read_text().splitlines() if calls.exists() else []
     ctx.release = home / ".local/share/prw-metrics-slim/releases" / sha
     ctx.plist = home / "Library/LaunchAgents" / (LABEL + ".plist")
+    ctx.staged = ctx.release / (LABEL + ".plist")
 
     def run(*extra):
         cmd = [
@@ -80,7 +81,8 @@ def test_install_creates_pinned_release_via_git_archive_and_runs_help(env):
     assert done.returncode == 0, done.stderr
     assert (env.release / "scripts" / "prw_metrics.py").exists()
     assert not (env.release / ".git").exists()
-    assert env.plist.exists() and env.sha in env.plist.read_text()
+    assert env.staged.exists() and env.sha in env.staged.read_text()
+    assert not env.plist.exists()  # launchd loads LaunchAgents at login; only --activate may put it there
     assert "stub help" in done.stdout
 
 
@@ -96,7 +98,7 @@ def test_replace_slim_flag_allows_reinstall(env):
     env.marker.write_text("")
     done = env.run("--replace-slim")
     assert done.returncode == 0, done.stderr
-    assert env.plist.exists()
+    assert env.staged.exists()
     assert not any(c.startswith(("bootstrap", "kickstart", "enable")) for c in env.calls())
 
 
@@ -117,3 +119,4 @@ def test_activate_enables_and_bootstraps_slim_label(env):
     calls = env.calls()
     assert any(c.startswith("enable ") and c.endswith("/" + LABEL) for c in calls)
     assert any(c.startswith("bootstrap ") and LABEL + ".plist" in c for c in calls)
+    assert env.plist.exists()

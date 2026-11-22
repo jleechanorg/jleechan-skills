@@ -826,6 +826,9 @@ def main(argv=None):
     if not repos:
         print("no repos given (--repos or PRW_METRICS_REPOS)", file=sys.stderr)
         return 2
+    if args.publish and re.search(r"^[a-z]+://[^/]*(:[^/@]*)?@", args.roadmap_remote or "") and not args.roadmap_remote.startswith("ssh://"):
+        print("roadmap remote must not embed credentials; use an SSH remote or a credential helper", file=sys.stderr)
+        return 2
     if args.publish and not args.roadmap_remote:
         print("publish requested but no roadmap remote configured (--roadmap-remote)", file=sys.stderr)
         return 2

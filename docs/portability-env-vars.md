@@ -114,23 +114,10 @@ registry.
 | Variable | Meaning | Derived from | Default |
 |---|---|---|---|
 | `PRW_CODEX_AI_REVIEW_COUNT` | Optional maximum automatic independent AI reviewer assignments per PR for a Codex driver; see [review routing](../.claude/skills/pr-lifecycle/review-routing.md#codex-review-dispatch) | — | unset or empty: no assignment ceiling (three review rounds by default); `0`: disable automatic AI review without waiving required independent gates; invalid: stop automatic dispatch |
-| `PRW_METRICS_REPOS` | Comma-separated list of `owner/repo` repositories to monitor | — | unset: uses repositories from input directory or state |
-| `PRW_METRICS_ROADMAP_REPO` | Path to local clone of roadmap repository for dashboard publication | — | required where publication is enabled (fails closed if unset) |
-| `PRW_METRICS_STATE_DIR` | Directory for persistent metric state snapshots and locks | `${HOME}/.claude/skills/scratch-space/scripts/scratch-dir.sh prw-metrics` | `/tmp/prw-metrics` |
-| `PRW_METRICS_LOCK_DIR` | Path to active execution lock directory | — | `${PRW_METRICS_STATE_DIR}/lock` |
-| `PRW_METRICS_CONFIG_FILE` | Path to optional operator configuration file | — | unset (checks `${XDG_CONFIG_HOME:-$HOME/.config}/prw-metrics/config.env`) |
-| `PRW_METRICS_MIN_INTERVAL_SEC` | Minimum seconds between scheduled collection runs (sleep catch-up deduplication) | — | `900` |
-| `PRW_METRICS_FORCE_RUN` | Force execution, bypassing the interval check (`1` or `true`) | — | `0` |
-| `PRW_METRICS_COLLECTOR_CMD` | Collector command executed by `run_prw_metrics.sh` | — | `python3 $REPO_ROOT/scripts/prw_metrics.py --roadmap-repo $PRW_METRICS_ROADMAP_REPO --state-dir $STATE_DIR` |
-| `PRW_BINDING_LEDGER` | Session-to-PR binding ledger the binding hook appends to; see [session binding](prw-session-binding.md) | — | `$HOME/.local/share/prw-metrics/bindings/session-bindings.jsonl` |
-| `PRW_METRICS_INPUT_DIR` | Path to cached scratch dataset directory | — | unset |
-| `PRW_METRICS_TELEMETRY_DIR` | Explicit retained telemetry directory; outranks the published ref and its window index for the windows it holds | — | unset (readback uses the published ref: root files from git, windows from `telemetry-index/` in GCS) |
-| `PRW_METRICS_TELEMETRY_BUCKET` | GCS bucket (bare name) for window telemetry. Set: `--publish` uploads each window to `gs://<bucket>/prw/telemetry/sha256/<aa>/<raw sha256>.zst` and commits `dashboards/prw/telemetry-index/<window>.json` instead of window blobs; reads use the bucket each index names, so changing the bucket needs a fresh backfill. Unset: legacy blobs in git. Needs `gcloud` and `zstd` | — | unset |
-| `PRW_METRICS_GCLOUD` | `gcloud` binary used for the telemetry bucket | — | `gcloud` on `PATH`, else `$HOME/google-cloud-sdk/bin/gcloud` |
-| `PRW_METRICS_RECEIPTS_DIR` | Path to directory containing task receipts (`run.stats.json`, `start_*.json`, `completion_*.json`) | — | unset |
-| `PRW_METRICS_OFFLINE` | Offline mode: skip live GitHub API and use cached data (`1` or `true`) | — | `0` |
-| `PRW_METRICS_PUBLISH` | Publish dashboard to roadmap repo (`1` or `true`) | — | `0` |
-| `PRW_METRICS_STALE_HOURS` | Threshold hours after which source cutoffs are marked STALE | — | `4.5` |
+| `PRW_METRICS_REPOS` | Comma-separated list of `owner/repo` repositories to monitor | — | required (`--repos`) |
+| `PRW_METRICS_ROADMAP_REMOTE` | Git remote (URL or path, no embedded credentials) the dashboard is pushed to | — | required where publishing is enabled |
+| `PRW_METRICS_STATE_DIR` | Directory for the annotations file and the last-dashboard fallback | — | `$HOME/.local/share/prw-metrics-slim` |
+| `PRW_METRICS_PUBLISH` | Publish the dashboard (`1` only) | — | `0` |
 | `INSTINCT_IMSG_CONTACT` | The peer assistant's iMessage handle (E.164 phone or Apple ID email) for the `/instinct` iMessage transport. `IMSG_CONTACT_HANDLE` is accepted as a compatibility alias for direct bridge use | — | unset (required for iMessage; the skill stops with a clear message) |
 | `INSTINCT_CONTACT` | The peer's WhatsApp chat title, used by the `/instinct` fallback transport | — | unset (required for WhatsApp) |
 | `INSTINCT_IMSG_BRIDGE` | Path to the `/instinct` iMessage bridge (`imsg-bridge.sh`) | sibling `scripts/imsg-bridge.sh` of the skill package | `$HOME/.local/bin/imsg-bridge.sh` |

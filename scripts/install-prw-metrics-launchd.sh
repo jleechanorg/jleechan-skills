@@ -72,18 +72,23 @@ else
   LOADED=0
 fi
 
-mkdir -p "$RELEASE_DIR" "$HOME/Library/LaunchAgents" "$HOME/Library/Logs"
+mkdir -p "$RELEASE_DIR" "$HOME/Library/Logs"
 git -C "$SOURCE_REPO" archive "$SHA" scripts | tar -x -C "$RELEASE_DIR"
 python3 "$RELEASE_DIR/scripts/prw_metrics.py" --help
 
-render > "$PLIST_DEST.tmp"
-if [[ -x /usr/bin/plutil ]]; then /usr/bin/plutil -lint "$PLIST_DEST.tmp" >/dev/null; fi
-mv "$PLIST_DEST.tmp" "$PLIST_DEST"
-chmod 644 "$PLIST_DEST"
-echo "installed $LABEL at release $SHA (not loaded)"
+# Stage the plist inside the release directory. It is copied into ~/Library/LaunchAgents only by
+# --activate, because launchd loads everything in that folder at the next login.
+STAGED="$RELEASE_DIR/$LABEL.plist"
+render > "$STAGED.tmp"
+if [[ -x /usr/bin/plutil ]]; then /usr/bin/plutil -lint "$STAGED.tmp" >/dev/null; fi
+mv "$STAGED.tmp" "$STAGED"
+chmod 644 "$STAGED"
+echo "installed $LABEL at release $SHA (staged at $STAGED, not loaded)"
 
 if [[ "$ACTIVATE" == 1 ]]; then
   [[ "$LOADED" == 0 ]] || launchctl bootout "gui/$UID_NUM/$LABEL"
+  mkdir -p "$HOME/Library/LaunchAgents"
+  cp "$STAGED" "$PLIST_DEST"
   launchctl enable "gui/$UID_NUM/$LABEL"
   launchctl bootstrap "gui/$UID_NUM" "$PLIST_DEST"
   echo "activated $LABEL"

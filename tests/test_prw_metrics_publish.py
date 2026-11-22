@@ -127,3 +127,14 @@ def test_output_flag_writes_file(tmp_path, monkeypatch):
     assert prw.main(["--repos", "o/r,o/s", "--cutoff", "2026-11-14T00:00:00Z", "--output", str(out)]) == 0
     assert out.read_text() == "# rendered 2026-11-14T00:00:00Z\n"
     assert seen["repos"] == ["o/r", "o/s"]
+
+
+def test_remote_with_embedded_credentials_is_rejected(tmp_path, monkeypatch):
+    monkeypatch.delenv("PRW_METRICS_PUBLISH", raising=False)
+    monkeypatch.delenv("PRW_METRICS_ROADMAP_REMOTE", raising=False)
+    rc = prw.main([
+        "--repos", "example-org/example-repo", "--publish",
+        "--roadmap-remote", "https://user:secret-token@example.com/org/repo.git",
+        "--annotations", str(tmp_path / "missing.json"),
+    ])
+    assert rc == 2
