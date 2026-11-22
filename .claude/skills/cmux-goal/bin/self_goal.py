@@ -4,6 +4,7 @@
   self_goal.py host                 print cmux|tmux|warp|none
   self_goal.py status               print none|active|achieved|failed|cleared [TAB condition]
   self_goal.py set '<condition>'    tmux or cmux: type /goal into this session's own pane/surface, verify readback
+      --replace-authorized          with fresh user authorization, clear a different active goal first
 
 Goal state is read from the session transcript's `goal_status` records and the
 `Goal cleared:` /goal stdout, never from what was typed. No shell is involved.
@@ -118,10 +119,11 @@ def cmux(*args):
 
 
 def target(kind):
-    """(type_text, press_enter, read_screen(deep)) bound to this session's own pane/surface, or None."""
+    """(binding, type_text, press_enter, read_screen(deep)) for this caller, or None."""
     if kind == "tmux":
         pane = os.environ["TMUX_PANE"]
         return (
+            (kind, pane),
             lambda t: tmux("send-keys", "-t", pane, "-l", t),
             lambda: tmux("send-keys", "-t", pane, "Enter"),
             lambda deep=False: tmux(
@@ -134,12 +136,19 @@ def target(kind):
         return None
     base = ["--workspace", ws, "--surface", sf]
     return (
+        (kind, ws, sf),
         lambda t: cmux("send", *base, t),
         lambda: cmux("send-key", *base, "enter"),
         lambda deep=False: cmux(
             "capture-pane", *base, "--scrollback", "--lines", "1500" if deep else "200"
         ),
     )
+
+
+def target_matches(kind, binding):
+    """Re-resolve and require the same caller target immediately before steering."""
+    current = target(kind)
+    return current is not None and current[0] == binding
 
 
 # Lines Claude Code renders below the composer: statusline "[...", "ctx ...", PR URL,
@@ -162,7 +171,61 @@ def composer_empty(screen):
     return " ".join(x.strip() for x in region if x.strip()) in ("", "Press up to edit queued messages")
 
 
-def do_set(cond, force_after_clear):
+def composer_idle(screen):
+    """A replacement may clear only an empty composer on an idle pane."""
+    if not composer_empty(screen):
+        return False
+    lines = screen.rstrip().splitlines()[-80:]
+    if any("Press up to edit queued messages" in line for line in lines):
+        return False
+    return not any(
+        re.match(r"^\s*(?:[✳✽]\s*)?(?:Working|Pursuing goal)\b", line)
+        for line in lines
+    )
+
+
+def clear_goal_in_own_composer(current, kind, binding, type_text, press_enter, read_screen, jsonl):
+    """Clear only the currently recorded different goal in this session's own idle composer."""
+    if (
+        not current
+        or len(current) > MAX_LEN
+        or re.search(r"[\x00-\x1f\x7f]", current)
+    ):
+        return report("replacement stopped (current goal condition cannot be safely verified)", 7)
+    deep_screen = read_screen(deep=True)
+    if not composer_idle(deep_screen):
+        return report("replacement stopped (composer is not blank and idle; refusing to clear)", 7)
+    before = read_screen()
+    if not composer_idle(before):
+        return report("replacement stopped (current composer is not blank and idle; refusing to clear)", 7)
+
+    if not target_matches(kind, binding):
+        return report("replacement stopped (caller surface changed before clear)", 7)
+    if goal_state(jsonl) != ("active", current):
+        return report("replacement stopped (active goal changed before clear)", 7)
+    offset = jsonl.stat().st_size
+    type_text("/goal clear")
+    time.sleep(0.4)
+    press_enter()
+
+    marker = "Goal cleared:"
+    for _ in range(30):
+        time.sleep(1)
+        with jsonl.open("rb") as transcript:
+            transcript.seek(offset)
+            fresh = transcript.read().decode(errors="replace")
+        pane_text = read_screen()
+        state, cleared_condition = goal_state_text(fresh)
+        shown = pane_text.count(marker) > before.count(marker)
+        if state == "cleared" and cleared_condition == current and shown:
+            if composer_idle(pane_text):
+                return 0
+            return report("replacement stopped (composer changed after clear)", 7)
+
+    return report("replacement stopped (no matching persisted clear and pane readback)", 7)
+
+
+def do_set(cond, force_after_clear, replace_authorized=False):
     kind = host()
     if kind not in ("tmux", "cmux"):
         hint = " - agent-side route: cmux-goal/SKILL.md section Warp" if kind == "warp" else ""
@@ -174,21 +237,49 @@ def do_set(cond, force_after_clear):
     tgt = target(kind)
     if tgt is None:
         return report("unsupported (no caller surface from cmux identify)")
-    type_text, press_enter, read_screen = tgt
+    binding, type_text, press_enter, read_screen = tgt
     jsonl = session_jsonl()
     if jsonl is None:
         return report("unsupported (no session transcript found for this session)")
     state, current = goal_state(jsonl)
+    if replace_authorized and state != "active":
+        return report("replacement stopped (no different active goal to clear)", 7)
+    replaced = False
     if state == "active":
-        verdict = "reused" if current == cond else "preserved-different"
-        print("Goal: already active (%s) %s" % (verdict, current))
-        return 0 if current == cond else 4
+        if current == cond:
+            print("Goal: already active (reused) %s" % current)
+            return 0
+        if not replace_authorized:
+            print("Goal: already active (preserved-different) %s" % current)
+            return 4
+        if not force_after_clear:
+            return report("replacement stopped (explicit replacement authorization required)", 7)
+        result = clear_goal_in_own_composer(
+            current, kind, binding, type_text, press_enter, read_screen, jsonl
+        )
+        if result:
+            return result
+        if goal_state(jsonl) != ("cleared", current):
+            return report("replacement stopped (cleared goal did not persist)", 7)
+        force_after_clear = True
+        replaced = True
     if state == "cleared" and not force_after_clear:
         return report("not set (user cleared a goal; never revive without a fresh instruction)", 5)
+    if replaced and not composer_idle(read_screen(deep=True)):
+        return report("replacement stopped (composer is not blank and idle before set)", 7)
     if not composer_empty(read_screen(deep=True)):
         return report("not set (composer holds a draft; refusing to append)", 6)
-    offset = jsonl.stat().st_size
     before = read_screen()
+    if replaced and not composer_idle(before):
+        return report("replacement stopped (current composer is not blank and idle before set)", 7)
+    if not composer_empty(before):
+        return report("not set (current composer is not empty; refusing to append)", 6)
+    if replaced:
+        if not target_matches(kind, binding):
+            return report("replacement stopped (caller surface changed before set)", 7)
+        if goal_state(jsonl) != ("cleared", current):
+            return report("replacement stopped (old goal changed before set)", 7)
+    offset = jsonl.stat().st_size
     type_text("/goal " + cond)
     time.sleep(0.4)
     press_enter()
@@ -204,7 +295,8 @@ def do_set(cond, force_after_clear):
             pane_text.count(marker) > before.count(marker)
         )
         if persisted and shown:
-            print("Goal: activated via %s (readback ok)" % kind)
+            suffix = "; prior goal cleared" if replaced else ""
+            print("Goal: activated via %s (readback ok%s)" % (kind, suffix))
             return 0
     return report("unverified (typed but no matching persisted goal_status and footer)", 1)
 
@@ -216,7 +308,10 @@ def report(msg, code=1):
 
 def main(argv):
     force = "--force-after-clear" in argv
-    argv = [a for a in argv if a != "--force-after-clear"]
+    replace = "--replace-authorized" in argv
+    if force and replace:
+        return report("unsupported (use one replacement option)", 2)
+    argv = [a for a in argv if a not in ("--force-after-clear", "--replace-authorized")]
     cmd = argv[1] if len(argv) > 1 else ""
     if cmd == "host":
         print(host())
@@ -229,7 +324,7 @@ def main(argv):
         return 0
     if cmd == "set" and len(argv) == 3:
         try:
-            return do_set(argv[2], force)
+            return do_set(argv[2], force or replace, replace_authorized=replace)
         except (subprocess.SubprocessError, OSError, ValueError) as e:
             return report("unverified (%s call failed: %s)" % (host(), e))
     print(__doc__)

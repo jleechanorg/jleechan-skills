@@ -104,6 +104,11 @@ class Composer(unittest.TestCase):
         ]
         self.assertTrue(g.composer_empty("\n".join([BAR, "❯ ", BAR, *footer])))
 
+    def test_idle_composer_rejects_queued_message_and_active_generation(self):
+        self.assertFalse(g.composer_idle(screen("❯ Press up to edit queued messages")))
+        self.assertFalse(g.composer_idle(screen("❯ ") + "\nWorking (2s · esc to interrupt)"))
+        self.assertTrue(g.composer_idle(screen("❯ ")))
+
 
 class Readback(unittest.TestCase):
     def state(self, *lines):
@@ -133,20 +138,46 @@ class Readback(unittest.TestCase):
 
 
 FAKE_CMUX = """#!/usr/bin/env python3
-import json, os, sys
+import json, os, pathlib, sys
 log, jl = os.environ["FAKE_LOG"], os.environ["FAKE_JSONL"]
 open(log, "a").write(json.dumps(sys.argv[1:]) + "\\n")
 cmd = sys.argv[1]
 if cmd == "identify":
-    print(json.dumps({"caller": {"workspace_ref": "workspace:1", "surface_ref": "surface:2"}}))
-elif cmd == "send-key":
-    open(jl, "a").write(os.environ["FAKE_RECORDS"] + "\\n")
-    open(jl + ".sent", "w").write("1")
+    count_path = jl + ".identify-count"
+    count = int(open(count_path).read()) if os.path.exists(count_path) else 0
+    open(count_path, "w").write(str(count + 1))
+    caller = {} if os.environ.get("FAKE_NO_CALLER") else {
+        "workspace_ref": "workspace:1", "surface_ref": "surface:2"
+    }
+    if os.environ.get("FAKE_CHANGED_CALLER") and count:
+        caller = {"workspace_ref": "workspace:other", "surface_ref": "surface:other"}
+    print(json.dumps({"caller": caller}))
+elif cmd == "send" or (cmd == "send-keys" and "-l" in sys.argv):
+    open(jl + ".typed", "w").write(sys.argv[-1])
+elif cmd == "send-key" or (cmd == "send-keys" and sys.argv[-1] == "Enter"):
+    typed = open(jl + ".typed").read()
+    record_key = "FAKE_CLEAR_RECORDS" if typed == "/goal clear" else "FAKE_RECORDS"
+    records = os.environ.get(record_key, "")
+    if records:
+        with open(jl, "a") as transcript:
+            transcript.write(records + "\\n")
+    with open(jl + ".sent", "a") as sent:
+        sent.write(typed + "\\n")
 elif cmd == "capture-pane":
     log2 = os.environ.get("FAKE_SCREEN")
+    sent = pathlib.Path(jl + ".sent")
+    commands = sent.read_text().splitlines() if sent.exists() else []
+    if "/goal clear" in commands and os.environ.get("FAKE_SCREEN_AFTER_CLEAR"):
+        log2 = os.environ["FAKE_SCREEN_AFTER_CLEAR"]
     body = open(log2).read() if log2 else "\\n".join(["● x", "─" * 30, "❯ ", "─" * 30, "  [Not in a git repository]"])
-    if os.path.exists(jl + ".sent") and not os.environ.get("FAKE_NOSHOW"):
-        body = "Goal set: c\\n" + body
+    if sent.exists() and not os.environ.get("FAKE_NOSHOW"):
+        markers = []
+        for command in commands:
+            if command == "/goal clear":
+                markers.append("Goal cleared:")
+            elif command.startswith("/goal "):
+                markers.append("Goal set: " + command.removeprefix("/goal "))
+        body = "\\n".join(markers + [body])
     print(body)
 """
 
@@ -185,11 +216,14 @@ class FakeBase(unittest.TestCase):
         scr.write_text("\n".join(old + ["filler"] * 300 + tail))
         os.environ["FAKE_SCREEN"] = str(scr)
 
-    def run_set(self, cond, records):
+    def run_set(self, cond, records, initial=None, extra_args=(), clear_records=()):
+        if initial is not None:
+            self.jsonl.write_text("\n".join(initial) + "\n")
+        os.environ["FAKE_CLEAR_RECORDS"] = "\n".join(clear_records)
         os.environ["FAKE_RECORDS"] = "\n".join(records)
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            rc = g.do_set(cond, False)
+            rc = g.main(["self_goal.py", "set", cond, *extra_args])
         calls = [json.loads(x) for x in self.log.read_text().splitlines()] if self.log.exists() else []
         return rc, out.getvalue(), calls
 
@@ -255,6 +289,152 @@ class CmuxPath(FakeBase):
         rc, out, calls = self.run_set("c", [])
         self.assertEqual(rc, 4)
         self.assertFalse([c for c in calls if c[0] in ("send", "send-key")])
+
+    def test_authorized_replacement_clears_current_goal_then_sets_new_one(self):
+        old_goal = rec(met=False, sentinel=True, condition="old goal")
+        clear_output = json.dumps({
+            "type": "system",
+            "subtype": "local_command",
+            "content": "<local-command-stdout>Goal cleared: old goal</local-command-stdout>",
+        })
+        rc, out, calls = self.run_set(
+            "new goal",
+            [rec(met=False, sentinel=True, condition="new goal")],
+            initial=[old_goal],
+            clear_records=[rec(met=True, sentinel=True, condition="old goal"), clear_output],
+            extra_args=("--replace-authorized",),
+        )
+        base = ["--workspace", "workspace:1", "--surface", "surface:2"]
+        clear_send = ["send", *base, "/goal clear"]
+        set_send = ["send", *base, "/goal new goal"]
+        enter = ["send-key", *base, "enter"]
+        self.assertEqual(rc, 0, out)
+        self.assertEqual([call for call in calls if call[0] == "send"], [clear_send, set_send])
+        self.assertEqual([call for call in calls if call[0] == "send-key"], [enter, enter])
+        self.assertLess(calls.index(clear_send), calls.index(enter))
+        self.assertLess(calls.index(enter), calls.index(set_send))
+
+    def test_authorized_replacement_stops_when_clear_has_no_fresh_readback(self):
+        old_goal = rec(met=False, sentinel=True, condition="old goal")
+        rc, out, calls = self.run_set(
+            "new goal",
+            [rec(met=False, sentinel=True, condition="new goal")],
+            initial=[old_goal],
+            extra_args=("--replace-authorized",),
+        )
+        self.assertEqual(rc, 7)
+        self.assertIn("replacement stopped", out)
+        self.assertEqual([call[-1] for call in calls if call[0] == "send"], ["/goal clear"])
+
+    def test_authorized_replacement_requires_verified_own_surface(self):
+        old_goal = rec(met=False, sentinel=True, condition="old goal")
+        os.environ["FAKE_NO_CALLER"] = "1"
+        rc, out, calls = self.run_set(
+            "new goal",
+            [rec(met=False, sentinel=True, condition="new goal")],
+            initial=[old_goal],
+            extra_args=("--replace-authorized",),
+        )
+        self.assertEqual(rc, 1)
+        self.assertIn("no caller surface", out)
+        self.assertFalse([call for call in calls if call[0] in ("send", "send-key")])
+
+    def test_replacement_option_requires_a_different_active_goal(self):
+        rc, out, calls = self.run_set(
+            "new goal",
+            [rec(met=False, sentinel=True, condition="new goal")],
+            extra_args=("--replace-authorized",),
+        )
+        self.assertEqual(rc, 7)
+        self.assertIn("no different active goal", out)
+        self.assertFalse([call for call in calls if call[0] in ("send", "send-key")])
+
+    def test_authorized_replacement_refuses_composer_draft(self):
+        old_goal = rec(met=False, sentinel=True, condition="old goal")
+        self.deep_screen([BAR, "❯ do not clear this draft", BAR, *FOOTER])
+        rc, out, calls = self.run_set(
+            "new goal",
+            [rec(met=False, sentinel=True, condition="new goal")],
+            initial=[old_goal],
+            extra_args=("--replace-authorized",),
+        )
+        self.assertEqual(rc, 7)
+        self.assertIn("composer is not blank and idle", out)
+        self.assertFalse([call for call in calls if call[0] in ("send", "send-key")])
+
+    def test_authorized_replacement_refuses_queued_prompt(self):
+        old_goal = rec(met=False, sentinel=True, condition="old goal")
+        self.deep_screen([BAR, "❯ Press up to edit queued messages", BAR, *FOOTER])
+        rc, out, calls = self.run_set(
+            "new goal",
+            [rec(met=False, sentinel=True, condition="new goal")],
+            initial=[old_goal],
+            extra_args=("--replace-authorized",),
+        )
+        self.assertEqual(rc, 7)
+        self.assertIn("composer is not blank and idle", out)
+        self.assertFalse([call for call in calls if call[0] in ("send", "send-key")])
+
+    def test_authorized_replacement_rechecks_caller_after_composer_read(self):
+        old_goal = rec(met=False, sentinel=True, condition="old goal")
+        os.environ["FAKE_CHANGED_CALLER"] = "1"
+        rc, out, calls = self.run_set(
+            "new goal",
+            [rec(met=False, sentinel=True, condition="new goal")],
+            initial=[old_goal],
+            extra_args=("--replace-authorized",),
+        )
+        self.assertEqual(rc, 7)
+        self.assertIn("caller surface changed", out)
+        self.assertFalse([call for call in calls if call[0] in ("send", "send-key")])
+
+    def test_authorized_replacement_rechecks_goal_after_composer_read(self):
+        old_goal = rec(met=False, sentinel=True, condition="old goal")
+        original = g.goal_state
+        count = 0
+
+        def changed_goal(_jsonl):
+            nonlocal count
+            count += 1
+            return ("active", "old goal") if count == 1 else ("paused", "old goal")
+
+        g.goal_state = changed_goal
+        try:
+            rc, out, calls = self.run_set(
+                "new goal",
+                [rec(met=False, sentinel=True, condition="new goal")],
+                initial=[old_goal],
+                extra_args=("--replace-authorized",),
+            )
+        finally:
+            g.goal_state = original
+        self.assertEqual(rc, 7)
+        self.assertIn("active goal changed", out)
+        self.assertFalse([call for call in calls if call[0] in ("send", "send-key")])
+
+    def test_replacement_rechecks_clear_and_empty_composer_before_setting(self):
+        old_goal = rec(met=False, sentinel=True, condition="old goal")
+        cleared = rec(met=True, sentinel=True, condition="old goal")
+        clear_output = json.dumps({
+            "type": "system",
+            "subtype": "local_command",
+            "content": "<local-command-stdout>Goal cleared: old goal</local-command-stdout>",
+        })
+        self.deep_screen([BAR, "❯ ", BAR, *FOOTER])
+        draft = self.tmp / "after-clear-draft.txt"
+        draft.write_text("\\n".join([BAR, "❯ a new draft", BAR, *FOOTER]))
+        os.environ["FAKE_SCREEN_AFTER_CLEAR"] = str(draft)
+        rc, out, calls = self.run_set(
+            "new goal",
+            [rec(met=False, sentinel=True, condition="new goal")],
+            initial=[old_goal],
+            clear_records=[cleared, clear_output],
+            extra_args=("--replace-authorized",),
+        )
+        self.assertEqual(rc, 7)
+        self.assertIn("composer changed after clear", out)
+        sends = [call[-1] for call in calls if call[0] == "send"]
+        self.assertEqual(sends, ["/goal clear"])
 
     def test_backslash_condition_refused_nothing_typed(self):
         rc, out, calls = self.run_set("a\\nb", [])
