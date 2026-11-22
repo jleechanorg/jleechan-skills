@@ -83,7 +83,8 @@
                 }
               }
             ]
-          }
+          },
+          "headRefName": "feature/pr-102-work"
         },
         {
           "__typename": "PullRequest",
@@ -213,7 +214,8 @@
                 }
               }
             ]
-          }
+          },
+          "headRefName": "feature/pr-101-work"
         }
       ]
     }
