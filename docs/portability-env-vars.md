@@ -127,7 +127,6 @@ registry.
 | `PRW_METRICS_TELEMETRY_DIR` | Explicit retained telemetry directory; outranks the published ref and its window index for the windows it holds | — | unset (readback uses the published ref: root files from git, windows from `telemetry-index/` in GCS) |
 | `PRW_METRICS_TELEMETRY_BUCKET` | GCS bucket (bare name) for window telemetry. Set: `--publish` uploads each window to `gs://<bucket>/prw/telemetry/sha256/<aa>/<raw sha256>.zst` and commits `dashboards/prw/telemetry-index/<window>.json` instead of window blobs; reads use the bucket each index names, so changing the bucket needs a fresh backfill. Unset: legacy blobs in git. Needs `gcloud` and `zstd` | — | unset |
 | `PRW_METRICS_GCLOUD` | `gcloud` binary used for the telemetry bucket | — | `gcloud` on `PATH`, else `$HOME/google-cloud-sdk/bin/gcloud` |
-| `PRW_METRICS_TELEMETRY_REF` | Git ref telemetry is read from (also `--telemetry-ref`); lets a replay read the generation it recorded | — | `refs/remotes/origin/main` |
 | `PRW_METRICS_RECEIPTS_DIR` | Path to directory containing task receipts (`run.stats.json`, `start_*.json`, `completion_*.json`) | — | unset |
 | `PRW_METRICS_OFFLINE` | Offline mode: skip live GitHub API and use cached data (`1` or `true`) | — | `0` |
 | `PRW_METRICS_PUBLISH` | Publish dashboard to roadmap repo (`1` or `true`) | — | `0` |
