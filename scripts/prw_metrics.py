@@ -169,7 +169,31 @@ import re
 _STATUSES = ("working", "waiting", "blocked", "queued", "ready", "unknown")
 _TITLE_STATUS = re.compile(r"^\s*\[([^\]]*)\]")
 
-_QUERY = """
+_TIMELINE_TYPES = """[READY_FOR_REVIEW_EVENT, REVIEW_REQUESTED_EVENT,
+            PULL_REQUEST_REVIEW, PULL_REQUEST_COMMIT, ISSUE_COMMENT, LABELED_EVENT,
+            UNLABELED_EVENT, RENAMED_TITLE_EVENT]"""
+_TIMELINE_BODY = """{
+    pageInfo { hasNextPage endCursor }
+    nodes {
+      __typename
+      ... on ReadyForReviewEvent { createdAt actor { login __typename } }
+      ... on ReviewRequestedEvent {
+        createdAt actor { login __typename }
+        requestedReviewer { __typename ... on User { login } ... on Team { name } }
+      }
+      ... on PullRequestReview { submittedAt state author { login __typename } }
+      ... on PullRequestCommit {
+        commit { committedDate author { user { login __typename } } }
+      }
+      ... on IssueComment { createdAt author { login __typename } }
+      ... on LabeledEvent { createdAt actor { login __typename } label { name } }
+      ... on UnlabeledEvent { createdAt actor { login __typename } label { name } }
+      ... on RenamedTitleEvent { createdAt actor { login __typename } currentTitle }
+    }
+  }
+"""
+
+_QUERY = ("""
 query($search: String!, $cursor: String) {
   search(query: $search, type: ISSUE, first: 25, after: $cursor) {
     issueCount
@@ -177,35 +201,21 @@ query($search: String!, $cursor: String) {
     nodes {
       __typename
       ... on PullRequest {
-        number url title createdAt mergedAt closedAt isDraft
+        id number url title createdAt mergedAt closedAt isDraft
         author { login __typename }
         labels(first: 50) { nodes { name } }
-        timelineItems(first: 100, itemTypes: [READY_FOR_REVIEW_EVENT, REVIEW_REQUESTED_EVENT,
-            PULL_REQUEST_REVIEW, PULL_REQUEST_COMMIT, ISSUE_COMMENT, LABELED_EVENT,
-            UNLABELED_EVENT, RENAMED_TITLE_EVENT]) {
-          pageInfo { hasNextPage endCursor }
-          nodes {
-            __typename
-            ... on ReadyForReviewEvent { createdAt actor { login __typename } }
-            ... on ReviewRequestedEvent {
-              createdAt actor { login __typename }
-              requestedReviewer { __typename ... on User { login } ... on Team { name } }
-            }
-            ... on PullRequestReview { submittedAt state author { login __typename } }
-            ... on PullRequestCommit {
-              commit { committedDate author { user { login __typename } } }
-            }
-            ... on IssueComment { createdAt author { login __typename } }
-            ... on LabeledEvent { createdAt actor { login __typename } label { name } }
-            ... on UnlabeledEvent { createdAt actor { login __typename } label { name } }
-            ... on RenamedTitleEvent { createdAt actor { login __typename } currentTitle }
-          }
-        }
+        timelineItems(first: 100, itemTypes: """ + _TIMELINE_TYPES + ") " + _TIMELINE_BODY + """
       }
     }
   }
 }
-"""
+""")
+
+_NODE_QUERY = (
+    "query($id: ID!, $cursor: String) { node(id: $id) { ... on PullRequest { timelineItems(first: 100, after: $cursor, itemTypes: "
+    + _TIMELINE_TYPES + ") " + _TIMELINE_BODY + "} } }"
+)
+_MAX_EXTRA_TIMELINE_PAGES = 50
 
 # timeline __typename -> (event type, timestamp field, actor field)
 _EVENT_KINDS = {
@@ -251,6 +261,8 @@ def replay_runner(input_dir):
     served = iter(pages)
 
     def run(args):
+        if any(a.startswith("id=") for a in args):  # timeline continuation: unreadable in a replay
+            return {"data": {"node": None}}
         try:
             return next(served)
         except StopIteration:
@@ -350,6 +362,23 @@ def _record(repo, node):
     }
 
 
+def _complete_timeline(node, runner):
+    """Fetch the remaining timeline pages of a PR node in place; on any failure or after the page
+    bound leave pageInfo.hasNextPage true so the record stays timeline_complete=False."""
+    timeline = node["timelineItems"]
+    for _ in range(_MAX_EXTRA_TIMELINE_PAGES):
+        if not timeline["pageInfo"]["hasNextPage"]:
+            return
+        try:
+            page = runner(["-f", "query=" + _NODE_QUERY, "-f", "id=" + node["id"],
+                           "-f", "cursor=" + timeline["pageInfo"]["endCursor"]])
+            more = page["data"]["node"]["timelineItems"]
+            timeline["nodes"] += more["nodes"]
+            timeline["pageInfo"] = more["pageInfo"]
+        except Exception:
+            return
+
+
 def _search_pages(repo, search, runner, state):
     """Yield every PR node for one search query, following pageInfo; counts pages in state."""
     cursor, read, expected = None, 0, 0
@@ -392,6 +421,7 @@ def collect(repos, cutoff, runner):
         try:
             for search in searches:
                 for node in _search_pages(repo, search, runner, state):
+                    _complete_timeline(node, runner)
                     record = _record(repo, node)
                     seen = records.get((repo, record["number"]))
                     if seen is None or (record["timeline_complete"] and not seen["timeline_complete"]):
@@ -722,8 +752,8 @@ def render(metrics):
     out.append("- Annotations: %s." % (status or "UNKNOWN"))
     out += [
         "- INCOMPLETE repositories failed collection; their figures are withheld, not zero.",
-        "- UNKNOWN means not observed; it is never zero. PRs with truncated timelines are excluded"
-        " from timeline-derived metrics.",
+        "- UNKNOWN means not observed; it is never zero. PRs whose timeline could not be fully read are"
+        " excluded from timeline-derived metrics.",
         "- Comparable = merged within 7 days of creation; backlog = more than 7 days.",
         "- Stage dwell is label-event time (labeled to unlabeled), clipped to the 14-day horizon.",
         "- Handoff measures only attempts closed by a review before cutoff; open and superseded"
