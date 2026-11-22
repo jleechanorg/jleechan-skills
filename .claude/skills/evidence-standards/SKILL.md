@@ -133,7 +133,7 @@ Compare the rendered **pre-change implementation (BEFORE)** and **candidate impl
 - Bind each capture to the actual served app/build SHA and capture-driver revision (plus any dirty diff/hash), exact launch/capture commands, original UTC capture time, environment, and raw artifact paths/hashes. A checkout SHA alone does not establish which code the browser received.
 - A candidate-only journey's pre-click and post-click states are **not** a pre-change baseline. Never fabricate BEFORE with DOM edits, fixtures, relabelled AFTER media or an unverified PR-body claim.
 - Preserve original raw media, timestamps and provenance. Map captioned, trimmed or redacted derivatives to their raw source hashes and transformation commands; never overwrite or retimestamp originals. Open both images, or play both videos and extract relevant frames, to verify the claimed difference.
-- Reuse verified captures only after the delta-and-claim applicability check (§ Evidence Staleness Tolerance); do not rerun them merely because HEAD moved. If no applicable baseline can safely be captured or recovered, record `BEFORE: WITHHELD — <reason>` and withhold the comparison claim. Never reproduce unsafe behavior just to obtain media. This waives no separate bug-reproduction, real-server, review or publication requirement.
+- Reuse verified captures only after the delta-and-claim applicability check (§ Evidence Staleness Tolerance); do not rerun them merely because HEAD moved. If no applicable baseline can safely be captured (or, for a non-fix claim, recovered), record `BEFORE: WITHHELD — <reason>` and withhold the comparison claim. Never reproduce unsafe behavior just to obtain media. This waives no separate bug-reproduction, real-server, review or publication requirement.
 
 ## Evidence Envelope Declaration (breadth claims: "all / per / each / every / across N")
 
@@ -249,14 +249,15 @@ visual gate. Mocks, DOM injection and hand-crafted browser data can support unit
 claims but never prove UI integration. Unless an explicit lifecycle exception
 applies, capture comparable BEFORE/AFTER implementations; use desktop 1440×900
 and mobile 375×812 coverage where applicable. Interaction, navigation, streaming,
-animation and timing claims require captioned video; a simple static visual may
-use paired screenshots with the reason recorded.
+animation, transition, loading and timing claims require captioned video; a simple static visual may
+use matched captioned screenshots with the reason recorded.
 
 Bind each capture to the served app/build SHA, capture-driver revision, dirty
 diff/hash, exact commands, original UTC time, environment and raw artifact
 paths/hashes. Preserve raw media and map every derivative to its source hash and
 transformation command. A candidate pre/post journey is not a pre-change
-baseline; if no applicable baseline can safely be captured or recovered, record
+baseline; if no applicable baseline can safely be captured (or, for a non-fix
+claim, recovered), record
 `BEFORE: WITHHELD — <reason>` and withhold the comparison claim.
 
 Published screenshots must render inline (not text-only links); use width `450`
