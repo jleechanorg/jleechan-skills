@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.jleechan.prw-local-usage</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>@RELEASE_DIR@/scripts/run_prw_local_usage.sh</string>
+    <string>--publish-remote</string>
+    <string>@ROADMAP_REMOTE@</string>
+    <string>--publish-branch</string>
+    <string>@ROADMAP_BRANCH@</string>
+    <string>--machine</string>
+    <string>@MACHINE@</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:@HOME@/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>StartCalendarInterval</key>
+  <dict><key>Minute</key><integer>37</integer></dict>
+  <key>StandardOutPath</key>
+  <string>@HOME@/Library/Logs/prw-local-usage.stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>@HOME@/Library/Logs/prw-local-usage.error.log</string>
+  <key>WorkingDirectory</key>
+  <string>@HOME@</string>
+</dict>
+</plist>

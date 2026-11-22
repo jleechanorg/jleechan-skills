@@ -120,3 +120,18 @@ def test_activate_enables_and_bootstraps_slim_label(env):
     assert any(c.startswith("enable ") and c.endswith("/" + LABEL) for c in calls)
     assert any(c.startswith("bootstrap ") and LABEL + ".plist" in c for c in calls)
     assert env.plist.exists()
+
+
+def test_usage_remote_in_plist_only_when_given(env):
+    assert "--usage-remote" not in env.run("--dry-run").stdout
+    given = env.run("--dry-run", "--usage-remote", REMOTE)
+    assert given.returncode == 0, given.stderr
+    lines = [ln.strip() for ln in given.stdout.splitlines()]
+    assert lines[lines.index("<string>--usage-remote</string>") + 1] == "<string>%s</string>" % REMOTE
+    assert env.calls() == []
+
+
+def test_usage_remote_with_credentials_exits_2(env):
+    done = env.run("--dry-run", "--usage-remote", "https://u:p@example.invalid/r.git")
+    assert done.returncode == 2
+    assert env.calls() == []
