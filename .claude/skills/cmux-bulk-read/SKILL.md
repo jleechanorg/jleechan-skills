@@ -134,12 +134,44 @@ Every child brief must carry, verbatim, the following contract (children do not 
    whether it duplicates another surface's PR/branch, and the last substantive activity with recency evidence.
 7. **Output shape** — one block per surface: workspace › surface title (CLI), file + lines_read/total, two-sample
    plus gate checks, class, PR/branch/worktree, ≤3 verbatim evidence quotes with line numbers, off-track yes/no with
-   one-sentence reason, and `Proposed steer:` (exact command, or `none`). End with
-   `SHARD_OFF_TRACK_COUNT=<n>` / `SHARD_WORKING_COUNT=<n>`.
+   one-sentence reason, `Resolvable by:` (see § Resolvability triage below), and `Proposed steer:` (exact command, or
+   `none`). End with `SHARD_OFF_TRACK_COUNT=<n>` / `SHARD_WORKING_COUNT=<n>`.
 
 Proven shape for reuse: write the brief as a workflow script and pass the shard map in `args`, e.g.
 `subagent({ workflow: "/tmp/cmux_read_shards.js", cwd: "/tmp", async: true, args: { out: OUT_DIR, shards: {...} } })`.
 A child launch/prompt failure is a lane failure: report it, do not fall back to a foreground CLI silently.
+
+## Resolvability triage — every blocker gets one of three verdicts
+
+**Never report a blocker without first asking: can an LLM clear this?** Routing agent-resolvable work to the
+operator is a harness failure in its own right, and it is the most expensive one because it burns human attention
+while looking like diligence. Every blocker in a report carries exactly one of:
+
+| Verdict | Meaning | Required evidence |
+|---|---|---|
+| `LLM` | An agent can clear it with tools it already has. | Name the tool/command and say what it produces. |
+| `HUMAN` | Only the operator can decide. | Name the **class**: merge approval, spend, credential, destructive, or a genuine product/scope choice. |
+| `NOBODY` | Blocked on an external capability limit. | Name it and its reset/expiry (e.g. provider wall to a date). |
+
+Binding rules:
+
+1. **A failing check is not automatically a human review.** Read the actual failure text before classifying it.
+   A `stage5-visual-findings` failure can be a SHA-bookkeeping mismatch (`reviewed head SHA 'x' does not match PR
+   head 'y'`) that an agent fixes by re-pointing the table, or a genuine unresolved visual disagreement. Fetch the
+   job log (`gh api repos/<o>/<r>/actions/jobs/<id>/logs`) and quote the failing line. In 2026-11-12 a report
+   classified such a mismatch as "needs a fresh visual review at the new head" and handed it to the operator;
+   the real diff was +3/-1 (one JSX prop plus its assertion) and an agent could clear it in one pass.
+2. **Size is not authority, but it is evidence.** A +10/-1 one-file PR is not a "merge decision" — it is work.
+   Read `gh pr view <N> --json additions,deletions,changedFiles` before calling anything operator-scaled.
+3. **`HUMAN` requires the decision, not the work.** "Needs MERGE APPROVED" is HUMAN. "Needs its checks green,
+   a second reviewer seat, a rebase, a re-pin, or a bookkeeping fix" is `LLM` even when it sits on the same PR.
+4. **Do not launder a `LLM` item through a `HUMAN` label.** If a lane is parked on an operator decision *and*
+   has an agent-doable remainder, report both: `Resolvable by: HUMAN (<decision>) + LLM (<remainder>)`.
+5. **`NOBODY` never becomes `HUMAN`.** A provider wall is a scheduling fact, not a request for the operator. Cite
+   the reset time and stop.
+
+A report that labels work `HUMAN` without naming one of the five human classes and quoting the source is
+non-compliant and must be re-derived before it is published.
 
 ## The three idle-gate checks (identical screens only)
 

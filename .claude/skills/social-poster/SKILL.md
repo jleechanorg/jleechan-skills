@@ -79,6 +79,34 @@ establish permission to promote; this check is not publication authorization.
 
 Do not configure PRAW, OAuth credentials, or a Reddit posting MCP inside `/social`. Keep credential setup separate from this workflow.
 
+## Browser timeout recovery
+
+For transient `DOM.resolveNode` or `Runtime.evaluate` timeouts, first inspect
+current state to determine whether an uncertain save succeeded. Inspect a
+separate saved-text view only when it preserves the populated media composer;
+never reload, navigate away from, or close that composer solely for a persistence
+check. A separate read at the exact draft URL recovered text in one observed run,
+not unsaved media. Keep the existing draft identity and avoid duplicate drafts
+or retries of an uncertain publish. Check the destination's published history/permalink
+before any repeat publication. Do not reset shared services, bypass denials, or
+switch to hidden APIs to evade a blocked action. Report unresolved outcomes as
+uncertain, with the exact action and target.
+
+## Hacker News preparation and submission
+
+Keep preparation notes and draft files distinct from an actual HN submission.
+Read the current destination rules before staging or submitting, including its
+policy on AI-written material; do not assume generated copy is permitted. Apply
+the user's publication authorization only to the reviewed content and destination,
+and verify the resulting permalink before reporting submission.
+
+Show HN checklist (confirm against the live Show HN guidelines):
+- Something users can try now (live demo or runnable code), not a landing page or waitlist.
+- Title `Show HN: ...` within 80 chars; no marketing tone, superlatives, or emoji.
+- Text is human-written by the user, not generated; flag any generated copy for rewrite.
+- Never ask for upvotes or comments, or have others do so.
+- Disclose that you are the developer in the first comment.
+
 ## Why this shim exists
 
 - Keeps `~/.claude/commands/social.md` skill-first

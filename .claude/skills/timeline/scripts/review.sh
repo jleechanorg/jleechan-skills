@@ -12,6 +12,7 @@ chrome="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 [ -x "$chrome" ] || chrome="$(command -v google-chrome || command -v chromium || true)"
 if [ -n "$chrome" ]; then
   timeout 60 "$chrome" --headless=new --disable-gpu --hide-scrollbars \
+    --disable-features=MacAppCodeSignClone \
     --window-size=1200,"$height" --screenshot="$png" "file://$html" >/dev/null 2>&1
   [ -s "$png" ] && { echo "$png"; exit 0; }
   echo "review.sh: headless Chrome failed; trying Aside" >&2

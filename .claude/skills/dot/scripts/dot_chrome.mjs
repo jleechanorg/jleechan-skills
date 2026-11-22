@@ -198,7 +198,7 @@ function chromeLaunchOptions(profDir) {
       ignoreDefaultArgs.push('--password-store=basic', '--use-mock-keychain');
     }
   } else if (isMac) {
-    args.push('--password-store=keychain');
+    args.push('--password-store=keychain', '--disable-features=MacAppCodeSignClone');
     ignoreDefaultArgs.push('--use-mock-keychain', '--password-store=basic');
   }
   return { executablePath: CHROME, headless: isLinux ? !hasDisplay : true, userAgent: UA, ignoreDefaultArgs, args };

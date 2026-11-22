@@ -126,6 +126,25 @@ A recurring failure pattern: a Claude Code or Codex surface has **finished its t
 
 **Never auto-answer a genuine human decision** — destructive/irreversible actions, production `MERGE APPROVED`, scope/product choices, credential changes, or spend authorizations. Those are `PARKED_OPERATOR`: report them, don't guess.
 
+**But first prove it is genuinely human — resolve, don't escalate.** Before reporting any blocker as
+`PARKED_OPERATOR`, run the § Resolvability triage in `cmux-bulk-read` and label it `LLM`, `HUMAN` or `NOBODY`.
+The five human classes are closed: **merge approval, spend, credential, destructive, and a genuine
+product/scope choice.** Anything else an agent can do is `LLM` and must not be handed to the operator.
+
+Three concrete failure modes, all observed in one fleet report:
+
+1. **A failing check misread as "needs a human review."** A visual-findings gate failure was
+   `reviewed head SHA '1bde8f54' does not match PR head '151298fd'` — nine bookkeeping rows. The underlying diff
+   was **+3/−1** (one `keyboardAvoiding` JSX prop plus its assertion). An agent re-points the table and the gate
+   passes. Read the job log before classifying: `gh api repos/<o>/<r>/actions/jobs/<id>/logs`.
+2. **Size mistaken for authority.** A `+10/−1` one-file PR is not a merge decision; it is work. Check
+   `gh pr view <N> --json additions,deletions,changedFiles` first.
+3. **A lane's operator decision laundering its agent-doable remainder.** "Needs MERGE APPROVED" is HUMAN; the
+   same PR still needing a second reviewer seat, a rebase, or a re-pin is `LLM`. Report both halves separately.
+
+When a lane is parked, the default steer is not silence — it is *"do the agent-doable part and name only the
+unmet human decision."*
+
 This augments the `DIALOG_BLOCKED` semantic category below (a stopped coding-agent question is the same failure class).
 
 ### Codex `/goal` stall — resume, don't reclassify

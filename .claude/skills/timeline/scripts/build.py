@@ -8,27 +8,25 @@ Spec: {title, snapshot, subtitle, branch, pr, bead, bead_db, done:[str], span,
 Minutes throughout. hi=null means unknown (grey). Color is chosen from hi.
 Without out.html the path is /tmp/timeline/<branch>-pr<N>.html, stable across
 rebuilds. --publish secret-scans the HTML, creates or edits one secret gist
-(id kept in <html>.gist), shortens the gistpreview.github.io link via tinyurl, cleanuri, then spoo.me
-(cached in <html>.short), and creates or updates one bead (id kept in <html>.bead).
+(id kept in <html>.gist), prints the direct preview URL, and creates or updates
+one bead (id kept in <html>.bead).
 """
 import argparse
 import hashlib
 import html
 import json
 import math
+import os
 import re
 import subprocess
 import sys
 import time
-import urllib.error
 import urllib.parse
-import urllib.request
 from datetime import datetime, timedelta
 from pathlib import Path
 
 TEMPLATE = Path(__file__).resolve().parent.parent / "assets" / "template.html"
 COLS = 60
-UA = "timeline-skill/1.0"
 SECRET_RE = re.compile(
     r"gh[pousr]_[A-Za-z0-9]{30,}|github_pat_\w{20,}|sk-[A-Za-z0-9_-]{20,}|(?:AKIA|ASIA)[0-9A-Z]{16}"
     r"|AIza[0-9A-Za-z_-]{35}|xox[abposr]-[A-Za-z0-9-]{10,}|hooks\.slack\.com/services/"
@@ -69,6 +67,19 @@ def finish_text(snapshot, mins):
     return t.strftime("%H:%M ") + m[3]
 
 
+def _scratch_root() -> Path:
+    env_root = os.environ.get("DISKM_SCRATCH")
+    if not env_root:
+        try:
+            env_root = subprocess.run(["diskm", "volume", "path", "scratch"], capture_output=True,
+                                      text=True, timeout=10).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            env_root = ""
+    if env_root and os.path.isdir(env_root) and os.access(env_root, os.W_OK):
+        return Path(env_root)
+    return Path("/tmp")
+
+
 def out_file(spec, out_path):
     if out_path:
         return Path(out_path)
@@ -76,7 +87,7 @@ def out_file(spec, out_path):
         sys.exit("build.py: give out.html, or branch (and pr) in the spec or flags")
     stem = re.sub(r"[^A-Za-z0-9._-]", "-", spec["branch"])
     stem += re.sub(r"[^A-Za-z0-9._-]", "-", f"-pr{spec['pr']}") if spec.get("pr") else ""
-    return Path("/tmp/timeline") / f"{stem}.html"
+    return _scratch_root() / "timeline" / f"{stem}.html"
 
 
 def run(cmd, cwd=None, stdin=None):
@@ -135,64 +146,6 @@ def publish_gist(spec, path):
     return f"https://gist.github.com/{owner}/{gid}", f"https://gistpreview.github.io/?{gid}/{urllib.parse.quote(path.name)}"
 
 
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, *args, **kwargs):
-        return None
-
-
-def _redirects_to(short, target):
-    """True when a HEAD on the short URL answers 3xx with Location exactly the target."""
-    req = urllib.request.Request(short, method="HEAD", headers={"User-Agent": UA})
-    try:
-        urllib.request.build_opener(_NoRedirect).open(req, timeout=10)
-    except urllib.error.HTTPError as err:
-        return 300 <= err.code < 400 and err.headers.get("Location") == target
-    except OSError:
-        return False
-    return False
-
-
-def _shorten(api, target):
-    q = urllib.parse.quote(target, safe="")
-    if api == "tinyurl":
-        req = urllib.request.Request(f"https://tinyurl.com/api-create.php?url={q}")
-    elif api == "cleanuri":
-        req = urllib.request.Request("https://cleanuri.com/api/v1/shorten",
-                                     data=f"url={q}".encode())
-    else:
-        req = urllib.request.Request("https://spoo.me/", data=f"url={q}".encode(),
-                                     headers={"Accept": "application/json"})
-    req.add_header("User-Agent", UA)
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        out = resp.read().decode().strip()
-    if api != "tinyurl":
-        out = json.loads(out).get("result_url" if api == "cleanuri" else "short_url", "")
-    return re.sub(r"^http://", "https://", out)
-
-
-def short_link(target, path):
-    """Short URL for target, cached in <html>.short (line 1 target, line 2 short);
-    a cached entry is reused only after a fresh redirect check.
-
-    Only a short URL that answers 3xx straight to target is accepted, so interstitial
-    shorteners are rejected.
-    """
-    side = Path(f"{path}.short")
-    if side.exists():
-        cached = side.read_text().split()
-        if len(cached) == 2 and cached[0] == target and _redirects_to(cached[1], target):
-            return cached[1]
-    for api in ("tinyurl", "cleanuri", "spoo"):
-        try:
-            out = _shorten(api, target)
-        except (OSError, ValueError, AttributeError):
-            continue
-        if re.fullmatch(r"https://\S+", out) and _redirects_to(out, target):
-            side.write_text(f"{target}\n{out}\n")
-            return out
-    return None
-
-
 def publish_bead(spec, path, gist_url, preview):
     db = spec.get("bead_db")
     if not db:
@@ -230,7 +183,7 @@ def main(spec_path, out_path=None, branch=None, pr=None, publish=False):
     if retrospective and not all(spec.get(k) for k in ("window_start", "window_end")):
         raise ValueError("retrospective requires window_start and window_end")
     dest = out_file(spec, out_path)
-    for suffix in ("", ".owner", ".gist", ".short", ".bead"):
+    for suffix in ("", ".owner", ".gist", ".bead"):
         if Path(f"{dest}{suffix}").is_symlink():
             sys.exit(f"build.py: {dest}{suffix} is a symlink; refusing to write through it")
     if not out_path:
@@ -359,10 +312,7 @@ def main(spec_path, out_path=None, branch=None, pr=None, publish=False):
             print(f"build.py: publish failed, timeline still drawn: {err}", file=sys.stderr)
             print(f"HTML (local): {dest}")
             return
-        short = short_link(preview, dest)
-        print(f"Timeline: {short or preview}")
-        if short:
-            print(f"Preview (full): {preview}")
+        print(f"Timeline: {preview}")
         print(f"Gist: {gist_url}\nHTML (local): {dest}")
         t1 = time.time()
         try:

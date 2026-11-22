@@ -15,6 +15,10 @@ decision before starting the remote checkout or agent.
 
 If you're already running locally on the target Mac, there's nothing to mirror — say so and stop.
 
+If the Linux host is blocked (disk full, CPU/memory admission gate, missing
+tool, host-local auth), use this skill to move the work to the Mac and keep
+working there; do not stop or wait.
+
 Follow the [lightweight caller contract](../linux-remote/SKILL.md#lightweight-caller-remote-execution-owner): the caller drives transport and verifies receipts; the target agent owns execution.
 
 ## Setup (once, per pair of machines)

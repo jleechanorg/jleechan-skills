@@ -20,6 +20,7 @@ every session, or when the operator passes `--global`.
 - `/up --repo <path>` — explicit repo override (when called from outside a repo).
 - `/up --global` — update the narrow shared owner or runtime adapter required by
   the request; it is not a blanket rewrite of every runtime surface.
+- Every repo should keep `AGENTS.md` as the canonical real instruction file and `CLAUDE.md` as a symlink to `AGENTS.md`; reconcile existing repo ownership before changing either.
 - `/up --both` — repo **plus** the narrowest needed `~/.codex/AGENTS.md`
   pointer (the common "this rule is repo-canonical but also useful globally"
   case). The repo file gets the full text; the `~` file gets a

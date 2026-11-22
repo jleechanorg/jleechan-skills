@@ -272,7 +272,7 @@ if [[ $GENESIS_LINES -gt 0 ]] && [[ $RALPH_LINES -gt 0 ]]; then
 
     echo "✅ Advice review completed"
 else
-    echo "⚠️ Skipping consensus review - missing implementations:"
+    echo "⚠️ Skipping advice review - missing implementations:"
     echo "  Genesis lines: $GENESIS_LINES"
     echo "  Ralph lines: $RALPH_LINES"
 fi
