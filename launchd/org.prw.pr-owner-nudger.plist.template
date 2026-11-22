@@ -12,6 +12,8 @@
   <integer>600</integer>
   <key>AbandonProcessGroup</key>
   <true/>
+  <key>ProcessType</key>
+  <string>Standard</string>
   <key>StandardOutPath</key>
   <string>@HOME@/Library/Logs/pr-owner-nudger.log</string>
   <key>StandardErrorPath</key>

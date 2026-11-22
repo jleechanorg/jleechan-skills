@@ -30,6 +30,8 @@ class SchedulerTest(unittest.TestCase):
         job = plistlib.loads(path.read_bytes())
         self.assertEqual(job["StartInterval"], 600)
         self.assertTrue(job["AbandonProcessGroup"])
+        # Unset ProcessType runs at background QoS; cmux inventory then times out.
+        self.assertEqual(job["ProcessType"], "Standard")
         self.assertEqual(job["ProgramArguments"][2:], ["--config", str(self.config)])
         self.render("launchd", "--apply")
         self.assertEqual(plistlib.loads(path.read_bytes())["ProgramArguments"][-1], "--apply")
