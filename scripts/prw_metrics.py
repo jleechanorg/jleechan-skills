@@ -178,9 +178,170 @@ def aggregate(records, health, annotations, cutoff):
 
 # --- render ---
 
-def render(metrics):
-    raise NotImplementedError
+_STAGES = (
+    ("stage:0-spec", "Stage 0 (Spec)"),
+    ("stage:1-code", "Stage 1 (Code)"),
+    ("stage:2-evidence", "Stage 2 (Evidence)"),
+    ("stage:3-review", "Stage 3 (Review)"),
+    ("stage:4-ci", "Stage 4 (CI/Undraft)"),
+    ("stage:5-approval", "Stage 5 (Approval)"),
+)
+_INCOMPLETE = "INCOMPLETE"
 
+
+def _table(header, rows):
+    lines = ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)]
+    lines.extend("| " + " | ".join(str(c) for c in row) + " |" for row in rows)
+    return lines
+
+
+def _cell(text):
+    return str(text).replace("|", "\\|").replace("\n", " ")
+
+
+def _dur(dist, key):
+    """Duration cell for a Dist; a missing Dist or an empty sample is UNKNOWN."""
+    return format_duration(dist.get(key) if dist else None)
+
+
+def _n(dist):
+    return dist["n"] if dist else "UNKNOWN"
+
+
+def render(metrics):
+    """Render the seven-section GitHub-flavored Markdown dashboard (pure and deterministic)."""
+    repos = metrics.get("repos") or []
+    health = metrics.get("health") or {}
+    bad = [r for r in repos if not (health.get(r) or {}).get("ok")]
+    windows = metrics.get("windows") or {}
+    out = ["# PRW Metrics Dashboard", ""]
+    out.append("**Data cutoff (UTC)**: %s" % metrics.get("cutoff", "UNKNOWN"))
+    out.append("**Repositories**: %s" % (", ".join(repos) or "UNKNOWN"))
+    for name, label in (("w1", "W1 (prior 7d)"), ("w2", "W2 (recent 7d)")):
+        win = windows.get(name)
+        if win:
+            out.append("**%s**: [%s, %s)" % (label, win["start"], win["end"]))
+    if bad:
+        out.append("**Collection health**: %s for %d of %d repositories (%s)"
+                   % (_INCOMPLETE, len(bad), len(repos), ", ".join(bad)))
+    else:
+        out.append("**Collection health**: OK for all %d repositories" % len(repos))
+
+    def row_for(repo, cells):
+        if repo in bad:
+            return [repo] + [_INCOMPLETE] * len(cells)
+        return [repo] + cells
+
+    # 1 repo comparison
+    out += ["", "## 1. Repository Comparison (W1 prior vs W2 recent)", ""]
+    rows = []
+    for repo in repos:
+        stats = (metrics.get("merge_stats") or {}).get(repo) or {}
+        for wname in ("w1", "w2"):
+            win = stats.get(wname) or {}
+            all_, comp, back = win.get("all"), win.get("comparable"), win.get("backlog")
+            cells = [wname.upper(), _n(all_), _n(comp), _n(back),
+                     _dur(all_, "p50"), _dur(all_, "p75"), _dur(all_, "p90")]
+            rows.append([repo] + ([cells[0]] + [_INCOMPLETE] * 6 if repo in bad else cells))
+    out += _table(["Repository", "Window", "Merged (all)", "Merged (<=7d)", "Backlog merged (>7d)",
+                   "Median created->merged", "p75", "p90"], rows)
+
+    # 2 stage dwell
+    out += ["", "## 2. Stage Dwell (elapsed label time, p50 per PR)", ""]
+    rows = []
+    for repo in repos:
+        dwell = (metrics.get("stage_dwell") or {}).get(repo) or {}
+        rows.append(row_for(repo, [_dur(dwell.get(key), "p50") for key, _ in _STAGES]))
+    out += _table(["Repository"] + [label for _, label in _STAGES], rows)
+
+    # 3 time semantics
+    out += ["", "## 3. Time Semantics", ""]
+    rows = []
+    for repo in repos:
+        el = (metrics.get("elapsed") or {}).get(repo)
+        rows.append(row_for(repo, [_n(el), _dur(el, "p50"), _dur(el, "p75"),
+                                   "UNKNOWN", "UNKNOWN", "UNKNOWN", "UNKNOWN"]))
+    out += _table(["Repository", "Operation elapsed (n)", "Median", "p75", "Active wall time",
+                   "Agent effort", "Waiting time", "Residual"], rows)
+
+    # 4 handoff
+    out += ["", "## 4. Handoff Delays (review requested/readiness -> review)", ""]
+    rows = []
+    for repo in repos:
+        ho = (metrics.get("handoff") or {}).get(repo) or {}
+        for key, label in (("requested", "Review request -> review"),
+                           ("readiness", "Ready for review -> review")):
+            d = ho.get(key)
+            cells = [label, _n(d), _dur(d, "p50"), _dur(d, "p75"), _dur(d, "p90"),
+                     ho.get("open_attempts", "UNKNOWN"), ho.get("superseded_attempts", "UNKNOWN")]
+            rows.append([repo] + ([cells[0]] + [_INCOMPLETE] * 6 if repo in bad else cells))
+    out += _table(["Repository", "Metric", "n", "Median", "p75", "p90", "Open attempts",
+                   "Superseded attempts"], rows)
+
+    # 5 user activity and episodes
+    out += ["", "## 5. User Activity and Episodes", "",
+            "User-login activity (includes agents acting as the user), counts in the last 14 days.", ""]
+    rows = []
+    for repo in repos:
+        act = (metrics.get("user_activity") or {}).get(repo)
+        cells = []
+        for who in ("User", "Bot"):
+            part = (act or {}).get(who)
+            for k in ("comments", "reviews", "commits"):
+                cells.append(part[k] if part else "UNKNOWN")
+        rows.append(row_for(repo, cells))
+    out += _table(["Repository", "User comments", "User reviews", "User commits",
+                   "Bot comments", "Bot reviews", "Bot commits"], rows)
+    out.append("")
+    status = metrics.get("annotations_status")
+    if status == "OK":
+        labels = metrics.get("episode_labels") or {}
+        counts = {k: 0 for k in ("good", "bad", "mixed")}
+        for entry in labels.values():
+            counts[entry.get("label")] = counts.get(entry.get("label"), 0) + 1
+        out.append("Episode labels (from annotations): good %d, bad %d, mixed %d."
+                   % (counts["good"], counts["bad"], counts["mixed"]))
+    else:
+        out.append("Episode labels: UNKNOWN (annotations %s)." % (status or "UNKNOWN"))
+
+    # 6 open PR attention
+    out += ["", "## 6. Open PR Attention", ""]
+    rows = []
+    for pr in metrics.get("open_attention") or []:
+        repo = pr["repo"]
+        rows.append([_cell(repo), "[#%s](%s)" % (pr["number"], pr["url"]), _cell(pr["title"]),
+                     _cell(pr["owner"]), format_duration(pr.get("age_sec")),
+                     _cell(pr.get("earliest_unmet") or "UNKNOWN"), _cell(pr.get("status") or "UNKNOWN"),
+                     _INCOMPLETE if repo in bad else "OK"])
+    if rows:
+        out += _table(["Repository", "PR", "Title", "Owner", "Age", "Earliest unmet stage", "Status",
+                       "Repo data"], rows)
+    else:
+        out.append("No open PRs at cutoff.")
+
+    # 7 notes
+    out += ["", "## 7. Notes", ""]
+    for repo in repos:
+        h = health.get(repo) or {}
+        state = "OK" if h.get("ok") else "%s (%s)" % (_INCOMPLETE, h.get("error") or "no collection health")
+        trunc = h.get("truncated_prs") or []
+        out.append("- %s: collection %s, %s pages, %d PRs with truncated timelines%s"
+                   % (repo, state, h.get("pages", "UNKNOWN"), len(trunc),
+                      " (" + ", ".join("#%s" % n for n in trunc) + ")" if trunc else ""))
+    out.append("- Annotations: %s." % (status or "UNKNOWN"))
+    out += [
+        "- INCOMPLETE repositories failed collection; their figures are withheld, not zero.",
+        "- UNKNOWN means not observed; it is never zero. PRs with truncated timelines are excluded"
+        " from timeline-derived metrics.",
+        "- Comparable = merged within 7 days of creation; backlog = more than 7 days.",
+        "- Stage dwell is label-event time (labeled to unlabeled), clipped to the 14-day horizon.",
+        "- Handoff measures only attempts closed by a review before cutoff; open and superseded"
+        " attempts are counted, not measured.",
+        "- Operation elapsed is created-to-merged; active wall time, agent effort, waiting time and"
+        " residual are not collected and stay UNKNOWN.",
+        "- Telemetry retention, usage cost and web views were removed from this dashboard.",
+    ]
+    return "\n".join(out) + "\n"
 
 
 # --- publish ---
