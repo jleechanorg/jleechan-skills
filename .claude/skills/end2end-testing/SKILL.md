@@ -95,7 +95,7 @@ synthetic adapter as a real capture.
 Link a reviewer-accessible, sanitized capture receipt that is revision-pinned
 and in a destination authorized for the task, such as a revision-pinned Gist or
 an immutable access-controlled receipt already accessible to the intended
-reviewers. The receipt covers provenance only, not separate PR
+reviewers. The receipt covers provenance only; it does not waive separate PR
 publication requirements. Bind the original UTC capture
 time, source environment and backend identity or provider/model, safe opaque
 receipt ID, and scrubbed fixture hash. Require a verified serving revision
