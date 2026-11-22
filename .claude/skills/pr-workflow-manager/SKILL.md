@@ -41,6 +41,13 @@ An unqualified `/prw` (`/pr-workflow`) defaults to driving the PR to **`FINAL_RE
 
 Before selecting a branch, stage, or gate, inspect the target repository's `AGENTS.md`, `CLAUDE.md`, and scoped instructions. Local repository instructions take precedence within their domain. Where local instructions are silent, apply the canonical [pr-lifecycle](../pr-lifecycle/SKILL.md) completion loop.
 
+**Repository overlay.** Then load the repository's PR overlay, if any: `.claude/pr-overlay.md` read from the PR's actual base ref, so a PR cannot loosen its own rules (if the PR edits the file, the base version still governs). If there is none, use the operator overlay at `${XDG_CONFIG_HOME:-$HOME/.config}/jleechan-skills/pr-overlays/<owner>/<repo>.md` when it exists. An overlay is plain Markdown with up to three headings:
+- `## Proof route`: how this repository produces behavior proof;
+- `## Preview`: `required`, `opportunistic` or `none`;
+- `## CI`: which stages wait on remote CI, and when a slow required check is replaced by the [local-equivalent record](../pr-green-definition/SKILL.md#backlogged-ci--local-equivalent-gate-1-evidence).
+
+Precedence, highest first: target `AGENTS.md`/`CLAUDE.md`, then the repository overlay, then the operator overlay, then the shared defaults. Either overlay may relax a repository rule only by quoting the dated operator instruction that grants the exception. A repository overlay's grant counts once it has merged through the repository's normal review. An operator overlay's grant lapses when a repository overlay lands. Otherwise the repository rule wins. In the PR's stage or execution record, name the overlay and its commit or file hash, and copy verbatim every repository rule it relaxed and the grant quoted for it.
+
 ## Verify ownership and exact branch
 
 - Read target repository `AGENTS.md`/`CLAUDE.md`, current user scope, existing PR, and source-owner/hold records. Reconcile with any sole writer before writing to prevent competing updates.

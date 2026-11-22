@@ -85,6 +85,7 @@ registry.
 | `SLACK_WORKSPACE_DOMAIN` | Workspace domain for permalinks (prefer `chat.getPermalink`) | unset |
 | `CLAW_CHANNEL` / `CLAW_BOT_ID` | Channel and bot user for `/claw` dispatch | required |
 | `GMAIL_ACCOUNT` | Gmail address for the `gmail` skill | required |
+| (path) PR operator overlays | Machine-local `/pr` overlays per repository, read by pr-workflow-manager | `${XDG_CONFIG_HOME:-$HOME/.config}/jleechan-skills/pr-overlays/<owner>/<repo>.md` |
 | `CREDENTIAL_BLOCKLIST_FILE` | Machine-local list of identifiers that must never be pasted | `${XDG_CONFIG_HOME:-$HOME/.config}/jleechan-skills/credential-blocklist.txt` |
 
 ## Cloud projects (plugin skills only)
