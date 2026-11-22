@@ -250,7 +250,7 @@ claims but never prove UI integration. Unless an explicit lifecycle exception
 applies, capture comparable BEFORE/AFTER implementations; use desktop 1440×900
 and mobile 375×812 coverage where applicable. Interaction, navigation, streaming,
 animation and timing claims require captioned video; a simple static visual may
-use paired screenshots with the reason recorded.
+use matched captioned screenshots with the reason recorded.
 
 Bind each capture to the served app/build SHA, capture-driver revision, dirty
 diff/hash, exact commands, original UTC time, environment and raw artifact
