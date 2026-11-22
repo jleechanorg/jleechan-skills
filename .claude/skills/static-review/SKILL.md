@@ -17,11 +17,13 @@ the complete diff and inspect claim-relevant source and artifacts. Do not impose
 this full-code contract on evidence-only work or count an evidence verdict as a
 source/advice vote. Separately requested source correctness uses this contract.
 
-Each source approver reads the complete pinned diff and every changed path at
-both revisions, or verifies absence. Include binary, mode, symlink, submodule
-and LFS payloads. Verify unchanged spans before reusing a fully read version;
-changed hunks with small context do not establish full-file coverage. Missing
-or unretrievable required content means WITHHELD after bounded recovery with
+Each source approver reads the complete pinned diff, including binary, mode,
+symlink, submodule and LFS changes, plus the full head-revision content of every
+changed production or runtime file (application code, prompts, schemas,
+configuration, workflows and scripts), or verifies its absence. Test, fixture,
+evidence, documentation and generated files are covered by the complete diff;
+read surrounding context there only where a finding needs it. File size never
+expands this scope. Missing or unretrievable required content means WITHHELD after bounded recovery with
 narrower ranges inside the fixed attempt deadline (600 seconds for static review;
 advice §3's deadline for other seats; no timer reset). Never combine partial
 reviewers into one complete vote.
@@ -51,9 +53,11 @@ Shared revision template for clone, export, read-only and remote modes:
 ```text
 Review <PR URL> at head <SHA> (base <BASE SHA>). Assess the changed claims under
 the /prw stages; prior approval or a completed review is not a prerequisite. Read
-the complete base-to-head diff and full
-content of every changed path at both revisions, or verify its absence, including
-binary, mode, symlink, submodule and LFS payloads. Retrieve via bounded per-file or
+the complete base-to-head diff, including
+binary, mode, symlink, submodule and LFS changes, and the full head-revision content
+of every changed production or runtime file (application code, prompts, schemas,
+configuration, workflows and scripts), or verify its absence. Test, fixture,
+evidence, documentation and generated files are covered by the diff. Retrieve via bounded per-file or
 range requests; if tool output truncates, recover remaining content with narrower
 ranges within the fixed attempt deadline (600s for static-review §4; 1800s for advice §3;
 no timer reset). The model must directly read all content (fetching bytes into a
@@ -78,8 +82,10 @@ Revision packet template for web-provider seats:
 
 ```text
 Review the attached change packet for <PR URL> at head <SHA> (base <BASE SHA>),
-bundle sha256:<BUNDLE HASH>. Read its complete diff and full changed-path content
-at both revisions, or verified absence, including special-object payloads.
+bundle sha256:<BUNDLE HASH>. Read its complete diff, including special-object
+changes, and the full head-revision content of every changed production or runtime
+file, or verified absence; test, fixture, evidence, documentation and generated
+files are covered by the diff.
 Assess the changed claims under /prw; prior approval or a completed review is not
 a prerequisite. Retrieve via bounded per-file or range requests; if tool output
 truncates, recover remaining content with narrower ranges within the fixed attempt
@@ -110,9 +116,10 @@ unbound packet uses exactly `DOCUMENTS sha256:<BUNDLE HASH>` and approves only
 its declared bundle. Incomplete claimed revision binding means WITHHELD; never
 use an abbreviated SHA or mutable HEAD. Read only the complete declared files and evidence; prior
 approval or a completed review is not a prerequisite. If the
-packet claims revision binding, also read its complete base-to-head diff and
-changed-path content at both revisions, including special objects or verified
-absence. Retrieve via bounded per-file or range requests; if tool output
+packet claims revision binding, also read its complete base-to-head diff, including
+special objects, and the full head-revision content of every changed production or
+runtime file, or verified absence; test, fixture, evidence, documentation and
+generated files are covered by the diff. Retrieve via bounded per-file or range requests; if tool output
 truncates, recover remaining content with narrower ranges within the fixed attempt
 deadline (600s for static-review §4; 1800s for advice §3; no timer reset). The
 model must directly read all content (fetching bytes into a script variable or
