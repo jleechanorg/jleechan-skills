@@ -25,6 +25,35 @@ class PersonalIdentifierTest(unittest.TestCase):
         self.assertEqual(kinds, {"home path", "email", "slack id", "private lan ip", "tailnet ip", "named ssh key", "personal hostname"})
         self.assertEqual(find_personal_identifiers("~/.ssh/id_ed25519 100.10.0.1"), [])
 
+    def test_detects_phone_numbers(self):
+        # A hardcoded phone in a skill is a real person's contact detail. Fixtures
+        # use the invalid NANP exchange 000 so they can never reach anyone. The
+        # 2026-11-09/10 incident shipped a contact's number as a script default and
+        # 46 self-test messages reached it; this scanner did not look at phones at all.
+        for text in (
+            'SELF_HANDLE="${IMSG_SELF_HANDLE:-+12120001234}"',
+            "send the receipt to +12120001234 for review",
+            "call (212) 000-1234",
+            "dial 212-000-1234",
+        ):
+            kinds = {k for k, _ in find_personal_identifiers(text)}
+            self.assertIn("phone number", kinds, f"missed a phone number in: {text}")
+
+    def test_phone_pattern_spares_non_phone_numbers(self):
+        # Over-matching would make the guard noisy enough to be disabled. These are
+        # real strings already in the repo or plausible in future skills.
+        for text in (
+            "(strftime('%s','now')+11644473600)*1000000",  # Chrome epoch constant
+            "INSTINCT_IMSG_CONTACT=+15551234567",         # NANP 555 test placeholder
+            "+1 555 123 4567 and (555) 123-4567",         # 555 block, both forms
+            "+14155551212 or 415-555-1212",               # 555 fiction exchange
+            "for total in 100 101 999 9999; do",          # number list in a test loop
+            "window id 1000120002",                        # cmux surface id
+            "10.1000/182",                                 # DOI
+        ):
+            kinds = {k for k, _ in find_personal_identifiers(text)}
+            self.assertNotIn("phone number", kinds, f"false positive on: {text}")
+
     def test_relative_root_finds_changed_files(self):
         import os, tempfile
         with tempfile.TemporaryDirectory() as td:
