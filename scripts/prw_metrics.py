@@ -404,8 +404,162 @@ def collect(repos, cutoff, runner):
 
 # --- aggregate ---
 
+_DAY = 86400
+_DIST_KEYS = (("p50", 50), ("p75", 75), ("p90", 90), ("p99", 99))
+_ACTIVITY_KEYS = {"comment": "comments", "review": "reviews", "commit": "commits"}
+
+
+def _dist(values):
+    out = {"n": len(values)}
+    for key, p in _DIST_KEYS:
+        out[key] = nearest_rank_percentile(values, p)
+    return out
+
+
+def _secs(delta):
+    return int(delta.total_seconds())
+
+
+def _window_of(merged_at, cutoff):
+    """Return 'w1', 'w2' or None for a merge time; windows are half-open, start inclusive."""
+    if merged_at is None or merged_at >= cutoff:
+        return None
+    if merged_at >= cutoff - timedelta(days=7):
+        return "w2"
+    if merged_at >= cutoff - timedelta(days=14):
+        return "w1"
+    return None
+
+
+def _stage_number(label):
+    head = label.split(":", 1)[1].split("-", 1)[0]
+    return int(head) if head.isdigit() else 99
+
+
+def _stage_intervals(record, cutoff):
+    """Return ({label: dwell_seconds clipped to the horizon}, set of labels applied at cutoff)."""
+    start = cutoff - timedelta(days=14)
+    end = parse_iso_utc(record["closed_at"]) if record["closed_at"] else cutoff
+    end = min(end, cutoff)
+    opened, total = {}, {}
+
+    def close(label, until):
+        lo, hi = max(opened.pop(label), start), min(until, cutoff)
+        if hi > lo:
+            total[label] = total.get(label, 0) + _secs(hi - lo)
+
+    events = sorted(record["events"], key=lambda e: e["at"])
+    for ev in events:
+        at = parse_iso_utc(ev["at"])
+        label = ev.get("label") or ""
+        if at >= cutoff or not label.startswith("stage:"):
+            continue
+        if ev["type"] == "labeled" and label not in opened:
+            opened[label] = at
+        elif ev["type"] == "unlabeled" and label in opened:
+            close(label, at)
+    applied = set(opened)
+    for label in list(opened):
+        close(label, end)
+    return total, applied
+
+
+def _measure_attempts(record, cutoff):
+    """Yield (kind, status, seconds) per attempt opened in the horizon; status is
+    'measured', 'open' or 'superseded'."""
+    start = cutoff - timedelta(days=14)
+    for att in record["attempts"]:
+        opened = parse_iso_utc(att["opened_at"])
+        if not start <= opened < cutoff:
+            continue
+        closed = parse_iso_utc(att["closed_at"]) if att["closed_at"] else None
+        if closed is None or closed >= cutoff:
+            yield att["kind"], "open", None
+        elif att["closed_reason"] == "review":
+            yield att["kind"], "measured", _secs(closed - opened)
+        else:
+            yield att["kind"], "superseded", None
+
+
 def aggregate(records, health, annotations, cutoff):
-    raise NotImplementedError
+    """Pure aggregation of collected PR records into the metrics structure (see module docstring)."""
+    cutoff_dt = parse_iso_utc(cutoff) if isinstance(cutoff, str) else cutoff
+    horizon_start = cutoff_dt - timedelta(days=14)
+    repos = sorted(health)
+    by_repo = {repo: [] for repo in repos}
+    for record in records:
+        if record["repo"] in by_repo:
+            by_repo[record["repo"]].append(record)
+
+    merge_stats, elapsed, stage_dwell, handoff, activity = {}, {}, {}, {}, {}
+    open_attention = []
+    for repo in repos:
+        samples = {w: {"all": [], "comparable": [], "backlog": []} for w in ("w1", "w2", "horizon")}
+        dwell, counts = {}, {"requested": [], "readiness": [], "open": 0, "superseded": 0}
+        acts = {t: {k: 0 for k in _ACTIVITY_KEYS.values()} for t in ("User", "Bot")}
+        for rec in by_repo[repo]:
+            created = parse_iso_utc(rec["created_at"])
+            merged = parse_iso_utc(rec["merged_at"]) if rec["merged_at"] else None
+            window = _window_of(merged, cutoff_dt)
+            if window:
+                took = _secs(merged - created)
+                kind = "comparable" if took <= 7 * _DAY else "backlog"
+                for win in (window, "horizon"):
+                    samples[win]["all"].append(took)
+                    samples[win][kind].append(took)
+            closed = parse_iso_utc(rec["closed_at"]) if rec["closed_at"] else None
+            is_open = created < cutoff_dt and (closed is None or closed >= cutoff_dt)
+            complete = rec["timeline_complete"]
+            applied = set()
+            if complete:
+                totals, applied = _stage_intervals(rec, cutoff_dt)
+                for label, secs in totals.items():
+                    dwell.setdefault(label, []).append(secs)
+                for kind, status, secs in _measure_attempts(rec, cutoff_dt):
+                    if status == "measured":
+                        counts[kind].append(secs)
+                    elif status == "open":
+                        counts["open"] += 1
+                    else:
+                        counts["superseded"] += 1
+                for ev in rec["events"]:
+                    key = _ACTIVITY_KEYS.get(ev["type"])
+                    at = parse_iso_utc(ev["at"])
+                    if key and horizon_start <= at < cutoff_dt and ev["actor_type"] in acts:
+                        acts[ev["actor_type"]][key] += 1
+            if is_open:
+                earliest = min(applied, key=lambda l: (_stage_number(l), l)) if applied else None
+                open_attention.append({
+                    "repo": repo, "number": rec["number"], "url": rec["url"], "title": rec["title"],
+                    "owner": rec["author"], "age_sec": _secs(cutoff_dt - created),
+                    "earliest_unmet": earliest, "status": rec["status"],
+                })
+        merge_stats[repo] = {w: {k: _dist(v) for k, v in parts.items()} for w, parts in samples.items()}
+        elapsed[repo] = merge_stats[repo]["horizon"]["all"]
+        stage_dwell[repo] = {label: _dist(dwell[label]) for label in sorted(dwell)}
+        handoff[repo] = {"requested": _dist(counts["requested"]), "readiness": _dist(counts["readiness"]),
+                         "open_attempts": counts["open"], "superseded_attempts": counts["superseded"]}
+        activity[repo] = acts
+    open_attention.sort(key=lambda r: (-r["age_sec"], r["repo"], r["number"]))
+
+    status = annotations["status"]
+    return {
+        "cutoff": format_iso_utc(cutoff_dt),
+        "repos": repos,
+        "annotations_status": status,
+        "health": health,
+        "windows": {
+            "w1": {"start": format_iso_utc(horizon_start), "end": format_iso_utc(cutoff_dt - timedelta(days=7))},
+            "w2": {"start": format_iso_utc(cutoff_dt - timedelta(days=7)), "end": format_iso_utc(cutoff_dt)},
+        },
+        "merge_stats": merge_stats,
+        "elapsed": elapsed,
+        "stage_dwell": stage_dwell,
+        "handoff": handoff,
+        "user_activity": activity,
+        "episode_labels": dict(annotations["labels"]) if status == "OK" else {},
+        "open_attention": open_attention,
+    }
 
 
 
