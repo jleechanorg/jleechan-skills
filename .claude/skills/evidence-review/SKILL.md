@@ -179,7 +179,7 @@ grep -A10 "Scope note" README.md
 
 ### 4. Video artifacts required by the claim
 
-Select video requirements from the user-scope evidence-standards and the repository UI owner, applying [the lifecycle proof rules](../pr-lifecycle/exceptions.md#proportional-exceptions-and-fast-paths): matched captioned screenshots for static claims, captioned video for sequence, transition, loading or timing claims, each tied to the tested SHA. Terminal recording is required when the relevant owner or user asks for it or the claim depends on terminal behavior; a test invocation alone does not create a GIF-plus-MP4 requirement.
+Select video requirements from the user-scope evidence-standards, the repository UI owner and [the lifecycle proof rules](../pr-lifecycle/exceptions.md#proportional-exceptions-and-fast-paths). Interaction, navigation, streaming, animation, transition, loading and timing claims need captioned video; a simple static visual may use matched captioned screenshots with the reason recorded; named risk-specific and user-required proof still apply. When a claim fits neither, require captioned video. Tie each artifact to the tested SHA. Terminal recording is required when the relevant owner or user asks for it or the claim depends on terminal behavior; a test invocation alone does not create a GIF-plus-MP4 requirement.
 
 For each applicable video requirement, verify:
 - The required format is present and accessible, including any inline GIF or downloadable MP4 the PR claims to provide.
