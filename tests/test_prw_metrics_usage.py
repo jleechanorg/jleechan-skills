@@ -447,3 +447,14 @@ def test_publish_json_ignores_generated_at_only_changes(tmp_path, monkeypatch):
     assert commits() == n
     assert go(_publish_feed_text([session(active=999)], "2026-11-13T06:00:00Z")) == 0
     assert commits() == n + 1
+
+
+def test_stable_ignores_rolling_window_of_a_feed():
+    base = {"schema": "prw-local-usage.v1", "machine": "m", "generated_at": "2026-01-01T00:00:00Z",
+            "window": {"start": "2025-12-18T00:00:00Z", "end": "2026-01-01T00:00:00Z"}, "sessions": []}
+    later = dict(base, generated_at="2026-01-01T01:00:00Z",
+                 window={"start": "2025-12-18T01:00:00Z", "end": "2026-01-01T01:00:00Z"})
+    changed = dict(later, sessions=[{"tool": "claude"}])
+    stable = prw_metrics._stable
+    assert stable(json.dumps(base)) == stable(json.dumps(later))
+    assert stable(json.dumps(base)) != stable(json.dumps(changed))

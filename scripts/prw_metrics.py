@@ -994,13 +994,14 @@ def _push_once(clone, branch):
 
 
 def _stable(markdown):
-    """Dashboard text without the per-run cutoff line (or a JSON feed without generated_at), so an unchanged file is detected."""
+    """Dashboard text without the per-run cutoff line (or a JSON feed without generated_at and window), so an unchanged file is detected."""
     try:
         doc = json.loads(markdown)
     except ValueError:
         doc = None
     if isinstance(doc, dict) and "generated_at" in doc:
         doc.pop("generated_at")
+        doc.pop("window", None)  # a rolling window moves every run; the sessions are the content
         return json.dumps(doc, sort_keys=True)
     return "\n".join(l for l in markdown.split("\n") if not l.startswith("**Data cutoff (UTC)**"))
 
