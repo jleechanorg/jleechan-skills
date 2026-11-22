@@ -10,7 +10,6 @@ When operating autonomous development workflows across multiple repositories (fo
 5. PR titles carried either legacy two-letter stage abbreviations or trailing suffixes that did not indicate whether work was actively executing, waiting on a job, or blocked on a dependency.
 6. Elapsed PR duration was naively equated with wasted time or continuous agent effort, conflating total CLI operation spans with reasoning time, and parallel agent effort with elapsed wall-clock time.
 7. Human interventions were counted as raw message tallies without differentiating productive design guidance from avoidable agent errors, without filtering automated bot messages, and without verifying human communication channel coverage.
-8. Local telemetry in ephemeral Scratch directories was rotated out, making retrospective multi-week audit studies unreproducible.
 
 ## User Persona
 
@@ -48,11 +47,9 @@ After implementing the PRW Metrics Dashboard:
      - *Observed Active Wall Time*: True interval union of substantive agent execution on the PR.
      - *Agent Effort*: Cumulative sum of parallel worker execution, never confused with wall time.
      - *Non-Wasted Residual*: Residual duration (`elapsed - active`) is explicitly acknowledged as containing legitimate waits, human reflection, and unobserved periods, never speculatively branded as waste.
-  5. **Audit Human Interactions and Episode Quality**:
-     - *Deduplicated Episodes*: Grouping raw follow-up messages into distinct episodes with source message IDs.
-     - *Rigorous Bot Exclusion*: Filtering out background watchdogs, agents, and automated prompts.
-     - *Four Semantic Categories*: Differentiating `good` (value-adding review/guidance) from `bad` (avoidable agent misses), `mixed`, and `unknown`, verified via model/human rationales rather than naive regex rules.
-     - *Channel Coverage & Unassigned Preservation*: Tracking channel audit state (e.g. Dot history) and preserving task-level unassigned episodes without forcing them into PR metrics.
+  5. **Read GitHub-Observed Activity Counts**:
+     - *Actor Split*: Activity counts per window split into `Bot` and `User` logins. The `User` count is labelled "user-login activity (includes agents acting as the user)" and is never called human intervention.
+     - *Optional Annotations*: `good`, `bad`, `mixed` episode labels appear only for PRs listed in the annotations file with an evidence link; every other PR shows `UNKNOWN`.
   6. **Track Granular Handoff Waiting Intervals**: Review concrete, per-attempt handoff intervals (Evidence Ready to Review Dispatch, Review Request to Actual Reviewer Start, Review Return to Next Substantive Action, and Final Ready / Authority to Merge), where unavailable or unobserved fields are strictly reported as `UNKNOWN` rather than zero.
   7. **Act on the Open PR Attention Table**: Review all currently open PRs sorted by actionable need, directly seeing:
      - PR link, operational status title, and candidate HEAD SHA.
@@ -60,8 +57,7 @@ After implementing the PRW Metrics Dashboard:
      - Concrete next action and accountable owner.
      - Active job handle and wake condition (or explicit hold reason).
      - Elapsed waiting duration and direct links to attempt receipts.
-  8. **Reconstruct Historical Studies Deterministically**: Query retained private telemetry in `<org>/roadmap` (window data lives in GCS via `dashboards/prw/telemetry-index/<window>.json`; root files stay in `dashboards/prw/telemetry/`) to reproduce multi-week audit studies even after host Scratch directories are cleared.
-  9. **Observe Explicit Status and Data Quality States**:
+  8. **Observe Explicit Status and Data Quality States**:
      - `FRESH`: Dashboard refreshed within the standard 4-hour schedule.
      - `STALE`: Prior collection snapshot cleanly preserved when collection was delayed (e.g. machine sleep or offline period), with the last successful collection timestamp prominently shown.
      - `PARTIAL_FAILURE`: An individual API query or repository failed, cleanly reporting the partial failure while preserving other repository metrics without inventing zero counts.
@@ -98,21 +94,11 @@ During an overnight scheduled run at `04:17 UTC`, the host laptop was asleep:
 - In the meantime, opening the dashboard displays `Status: STALE`, showing `Data Cutoff (UTC): 2026-11-07 00:17:00Z` and `Last Successful Collection: 2026-11-07 00:17:00Z`.
 - No half-empty commits or destroyed history occur; the previous valid metrics remain completely readable.
 
-### Scenario 5: Human Interaction Triage and Quality Calibration
-The operator inspects the **Human Interaction & Episode Breakdown** section:
-- Across 34 raw inbound human messages, the collector identified 20 deduplicated intervention episodes.
-- 14 episodes (70%) are categorized as `good` (value-adding domain review, such as the operator watching video evidence and refining a gameplay spec, or granting an authorized merge approval).
-- 4 episodes (20%) are categorized as `bad` (avoidable agent errors, such as an agent ignoring an established repository rule or halting when an executable authorized step remained).
-- 2 episodes are categorized as `mixed` (combining architectural approval with a prompt to fix a regression).
-- 2 task-level episodes could not be attributed to a single PR and are preserved honestly as `pr_attribution: "unassigned"`.
-- The dashboard explicitly notes that "zero-touch" is NOT claimed because the Dot communication channel is untested.
-- Two independent reviewers calibrated their category assignments on a shared sample, ensuring stable, reproducible classification.
-
-### Scenario 6: Deterministic Audit Study from Retained Private Telemetry
-The platform tech lead conducts a 14-day delivery retrospective:
-- Although local developer machines rotated their `/tmp` and Scratch workspaces over the past two weeks, all underlying observational telemetry JSON files and attempt receipts were retained in `<org>/roadmap` (window data lives in GCS via `dashboards/prw/telemetry-index/<window>.json`; root files stay in `dashboards/prw/telemetry/`).
-- The tech lead executes a local replay script pointing at the published ref (`--telemetry-ref` selects a recorded generation).
-- The script deterministically reproduces the exact dashboard tables, median cycle times, and handoff delay distributions, verifying that the published metrics are 100% auditable and reproducible.
+### Scenario 5: Reading Activity Counts and Annotations
+The operator inspects the **GitHub-Observed Activity & Episode Labels** section:
+- Activity counts are split into `Bot` and `User` logins; the `User` row is explicitly labelled as including agents acting under the user's login.
+- Three PRs carry `good`, `bad`, or `mixed` labels from the annotations file, each with an evidence link; all other PRs show `UNKNOWN`.
+- If the annotations file is absent or invalid, labels render `UNKNOWN` and the run still completes.
 
 ---
 
@@ -120,4 +106,4 @@ The platform tech lead conducts a 14-day delivery retrospective:
 
 - **No Personal Identifiers**: The dashboard source code and documentation contain zero machine usernames, personal directory paths (`$HOME` or `@HOME@` placeholders only), private email addresses, tailnet IPs, or personal hostnames.
 - **No Embedded Credentials**: Authentication relies on existing ambient CLI access; no GitHub tokens or secrets are stored in plist templates or rendered Markdown.
-- **Private Roadmap Target**: The rendered dashboard and underlying telemetry are published strictly to the private `roadmap` repository (`dashboards/prw/README.md`, `dashboards/prw/telemetry/` and `dashboards/prw/telemetry-index/`) via scoped fast-forward commits, with zero public exposure.
+- **Private Roadmap Target**: The rendered dashboard is published strictly to the private `roadmap` repository (`dashboards/prw/README.md`) via scoped fast-forward commits, with zero public exposure.
