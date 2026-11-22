@@ -360,6 +360,20 @@ else:
             assert router.inspect_codex_bootstrap(
                 enrollment, BOOTSTRAP_IDENTITY, attempt, bind=bind_owner,
             ) == ("bootstrapped", SESSION)
+            # Codex reports a truncated skills list as an error item; the ACK still decides.
+            skills_notice = {"type": "item.completed", "item": {"type": "error", "message": (
+                "Exceeded skills context budget. All skill descriptions were removed and 125 "
+                "additional skills were not included in the model-visible skills list.")}}
+            events.write_text("".join(json.dumps(row) + "\n" for row in
+                                      [frames[0], started, skills_notice, *frames[1:]]))
+            assert router.inspect_codex_bootstrap(
+                enrollment, BOOTSTRAP_IDENTITY, attempt, bind=bind_owner,
+            ) == ("bootstrapped", SESSION)
+            events.write_text("".join(json.dumps(row) + "\n" for row in
+                                      [frames[0], started, skills_notice, skills_notice, *frames[1:]]))
+            assert router.inspect_codex_bootstrap(
+                enrollment, BOOTSTRAP_IDENTITY, attempt, bind=bind_owner,
+            ) == ("bootstrap_reconciliation_required", None)
             assert router.inspect_codex_bootstrap(
                 enrollment, BOOTSTRAP_IDENTITY, dict(attempt, sha="b" * 40), bind=bind_owner,
             ) == ("bootstrap_reconciliation_required", None)
@@ -389,7 +403,7 @@ else:
                 assert router.inspect_codex_bootstrap(enrollment, BOOTSTRAP_IDENTITY, attempt, bind=bind_owner) == (
                     "bootstrap_reconciliation_required", None,
                 )
-        assert bound == [SESSION, SESSION]
+        assert bound == [SESSION, SESSION, SESSION]
 
     def test_existing_headless_resume_honors_process_admission(self):
         tmp_path = self.tmp_path

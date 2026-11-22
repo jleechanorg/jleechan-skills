@@ -602,6 +602,8 @@ def route(owner, prompt, apply):
 _PROJECT_DOC_MAX_BYTES = 65536
 _PROJECT_DOC_CONFIG = ("-c", f"project_doc_max_bytes={_PROJECT_DOC_MAX_BYTES}")
 _BOOTSTRAP_ACK = "PR_NUDGER_BOOTSTRAP_ACK"
+_SKILLS_BUDGET_NOTICE = re.compile(r"Exceeded skills context budget\. All skill descriptions were removed "
+                                  r"and \d+ additional skills were not included in the model-visible skills list\.")
 _BOOTSTRAP_RECONCILE = "bootstrap_reconciliation_required"
 # Intake design: a missing terminal receipt after one ten-minute tick remains
 # unsettled. This horizon classifies evidence only; it never authorizes replay.
@@ -761,6 +763,13 @@ def inspect_codex_bootstrap(enrollment, identity, attempt, *, bind=None):
                 and _legacy_project_doc_warning(frames[1], cwd)):
             del frames[1]
             del kinds[1]
+        # Codex reports a truncated skills list as one error item; the ACK below still decides.
+        notices = [i for i, frame in enumerate(frames) if frame["type"] == "item.completed"
+                   and frame["item"].get("type") == "error"
+                   and _SKILLS_BUDGET_NOTICE.fullmatch(str(frame["item"].get("message", "")))]
+        if len(notices) == 1:
+            del frames[notices[0]]
+            del kinds[notices[0]]
         if any(kind not in {"thread.started", "turn.started", "turn.completed",
                             "item.started", "item.updated", "item.completed"} for kind in kinds):
             return uncertain
