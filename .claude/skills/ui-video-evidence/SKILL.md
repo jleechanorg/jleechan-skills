@@ -508,10 +508,9 @@ When a user action exists, each clip must include the user action under test
 window anchored only to completion (e.g. trimmed to the DONE state) that omits
 the action fails.
 
-When the change's observable has no user action (first paint, an error state
-rendered on load, a theme token applied at mount), record this rule as N/A with
-the reason and instead provide a state-transition clip showing the before-state
-frame and the after-state frame.
+When there is no in-app action, mark it N/A and record the observable transition
+through its result. For load or mount claims, start recording before navigation
+or the triggering event, and keep the ordinary loading sequence in the clip.
 
 ## Provenance of before/after clips (MANDATORY)
 
@@ -528,21 +527,27 @@ gate.
 
 ## First-frame verification (MANDATORY)
 
-Moved here from `~/.claude/CLAUDE.md` on 2026-07-25. Applies to AGY CLI and any browser-capture pipeline.
-
-1. **Wait for page readiness before capture.** Replace fixed-delay sleeps with `page.wait_for_load_state("networkidle")` AND `page.wait_for_selector(<expected-ui-element>, state="visible")`. A blank/white first frame is invalid evidence — it means the page had not rendered.
-2. **Verify the first frame visually before pushing.** Extract frame 1 from the MP4 and confirm it shows the expected starting state (dashboard, modal opener, etc.), not a loading screen:
+1. **Match the start to the claim.** For a journey starting on a ready page,
+   use the expected visible UI state, not a fixed sleep, as the recording
+   boundary. For load or mount claims, readiness is a check during recording,
+   not a prerequisite to start.
+2. **Verify the first frame visually before pushing.** Extract frame 1 and
+   confirm the expected starting boundary. A genuine blank or loading frame
+   before the page appears is valid for a load claim only if the trigger,
+   relevant frames, and resulting state are visible in the same continuous clip:
 
    ```bash
    ffmpeg -i video.mp4 -vf "select=eq(n\,0)" -vframes 1 frame1.png
    ```
 
-3. **Reject evidence with a white/blank first frame.** Re-capture with stronger wait conditions. Do not publish a blank capture and label it as evidence.
-4. **Evidence Gate caveat:** the `evidence-gate` CI check validates `metadata.json` freshness, NOT visual content. Visual verification is the responsibility of the agent presenting the evidence — a green evidence-gate says nothing about whether the video shows anything.
+3. **Evidence Gate caveat:** the `evidence-gate` CI check validates `metadata.json` freshness, NOT visual content. Visual verification is the responsibility of the agent presenting the evidence — a green evidence-gate says nothing about whether the video shows anything.
 
-### Capture script standard *(your-project.com-specific)*
+### Project capture helpers
 
-Every `testing_ui/capture_*.py` script must use the shared `browser_test_helpers.py` helpers — `wait_for_page_ready()` and `verify_first_frame_not_blank()`. New scripts that re-implement waits inline are a regression.
+Use the project's shared capture helpers for ready-page recordings where
+available. For a load or mount claim, use readiness helpers after starting the
+recorder and verify the starting boundary visually; do not apply a blanket
+nonblank-first-frame check.
 
 ## Slack Distribution — Native Attachments Only
 
