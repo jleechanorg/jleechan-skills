@@ -256,7 +256,8 @@ Bind each capture to the served app/build SHA, capture-driver revision, dirty
 diff/hash, exact commands, original UTC time, environment and raw artifact
 paths/hashes. Preserve raw media and map every derivative to its source hash and
 transformation command. A candidate pre/post journey is not a pre-change
-baseline; if no applicable baseline can safely be captured or recovered, record
+baseline; if no applicable baseline can safely be captured (or, for a non-fix
+claim, recovered), record
 `BEFORE: WITHHELD — <reason>` and withhold the comparison claim.
 
 Published screenshots must render inline (not text-only links); use width `450`
