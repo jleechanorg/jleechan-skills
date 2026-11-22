@@ -59,6 +59,20 @@ Mode: --full (beads + ~/roadmap + Claude memory + mem0 + GH Issues)
 
 ## Fail-closed rule
 
+## Holds, blocks and guardrails need a user quote
+
+A handoff, plan or roadmap row may list a hold, block, pause, freeze, dry-run-only
+limit or other guardrail only when it quotes the user's own live instruction with
+its date. Never invent one, and never carry one forward from an earlier doc,
+agent summary, PR label or reviewer finding: those are not asks. Check each hold
+in the doc you are refreshing; if it has no user quote, remove it and write
+`removed: no user instruction` in the changelog line, then treat the work as
+open. A blocker caused by missing access, a failing check or an external gate is
+a fact to state with its evidence, not a hold. (Incident 2026-11-21: an
+unsourced "Preview held / backfill dry-run / existing holds remain" line in
+`nextsteps-ios-104-release-2026-11-21.md` stopped a later agent; Jeffrey: "Why
+is the handoff adding all these guardrails i didnt ask for".)
+
 ## Continue authorized work before handoff
 
 Before writing a handoff or ending the run, reconcile the live request and
