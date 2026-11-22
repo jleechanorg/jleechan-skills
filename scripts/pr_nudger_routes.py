@@ -602,6 +602,11 @@ def route(owner, prompt, apply):
 _PROJECT_DOC_MAX_BYTES = 65536
 _PROJECT_DOC_CONFIG = ("-c", f"project_doc_max_bytes={_PROJECT_DOC_MAX_BYTES}")
 _BOOTSTRAP_ACK = "PR_NUDGER_BOOTSTRAP_ACK"
+# Newer Codex reports oversize instructions as this one pre-turn error item.
+_COMBINED_DOC_NOTICE = re.compile(
+    r"Combined user instructions use \d+ bytes, above the \d+-byte `project_doc_max_bytes` "
+    r"setting\. The total includes global and thread instructions\. The limit applies only "
+    r"to project files\.")
 _SKILLS_BUDGET_NOTICE = re.compile(r"Exceeded skills context budget\. All skill descriptions were removed "
                                   r"and \d+ additional skills were not included in the model-visible skills list\.")
 _BOOTSTRAP_RECONCILE = "bootstrap_reconciliation_required"
@@ -768,7 +773,8 @@ def inspect_codex_bootstrap(enrollment, identity, attempt, *, bind=None):
         frames = [json.loads(line) for line in payload.splitlines()]
         kinds = [frame["type"] for frame in frames]
         if (kinds[:3] == ["thread.started", "item.completed", "turn.started"]
-                and _legacy_project_doc_warning(frames[1], cwd)):
+                and (_legacy_project_doc_warning(frames[1], cwd)
+                     or _COMBINED_DOC_NOTICE.fullmatch(str(frames[1]["item"].get("message", ""))))):
             del frames[1]
             del kinds[1]
         # Codex reports a truncated skills list as one error item; the ACK below still decides.

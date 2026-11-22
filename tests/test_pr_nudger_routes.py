@@ -369,6 +369,16 @@ else:
             assert router.inspect_codex_bootstrap(
                 enrollment, BOOTSTRAP_IDENTITY, attempt, bind=bind_owner,
             ) == ("bootstrapped", SESSION)
+            # Newer Codex reports the combined instruction size before the turn instead.
+            combined = {"type": "item.completed", "item": {"type": "error", "message": (
+                "Combined user instructions use 78503 bytes, above the 65536-byte "
+                "`project_doc_max_bytes` setting. The total includes global and thread "
+                "instructions. The limit applies only to project files.")}}
+            events.write_text("".join(json.dumps(row) + "\n" for row in
+                                      [frames[0], combined, started, skills_notice, *frames[1:]]))
+            assert router.inspect_codex_bootstrap(
+                enrollment, BOOTSTRAP_IDENTITY, attempt, bind=bind_owner,
+            ) == ("bootstrapped", SESSION)
             events.write_text("".join(json.dumps(row) + "\n" for row in
                                       [frames[0], started, skills_notice, skills_notice, *frames[1:]]))
             assert router.inspect_codex_bootstrap(
@@ -408,7 +418,7 @@ else:
                 assert router.inspect_codex_bootstrap(enrollment, BOOTSTRAP_IDENTITY, attempt, bind=bind_owner) == (
                     "bootstrap_reconciliation_required", None,
                 )
-        assert bound == [SESSION, SESSION, SESSION]
+        assert bound == [SESSION, SESSION, SESSION, SESSION]
 
     def test_bootstrap_with_no_output_and_no_holder_is_abandoned(self):
         tmp_path = self.tmp_path
