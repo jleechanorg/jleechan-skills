@@ -13,7 +13,7 @@
   <key>AbandonProcessGroup</key>
   <true/>
   <key>ProcessType</key>
-  <string>Standard</string>
+  <string>Interactive</string>
   <key>StandardOutPath</key>
   <string>@HOME@/Library/Logs/pr-owner-nudger.log</string>
   <key>StandardErrorPath</key>
