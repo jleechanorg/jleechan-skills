@@ -352,7 +352,7 @@ def _record(repo, node):
 
 def _search_pages(repo, search, runner, state):
     """Yield every PR node for one search query, following pageInfo; counts pages in state."""
-    cursor = None
+    cursor, read, expected = None, 0, 0
     while True:
         args = ["-f", "query=" + _QUERY, "-f", "search=" + search]
         if cursor:
@@ -362,10 +362,14 @@ def _search_pages(repo, search, runner, state):
             raise RuntimeError(json.dumps(response["errors"])[:500])
         state["pages"] += 1
         result = response["data"]["search"]
+        expected = result.get("issueCount", expected)
         for node in result["nodes"]:
             if node.get("__typename") == "PullRequest":
+                read += 1
                 yield node
         if not result["pageInfo"]["hasNextPage"]:
+            if read < expected:  # GitHub search caps results at 1000; never present a capped read as complete
+                raise RuntimeError("search truncated: read %d of %d" % (read, expected))
             return
         cursor = result["pageInfo"]["endCursor"]
 
@@ -744,11 +748,17 @@ def _state_dir():
 
 
 def _git(cwd, *args):
-    return subprocess.run(["git", *_IDENTITY, *args], cwd=cwd, capture_output=True, text=True)
+    env = dict(os.environ, LC_ALL="C")  # push-rejection detection matches English git output
+    return subprocess.run(["git", *_IDENTITY, *args], cwd=cwd, capture_output=True, text=True, env=env)
 
 
 def _push_once(clone, branch):
     return _git(clone, "push", "origin", "HEAD:refs/heads/%s" % branch)
+
+
+def _stable(markdown):
+    """Dashboard text without the per-run cutoff line, so an unchanged dashboard is detected."""
+    return "\n".join(l for l in markdown.split("\n") if not l.startswith("**Data cutoff (UTC)**"))
 
 
 def _publish_to_clone(markdown, remote, branch, clone):
@@ -757,7 +767,7 @@ def _publish_to_clone(markdown, remote, branch, clone):
     if done.returncode:
         raise RuntimeError("clone failed: " + done.stderr.strip())
     target = Path(clone, _README_PATH)
-    if target.exists() and target.read_text(encoding="utf-8") == markdown:
+    if target.exists() and _stable(target.read_text(encoding="utf-8")) == _stable(markdown):
         print("no change")
         return 0
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -826,6 +836,9 @@ def main(argv=None):
     markdown = render(metrics)
     if args.output:
         Path(args.output).write_text(markdown, encoding="utf-8")
+    if not any(h["ok"] for h in health.values()):
+        print("every repository failed collection; not publishing", file=sys.stderr)
+        return 1
     if args.publish:
         fallback = args.output or os.path.join(_state_dir(), "last-dashboard.md")
         return publish(markdown, args.roadmap_remote, args.roadmap_branch, fallback)

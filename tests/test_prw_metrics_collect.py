@@ -115,8 +115,20 @@ def collect_attempts(*timeline):
     return records[0]["attempts"]
 
 
+def consistent_page(page):
+    page["data"]["search"]["issueCount"] = len(page["data"]["search"]["nodes"])
+    return page
+
+
+def test_search_truncation_marks_repo_not_ok():
+    page = load("graphql_page2.json")  # issueCount 5 but only 2 nodes and no next page
+    records, health = m.collect([REPO], CUTOFF, FakeRunner([page], [page_of()]))
+    assert health[REPO]["ok"] is False
+    assert "search truncated" in health[REPO]["error"]
+
+
 def test_collect_normalizes_graphql_page():
-    runner = FakeRunner([load("graphql_page2.json")], [page_of()])
+    runner = FakeRunner([consistent_page(load("graphql_page2.json"))], [page_of()])
     records, health = m.collect([REPO], CUTOFF, runner)
     expected = {r["number"]: r for r in load("records_fixture.json")}
     assert [r["number"] for r in records] == [101, 102]

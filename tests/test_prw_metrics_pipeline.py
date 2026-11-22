@@ -39,3 +39,20 @@ def test_main_replays_fixtures_to_output_file(tmp_path):
     ])
     assert rc == 0
     assert out.read_text(encoding="utf-8").count("\n## ") >= 7
+
+
+def test_all_repos_failed_exits_1_and_does_not_publish(tmp_path, monkeypatch):
+    def failing_runner(args):
+        raise RuntimeError("gh unavailable")
+
+    monkeypatch.setattr(prw_metrics, "gh_runner", failing_runner)
+    monkeypatch.delenv("PRW_METRICS_PUBLISH", raising=False)
+    published = []
+    monkeypatch.setattr(prw_metrics, "publish", lambda *a: published.append(a) or 0)
+    rc = prw_metrics.main([
+        "--repos", "example-org/example-repo",
+        "--cutoff", "2026-11-14T00:00:00Z",
+        "--publish", "--roadmap-remote", "file:///nonexistent",
+        "--annotations", str(tmp_path / "missing.json"),
+    ])
+    assert rc == 1 and published == []
