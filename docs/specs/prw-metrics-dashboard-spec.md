@@ -106,7 +106,7 @@ See [User Story: PRW Metrics Dashboard](../user-stories/prw-metrics-dashboard.md
 Tests live in `tests/test_prw_metrics_collect.py`, `_aggregate.py`, `_render.py`, `_publish.py`, `_util.py`, `_installer.py` and `_pipeline.py`, covering pagination across more than 100 items, half-open window partitioning, per-attempt timestamp arithmetic, `[status][short detail]` title parsing, actor-type counts, annotation loading states, `UNKNOWN` instead of `0s`, rendering across `FRESH`, `STALE`, `PARTIAL_FAILURE` and `EMPTY`, and the launchd installer (`@HOME@` replacement, six `:17` slots, no credentials, `plutil -lint`).
 
 ### 5.2 Real Operational & Visual Verification
-1. **Launchd Job Verification**: Execute `launchctl print gui/$(id -u)/com.jleechan.prw-metrics` to confirm job registration, execute one manual test run, and verify generated output.
+1. **Launchd Job Verification**: Execute `launchctl print gui/$(id -u)/com.jleechan.prw-metrics-slim` to confirm job registration, execute one manual test run, and verify generated output.
 2. **Private Publication Verification**: Verify clean push and readback of `dashboards/prw/README.md` on the private `roadmap` repository.
 3. **Browser Visual Inspection**: Open `https://github.com/<org>/roadmap/blob/main/dashboards/prw/README.md` in a verified headless browser session to ensure tables render cleanly on narrow and wide desktop viewports.
 

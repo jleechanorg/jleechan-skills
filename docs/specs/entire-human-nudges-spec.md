@@ -1,5 +1,8 @@
 # Entire-backed human nudge metrics
 
+> **Superseded.** The collector, the nudge adjudication script and the `--history-replay`, `--history-annotations`, `--entire-parser`, `--entire-agent`, `--session-bindings` and `--nudge-packets` flags this spec describes were removed with the old PRW metrics layers. It is kept for history only; do not follow its commands.
+
+
 ## Outcome
 
 Record Entire as a tool used by this repository and provide a runnable path from native transcripts through the pinned Entire SDK and model adjudication into the existing human-nudge metric. Reuse the current annotation, aggregation, coverage and rendering contracts.

@@ -60,7 +60,7 @@ jobs:
           go test -mod=readonly ./...
           go vet -mod=readonly ./...
       - name: Install test dependencies
-        run: python3 -m pip install --quiet pyyaml duckdb==1.5.0
+        run: python3 -m pip install --quiet pyyaml duckdb==1.5.0 pytest
       - name: Install br
         shell: bash
         run: |
@@ -96,6 +96,8 @@ jobs:
           fi
           echo "run=$run" >> "$GITHUB_OUTPUT"
           echo "Dot transport suites: run=$run"
+      - name: Run PRW metrics tests (pytest-style, not found by unittest discovery)
+        run: python3 -m pytest tests/test_prw_metrics_*.py -q
       - name: Run repo contract tests
         if: steps.dot.outputs.run == 'true'
         run: python3 -m unittest discover -s tests -p "test_*.py" -v
