@@ -28,10 +28,10 @@ All temporary, disposable build, test scratch, and evidence paths resolve dynami
    diskm scratch-finish "$OUT_DIR" completed   # or: abandoned
    ```
    - Any process of the same user may run `scratch-finish`; it does not have to be the allocating shell.
-   - A build run that is never finished becomes removable once its recorded owner has exited and its files have been untouched for the 48-hour floor. Open files, live working directories, repositories and PR-evidence holds still protect it. Evidence runs are never removed this way.
+   - A build run that is never finished becomes removable once its recorded owner has exited and its files have been untouched for the default content floor (`CONTENT_FLOOR_HOURS` in diskm's `rust/src/time_windows.rs`). Open files, live working directories, repositories and PR-evidence holds still protect it. Evidence runs are never removed this way.
    - Pass `--owner-pid <PID>` (a process of the same user) to bind the run to a long-lived producer; the run is then kept while that process lives.
    - Put run output here, not under `scratch-dir`: files outside a leased run are never removed automatically.
-   - `diskm scratch-new` enforces volume health, admission control, 48-hour recency, and active-lease protection.
+   - `diskm scratch-new` enforces volume health, admission control, default content-floor recency, and active-lease protection.
 
 2. **Ad-Hoc Helper Files, PR Bodies, Frame Dumps, Server Logs & Ephemeral Scripts**
    ```bash
