@@ -113,6 +113,40 @@ def test_load_remote_failure_is_a_problem_not_an_abort(tmp_path):
     assert feeds == [] and len(problems) == 1
 
 
+def test_load_picks_newest_feed_by_parsed_time_not_string_order(tmp_path):
+    older, newer = feed("m", generated_at="2026-11-13T10:00:00Z"), feed("m", generated_at="2026-11-13T10:00:00.5+00:00")
+    write(tmp_path / "a.json", older)
+    write(tmp_path / "b.json", newer)
+    feeds, problems = prw_metrics.load_usage_feeds([str(tmp_path)])
+    assert [f["generated_at"] for f in feeds] == ["2026-11-13T10:00:00.5+00:00"] and problems == []
+
+
+@pytest.mark.parametrize("bad", ["not-a-time", 123, "2026-11-13T10:00:00"])
+def test_load_unparseable_generated_at_is_a_problem(tmp_path, bad):
+    write(tmp_path / "a.json", feed("m", generated_at=bad))
+    feeds, problems = prw_metrics.load_usage_feeds([str(tmp_path)])
+    assert feeds == [] and len(problems) == 1
+
+
+def _no_git(monkeypatch):
+    def boom(*a, **k):
+        raise FileNotFoundError("git")
+    monkeypatch.setattr(prw_metrics.subprocess, "run", boom)
+
+
+def test_load_remote_without_git_is_a_problem_not_a_crash(tmp_path, monkeypatch):
+    _no_git(monkeypatch)
+    feeds, problems = prw_metrics.load_usage_feeds([], remote="file://%s" % (tmp_path / "r.git"))
+    assert feeds == [] and len(problems) == 1
+
+
+def test_publish_without_git_returns_3_with_fallback_file(tmp_path, monkeypatch):
+    _no_git(monkeypatch)
+    fallback = tmp_path / "fb.json"
+    assert prw_metrics.publish("{}\n", "file://%s" % (tmp_path / "r.git"), "main", str(fallback)) == 3
+    assert fallback.read_text() == "{}\n"
+
+
 # --- aggregate ---
 
 def test_aggregate_without_usage_has_no_usage_key():
@@ -260,6 +294,45 @@ def test_publish_default_path_and_message_unchanged(tmp_path, monkeypatch):
     assert prw_metrics.publish("# d\n", "file://%s" % bare, "main", str(tmp_path / "fb")) == 0
     assert _git(bare, "log", "-1", "--format=%s", "main").strip() == "chore(prw-metrics): update PRW dashboard"
     assert _git(bare, "show", "main:dashboards/prw/README.md") == "# d\n"
+
+
+# --- heartbeat ---
+
+def _feed_text(generated_at, sessions=()):
+    return json.dumps(feed("machine-1", generated_at=generated_at, sessions=list(sessions)), sort_keys=True) + "\n"
+
+
+def _commits(bare):
+    return int(_git(bare, "rev-list", "--count", "main").strip())
+
+
+@pytest.mark.parametrize("later,expected_new_commits", [
+    ("2026-11-13T05:59:59Z", 0),   # unchanged content, 5h59m59s newer: nothing to push
+    ("2026-11-13T06:00:00Z", 1),   # unchanged content, exactly HEARTBEAT_SEC newer: heartbeat commit
+])
+def test_publish_heartbeat_for_unchanged_feed(tmp_path, monkeypatch, later, expected_new_commits):
+    bare = _publish_env(monkeypatch, tmp_path)
+    remote, path = "file://%s" % bare, "dashboards/prw/usage/machine-1.json"
+    assert prw_metrics.publish(_feed_text("2026-11-13T00:00:00Z"), remote, "main", str(tmp_path / "fb"), path=path) == 0
+    before = _commits(bare)
+    assert prw_metrics.publish(_feed_text(later), remote, "main", str(tmp_path / "fb"), path=path) == 0
+    assert _commits(bare) == before + expected_new_commits
+    assert json.loads(_git(bare, "show", "main:%s" % path))["generated_at"] == (
+        later if expected_new_commits else "2026-11-13T00:00:00Z")
+
+
+def test_publish_changed_sessions_commit_regardless_of_age(tmp_path, monkeypatch):
+    bare = _publish_env(monkeypatch, tmp_path)
+    remote, path = "file://%s" % bare, "dashboards/prw/usage/machine-1.json"
+    assert prw_metrics.publish(_feed_text("2026-11-13T00:00:00Z"), remote, "main", str(tmp_path / "fb"), path=path) == 0
+    before = _commits(bare)
+    assert prw_metrics.publish(_feed_text("2026-11-13T00:01:00Z", [session()]), remote, "main",
+                               str(tmp_path / "fb"), path=path) == 0
+    assert _commits(bare) == before + 1
+
+
+def test_heartbeat_is_shorter_than_staleness_threshold():
+    assert prw_metrics.HEARTBEAT_SEC == 6 * 3600 < prw_metrics._STALE_AFTER
 
 
 # --- main wiring ---

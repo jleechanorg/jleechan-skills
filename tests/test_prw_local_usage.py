@@ -270,3 +270,79 @@ def test_output_text_is_sorted_and_identical_across_runs(tmp_path):
     a.pop("generated_at"), b.pop("generated_at")
     assert a == b
     assert texts[0] == json.dumps(json.loads(texts[0]), sort_keys=True, separators=(",", ":")) + "\n"
+
+
+def test_session_spanning_two_files_merges_timestamps_before_gap_rule(tmp_path):
+    write_jsonl(tmp_path / "c" / "proj" / "a.jsonl", [claude_row("2026-01-10T01:00:00Z"), claude_row("2026-01-10T01:10:00Z")])
+    write_jsonl(tmp_path / "c" / "proj" / "b.jsonl", [claude_row("2026-01-10T01:05:00Z", "m", out=1)])
+    (s,) = run(tmp_path)["sessions"]
+    assert (s["first_at"], s["last_at"], s["active_sec"]) == ("2026-01-10T01:00:00Z", "2026-01-10T01:10:00Z", 600)
+
+
+def test_collector_memory_does_not_scale_with_event_objects(tmp_path):
+    import tracemalloc
+    from datetime import datetime, timedelta, timezone
+    t0 = datetime(2026, 1, 10, tzinfo=timezone.utc)
+    rows = []
+    for i in range(200_000):
+        row = {"timestamp": (t0 + timedelta(seconds=i * 0.4)).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+               "sessionId": "s%d" % (i % 3), "cwd": "/nonexistent/example", "gitBranch": "feat/x"}
+        if i % 2:
+            row["message"] = {"id": "msg_%d" % i, "model": "claude-example",
+                              "usage": {"input_tokens": 3, "output_tokens": 5}}
+        rows.append(row)
+    write_jsonl(tmp_path / "c" / "proj" / "big.jsonl", rows)
+    del rows
+    tracemalloc.start()
+    try:
+        feed = run(tmp_path, end="2026-01-12T00:00:00Z")
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert sum(s["models"]["claude-example"]["output"] for s in feed["sessions"]) == 5 * 100_000
+    assert peak < 40 * 1024 * 1024
+
+
+def test_default_machine_label_is_anonymous_and_stable(tmp_path, monkeypatch):
+    monkeypatch.setattr(plu.socket, "gethostname", lambda: "Alices-MacBook-Pro.local")
+    labels = []
+    for i in range(2):
+        out = tmp_path / ("d%d.json" % i)
+        assert plu.main(["--claude-root", str(tmp_path / "c"), "--codex-root", str(tmp_path / "x"),
+                         "--since", START, "--until", END, "--output", str(out)]) == 0
+        labels.append(json.loads(out.read_text())["machine"])
+    assert labels[0] == labels[1] and re.fullmatch(r"machine-[0-9a-f]{8}", labels[0])
+    assert "alice" not in labels[0].lower()
+
+
+def test_huge_log_lines_are_not_retained_while_scanning(tmp_path, monkeypatch):
+    import tracemalloc
+    monkeypatch.setattr(plu, "MAX_LINE_CHARS", 64 * 1024 * 1024)
+    big = "x" * (20 * 1024 * 1024)
+    rows = [dict(claude_row("2026-01-10T01:0%d:00Z" % i, "m%d" % i, out=i + 1), toolUseResult=big) for i in range(3)]
+    claude_file(tmp_path, rows)
+    del rows
+    tracemalloc.start()
+    try:
+        (s,) = run(tmp_path)["sessions"]
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert s["models"]["claude-example"]["output"] == 6 and s["active_sec"] == 120
+    assert peak < 72 * 1024 * 1024  # about 3 copies of one 20 MB line; also retaining the previous row exceeded 80 MB
+
+
+def test_oversized_line_is_skipped_without_being_read_whole(tmp_path, monkeypatch):
+    import tracemalloc
+    monkeypatch.setattr(plu, "MAX_LINE_CHARS", 1024 * 1024)
+    big = dict(claude_row("2026-01-10T01:01:00Z", "mb", out=1000), toolUseResult="x" * (8 * 1024 * 1024))
+    claude_file(tmp_path, [claude_row("2026-01-10T01:00:00Z", "m1", out=1), big,
+                           claude_row("2026-01-10T01:02:00Z", "m2", out=2)])
+    tracemalloc.start()
+    try:
+        (s,) = run(tmp_path)["sessions"]
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert s["models"]["claude-example"]["output"] == 3 and s["active_sec"] == 120
+    assert peak < 6 * 1024 * 1024  # reading the 8 MB line whole costs 16 MB or more

@@ -14,14 +14,22 @@ with no counted event are omitted.
 active_sec: the sum of gaps between consecutive counted event timestamps of a session where
 the gap is <= idle_gap_sec (default 300); larger gaps contribute 0.
 
+Memory: per-session timestamps are packed int arrays, usage rows are packed columns, and a log line longer
+than MAX_LINE_CHARS (16 MiB) is skipped (neither its event nor its usage counts) because parsing one costs
+about ten times its size in memory.
+
 Tools: claude (message.usage grouped by message.id, largest output kept) and codex
 (cumulative token_count totals; usage is last total before end minus last total before
 start). Adding a tool is one scan function (roots, start, end) -> {session_id: record}
 plus one TOOLS registry entry.
 
+The machine label defaults to "machine-" + 8 hex chars of sha256(hostname), so the hostname (often a
+person's name) is never published; --machine sets a friendlier label.
+
 Publishing reuses prw_metrics.publish to write dashboards/prw/usage/<machine-slug>.json.
 """
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -29,6 +37,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+from array import array
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -37,6 +46,13 @@ from prw_metrics import embeds_credentials, publish  # noqa: E402
 
 SCHEMA = "prw-local-usage.v1"
 ZERO = {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}
+_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+_US = timedelta(microseconds=1)
+
+
+def _micros(dt):
+    """Aware datetime -> integer microseconds since the epoch (8 bytes in an array, exact)."""
+    return (dt - _EPOCH) // _US
 
 
 def parse_ts(value):
@@ -98,49 +114,103 @@ def _jsonl_files(roots, start):
                     continue
 
 
-def _rows(path):
+MAX_LINE_CHARS = 16 * 1024 * 1024  # json.loads expands a line ~10x in Python objects; real logs hold 60 MB lines
+
+
+def _lines(fh):
+    """Lines of fh, except any longer than MAX_LINE_CHARS, which are skipped without being held in memory."""
+    while True:
+        line = fh.readline(MAX_LINE_CHARS)
+        if not line:
+            return
+        if len(line) >= MAX_LINE_CHARS and not line.endswith("\n"):
+            while (rest := fh.readline(1 << 20)) and not rest.endswith("\n"):
+                pass
+            continue
+        yield line
+
+
+def _rows(path, slim):
+    """Yield slim(row) for each JSON-object line of at most MAX_LINE_CHARS (a larger line is skipped: neither
+    its event nor its usage counts). Only the slim copy outlives its line, so peak memory is one line, never
+    the previous row too."""
     try:
         with open(path, encoding="utf-8", errors="replace") as fh:
-            for line in fh:
+            for line in _lines(fh):
                 try:
                     row = json.loads(line)
                 except ValueError:
                     continue
+                line = None
                 if isinstance(row, dict):
-                    yield row
+                    kept, row = slim(row), None
+                    yield kept
     except OSError:
         return
 
 
+def _pick(src, keys):
+    return {k: src[k] for k in keys if k in src}
+
+
+def _slim_claude(row):
+    out = _pick(row, ("timestamp", "sessionId", "cwd", "gitBranch"))
+    msg = row.get("message")
+    if isinstance(msg, dict):
+        out["message"] = _pick(msg, ("id", "model", "usage"))
+    return out
+
+
+def _slim_codex(row):
+    out = _pick(row, ("type", "timestamp"))
+    payload = row.get("payload")
+    if isinstance(payload, dict):
+        out["payload"] = slim = _pick(payload, ("type", "id", "cwd", "model", "git", "info"))
+        if isinstance(slim.get("git"), dict):
+            slim["git"] = _pick(slim["git"], ("branch", "repository_url"))
+        if isinstance(slim.get("info"), dict):
+            slim["info"] = _pick(slim["info"], ("total_token_usage",))
+    return out
+
+
 def _session(table, sid):
-    return table.setdefault(sid, {"events": [], "cwd": None, "branch": None, "repo_hint": None, "models": {}})
+    return table.setdefault(sid, {"events": array("q"), "cwd": None, "branch": None, "repo_hint": None, "models": {}})
 
 
 def scan_claude(roots, start, end):
-    table, best = {}, {}
+    # Memory stays flat per event: timestamps are packed int arrays and per-message usage lives in packed
+    # columns (sid, model, input, output, cache_read, cache_write) indexed through one int->int dict keyed by
+    # a 64-bit hash of (session, message id), so no per-message Python objects are retained.
+    table, index, cols, sids, models = {}, {}, array("q"), {}, {}
     for path in _jsonl_files(roots, start):
-        for row in _rows(path):
+        for row in _rows(path, _slim_claude):
             ts = parse_ts(row.get("timestamp"))
             if ts is None or not start <= ts < end:
                 continue
             sid = str(row.get("sessionId") or Path(path).stem)
             rec = _session(table, sid)
-            rec["events"].append(ts)
+            rec["events"].append(_micros(ts))
             rec["cwd"] = rec["cwd"] or row.get("cwd")
             rec["branch"] = rec["branch"] or row.get("gitBranch")
             msg = row.get("message")
             usage = msg.get("usage") if isinstance(msg, dict) else None
             if not isinstance(usage, dict):
                 continue
-            use = {"input": _int(usage.get("input_tokens")), "output": _int(usage.get("output_tokens")),
-                   "cache_read": _int(usage.get("cache_read_input_tokens")),
-                   "cache_write": _int(usage.get("cache_creation_input_tokens"))}
-            key = (sid, msg.get("id") or "%s:%s" % (path, ts))
-            if key not in best or use["output"] > best[key][1]["output"]:
-                best[key] = (str(msg.get("model") or "unknown"), use)
-    for (sid, _), (model, use) in best.items():
-        slot = table[sid]["models"].setdefault(model, dict(ZERO))
-        for k, v in use.items():
+            model = str(msg.get("model") or "unknown")
+            entry = (sids.setdefault(sid, len(sids)), models.setdefault(model, len(models)),
+                     _int(usage.get("input_tokens")), _int(usage.get("output_tokens")),
+                     _int(usage.get("cache_read_input_tokens")), _int(usage.get("cache_creation_input_tokens")))
+            key = hash((sid, msg.get("id") or "%s:%s" % (path, ts)))
+            at = index.get(key)
+            if at is None:
+                index[key] = len(cols)
+                cols.extend(entry)
+            elif entry[3] > cols[at + 3]:
+                cols[at:at + 6] = array("q", entry)
+    sid_of, model_of = {i: k for k, i in sids.items()}, {i: k for k, i in models.items()}
+    for at in range(0, len(cols), 6):
+        slot = table[sid_of[cols[at]]]["models"].setdefault(model_of[cols[at + 1]], dict(ZERO))
+        for k, v in zip(ZERO, cols[at + 2:at + 6]):
             slot[k] += v
     return table
 
@@ -158,8 +228,8 @@ def scan_codex(roots, start, end):
     for path in _jsonl_files(roots, start):
         sid, cwd, branch, hint, model = Path(path).stem, None, None, None, "unknown"
         base = final = final_model = None
-        events = []
-        for row in _rows(path):
+        events = array("q")
+        for row in _rows(path, _slim_codex):
             payload = row.get("payload") if isinstance(row.get("payload"), dict) else {}
             if row.get("type") == "session_meta":
                 sid = str(payload.get("id") or sid)
@@ -172,7 +242,7 @@ def scan_codex(roots, start, end):
             if ts is None:
                 continue
             if start <= ts < end:
-                events.append(ts)
+                events.append(_micros(ts))
             if row.get("type") == "event_msg" and payload.get("type") == "token_count":
                 totals = _codex_totals(payload.get("info"))
                 if totals is None:
@@ -208,10 +278,9 @@ TOOLS = {
 
 
 def _active_sec(events, idle):
-    events = sorted(events)
-    return int(sum(g for g in ((b - a).total_seconds() for a, b in zip(events, events[1:])) if g <= idle))
-
-
+    ordered = sorted(events)  # merged across every file of the session, so the gap rule sees true neighbours
+    limit = idle * 1_000_000
+    return sum(g for g in (b - a for a, b in zip(ordered, ordered[1:])) if g <= limit) // 1_000_000
 def collect(start, end, claude_roots, codex_roots, idle_gap_sec, machine, now=None, resolver=resolve_repo):
     start, end = parse_ts(start), parse_ts(end)
     roots = {"claude": claude_roots, "codex": codex_roots}
@@ -227,12 +296,17 @@ def collect(start, end, claude_roots, codex_roots, idle_gap_sec, machine, now=No
             branch = rec["branch"] if rec["branch"] not in (None, "", "HEAD") else None
             sessions.append({
                 "tool": tool, "session_id": sid, "repo": cache[cwd] or normalize_remote(rec["repo_hint"]),
-                "branch": branch, "first_at": fmt_ts(min(rec["events"])), "last_at": fmt_ts(max(rec["events"])),
+                "branch": branch, "first_at": fmt_ts(_EPOCH + min(rec["events"]) * _US), "last_at": fmt_ts(_EPOCH + max(rec["events"]) * _US),
                 "active_sec": _active_sec(rec["events"], idle_gap_sec),
                 "models": {m: rec["models"][m] for m in sorted(rec["models"])}})
     sessions.sort(key=lambda s: (s["tool"], s["session_id"]))
     return {"schema": SCHEMA, "machine": machine, "generated_at": now or fmt_ts(datetime.now(timezone.utc)),
             "window": {"start": fmt_ts(start), "end": fmt_ts(end)}, "idle_gap_sec": idle_gap_sec, "sessions": sessions}
+
+
+def default_machine():
+    """Stable anonymous label, "machine-" + first 8 hex of sha256(hostname); a raw hostname often holds a person's name."""
+    return "machine-" + hashlib.sha256(socket.gethostname().encode("utf-8")).hexdigest()[:8]
 
 
 def machine_slug(machine):
@@ -254,7 +328,7 @@ def _parser():
     p.add_argument("--until", help="ISO-8601 UTC window end, exclusive (default: now)")
     p.add_argument("--claude-root", action="append", help="Claude projects dir (repeatable)")
     p.add_argument("--codex-root", action="append", help="Codex sessions dir (repeatable)")
-    p.add_argument("--machine", default=None, help="machine label (default: hostname)")
+    p.add_argument("--machine", default=None, help="machine label (default: machine-<8 hex of sha256(hostname)>, never the hostname)")
     p.add_argument("--idle-gap-sec", type=int, default=300)
     p.add_argument("--output", help="write the feed JSON here atomically (default: print)")
     p.add_argument("--publish-remote", default="", help="git remote receiving dashboards/prw/usage/<machine-slug>.json")
@@ -272,7 +346,7 @@ def main(argv=None):
     if start is None or end is None:
         print("invalid --since/--until", file=sys.stderr)
         return 2
-    machine = args.machine or socket.gethostname()
+    machine = args.machine or default_machine()
     feed = collect(fmt_ts(start), fmt_ts(end), args.claude_root or TOOLS["claude"][0](),
                    args.codex_root or TOOLS["codex"][0](), args.idle_gap_sec, machine)
     text = json.dumps(feed, sort_keys=True, separators=(",", ":")) + "\n"

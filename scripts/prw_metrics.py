@@ -489,7 +489,7 @@ def _read_feed(path, problems):
             problems.append("%s: missing or invalid %s" % (name, ", ".join(missing) or "sessions"))
             return None
         parse_iso_utc(doc["generated_at"])
-    except (OSError, ValueError, TypeError) as exc:
+    except (OSError, ValueError, TypeError, AttributeError) as exc:
         problems.append("%s: unreadable (%s)" % (name, type(exc).__name__))
         return None
     good = [s for s in doc["sessions"] if _valid_session(s)]
@@ -516,7 +516,7 @@ def load_usage_feeds(paths, remote=None, branch="main"):
         if remote:
             try:
                 done = _git(cloned.name, "clone", "--depth", "1", "--branch", branch, remote, ".")
-            except RuntimeError as exc:
+            except (RuntimeError, OSError) as exc:  # OSError: git is not installed
                 done = None
                 problems.append("usage remote: %s" % exc)
             if done and done.returncode:
@@ -526,8 +526,8 @@ def load_usage_feeds(paths, remote=None, branch="main"):
         newest = {}
         for path in files:
             feed = _read_feed(path, problems)
-            if feed and (feed["machine"] not in newest
-                         or feed["generated_at"] > newest[feed["machine"]]["generated_at"]):
+            if feed and (feed["machine"] not in newest or parse_iso_utc(feed["generated_at"])
+                         > parse_iso_utc(newest[feed["machine"]]["generated_at"])):
                 newest[feed["machine"]] = feed
     finally:
         if cloned:
@@ -617,6 +617,7 @@ def _measure_attempts(record, cutoff):
 
 _TRIVIAL_BRANCHES = {"main", "master", "trunk", "develop"}
 _STALE_AFTER = 12 * 3600
+HEARTBEAT_SEC = 6 * 3600  # an unchanged feed is still republished this often; must stay below _STALE_AFTER
 _TOKENS = ("input", "output", "cache_read", "cache_write")
 
 
@@ -1006,13 +1007,23 @@ def _stable(markdown):
     return "\n".join(l for l in markdown.split("\n") if not l.startswith("**Data cutoff (UTC)**"))
 
 
+def _heartbeat_due(old, new):
+    """True when both texts are JSON feeds and `new` was generated at least HEARTBEAT_SEC after `old`, so an idle machine keeps looking alive."""
+    try:
+        return (parse_iso_utc(json.loads(new)["generated_at"]) - parse_iso_utc(json.loads(old)["generated_at"])
+                ).total_seconds() >= HEARTBEAT_SEC
+    except (ValueError, TypeError, KeyError, AttributeError):
+        return False
+
+
 def _publish_to_clone(markdown, remote, branch, clone, path, message):
     """Return 0 on success or no change; raise RuntimeError(message) on any git failure."""
     done = _git(clone, "clone", "--depth", "1", "--branch", branch, remote, ".")
     if done.returncode:
         raise RuntimeError("clone failed: " + done.stderr.strip())
     target = Path(clone, path)
-    if target.exists() and _stable(target.read_text(encoding="utf-8")) == _stable(markdown):
+    current = target.read_text(encoding="utf-8") if target.exists() else None
+    if current is not None and _stable(current) == _stable(markdown) and not _heartbeat_due(current, markdown):
         print("no change")
         return 0
     target.parent.mkdir(parents=True, exist_ok=True)
