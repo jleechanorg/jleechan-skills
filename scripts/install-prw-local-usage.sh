@@ -63,7 +63,14 @@ ARGS=(--publish-remote "$REMOTE" --publish-branch "$BRANCH")
 [[ -z "$MACHINE" ]] || ARGS+=(--machine "$MACHINE")
 
 if [[ "$PRINT_CRON" == 1 ]]; then
-  CMD="/bin/bash $RELEASE_DIR/scripts/run_prw_local_usage.sh ${ARGS[*]}"
+  WORDS=(/bin/bash "$RELEASE_DIR/scripts/run_prw_local_usage.sh" "${ARGS[@]}")
+  CMD="" UNIT_CMD=""
+  for w in "${WORDS[@]}"; do
+    q="$(printf '%q' "$w")"; CMD+="${CMD:+ }${q//%/\\%}"  # cron turns an unescaped % into a newline
+    # systemd words: double-quoted, with \ and " escaped, and % and $ doubled (specifiers / variable expansion)
+    u="${w//\\/\\\\}"; u="${u//\"/\\\"}"; u="${u//%/%%}"; u="${u//\$/\$\$}"
+    UNIT_CMD+="${UNIT_CMD:+ }\"$u\""
+  done
   cat <<TXT
 # crontab line (hourly at :37); install by hand with: crontab -e
 37 * * * * PATH=/usr/local/bin:\$HOME/.local/bin:/usr/bin:/bin $CMD
@@ -74,7 +81,7 @@ Description=PRW local usage collector
 [Service]
 Type=oneshot
 Environment=PATH=/usr/local/bin:%h/.local/bin:/usr/bin:/bin
-ExecStart=$CMD
+ExecStart=$UNIT_CMD
 
 # ~/.config/systemd/user/prw-local-usage.timer
 [Unit]

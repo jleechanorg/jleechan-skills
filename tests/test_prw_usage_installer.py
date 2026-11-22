@@ -117,7 +117,7 @@ def test_credential_remote_exits_2(env, bad):
     for extra in ((), ("--dry-run",), ("--print-crontab",)):
         done = env.run(*extra, remote=bad)
         assert done.returncode == 2, extra
-        assert bad not in done.stdout
+        assert bad not in done.stdout and bad not in done.stderr
     assert env.calls() == [] and not env.release.exists()
 
 
@@ -155,3 +155,65 @@ def test_wrapper_runs_collector_with_args_and_returns_its_status(tmp_path):
     assert done.returncode == 3
     assert "ARGS --publish-remote %s --machine m" % REMOTE in done.stdout
     assert "start" in done.stdout and "exit 3" in done.stdout
+
+
+def test_replace_while_loaded_boots_out_then_enables_then_bootstraps_collector_only(env):
+    env.marker.write_text("")
+    assert env.run("--replace", "--activate").returncode == 0
+    target = "gui/%d/%s" % (os.getuid(), LABEL)
+    calls = [c for c in env.calls() if c.split()[1] in ("bootout", "enable", "bootstrap")]
+    assert [c.split()[1] for c in calls] == ["bootout", "enable", "bootstrap"]
+    assert calls[0].endswith(target) and calls[1].endswith(target) and LABEL + ".plist" in calls[2]
+    assert not any("dashboard" in c or OLD_LABEL.search(c) for c in env.calls())
+
+
+def test_wrapper_exits_0_without_running_collector_when_lock_held(tmp_path):
+    import fcntl
+
+    rel = tmp_path / "rel"
+    (rel / "scripts").mkdir(parents=True)
+    wrapper = rel / "scripts" / "run_prw_local_usage.sh"
+    wrapper.write_text((ROOT / "scripts" / "run_prw_local_usage.sh").read_text())
+    ran = tmp_path / "ran"
+    (rel / "scripts" / "prw_local_usage.py").write_text("open(%r, 'w').close()\n" % str(ran))
+    state = tmp_path / "state"
+    lock_dir = state / "prw-local-usage"
+    lock_dir.mkdir(parents=True)
+    env = dict(os.environ, HOME=str(tmp_path), XDG_STATE_HOME=str(state))
+    with open(lock_dir / "run.lock", "a") as held:
+        fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        done = subprocess.run(["bash", str(wrapper)], env=env, capture_output=True, text=True)
+    assert done.returncode == 0 and "lock" in done.stdout and not ran.exists()
+    again = subprocess.run(["bash", str(wrapper)], env=env, capture_output=True, text=True)
+    assert again.returncode == 0 and ran.exists()
+
+
+def test_print_crontab_and_systemd_text_round_trip_awkward_words(env, tmp_path):
+    import shlex
+
+    home = tmp_path / "home dir"
+    home.mkdir()
+    remote = "file:///tmp/road%20map.git"
+    machine = 'Mac "mini" $x'
+    done = subprocess.run(
+        ["bash", str(INSTALLER), "--source-repo", str(tmp_path / "source"), "--source-rev", env.sha,
+         "--roadmap-remote", remote, "--machine", machine, "--print-crontab"],
+        env=dict(env.env, HOME=str(home)), capture_output=True, text=True,
+    )
+    assert done.returncode == 0, done.stderr
+    release = "%s/.local/share/prw-local-usage/releases/%s" % (home, env.sha)
+    argv = ["/bin/bash", release + "/scripts/run_prw_local_usage.sh",
+            "--publish-remote", remote, "--publish-branch", "main", "--machine", machine]
+
+    cron = next(ln for ln in done.stdout.splitlines() if ln.startswith("37 "))
+    assert re.search(r"(?<!\\)%", cron) is None  # every % is escaped for cron
+    words = shlex.split(cron.replace("\\%", "%"))
+    assert words[:5] == ["37", "*", "*", "*", "*"] and words[5].startswith("PATH=")
+    assert words[6:] == argv
+
+    unit = next(ln for ln in done.stdout.splitlines() if ln.startswith("ExecStart="))
+    quoted = re.findall(r'"((?:[^"\\]|\\.)*)"', unit)
+    assert unit == "ExecStart=" + " ".join('"%s"' % q for q in quoted)  # nothing outside double quotes
+    unescaped = [re.sub(r"\\(.)", r"\1", q).replace("%%", "%").replace("$$", "$") for q in quoted]
+    assert unescaped == argv
+    assert "%%20" in unit

@@ -135,3 +135,12 @@ def test_usage_remote_with_credentials_exits_2(env):
     done = env.run("--dry-run", "--usage-remote", "https://u:p@example.invalid/r.git")
     assert done.returncode == 2
     assert env.calls() == []
+
+
+@pytest.mark.parametrize("flag", ["--usage-remote", "--roadmap-remote"])
+def test_credential_remotes_rejected_without_echoing_url(env, flag):
+    bad = "https://u:p@example.invalid/r.git"
+    done = env.run("--dry-run", flag, bad)
+    assert done.returncode == 2
+    assert bad not in done.stdout and bad not in done.stderr
+    assert env.calls() == []

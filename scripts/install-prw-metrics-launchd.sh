@@ -36,8 +36,10 @@ done
 [[ -n "$REMOTE" ]] || die "--roadmap-remote is required"
 [[ -f "$TEMPLATE" ]] || die "template not found: $TEMPLATE"
 
-# Same rule as prw_metrics.embeds_credentials.
-if [[ -n "$USAGE_REMOTE" ]] && python3 - "$USAGE_REMOTE" <<'PY'
+# Same rule as prw_metrics.embeds_credentials; both remotes land in a readable plist.
+for pair in "--usage-remote=$USAGE_REMOTE" "--roadmap-remote=$REMOTE"; do
+  [[ -n "${pair#*=}" ]] || continue
+  if python3 - "${pair#*=}" <<'PY'
 import re, sys
 url = sys.argv[1]
 m = re.match(r"^([A-Za-z][A-Za-z0-9+.-]*)://([^/]*)", url)
@@ -51,10 +53,11 @@ else:
     bad = ":" in user or m.group(1).lower().split("+")[-1] in ("http", "https")
 sys.exit(0 if bad else 1)
 PY
-then
-  echo "ERROR: --usage-remote must not embed credentials" >&2
-  exit 2
-fi
+  then
+    echo "ERROR: ${pair%%=*} must not embed credentials" >&2
+    exit 2
+  fi
+done
 
 SHA="$(git -C "$SOURCE_REPO" rev-parse --verify "${SOURCE_REV}^{commit}")" || die "cannot resolve $SOURCE_REV"
 RELEASE_DIR="$HOME/.local/share/prw-metrics-slim/releases/$SHA"
