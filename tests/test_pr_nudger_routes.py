@@ -382,9 +382,14 @@ else:
                 enrollment, BOOTSTRAP_IDENTITY, attempt, bind=bind_owner
             ) == ("bootstrap_pending", None)
             with patch.object(router.time, "time", return_value=661):
+                # No frame and no live holder: the seed never launched, so the attempt is retired.
                 assert router.inspect_codex_bootstrap(
                     enrollment, BOOTSTRAP_IDENTITY, attempt, bind=bind_owner,
-                ) == ("bootstrap_reconciliation_required", None)
+                ) == ("bootstrap_abandoned", None)
+                with router._managed_claim(tmp_path / "managed.lock"):
+                    assert router.inspect_codex_bootstrap(
+                        enrollment, BOOTSTRAP_IDENTITY, attempt, bind=bind_owner,
+                    ) == ("bootstrap_reconciliation_required", None)
             for bad_frames in (
                 frames[:1] + frames[-1:],
                 frames + [frames[0]],
@@ -404,6 +409,28 @@ else:
                     "bootstrap_reconciliation_required", None,
                 )
         assert bound == [SESSION, SESSION, SESSION]
+
+    def test_bootstrap_with_no_output_and_no_holder_is_abandoned(self):
+        tmp_path = self.tmp_path
+        enrollment = bootstrap_enrollment(tmp_path)
+        events = tmp_path / "attempt.jsonl"
+        events.touch(mode=0o600)
+        attempt = {"id": "attempt", "events_path": str(events), "sha": "a" * 40, "started_at": 60}
+        claim = tmp_path / "managed.lock"
+        with patch.object(router, "_managed_claim_path", return_value=claim), \
+             patch.object(router.time, "time", return_value=61):
+            assert router.inspect_codex_bootstrap(
+                enrollment, BOOTSTRAP_IDENTITY, attempt, bind=lambda _s: None,
+            ) == ("bootstrap_pending", None)
+        with patch.object(router, "_managed_claim_path", return_value=claim), \
+             patch.object(router.time, "time", return_value=661):
+            assert router.inspect_codex_bootstrap(
+                enrollment, BOOTSTRAP_IDENTITY, attempt, bind=lambda _s: None,
+            ) == ("bootstrap_abandoned", None)
+            with router._managed_claim(claim):
+                assert router.inspect_codex_bootstrap(
+                    enrollment, BOOTSTRAP_IDENTITY, attempt, bind=lambda _s: None,
+                ) == ("bootstrap_reconciliation_required", None)
 
     def test_existing_headless_resume_honors_process_admission(self):
         tmp_path = self.tmp_path

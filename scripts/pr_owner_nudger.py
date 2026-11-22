@@ -608,6 +608,10 @@ def dispatch_target(key, target, pr, matches, store, config, read, *, wake_reaso
             if not session or store.row(key)["bootstrap"]:
                 return note(key, "reconciliation_required", "reconcile_bootstrap")
             return note(key, status, "dispatch_owner", progress=True)
+        if status == "bootstrap_abandoned":
+            # No process ever wrote a frame and none holds the claim: retire the attempt and back off.
+            store.set(key, bootstrap=None)
+            return note(key, status, "bootstrap_owner")
         return note(key, status, "reconcile_bootstrap")
 
     if pr_status(pr) != "actionable":

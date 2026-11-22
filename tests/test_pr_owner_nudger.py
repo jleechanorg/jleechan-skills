@@ -347,6 +347,37 @@ class DispatcherTest(unittest.TestCase):
             self.assertEqual(self.target_tick(apply=False)[0]["status"], "would_deliver")
             self.assertIsNone(route.call_args.args[0].get("resume_sandbox"))
 
+    def test_abandoned_bootstrap_attempt_is_retired_and_relaunched(self):
+        self.config["owners"] = []
+        self.config["targets"] = [{
+            "repo": "base/project", "number": 12, "enrollment": {
+                "cwd": str(self.cwd), "head_repo": "fork/project", "branch": "feature",
+                "host": "test-host", "cli": "codex", "launch_authorized": True,
+                "managed_exclusive": True,
+            }
+        }]
+        state_path = Path(self.config["state_dir"]) / "receipts.sqlite3"
+
+        def start(_enrollment, _identity, *, apply, recheck, begin_attempt):
+            begin_attempt()
+            return "bootstrap_reconciliation_required"
+
+        with patch.object(nudger, "github", return_value=self.pr), \
+                patch.object(nudger.socket, "gethostname", return_value="test-host"), \
+                patch.object(nudger, "launch_capacity", return_value=True), \
+                patch.object(nudger.time, "time", return_value=1000) as clock, \
+                patch.object(nudger.pr_nudger_routes, "start_codex_bootstrap", side_effect=start, create=True) as launch, \
+                patch.object(nudger.pr_nudger_routes, "inspect_codex_bootstrap", create=True) as inspect:
+            self.assertEqual(self.target_tick()[0]["status"], "bootstrap_reconciliation_required")
+            inspect.return_value = ("bootstrap_abandoned", None)
+            clock.return_value = 1700
+            self.assertEqual(self.target_tick()[0]["status"], "bootstrap_abandoned")
+            with sqlite3.connect(state_path) as db:
+                self.assertIsNone(db.execute("SELECT bootstrap FROM target").fetchone()[0])
+            clock.return_value = 4000
+            self.target_tick()
+            self.assertEqual(launch.call_count, 2)
+
     def test_bootstrap_attempt_is_persisted_before_process_and_bound_before_dispatch(self):
         self.config["owners"] = []
         self.config["targets"] = [{

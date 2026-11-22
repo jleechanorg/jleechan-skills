@@ -716,7 +716,8 @@ def start_codex_bootstrap(enrollment, identity, *, apply, recheck, begin_attempt
         return "bootstrap_started"
     except BlockingIOError:
         return _BOOTSTRAP_RECONCILE if reserved else "busy"
-    except (KeyError, TypeError, ValueError, OSError, subprocess.SubprocessError):
+    except (KeyError, TypeError, ValueError, OSError, subprocess.SubprocessError) as error:
+        print(f"bootstrap launch failed: {type(error).__name__}: {error}", file=sys.stderr)
         return _BOOTSTRAP_RECONCILE if reserved else "blocked_bootstrap_unverified"
 
 
@@ -755,6 +756,13 @@ def inspect_codex_bootstrap(enrollment, identity, attempt, *, bind=None):
             payload = stream.read(131073)
         if len(payload) > 131072:
             return uncertain
+        if not payload and age >= _BOOTSTRAP_RECEIPT_SECONDS:
+            # A seed that never wrote a frame and holds no claim was never launched.
+            try:
+                with _managed_claim(_managed_claim_path(cwd)):
+                    return "bootstrap_abandoned", None
+            except BlockingIOError:
+                return uncertain
         if not payload.endswith(b"\n"):
             return pending
         frames = [json.loads(line) for line in payload.splitlines()]
