@@ -461,13 +461,19 @@ _USAGE_REMOTE_DIR = "dashboards/prw/usage"
 _SESSION_KEYS = ("tool", "session_id", "first_at", "last_at", "active_sec", "models")
 
 
+def _count(v):
+    return isinstance(v, int) and not isinstance(v, bool) and v >= 0
+
+
 def _valid_session(s):
     try:
-        parse_iso_utc(s["first_at"]), parse_iso_utc(s["last_at"])
-        return (isinstance(s, dict) and all(k in s for k in _SESSION_KEYS) and isinstance(s["active_sec"], int)
-                and all(isinstance(m.get(t), int) for m in s["models"].values()
-                        for t in ("input", "output", "cache_read", "cache_write")))
-    except (TypeError, KeyError, ValueError, AttributeError):
+        return (isinstance(s, dict) and all(k in s for k in _SESSION_KEYS)
+                and isinstance(s["tool"], str) and isinstance(s["session_id"], str)
+                and all(s.get(k) is None or isinstance(s[k], str) for k in ("repo", "branch"))
+                and _count(s["active_sec"]) and isinstance(s["models"], dict)
+                and all(isinstance(m, dict) and all(_count(m.get(t)) for t in _TOKENS) for m in s["models"].values())
+                and parse_iso_utc(s["first_at"]) <= parse_iso_utc(s["last_at"]))
+    except (TypeError, ValueError, AttributeError):
         return False
 
 
@@ -508,10 +514,14 @@ def load_usage_feeds(paths, remote=None, branch="main"):
     cloned = tempfile.TemporaryDirectory(prefix="prw-usage-") if remote else None
     try:
         if remote:
-            done = _git(cloned.name, "clone", "--depth", "1", "--branch", branch, remote, ".")
-            if done.returncode:
+            try:
+                done = _git(cloned.name, "clone", "--depth", "1", "--branch", branch, remote, ".")
+            except RuntimeError as exc:
+                done = None
+                problems.append("usage remote: %s" % exc)
+            if done and done.returncode:
                 problems.append("usage remote: clone failed")
-            else:
+            elif done:
                 files += sorted(Path(cloned.name, _USAGE_REMOTE_DIR).glob("*.json"))
         newest = {}
         for path in files:
@@ -626,7 +636,7 @@ def _usage_metrics(feeds, problems, records, cutoff):
             if not (parse_iso_utc(s["first_at"]) < cutoff and parse_iso_utc(s["last_at"]) >= start):
                 continue
             tokens = {t: sum(m[t] for m in s["models"].values()) for t in _TOKENS}
-            repo = s.get("repo")
+            repo = (s.get("repo") or "").lower() or None
             slot = per_repo.setdefault(repo or "unattributed", {
                 "sessions": 0, "active_sec": 0, "tokens": dict.fromkeys(_TOKENS, 0), "by_tool": {}})
             tool = slot["by_tool"].setdefault(s["tool"], {"sessions": 0, "active_sec": 0, "output": 0})
@@ -636,7 +646,7 @@ def _usage_metrics(feeds, problems, records, cutoff):
             tool["output"] += tokens["output"]
             for t in _TOKENS:
                 slot["tokens"][t] += tokens[t]
-            matches = [r for r in by_branch.get(s.get("branch"), []) if repo is None or r["repo"] == repo]
+            matches = [r for r in by_branch.get(s.get("branch"), []) if repo is None or r["repo"].lower() == repo]
             if matches and len({r["repo"] for r in matches}) == 1:
                 best = max(matches, key=lambda r: (r["created_at"], r["number"]))
                 pr = per_pr.setdefault("%s#%d" % (best["repo"], best["number"]),
@@ -953,8 +963,30 @@ def _state_dir():
 
 
 def _git(cwd, *args):
-    env = dict(os.environ, LC_ALL="C")  # push-rejection detection matches English git output
-    return subprocess.run(["git", *_IDENTITY, *args], cwd=cwd, capture_output=True, text=True, env=env)
+    env = dict(os.environ, LC_ALL="C", GIT_TERMINAL_PROMPT="0")  # LC_ALL: push-rejection detection matches English git output
+    env.setdefault("GIT_SSH_COMMAND", "ssh -o BatchMode=yes -o ConnectTimeout=20")
+    try:
+        timeout = float(os.environ.get("PRW_METRICS_GIT_TIMEOUT_SEC") or 120)
+    except ValueError:
+        timeout = 120
+    try:
+        return subprocess.run(["git", *_IDENTITY, *args], cwd=cwd, capture_output=True, text=True, env=env,
+                              timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("git %s timed out" % args[0]) from None
+
+
+def embeds_credentials(url):
+    """True if a remote URL carries a secret: any user:pass@, or a bare token@ on an http(s)-style scheme."""
+    url = url or ""
+    m = re.match(r"^([A-Za-z][A-Za-z0-9+.-]*)://([^/]*)", url)
+    if not m:
+        user = re.match(r"^([^@/]*)@", url)
+        return bool(user and ":" in user.group(1))
+    if "@" not in m.group(2):
+        return False
+    user = m.group(2).rsplit("@", 1)[0]
+    return ":" in user or m.group(1).lower().split("+")[-1] in ("http", "https")
 
 
 def _push_once(clone, branch):
@@ -962,7 +994,14 @@ def _push_once(clone, branch):
 
 
 def _stable(markdown):
-    """Dashboard text without the per-run cutoff line, so an unchanged dashboard is detected."""
+    """Dashboard text without the per-run cutoff line (or a JSON feed without generated_at), so an unchanged file is detected."""
+    try:
+        doc = json.loads(markdown)
+    except ValueError:
+        doc = None
+    if isinstance(doc, dict) and "generated_at" in doc:
+        doc.pop("generated_at")
+        return json.dumps(doc, sort_keys=True)
     return "\n".join(l for l in markdown.split("\n") if not l.startswith("**Data cutoff (UTC)**"))
 
 
@@ -1036,9 +1075,6 @@ def main(argv=None):
     if not repos:
         print("no repos given (--repos or PRW_METRICS_REPOS)", file=sys.stderr)
         return 2
-    def embeds_credentials(url):
-        return bool(re.search(r"^[a-z]+://[^/]*(:[^/@]*)?@", url or "")) and not url.startswith("ssh://")
-
     if (args.publish and embeds_credentials(args.roadmap_remote)) or embeds_credentials(args.usage_remote):
         print("remotes must not embed credentials; use an SSH remote or a credential helper", file=sys.stderr)
         return 2

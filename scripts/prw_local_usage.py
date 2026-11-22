@@ -33,7 +33,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from prw_metrics import publish  # noqa: E402
+from prw_metrics import embeds_credentials, publish  # noqa: E402
 
 SCHEMA = "prw-local-usage.v1"
 ZERO = {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}
@@ -56,12 +56,19 @@ def _int(v):
     return v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else 0
 
 
+_REMOTE_RES = tuple(re.compile(p) for p in (
+    r"^https?://(?P<host>[^/@:\s]+)/(?P<o>[\w.-]+)/(?P<n>[\w.-]+?)(?:\.git)?/?$",
+    r"^ssh://(?:[\w.-]+@)?(?P<host>[^/@:\s]+)/(?P<o>[\w.-]+)/(?P<n>[\w.-]+?)(?:\.git)?/?$",
+    r"^(?:[\w.-]+@)?(?P<host>[^/@:\s]+):(?P<o>[\w.-]+)/(?P<n>[\w.-]+?)(?:\.git)?/?$"))
+
+
 def normalize_remote(url):
-    """Remote URL (https, ssh, scp-style) -> "owner/name", else None."""
-    url = (url or "").strip()
-    path = url.split("://", 1)[1].split("/", 1)[1] if "://" in url and "/" in url.split("://", 1)[1] else url.rsplit(":", 1)[-1]
-    parts = [p for p in re.sub(r"\.git/?$", "", path.strip("/")).split("/") if p]
-    return "/".join(parts[-2:]) if len(parts) >= 2 else None
+    """https/ssh/scp-style remote on a dotted host -> "owner/name"; anything else (local paths, file://) -> None."""
+    for rx in _REMOTE_RES:
+        m = rx.match((url or "").strip())
+        if m and "." in m.group("host"):
+            return "%s/%s" % (m.group("o"), m.group("n"))
+    return None
 
 
 def resolve_repo(cwd):
@@ -77,12 +84,15 @@ def resolve_repo(cwd):
 
 def _jsonl_files(roots, start):
     cutoff = start.timestamp()
+    seen = set()  # overlapping, repeated or symlinked roots must not count a file twice
     for root in roots:
         for dirpath, _, names in os.walk(root):
             for name in sorted(names):
                 path = os.path.join(dirpath, name)
+                real = os.path.realpath(path)
                 try:
-                    if name.endswith(".jsonl") and os.path.getmtime(path) >= cutoff:
+                    if name.endswith(".jsonl") and real not in seen and os.path.getmtime(path) >= cutoff:
+                        seen.add(real)
                         yield path
                 except OSError:
                     continue
@@ -207,7 +217,7 @@ def collect(start, end, claude_roots, codex_roots, idle_gap_sec, machine, now=No
     roots = {"claude": claude_roots, "codex": codex_roots}
     cache, sessions = {}, []
     for tool, (_, scan) in TOOLS.items():
-        existing = [r for r in roots.get(tool) or [] if os.path.isdir(r)]
+        existing = list(dict.fromkeys(os.path.realpath(r) for r in roots.get(tool) or [] if os.path.isdir(r)))
         for sid, rec in scan(existing, start, end).items():
             if not rec["events"]:
                 continue
@@ -227,12 +237,6 @@ def collect(start, end, claude_roots, codex_roots, idle_gap_sec, machine, now=No
 
 def machine_slug(machine):
     return re.sub(r"[^a-z0-9]+", "-", machine.lower()).strip("-") or "unknown"
-
-
-def _has_credentials(remote):
-    if re.match(r"^[a-z]+://[^/]*@", remote or "") and not remote.startswith("ssh://"):
-        return True
-    return bool(re.match(r"^[^@/:]+:[^@/]+@", remote or "")) and "://" not in remote
 
 
 def _write_atomic(path, text):
@@ -260,7 +264,7 @@ def _parser():
 
 def main(argv=None):
     args = _parser().parse_args(argv)
-    if _has_credentials(args.publish_remote):
+    if embeds_credentials(args.publish_remote):
         print("publish remote must not embed credentials; use an SSH remote or a credential helper", file=sys.stderr)
         return 2
     end = parse_ts(args.until) if args.until else datetime.now(timezone.utc)

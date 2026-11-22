@@ -315,3 +315,135 @@ def test_usage_remote_defaults_to_roadmap_remote_when_publishing(tmp_path, monke
                            "--cutoff", CUTOFF, "--annotations", str(tmp_path / "missing.json"),
                            "--publish", "--roadmap-remote", "file:///nonexistent", "--roadmap-branch", "trunk-x"])
     assert rc == 0 and seen == {"remote": "file:///nonexistent", "branch": "trunk-x"}
+
+
+# --- hardening: git timeouts, credential check, validation, repo case, no-change detection ---
+
+class _Done:
+    returncode, stdout, stderr = 0, "", ""
+
+
+def _capture_git(monkeypatch):
+    seen = {}
+
+    def fake(cmd, **kw):
+        seen.update(cmd=cmd, **kw)
+        return _Done()
+    monkeypatch.setattr(prw_metrics.subprocess, "run", fake)
+    return seen
+
+
+def test_git_has_default_timeout_and_noninteractive_env(monkeypatch):
+    monkeypatch.delenv("PRW_METRICS_GIT_TIMEOUT_SEC", raising=False)
+    monkeypatch.delenv("GIT_SSH_COMMAND", raising=False)
+    seen = _capture_git(monkeypatch)
+    prw_metrics._git(".", "status")
+    assert seen["timeout"] == 120
+    assert seen["env"]["GIT_TERMINAL_PROMPT"] == "0"
+    assert seen["env"]["GIT_SSH_COMMAND"] == "ssh -o BatchMode=yes -o ConnectTimeout=20"
+
+
+def test_git_timeout_env_override_and_existing_ssh_command_kept(monkeypatch):
+    monkeypatch.setenv("PRW_METRICS_GIT_TIMEOUT_SEC", "7")
+    monkeypatch.setenv("GIT_SSH_COMMAND", "ssh -i key")
+    seen = _capture_git(monkeypatch)
+    prw_metrics._git(".", "status")
+    assert seen["timeout"] == 7 and seen["env"]["GIT_SSH_COMMAND"] == "ssh -i key"
+
+
+def _hang(monkeypatch):
+    def fake(cmd, **kw):
+        raise subprocess.TimeoutExpired(cmd, kw.get("timeout"))
+    monkeypatch.setattr(prw_metrics.subprocess, "run", fake)
+
+
+def test_git_timeout_raises_runtime_error(monkeypatch):
+    _hang(monkeypatch)
+    with pytest.raises(RuntimeError, match="git clone timed out"):
+        prw_metrics._git(".", "clone", "x")
+
+
+def test_publish_returns_3_with_fallback_on_git_timeout(tmp_path, monkeypatch):
+    _hang(monkeypatch)
+    fb = tmp_path / "fb.md"
+    assert prw_metrics.publish("# d\n", "file:///nowhere", "main", str(fb)) == 3
+    assert fb.read_text() == "# d\n"
+
+
+def test_load_usage_feeds_git_timeout_is_a_problem(monkeypatch):
+    _hang(monkeypatch)
+    feeds, problems = prw_metrics.load_usage_feeds([], remote="file:///nowhere")
+    assert feeds == [] and len(problems) == 1
+
+
+@pytest.mark.parametrize("url", [
+    "HTTPS://tok@github.com/o/n", "git+https://tok@github.com/o/n", "ssh://git:pw@github.com/o/n",
+    "https://user:tok@h/o/n", "git:tok@github.com:o/n.git"])
+def test_embeds_credentials_rejects(url):
+    assert prw_metrics.embeds_credentials(url)
+
+
+@pytest.mark.parametrize("url", [
+    "https://github.com/o/n", "ssh://git@github.com/o/n", "git@github.com:o/n.git", "file:///tmp/x", ""])
+def test_embeds_credentials_allows(url):
+    assert not prw_metrics.embeds_credentials(url)
+
+
+def test_both_cli_flags_reject_credentials(tmp_path):
+    ann = str(tmp_path / "missing.json")
+    assert prw_metrics.main(["--repos", "o/r", "--publish", "--roadmap-remote", "git+https://tok@h.io/o/n",
+                             "--annotations", ann]) == 2
+    assert prw_metrics.main(["--repos", "o/r", "--usage-remote", "git:tok@h.io:o/n.git",
+                             "--annotations", ann]) == 2
+
+
+def _load_with(tmp_path, bad):
+    write(tmp_path / "f.json", feed("m", sessions=[session(sid="good"), dict(session(sid="bad"), **bad)]))
+    feeds, problems = prw_metrics.load_usage_feeds([str(tmp_path / "f.json")])
+    assert [s["session_id"] for s in feeds[0]["sessions"]] == ["good"]
+    assert any("dropped 1" in p for p in problems)
+    return feeds, problems
+
+
+@pytest.mark.parametrize("bad", [
+    {"branch": ["x"]}, {"repo": 5}, {"active_sec": -1}, {"active_sec": True}, {"tool": 3}, {"session_id": None},
+    {"models": {"m": {"input": True, "output": 1, "cache_read": 1, "cache_write": 1}}},
+    {"models": {"m": {"input": -1, "output": 1, "cache_read": 1, "cache_write": 1}}},
+    {"models": {"m": 5}}, {"models": []},
+    {"first_at": "2026-11-10T02:00:00Z", "last_at": "2026-11-10T01:00:00Z"},
+    {"first_at": "nonsense"}])
+def test_invalid_session_dropped_and_dashboard_renders(tmp_path, bad):
+    feeds, problems = _load_with(tmp_path, bad)
+    metrics = prw_metrics.aggregate([], {REPO_A: {"ok": True}}, {"labels": {}, "status": "ABSENT"}, CUTOFF,
+                                    usage=feeds, usage_problems=problems)
+    assert "Local agent usage" in prw_metrics.render(metrics)
+
+
+def test_repo_comparison_is_case_insensitive():
+    records = [pr("org/repo", 7, "feature/x")]
+    usage = agg(records, [feed(sessions=[session(repo="Org/Repo", branch="feature/x")])])
+    assert list(usage["per_pr"]) == ["org/repo#7"]
+    assert list(usage["per_repo"]) == ["org/repo"]
+
+
+def _publish_feed_text(sessions, generated_at):
+    doc = dict(feed(sessions=sessions), generated_at=generated_at)  # window is fixed; only generated_at varies
+    return json.dumps(doc, sort_keys=True) + "\n"
+
+
+def test_publish_json_ignores_generated_at_only_changes(tmp_path, monkeypatch):
+    bare = _publish_env(monkeypatch, tmp_path)
+    remote, path = "file://%s" % bare, "dashboards/prw/usage/m.json"
+    fb = str(tmp_path / "fb")
+
+    def go(text):
+        return prw_metrics.publish(text, remote, "main", fb, path=path, message="m")
+
+    def commits():
+        return int(_git(bare, "rev-list", "--count", "main"))
+    assert go(_publish_feed_text([session()], "2026-11-13T00:00:00Z")) == 0
+    n = commits()
+    assert go(_publish_feed_text([session()], "2026-11-13T05:00:00Z")) == 0
+    assert commits() == n
+    assert go(_publish_feed_text([session(active=999)], "2026-11-13T06:00:00Z")) == 0
+    assert commits() == n + 1

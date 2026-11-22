@@ -1,10 +1,14 @@
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import prw_local_usage as plu  # noqa: E402
+import prw_metrics  # noqa: E402
 
 START = "2026-01-10T00:00:00Z"
 END = "2026-01-11T00:00:00Z"
@@ -149,8 +153,8 @@ def test_malformed_lines_skipped(tmp_path):
 def test_output_is_deterministic(tmp_path):
     claude_file(tmp_path, [claude_row("2026-01-10T01:00:00Z", "m1", out=3)])
     codex_file(tmp_path, [codex_meta(), tok("2026-01-10T05:00:00Z", 10)])
-    a = json.dumps(run(tmp_path), sort_keys=True)
-    b = json.dumps(run(tmp_path), sort_keys=True)
+    a = json.dumps(run(tmp_path))
+    b = json.dumps(run(tmp_path))
     assert a == b
     assert [s["tool"] for s in run(tmp_path)["sessions"]] == ["claude", "codex"]
     out = tmp_path / "o.json"
@@ -159,7 +163,10 @@ def test_output_is_deterministic(tmp_path):
     assert plu.main(args) == 0
     first = out.read_text()
     assert plu.main(args) == 0
+    second = out.read_text()
     assert json.loads(first)["sessions"] and "generated_at" in first
+    strip = lambda t: re.sub(r'"generated_at":"[^"]*"', "", t)  # noqa: E731
+    assert strip(first) == strip(second)
 
 
 def test_publish_rejects_credential_remote(tmp_path, monkeypatch):
@@ -183,3 +190,83 @@ def test_publish_called_with_machine_slug_path(tmp_path, monkeypatch):
     assert kw["path"] == "dashboards/prw/usage/my-laptop-01.json"
     assert args[1] == "git@example.com:o/r.git" and args[2] == "dash"
     assert json.loads(args[0])["machine"] == "My Laptop_01"
+
+
+# --- hardening: overlapping roots, remote privacy, credential check ---
+
+def _two_tool_files(tmp_path):
+    claude_file(tmp_path, [claude_row("2026-01-10T01:00:00Z", "m1", out=5, inp=2)])
+    codex_file(tmp_path, [codex_meta(), tok("2026-01-10T05:00:00Z", 300, out=40)])
+
+
+def _collect(claude_roots, codex_roots):
+    return plu.collect(START, END, claude_roots, codex_roots, 300, "m1", now="2026-01-12T00:00:00Z",
+                       resolver=lambda cwd: None)
+
+
+def test_duplicate_nested_and_symlinked_roots_do_not_double_count(tmp_path):
+    _two_tool_files(tmp_path)
+    c, x = tmp_path / "c", tmp_path / "x"
+    link = tmp_path / "xlink"
+    link.symlink_to(x)
+    single = _collect([c], [x])
+    assert single["sessions"] and single["sessions"][1]["models"]["unknown"]["output"] == 40
+    assert _collect([c, c], [x, x]) == single
+    assert _collect([c, c / "proj"], [x, x / "2026"]) == single
+    assert _collect([c], [x, link]) == single
+
+
+@pytest.mark.parametrize("url", [
+    "/home/x/y", "file:///home/x/y", "../rel/path", "rel/path", "ssh://localhost/o/n", "git@localhost:o/n",
+    "https://intranet/o/n", "https://github.com/onlyowner", "https://github.com/a/b/c", "", None])
+def test_normalize_remote_rejects_non_hosted(url):
+    assert plu.normalize_remote(url) is None
+
+
+@pytest.mark.parametrize("url", [
+    "https://github.com/o/n.git", "http://github.com/o/n", "ssh://git@github.com/o/n.git",
+    "ssh://github.com/o/n", "git@github.com:o/n.git", "github.com:o/n"])
+def test_normalize_remote_accepts_hosted(url):
+    assert plu.normalize_remote(url) == "o/n"
+
+
+def test_local_path_origin_leaves_repo_null_and_feed_free_of_path(tmp_path):
+    repo = tmp_path / "pathy-secret-dir" / "r"
+    repo.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(["git", "-C", str(repo), "remote", "add", "origin", str(tmp_path / "pathy-secret-dir" / "up")],
+                   check=True)
+    assert plu.resolve_repo(str(repo)) is None
+    claude_file(tmp_path, [claude_row("2026-01-10T01:00:00Z", "m1", out=1, cwd=str(repo))])
+    feed = plu.collect(START, END, [tmp_path / "c"], [], 300, "m1", now="2026-01-12T00:00:00Z")
+    assert feed["sessions"][0]["repo"] is None
+    assert "pathy-secret-dir" not in json.dumps(feed)
+
+
+def test_credential_check_is_shared_with_prw_metrics():
+    assert not hasattr(plu, "_has_credentials")
+    assert plu.embeds_credentials is prw_metrics.embeds_credentials
+
+
+def test_publish_rejects_more_credential_forms(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(plu, "publish", lambda *a, **k: calls.append(a) or 0)
+    for url in ("HTTPS://tok@example.com/o/r", "git+https://tok@example.com/o/r", "git:tok@example.com:o/r.git"):
+        assert plu.main(["--claude-root", str(tmp_path / "c"), "--codex-root", str(tmp_path / "x"),
+                         "--publish-remote", url]) == 2
+    assert calls == []
+
+
+def test_output_text_is_sorted_and_identical_across_runs(tmp_path):
+    claude_file(tmp_path, [claude_row("2026-01-10T01:00:00Z", "m1", out=3)])
+    codex_file(tmp_path, [codex_meta(), tok("2026-01-10T05:00:00Z", 10)])
+    texts = []
+    for i in range(2):
+        out = tmp_path / ("o%d.json" % i)
+        assert plu.main(["--claude-root", str(tmp_path / "c"), "--codex-root", str(tmp_path / "x"),
+                         "--machine", "m1", "--since", START, "--until", END, "--output", str(out)]) == 0
+        texts.append(out.read_text())
+    a, b = [json.loads(t) for t in texts]
+    a.pop("generated_at"), b.pop("generated_at")
+    assert a == b
+    assert texts[0] == json.dumps(json.loads(texts[0]), sort_keys=True, separators=(",", ":")) + "\n"
