@@ -259,3 +259,87 @@ def test_parse_operational_title_status():
     assert parse("[weird] y") is None
     assert parse("no brackets [working]") is None
     assert parse("") is None
+
+
+class NodeRunner(FakeRunner):
+    """FakeRunner that also answers timeline continuation queries (args carry `id=`)."""
+
+    def __init__(self, updated_pages, open_pages, node_pages):
+        super().__init__(updated_pages, open_pages)
+        self.node_pages = node_pages  # callable(params) -> response, or a list served in order
+        self.node_calls = []
+
+    def __call__(self, args):
+        p = params(args)
+        if "id" not in p:
+            return super().__call__(args)
+        self.calls.append(p)
+        self.node_calls.append(p)
+        if callable(self.node_pages):
+            return self.node_pages(p)
+        return self.node_pages[len(self.node_calls) - 1]
+
+
+def node_page(nodes, has_next=False, cursor="C2"):
+    return {
+        "data": {
+            "node": {
+                "timelineItems": {
+                    "pageInfo": {"hasNextPage": has_next, "endCursor": cursor},
+                    "nodes": nodes,
+                }
+            }
+        }
+    }
+
+
+def long_pr(first_nodes):
+    pr = synthetic_pr(7, first_nodes, id="PR_node7")
+    pr["timelineItems"]["pageInfo"] = {"hasNextPage": True, "endCursor": "C1"}
+    return pr
+
+
+def labeled(n):
+    return {
+        "__typename": "IssueComment",
+        "createdAt": "2026-11-02T00:%02d:00Z" % (n % 60),
+        "author": user("alice-dev"),
+    }
+
+
+def test_long_timeline_is_paginated_to_completion():
+    first = [requested("bob-rev", "2026-11-01T01:00:00Z")] + [labeled(i) for i in range(99)]
+    extra = [labeled(i) for i in range(29)] + [reviewed("bob-rev", "2026-11-03T00:00:00Z")]
+    runner = NodeRunner([page_of(long_pr(first))], [page_of()], [node_page(extra)])
+    records, health = m.collect([REPO], CUTOFF, runner)
+    assert health[REPO]["ok"] and health[REPO]["truncated_prs"] == []
+    record = records[0]
+    assert record["timeline_complete"] is True
+    assert len(record["events"]) == 130
+    assert any(e["type"] == "review" and e["at"].startswith("2026-11-03") for e in record["events"])
+    assert runner.node_calls[0]["id"] == "PR_node7" and runner.node_calls[0]["cursor"] == "C1"
+
+
+def test_continuation_failure_leaves_timeline_truncated():
+    def boom(p):
+        raise RuntimeError("continuation failed")
+
+    first = [labeled(i) for i in range(100)]
+    runner = NodeRunner([page_of(long_pr(first))], [page_of()], boom)
+    records, health = m.collect([REPO], CUTOFF, runner)
+    assert health[REPO]["ok"] is True
+    assert health[REPO]["truncated_prs"] == [7]
+    assert records[0]["timeline_complete"] is False
+
+
+def test_continuation_page_bound():
+    first = [labeled(i) for i in range(100)]
+    runner = NodeRunner(
+        [page_of(long_pr(first))],
+        [page_of()],
+        lambda p: node_page([labeled(1)], has_next=True, cursor="C" + str(len(runner.node_calls))),
+    )
+    records, health = m.collect([REPO], CUTOFF, runner)
+    assert len(runner.node_calls) == 50
+    assert records[0]["timeline_complete"] is False
+    assert health[REPO]["truncated_prs"] == [7]
