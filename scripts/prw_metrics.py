@@ -164,8 +164,241 @@ def load_annotations(path):
 
 # --- collect ---
 
+import re
+
+_STATUSES = ("working", "waiting", "blocked", "queued", "ready", "unknown")
+_TITLE_STATUS = re.compile(r"^\s*\[([^\]]*)\]")
+
+_QUERY = """
+query($search: String!, $cursor: String) {
+  search(query: $search, type: ISSUE, first: 25, after: $cursor) {
+    issueCount
+    pageInfo { hasNextPage endCursor }
+    nodes {
+      __typename
+      ... on PullRequest {
+        number url title createdAt mergedAt closedAt isDraft
+        author { login __typename }
+        labels(first: 50) { nodes { name } }
+        timelineItems(first: 100, itemTypes: [READY_FOR_REVIEW_EVENT, REVIEW_REQUESTED_EVENT,
+            PULL_REQUEST_REVIEW, PULL_REQUEST_COMMIT, ISSUE_COMMENT, LABELED_EVENT,
+            UNLABELED_EVENT, RENAMED_TITLE_EVENT]) {
+          pageInfo { hasNextPage endCursor }
+          nodes {
+            __typename
+            ... on ReadyForReviewEvent { createdAt actor { login __typename } }
+            ... on ReviewRequestedEvent {
+              createdAt actor { login __typename }
+              requestedReviewer { __typename ... on User { login } ... on Team { name } }
+            }
+            ... on PullRequestReview { submittedAt state author { login __typename } }
+            ... on PullRequestCommit {
+              commit { committedDate author { user { login __typename } } }
+            }
+            ... on IssueComment { createdAt author { login __typename } }
+            ... on LabeledEvent { createdAt actor { login __typename } label { name } }
+            ... on UnlabeledEvent { createdAt actor { login __typename } label { name } }
+            ... on RenamedTitleEvent { createdAt actor { login __typename } currentTitle }
+          }
+        }
+      }
+    }
+  }
+}
+"""
+
+# timeline __typename -> (event type, timestamp field, actor field)
+_EVENT_KINDS = {
+    "ReadyForReviewEvent": ("ready_for_review", "createdAt", "actor"),
+    "ReviewRequestedEvent": ("review_requested", "createdAt", "actor"),
+    "PullRequestReview": ("review", "submittedAt", "author"),
+    "IssueComment": ("comment", "createdAt", "author"),
+    "LabeledEvent": ("labeled", "createdAt", "actor"),
+    "UnlabeledEvent": ("unlabeled", "createdAt", "actor"),
+    "RenamedTitleEvent": ("renamed", "createdAt", "actor"),
+}
+
+
+def parse_operational_title(title):
+    """Status from a leading "[status]" title token (lower-cased), or None if absent/unknown."""
+    found = _TITLE_STATUS.match(title or "")
+    token = found.group(1).strip().lower() if found else None
+    return token if token in _STATUSES else None
+
+
+def gh_runner(args):
+    """Run `gh api graphql <args>` (auth comes from gh itself) and return the parsed JSON."""
+    done = subprocess.run(
+        ["gh", "api", "graphql"] + list(args), capture_output=True, text=True, check=False
+    )
+    if done.returncode != 0:
+        raise RuntimeError((done.stderr or done.stdout).strip()[:500] or "gh api failed")
+    return json.loads(done.stdout)
+
+
+def replay_runner(input_dir):
+    """Runner that replays a directory of saved GraphQL pages, in sorted filename order.
+
+    Files without a `data.search` payload are ignored. Each call returns the next page, so a
+    capture must be ordered as requested: per repo, the updated query's pages, then the open
+    query's pages. Calling past the last page raises.
+    """
+    pages = []
+    for path in sorted(Path(input_dir).glob("*.json")):
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(doc, dict) and isinstance(doc.get("data"), dict) and "search" in doc["data"]:
+            pages.append(doc)
+    served = iter(pages)
+
+    def run(args):
+        try:
+            return next(served)
+        except StopIteration:
+            raise RuntimeError("replay directory has no more pages: %s" % input_dir) from None
+
+    return run
+
+
+def _actor(node):
+    return (node or {}).get("login"), (node or {}).get("__typename")
+
+
+def _event(item):
+    """Normalize one timeline node into an event dict, or None for an unusable node."""
+    kind = item.get("__typename")
+    if kind == "PullRequestCommit":
+        commit = item.get("commit") or {}
+        at, who = commit.get("committedDate"), (commit.get("author") or {}).get("user")
+        etype = "commit"
+    elif kind in _EVENT_KINDS:
+        etype, at_field, who_field = _EVENT_KINDS[kind]
+        at, who = item.get(at_field), item.get(who_field)
+    else:
+        return None
+    if not at:
+        return None
+    actor, actor_type = _actor(who)
+    event = {"type": etype, "at": at, "actor": actor, "actor_type": actor_type}
+    if kind in ("LabeledEvent", "UnlabeledEvent"):
+        event["label"] = (item.get("label") or {}).get("name")
+    elif kind == "ReviewRequestedEvent":
+        target = item.get("requestedReviewer") or {}
+        event["reviewer"] = target.get("login") or target.get("name")
+    elif kind == "PullRequestReview":
+        event["review_state"] = item.get("state")
+    elif kind == "RenamedTitleEvent":
+        event["new_title"] = item.get("currentTitle")
+    return event
+
+
+def _derive_attempts(events, author):
+    """Per-attempt review handoffs (design: Event contract); events must be time-ordered."""
+    attempts, open_requested, open_readiness = [], {}, None
+
+    def close(attempt, at, reason, by):
+        attempt["closed_at"], attempt["closed_reason"], attempt["closed_by"] = at, reason, by
+
+    for event in events:
+        kind, at, actor = event["type"], event["at"], event["actor"]
+        if kind == "review_requested" and event.get("reviewer"):
+            reviewer = event["reviewer"]
+            if reviewer in open_requested:
+                close(open_requested.pop(reviewer), at, "superseded", None)
+            attempt = {
+                "key": "%s@%s" % (reviewer, at), "kind": "requested", "reviewer": reviewer,
+                "opened_at": at, "closed_at": None, "closed_reason": None, "closed_by": None,
+            }
+            attempts.append(attempt)
+            open_requested[reviewer] = attempt
+        elif kind == "ready_for_review":
+            if open_readiness:
+                close(open_readiness, at, "superseded", None)
+            open_readiness = {
+                "key": "*@%s" % at, "kind": "readiness", "reviewer": None,
+                "opened_at": at, "closed_at": None, "closed_reason": None, "closed_by": None,
+            }
+            attempts.append(open_readiness)
+        elif kind == "review":
+            if actor in open_requested:
+                close(open_requested.pop(actor), at, "review", actor)
+            if open_readiness and actor != author:
+                close(open_readiness, at, "review", actor)
+                open_readiness = None
+    return sorted(attempts, key=lambda a: (a["opened_at"], a["key"]))
+
+
+def _record(repo, node):
+    login, author_type = _actor(node.get("author"))
+    events = [e for e in map(_event, node["timelineItems"]["nodes"]) if e]
+    events.sort(key=lambda e: e["at"])
+    return {
+        "repo": repo,
+        "number": node["number"],
+        "url": node["url"],
+        "title": node["title"],
+        "author": login,
+        "author_type": author_type,
+        "created_at": node["createdAt"],
+        "merged_at": node["mergedAt"],
+        "closed_at": node["closedAt"],
+        "is_draft": node["isDraft"],
+        "labels": [n["name"] for n in node["labels"]["nodes"]],
+        "status": parse_operational_title(node["title"]),
+        "timeline_complete": not node["timelineItems"]["pageInfo"]["hasNextPage"],
+        "events": events,
+        "attempts": _derive_attempts(events, login),
+    }
+
+
+def _search_pages(repo, search, runner, state):
+    """Yield every PR node for one search query, following pageInfo; counts pages in state."""
+    cursor = None
+    while True:
+        args = ["-f", "query=" + _QUERY, "-f", "search=" + search]
+        if cursor:
+            args += ["-f", "cursor=" + cursor]
+        response = runner(args)
+        if response.get("errors") and not (response.get("data") or {}).get("search"):
+            raise RuntimeError(json.dumps(response["errors"])[:500])
+        state["pages"] += 1
+        result = response["data"]["search"]
+        for node in result["nodes"]:
+            if node.get("__typename") == "PullRequest":
+                yield node
+        if not result["pageInfo"]["hasNextPage"]:
+            return
+        cursor = result["pageInfo"]["endCursor"]
+
+
 def collect(repos, cutoff, runner):
-    raise NotImplementedError
+    """Collect PR records and per-repo health. Runs two search queries per repo: PRs updated in
+    the last 14 days before cutoff, and every open PR regardless of age; deduplicates on
+    (repo, number). A repo whose queries fail is reported with ok=False and keeps what it got."""
+    if isinstance(cutoff, str):
+        cutoff = parse_iso_utc(cutoff)
+    since = format_iso_utc(cutoff - timedelta(days=14))
+    records, health = {}, {}
+    for repo in repos:
+        state = {"pages": 0}
+        health[repo] = {"ok": True, "pages": 0, "truncated_prs": [], "error": None}
+        searches = (
+            "repo:%s is:pr updated:>=%s" % (repo, since),
+            "repo:%s is:pr is:open" % repo,
+        )
+        try:
+            for search in searches:
+                for node in _search_pages(repo, search, runner, state):
+                    record = _record(repo, node)
+                    seen = records.get((repo, record["number"]))
+                    if seen is None or (record["timeline_complete"] and not seen["timeline_complete"]):
+                        records[(repo, record["number"])] = record
+        except Exception as error:  # a failed repo must degrade to INCOMPLETE, not abort the run
+            health[repo]["ok"], health[repo]["error"] = False, str(error)[:500]
+        health[repo]["pages"] = state["pages"]
+        health[repo]["truncated_prs"] = sorted(
+            r["number"] for (name, _), r in records.items() if name == repo and not r["timeline_complete"]
+        )
+    return [records[key] for key in sorted(records)], health
 
 
 
