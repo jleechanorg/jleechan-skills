@@ -1,200 +1,22 @@
 #!/usr/bin/env bash
-# run_prw_metrics.sh — Execution wrapper for 4-hour PRW metrics collection (bd-yq6x).
-#
-# Follows macOS launchd standards from .claude/skills/launchd/SKILL.md:
-# 1. Sets canonical PATH
-# 2. Sourced shell profile sourcing with nounset temporarily disabled
-# 3. Dynamic GitHub CLI token resolution
-# 4. Scoped state directory, auto-export config sourcing, and kernel flock lock
-# 5. Catch-up collection deduplication after sleep
-# 6. Preserves collector exit status and sanitized logs
-
-# 1. Establish standard PATH for macOS launchd environment
-export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
-
-# 2. Source user profile with nounset temporarily disabled to inherit environment
-if [[ -f "$HOME/.bash_profile" ]]; then
-  set +u
-  source "$HOME/.bash_profile" 2>/dev/null || true
-  set -u
-elif [[ -f "$HOME/.bashrc" ]]; then
-  set +u
-  source "$HOME/.bashrc" 2>/dev/null || true
-  set -u
-elif [[ -f "$HOME/.zprofile" ]]; then
-  set +u
-  source "$HOME/.zprofile" 2>/dev/null || true
-  set -u
-fi
-
+# Runner for the PRW metrics job: PATH, single-instance lock, run the script, log. Arguments pass through.
 set -euo pipefail
 
-# 3. Dynamic GitHub CLI token resolution without leaking credentials to logs
-if [[ -z "${GH_TOKEN:-}" ]]; then
-  RESOLVED_TOKEN="$(gh auth token 2>/dev/null || true)"
-  if [[ -n "$RESOLVED_TOKEN" ]]; then
-    export GH_TOKEN="$RESOLVED_TOKEN"
-  fi
-fi
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
 
-# 4. Resolve repository root and state directory
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-REPO_ROOT="$REPO_DIR"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+STATE_DIR="${PRW_METRICS_STATE_DIR:-$HOME/.local/share/prw-metrics-slim}"
+mkdir -p "$STATE_DIR"
 
-if [[ -z "${PRW_METRICS_STATE_DIR:-}" ]]; then
-  SCRATCH_HELPER="$HOME/.claude/skills/scratch-space/scripts/scratch-dir.sh"
-  if [[ -f "$SCRATCH_HELPER" ]]; then
-    PRW_METRICS_STATE_DIR="$(bash "$SCRATCH_HELPER" prw-metrics 2>/dev/null || echo "/tmp/prw-metrics")"
-  else
-    PRW_METRICS_STATE_DIR="/tmp/prw-metrics"
-  fi
-fi
-
-# Source configuration with set -a / set +a so assignments without export reach children
-source_config() {
-  local cfg="$1"
-  if [[ -f "$cfg" ]]; then
-    set +u
-    set -a
-    source "$cfg" 2>/dev/null || true
-    set +a
-    set -u
-  fi
-}
-
-if [[ -n "${PRW_METRICS_CONFIG_FILE:-}" ]]; then
-  source_config "$PRW_METRICS_CONFIG_FILE"
-fi
-CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
-source_config "$CONFIG_HOME/prw-metrics/config.env"
-source_config "$PRW_METRICS_STATE_DIR/config.env"
-
-# Create the final configured state and lock paths before opening the lock file.
-LOCK_FILE="${PRW_METRICS_LOCK_DIR:-$PRW_METRICS_STATE_DIR/lock}.flock"
-mkdir -p "$PRW_METRICS_STATE_DIR" "$(dirname "$LOCK_FILE")"
-
-# Verify python3 interpreter availability
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "ERROR: python3 command not found in PATH." >&2
-  exit 1
-fi
-
-# 5. Acquire a kernel-held advisory lock (flock). The lock belongs to the open file
-# description on fd 9, so it is released when this process and its children exit, even
-# on SIGKILL: no stale-owner recovery, reclaim permit, or PID-reuse check is needed.
-exec 9>>"$LOCK_FILE"
+# Kernel-held advisory lock: released automatically when this process exits.
+exec 9>>"$STATE_DIR/run.lock"
 if ! python3 -c 'import fcntl; fcntl.flock(9, fcntl.LOCK_EX | fcntl.LOCK_NB)' 2>/dev/null; then
-  echo "Another prw-metrics instance (PID: $(cat "$LOCK_FILE" 2>/dev/null || echo unknown)) is currently running. Exiting cleanly."
+  echo "$(date -u +%FT%TZ) another prw-metrics run holds the lock; exiting"
   exit 0
 fi
-echo "$$" > "$LOCK_FILE"
 
-# 6. Deduplicate catch-up triggers after system sleep
-FORCE_RUN=false
-for arg in "$@"; do
-  if [[ "$arg" == "--force-run" || "$arg" == "--force" ]]; then
-    FORCE_RUN=true
-  fi
-done
-if [[ "${PRW_METRICS_FORCE_RUN:-}" == "1" || "${PRW_METRICS_FORCE_RUN:-}" == "true" ]]; then
-  FORCE_RUN=true
-fi
-
-MIN_INTERVAL_SEC="${PRW_METRICS_MIN_INTERVAL_SEC:-900}"
-LAST_SUCCESS_FILE="$PRW_METRICS_STATE_DIR/last_success_epoch"
-
-if [[ "$FORCE_RUN" != "true" && -f "$LAST_SUCCESS_FILE" ]]; then
-  LAST_EPOCH="$(cat "$LAST_SUCCESS_FILE" 2>/dev/null || echo 0)"
-  CURRENT_EPOCH="$(date +%s)"
-  ELAPSED=$(( CURRENT_EPOCH - LAST_EPOCH ))
-  if (( ELAPSED < MIN_INTERVAL_SEC && ELAPSED >= 0 )); then
-    echo "Deduplicating catch-up run: last successful run was ${ELAPSED}s ago (< ${MIN_INTERVAL_SEC}s). Skipping."
-    exit 0
-  fi
-fi
-
-# 7. Fail closed if PRW_METRICS_ROADMAP_REPO is not set
-if [[ -z "${PRW_METRICS_ROADMAP_REPO:-}" ]]; then
-  echo "ERROR: PRW_METRICS_ROADMAP_REPO is not set. It must be explicitly configured via environment or config.env." >&2
-  exit 1
-fi
-
-export PRW_METRICS_STATE_DIR
-export PRW_METRICS_ROADMAP_REPO
-# No default: an explicit directory outranks the published index, so a stale local copy must not shadow it.
-export PRW_METRICS_TELEMETRY_DIR="${PRW_METRICS_TELEMETRY_DIR:-}"
-export PRW_METRICS_STALE_HOURS="${PRW_METRICS_STALE_HOURS:-4.5}"
-export PRW_METRICS_PUBLISH="${PRW_METRICS_PUBLISH:-1}"
-
-# The dashboard page (web/prw-dashboard, served by launchd/org.prw.dashboard.plist.template)
-# fetches dashboard.json from the directory it serves.
-DASHBOARD_JSON="${PRW_METRICS_DASHBOARD_JSON:-$HOME/.local/share/prw-dashboard/current/dashboard.json}"
-FAILURE_MARKER="$PRW_METRICS_STATE_DIR/last_failure.json"
-
-echo "Starting PRW metrics collection at $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-
-set +e
-if [[ -n "${PRW_METRICS_COLLECTOR_CMD:-}" ]]; then
-  bash -c "$PRW_METRICS_COLLECTOR_CMD"
-else
-  telem_args=()
-  if [[ -d "$PRW_METRICS_TELEMETRY_DIR" ]]; then
-    telem_args+=(--telemetry-dir "$PRW_METRICS_TELEMETRY_DIR")
-  fi
-  history_args=()
-  if [[ -n "${PRW_METRICS_HISTORY_ROOTS:-}" ]]; then
-    IFS=':' read -r -a _history_roots <<< "$PRW_METRICS_HISTORY_ROOTS"
-    for _root in "${_history_roots[@]}"; do
-      if [[ -n "$_root" && -d "$_root" ]]; then
-        history_args+=(--history-root "$_root")
-      fi
-    done
-  fi
-  if (( ${#history_args[@]} > 0 )); then
-    _bindings_ledger="${PRW_METRICS_SESSION_BINDINGS:-$HOME/.local/share/prw-metrics/bindings/session-bindings.jsonl}"
-    if [[ -f "$_bindings_ledger" ]]; then
-      history_args+=(--session-bindings "$_bindings_ledger")
-    fi
-  fi
-  python3 "$REPO_DIR/scripts/prw_metrics.py" \
-    --roadmap-repo "$PRW_METRICS_ROADMAP_REPO" \
-    --state-dir "$PRW_METRICS_STATE_DIR" \
-    --dashboard-json "$DASHBOARD_JSON" \
-    ${telem_args[@]+"${telem_args[@]}"} \
-    ${history_args[@]+"${history_args[@]}"}
-fi
-STATUS=$?
-set -e
-
-# Stage page assets on success and failure alike: a long outage must not pin an old page.
-if [[ -f "$DASHBOARD_JSON" ]]; then
-  for _asset in index.html app.js stats.js styles.css; do
-    cp "$REPO_DIR/web/prw-dashboard/$_asset" "$(dirname "$DASHBOARD_JSON")/$_asset" || true
-  done
-fi
-
-if [[ $STATUS -eq 0 ]]; then
-  date +%s > "$LAST_SUCCESS_FILE"
-  rm -f "$FAILURE_MARKER" "$(dirname "$DASHBOARD_JSON")/last_failure.json"
-  # Scheduled skill-invocation measure: non-fatal; skipped until the counter supports --state-dir.
-  _skill_counter="${PRW_METRICS_SKILL_COUNTER:-$REPO_DIR/.claude/skills/command-research/scripts/count_command_usage_unified.py}"
-  if [[ -f "$_skill_counter" ]] && [[ "$(python3 "$_skill_counter" --help 2>&1 || true)" == *--state-dir* ]]; then
-    python3 "$_skill_counter" --skills --days 7 --json --state-dir "$PRW_METRICS_STATE_DIR/skill-usage" >/dev/null \
-      || echo "WARN: skill usage measurement failed (non-fatal)" >&2
-  fi
-  echo "PRW metrics collection succeeded at $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-  exit 0
-else
-  echo "ERROR: PRW metrics collection failed with exit status $STATUS" >&2
-  # Visible-stale marker: a dead collector otherwise leaves no trace (bd-9uu7).
-  _now_iso="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-  printf '{"epoch": %s, "exit_status": %s, "time_utc": "%s", "reason": "collector exited non-zero"}\n' \
-    "$(date +%s)" "$STATUS" "$_now_iso" > "$FAILURE_MARKER" || true
-  [[ -d "$(dirname "$DASHBOARD_JSON")" ]] && cp "$FAILURE_MARKER" "$(dirname "$DASHBOARD_JSON")/last_failure.json" || true
-  if [[ -n "${SLACK_WEBHOOK_URL:-}" ]]; then
-    curl -sS --max-time 10 -X POST -H 'Content-type: application/json' \
-      --data "{\"text\": \"PRW metrics collection failed (exit $STATUS) at $_now_iso\"}" \
-      "$SLACK_WEBHOOK_URL" >/dev/null 2>&1 || true
-  fi
-  exit $STATUS
-fi
+echo "$(date -u +%FT%TZ) prw-metrics start"
+status=0
+python3 "$SCRIPT_DIR/prw_metrics.py" "$@" || status=$?
+echo "$(date -u +%FT%TZ) prw-metrics exit $status"
+exit "$status"

@@ -185,12 +185,105 @@ def render(metrics):
 
 # --- publish ---
 
+_README_PATH = "dashboards/prw/README.md"
+_IDENTITY = ["-c", "user.name=prw-metrics", "-c", "user.email=prw-metrics@localhost"]
+
+
+def _state_dir():
+    return os.environ.get("PRW_METRICS_STATE_DIR") or os.path.join(
+        os.path.expanduser("~"), ".local", "share", "prw-metrics-slim"
+    )
+
+
+def _git(cwd, *args):
+    return subprocess.run(["git", *_IDENTITY, *args], cwd=cwd, capture_output=True, text=True)
+
+
+def _push_once(clone, branch):
+    return _git(clone, "push", "origin", "HEAD:refs/heads/%s" % branch)
+
+
+def _publish_to_clone(markdown, remote, branch, clone):
+    """Return 0 on success or no change; raise RuntimeError(message) on any git failure."""
+    done = _git(clone, "clone", "--depth", "1", "--branch", branch, remote, ".")
+    if done.returncode:
+        raise RuntimeError("clone failed: " + done.stderr.strip())
+    target = Path(clone, _README_PATH)
+    if target.exists() and target.read_text(encoding="utf-8") == markdown:
+        print("no change")
+        return 0
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(markdown, encoding="utf-8")
+    for step in (("add", "--", _README_PATH), ("commit", "-m", "chore(prw-metrics): update PRW dashboard", "--", _README_PATH)):
+        done = _git(clone, *step)
+        if done.returncode:
+            raise RuntimeError("git %s failed: %s" % (step[0], (done.stderr or done.stdout).strip()))
+    done = _push_once(clone, branch)
+    if done.returncode and ("non-fast-forward" in done.stderr or "fetch first" in done.stderr):
+        pulled = _git(clone, "pull", "--rebase", "origin", branch)
+        if pulled.returncode:
+            raise RuntimeError("rebase failed: " + pulled.stderr.strip())
+        done = _push_once(clone, branch)
+    if done.returncode:
+        raise RuntimeError("push failed: " + done.stderr.strip())
+    print("published %s to %s" % (_README_PATH, branch))
+    return 0
+
+
 def publish(markdown, remote, branch, fallback_path):
-    raise NotImplementedError
+    """Shallow-clone remote@branch, update the dashboard file, push. 0 ok/no change, 2 no remote, 3 failure."""
+    if not remote:
+        print("publish requested but no roadmap remote configured", file=sys.stderr)
+        return 2
+    with tempfile.TemporaryDirectory(prefix="prw-publish-") as clone:
+        try:
+            return _publish_to_clone(markdown, remote, branch, clone)
+        except (RuntimeError, OSError) as exc:
+            print("publish failed: %s" % exc, file=sys.stderr)
+    try:
+        Path(fallback_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(fallback_path).write_text(markdown, encoding="utf-8")
+        print("dashboard saved to %s" % fallback_path, file=sys.stderr)
+    except OSError as exc:
+        print("fallback write failed: %s" % exc, file=sys.stderr)
+    return 3
+
+
+def _parser():
+    p = argparse.ArgumentParser(description="Collect PRW metrics and publish one Markdown dashboard.")
+    p.add_argument("--repos", default=os.environ.get("PRW_METRICS_REPOS", ""), help="comma-separated owner/name list")
+    p.add_argument("--input-dir", help="replay cached GraphQL pages from this directory instead of calling gh")
+    p.add_argument("--cutoff", help="ISO-8601 UTC cutoff (default: now)")
+    p.add_argument("--output", help="also write the Markdown to this file")
+    p.add_argument("--publish", action="store_true", default=os.environ.get("PRW_METRICS_PUBLISH") == "1")
+    p.add_argument("--roadmap-remote", default=os.environ.get("PRW_METRICS_ROADMAP_REMOTE", ""))
+    p.add_argument("--roadmap-branch", default="main")
+    p.add_argument("--annotations", default=os.path.join(_state_dir(), "annotations.json"))
+    return p
 
 
 def main(argv=None):
-    raise NotImplementedError
+    args = _parser().parse_args(argv)
+    repos = [r.strip() for r in args.repos.split(",") if r.strip()]
+    if not repos:
+        print("no repos given (--repos or PRW_METRICS_REPOS)", file=sys.stderr)
+        return 2
+    if args.publish and not args.roadmap_remote:
+        print("publish requested but no roadmap remote configured (--roadmap-remote)", file=sys.stderr)
+        return 2
+    cutoff = format_iso_utc(parse_iso_utc(args.cutoff) if args.cutoff else datetime.now(timezone.utc))
+    runner = replay_runner(args.input_dir) if args.input_dir else gh_runner
+    records, health = collect(repos, cutoff, runner)
+    metrics = aggregate(records, health, load_annotations(args.annotations), cutoff)
+    markdown = render(metrics)
+    if args.output:
+        Path(args.output).write_text(markdown, encoding="utf-8")
+    if args.publish:
+        fallback = args.output or os.path.join(_state_dir(), "last-dashboard.md")
+        return publish(markdown, args.roadmap_remote, args.roadmap_branch, fallback)
+    if not args.output:
+        sys.stdout.write(markdown)
+    return 0
 
 
 if __name__ == "__main__":
