@@ -106,7 +106,8 @@
                 "state": "APPROVED"
               }
             ]
-          }
+          },
+          "headRefName": "feature/pr-105-work"
         },
         {
           "__typename": "PullRequest",
@@ -172,7 +173,8 @@
                 }
               }
             ]
-          }
+          },
+          "headRefName": "feature/pr-104-work"
         },
         {
           "__typename": "PullRequest",
@@ -249,7 +251,8 @@
                 }
               }
             ]
-          }
+          },
+          "headRefName": "feature/pr-103-work"
         }
       ]
     }
