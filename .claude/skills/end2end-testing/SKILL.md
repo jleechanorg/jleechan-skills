@@ -92,10 +92,14 @@ serving revision and mapping, and scrub manifest separately from the test
 execution receipt. Preserve failed responses and omissions; never relabel a
 synthetic adapter as a real capture.
 
-Provide a revision-pinned Gist URL to a reviewer-accessible, sanitized capture
-receipt binding the original UTC capture time, source environment and backend
-identity or provider/model, a safe opaque receipt ID, and the scrubbed fixture
-hash. Require a verified serving revision for revision-specific claims; if
+Link a reviewer-accessible, sanitized capture receipt from a revision-pinned
+Gist by default. Only if Gist publication is prohibited, use an equally
+verifiable, immutable private receipt already accessible to the intended
+reviewers. This is a provenance exception, not a waiver of separate PR
+publication requirements. In either case, bind the original UTC capture
+time, source environment and backend identity or provider/model, safe opaque
+receipt ID, and scrubbed fixture hash. Require a verified serving revision
+for revision-specific claims; if
 it is unknown, say so and limit the claim to replay of the verified capture.
 An independent reviewer corroborates origin at the authorized source or
 through an independently verified capture receipt; a Gist and digest alone
