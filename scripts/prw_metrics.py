@@ -3,7 +3,7 @@
 
 Pipeline (pure-function core, Python 3 stdlib only):
     collect(repos, cutoff, runner) -> (records, health)
-    load_usage_feeds(paths, remote, branch) -> (feeds, problems)      [optional local usage feeds]
+    load_usage_feeds(paths, remote, branch, cutoff) -> (feeds, problems) [optional; read only when --usage-feed/--usage-remote given]
     aggregate(records, health, annotations, cutoff, usage=None, usage_problems=()) -> metrics
     render(metrics) -> markdown
     publish(markdown, remote, branch, fallback_path, *, path, message) -> exit code
@@ -458,6 +458,7 @@ def collect(repos, cutoff, runner):
 
 _USAGE_SCHEMA = "prw-local-usage.v1"
 _USAGE_REMOTE_DIR = "dashboards/prw/usage"
+_FUTURE_SLACK = timedelta(minutes=5)
 _SESSION_KEYS = ("tool", "session_id", "first_at", "last_at", "active_sec", "models")
 
 
@@ -498,10 +499,11 @@ def _read_feed(path, problems):
     return dict(doc, sessions=good)
 
 
-def load_usage_feeds(paths, remote=None, branch="main"):
+def load_usage_feeds(paths, remote=None, branch="main", cutoff=None):
     """Load prw-local-usage.v1 feeds from files/directories (and, read-only, from a shallow clone of
     `remote`). Returns (feeds, problems); a bad feed is skipped and reported, never fatal. Only the
-    newest feed per machine is kept, sorted by machine."""
+    newest feed per machine is kept, sorted by machine. With `cutoff`, a feed generated more than 5 minutes
+    after it is a problem and ignored (it must not win "newest" or look fresh)."""
     problems, files = [], []
     for raw in paths or []:
         path = Path(raw)
@@ -526,6 +528,9 @@ def load_usage_feeds(paths, remote=None, branch="main"):
         newest = {}
         for path in files:
             feed = _read_feed(path, problems)
+            if feed and cutoff and parse_iso_utc(feed["generated_at"]) > parse_iso_utc(cutoff) + _FUTURE_SLACK:
+                problems.append("%s: generated_at is in the future, ignored" % Path(path).name)
+                feed = None
             if feed and (feed["machine"] not in newest or parse_iso_utc(feed["generated_at"])
                          > parse_iso_utc(newest[feed["machine"]]["generated_at"])):
                 newest[feed["machine"]] = feed
@@ -615,7 +620,7 @@ def _measure_attempts(record, cutoff):
             yield att["kind"], "superseded", None
 
 
-_TRIVIAL_BRANCHES = {"main", "master", "trunk", "develop"}
+TRIVIAL_BRANCHES = {"main", "master", "trunk", "develop"}  # also imported by prw_local_usage
 _STALE_AFTER = 12 * 3600
 HEARTBEAT_SEC = 6 * 3600  # an unchanged feed is still republished this often; must stay below _STALE_AFTER
 _TOKENS = ("input", "output", "cache_read", "cache_write")
@@ -625,7 +630,7 @@ def _usage_metrics(feeds, problems, records, cutoff):
     start = cutoff - timedelta(days=14)
     by_branch = {}
     for rec in records:
-        if rec.get("branch") and rec["branch"] not in _TRIVIAL_BRANCHES:
+        if rec.get("branch") and rec["branch"] not in TRIVIAL_BRANCHES:
             by_branch.setdefault(rec["branch"], []).append(rec)
     machines, per_repo, per_pr = {}, {}, {}
     loose = {"sessions": 0, "active_sec": 0, "output": 0}
@@ -963,9 +968,27 @@ def _state_dir():
     )
 
 
+_SSH_CONFIGURED = None  # per process: does the user already choose their own ssh (GIT_SSH_COMMAND, GIT_SSH, core.sshCommand)?
+
+
+def _user_ssh_configured(cwd):
+    global _SSH_CONFIGURED
+    if _SSH_CONFIGURED is None:
+        _SSH_CONFIGURED = bool(os.environ.get("GIT_SSH_COMMAND") or os.environ.get("GIT_SSH"))
+        if not _SSH_CONFIGURED:
+            try:
+                done = subprocess.run(["git", "config", "--get", "core.sshCommand"], cwd=cwd, capture_output=True,
+                                      text=True, timeout=5)
+                _SSH_CONFIGURED = bool((done.stdout or "").strip())
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+    return _SSH_CONFIGURED
+
+
 def _git(cwd, *args):
     env = dict(os.environ, LC_ALL="C", GIT_TERMINAL_PROMPT="0")  # LC_ALL: push-rejection detection matches English git output
-    env.setdefault("GIT_SSH_COMMAND", "ssh -o BatchMode=yes -o ConnectTimeout=20")
+    if not _user_ssh_configured(cwd):  # never override the user's own ssh setup; only add a no-prompt default
+        env["GIT_SSH_COMMAND"] = "ssh -o BatchMode=yes -o ConnectTimeout=20"
     try:
         timeout = float(os.environ.get("PRW_METRICS_GIT_TIMEOUT_SEC") or 120)
     except ValueError:
@@ -1076,7 +1099,7 @@ def _parser():
     p.add_argument("--usage-feed", action="append", default=[p for p in os.environ.get("PRW_METRICS_USAGE_FEEDS", "").split(":") if p],
                    help="local usage feed file or directory (repeatable; env PRW_METRICS_USAGE_FEEDS, colon-separated)")
     p.add_argument("--usage-remote", default=os.environ.get("PRW_METRICS_USAGE_REMOTE", ""),
-                   help="git remote whose dashboards/prw/usage/*.json feeds are read (default: the roadmap remote when publishing)")
+                   help="git remote whose dashboards/prw/usage/*.json feeds are read (env PRW_METRICS_USAGE_REMOTE); feeds are read only when this or --usage-feed is given")
     p.add_argument("--annotations", default=os.path.join(_state_dir(), "annotations.json"))
     return p
 
@@ -1096,10 +1119,10 @@ def main(argv=None):
     cutoff = format_iso_utc(parse_iso_utc(args.cutoff) if args.cutoff else datetime.now(timezone.utc))
     runner = replay_runner(args.input_dir) if args.input_dir else gh_runner
     records, health = collect(repos, cutoff, runner)
-    usage_remote = args.usage_remote or (args.roadmap_remote if args.publish else "")
     extra = {}
-    if args.usage_feed or usage_remote:
-        feeds, problems = load_usage_feeds(args.usage_feed, usage_remote or None, args.roadmap_branch)
+    if args.usage_feed or args.usage_remote:
+        feeds, problems = load_usage_feeds(args.usage_feed, args.usage_remote or None, args.roadmap_branch,
+                                           cutoff=cutoff)
         extra = {"usage": feeds, "usage_problems": problems}
     metrics = aggregate(records, health, load_annotations(args.annotations), cutoff, **extra)
     markdown = render(metrics)

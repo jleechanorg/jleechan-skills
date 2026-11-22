@@ -42,7 +42,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from prw_metrics import embeds_credentials, publish  # noqa: E402
+from prw_metrics import TRIVIAL_BRANCHES, embeds_credentials, publish  # noqa: E402
 
 SCHEMA = "prw-local-usage.v1"
 ZERO = {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}
@@ -174,7 +174,24 @@ def _slim_codex(row):
 
 
 def _session(table, sid):
-    return table.setdefault(sid, {"events": array("q"), "cwd": None, "branch": None, "repo_hint": None, "models": {}})
+    return table.setdefault(sid, {"events": array("q"), "cwd": None, "branch": None, "any_branch": None,
+                                  "repo_hint": None, "models": {}})
+
+
+def _note_branch(rec, at, branch):
+    """Keep only the latest (timestamp, name) of any real branch and of a non-trivial one; no per-event storage."""
+    if not isinstance(branch, str) or branch in ("", "HEAD"):
+        return
+    for slot in (("any_branch",) if branch in TRIVIAL_BRANCHES else ("any_branch", "branch")):
+        if rec[slot] is None or at >= rec[slot][0]:
+            rec[slot] = (at, branch)
+
+
+def _final_branch(rec):
+    """The session's last non-trivial branch (an agent that starts on main and opens a PR from a feature branch
+    belongs to that PR); if it never left a trivial branch, the last real branch seen; else None."""
+    best = rec["branch"] or rec["any_branch"]
+    return best[1] if best else None
 
 
 def scan_claude(roots, start, end):
@@ -191,7 +208,7 @@ def scan_claude(roots, start, end):
             rec = _session(table, sid)
             rec["events"].append(_micros(ts))
             rec["cwd"] = rec["cwd"] or row.get("cwd")
-            rec["branch"] = rec["branch"] or row.get("gitBranch")
+            _note_branch(rec, rec["events"][-1], row.get("gitBranch"))
             msg = row.get("message")
             usage = msg.get("usage") if isinstance(msg, dict) else None
             if not isinstance(usage, dict):
@@ -226,7 +243,8 @@ def _codex_totals(info):
 def scan_codex(roots, start, end):
     table = {}
     for path in _jsonl_files(roots, start):
-        sid, cwd, branch, hint, model = Path(path).stem, None, None, None, "unknown"
+        sid, cwd, hint, model = Path(path).stem, None, None, "unknown"
+        branches = []
         base = final = final_model = None
         events = array("q")
         for row in _rows(path, _slim_codex):
@@ -235,7 +253,10 @@ def scan_codex(roots, start, end):
                 sid = str(payload.get("id") or sid)
                 cwd = payload.get("cwd")
                 git = payload.get("git") if isinstance(payload.get("git"), dict) else {}
-                branch, hint = git.get("branch"), git.get("repository_url")
+                # Codex records git info only in session_meta (turn_context and world_state carry no structured
+                # branch), so this is the branch at session start; a later checkout is not visible in its logs.
+                branches.append((parse_ts(row.get("timestamp")), git.get("branch")))
+                hint = git.get("repository_url")
             elif row.get("type") == "turn_context" and payload.get("model"):
                 model = str(payload["model"])
             ts = parse_ts(row.get("timestamp"))
@@ -255,7 +276,9 @@ def scan_codex(roots, start, end):
             continue
         rec = _session(table, sid)
         rec["events"] += events
-        rec["cwd"], rec["branch"], rec["repo_hint"] = rec["cwd"] or cwd, rec["branch"] or branch, rec["repo_hint"] or hint
+        rec["cwd"], rec["repo_hint"] = rec["cwd"] or cwd, rec["repo_hint"] or hint
+        for bts, branch in branches:
+            _note_branch(rec, _micros(bts) if bts else 0, branch)
         if final:
             base = base or ZERO
             d = {k: max(final[k] - base[k], 0) for k in ZERO}
@@ -293,7 +316,7 @@ def collect(start, end, claude_roots, codex_roots, idle_gap_sec, machine, now=No
             cwd = rec["cwd"]
             if cwd not in cache:
                 cache[cwd] = resolver(cwd)
-            branch = rec["branch"] if rec["branch"] not in (None, "", "HEAD") else None
+            branch = _final_branch(rec)
             sessions.append({
                 "tool": tool, "session_id": sid, "repo": cache[cwd] or normalize_remote(rec["repo_hint"]),
                 "branch": branch, "first_at": fmt_ts(_EPOCH + min(rec["events"]) * _US), "last_at": fmt_ts(_EPOCH + max(rec["events"]) * _US),

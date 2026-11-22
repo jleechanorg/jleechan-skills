@@ -346,3 +346,47 @@ def test_oversized_line_is_skipped_without_being_read_whole(tmp_path, monkeypatc
         tracemalloc.stop()
     assert s["models"]["claude-example"]["output"] == 3 and s["active_sec"] == 120
     assert peak < 6 * 1024 * 1024  # reading the 8 MB line whole costs 16 MB or more
+
+
+# --- session branch is the last non-trivial branch seen ---
+
+def _branches(tmp_path, seq):
+    rows = [claude_row("2026-01-10T01:%02d:00Z" % i, branch=b) for i, b in enumerate(seq)]
+    claude_file(tmp_path, rows)
+    (s,) = run(tmp_path)["sessions"]
+    return s["branch"]
+
+
+def test_branch_is_the_last_feature_branch_not_the_first(tmp_path):
+    assert _branches(tmp_path, ["main", "main", "feat/x"]) == "feat/x"
+
+
+def test_branch_stays_trivial_when_only_trivial_seen(tmp_path):
+    assert _branches(tmp_path, ["main", "main"]) == "main"
+    assert _branches(tmp_path, [None, "HEAD", "main", None]) == "main"
+    assert _branches(tmp_path, [None, "", "HEAD"]) is None
+
+
+def test_branch_switching_back_to_main_keeps_feature_branch(tmp_path):
+    assert _branches(tmp_path, ["main", "feat/x", "main"]) == "feat/x"
+    assert _branches(tmp_path, ["feat/a", "feat/b", "main"]) == "feat/b"
+
+
+def test_branch_follows_timestamps_across_files_of_one_session(tmp_path):
+    write_jsonl(tmp_path / "c" / "proj" / "a.jsonl", [claude_row("2026-01-10T02:00:00Z", branch="feat/new")])
+    write_jsonl(tmp_path / "c" / "proj" / "b.jsonl", [claude_row("2026-01-10T01:00:00Z", branch="feat/old")])
+    (s,) = run(tmp_path)["sessions"]
+    assert s["branch"] == "feat/new"
+
+
+def test_codex_branch_is_recorded_once_at_session_start(tmp_path):
+    codex_file(tmp_path, [
+        {"timestamp": "2026-01-09T00:00:00Z", "type": "session_meta",
+         "payload": {"id": "cx1", "cwd": "/nonexistent/example", "git": {"branch": "feat/c"}}},
+        tok("2026-01-10T05:00:00Z", 10)])
+    (s,) = run(tmp_path)["sessions"]
+    assert s["branch"] == "feat/c"
+
+
+def test_collector_and_dashboard_share_one_trivial_set():
+    assert plu.TRIVIAL_BRANCHES is prw_metrics.TRIVIAL_BRANCHES

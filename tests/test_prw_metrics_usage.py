@@ -379,21 +379,74 @@ def test_usage_remote_with_embedded_credentials_is_rejected(tmp_path):
     assert rc == 2
 
 
-def test_usage_remote_defaults_to_roadmap_remote_when_publishing(tmp_path, monkeypatch):
+def test_publish_without_usage_options_reads_no_feeds(tmp_path, monkeypatch):
+    clones, published = [], []
+    monkeypatch.setattr(prw_metrics, "load_usage_feeds", lambda *a, **k: clones.append(a) or ([], []))
+    monkeypatch.setattr(prw_metrics, "publish", lambda md, *a, **k: published.append(md) or 0)
+    rc = prw_metrics.main(["--repos", "example-org/example-repo", "--input-dir", str(FIXTURES),
+                           "--cutoff", CUTOFF, "--annotations", str(tmp_path / "missing.json"),
+                           "--publish", "--roadmap-remote", "file:///nonexistent"])
+    assert rc == 0 and clones == []
+    assert "Local agent usage: no feed configured" in published[0]
+    assert "Local agent usage" not in published[0].replace("Local agent usage: no feed configured", "")
+
+
+def test_explicit_usage_remote_is_read_with_the_roadmap_branch(tmp_path, monkeypatch):
     seen = {}
     monkeypatch.setattr(prw_metrics, "load_usage_feeds",
-                        lambda paths, remote=None, branch="main": seen.update(remote=remote, branch=branch) or ([], []))
+                        lambda paths, remote=None, branch="main", **k: seen.update(remote=remote, branch=branch) or ([], []))
     monkeypatch.setattr(prw_metrics, "publish", lambda *a, **k: 0)
     rc = prw_metrics.main(["--repos", "example-org/example-repo", "--input-dir", str(FIXTURES),
                            "--cutoff", CUTOFF, "--annotations", str(tmp_path / "missing.json"),
-                           "--publish", "--roadmap-remote", "file:///nonexistent", "--roadmap-branch", "trunk-x"])
-    assert rc == 0 and seen == {"remote": "file:///nonexistent", "branch": "trunk-x"}
+                           "--publish", "--roadmap-remote", "file:///nonexistent", "--roadmap-branch", "trunk-x",
+                           "--usage-remote", "file:///usage"])
+    assert rc == 0 and seen == {"remote": "file:///usage", "branch": "trunk-x"}
+
+
+def test_future_generated_at_is_ignored_and_reported(tmp_path):
+    write(tmp_path / "ok.json", feed("m", generated_at="2026-11-13T20:00:00Z"))
+    write(tmp_path / "future.json", feed("m", generated_at="2027-01-01T00:00:00Z", sessions=[session()]))
+    write(tmp_path / "soon.json", feed("m2", generated_at="2026-11-14T00:04:00Z"))  # within 5 min tolerance
+    feeds, problems = prw_metrics.load_usage_feeds([str(tmp_path)], cutoff=CUTOFF)
+    assert {f["machine"]: f["generated_at"] for f in feeds} == {
+        "m": "2026-11-13T20:00:00Z", "m2": "2026-11-14T00:04:00Z"}
+    assert len(problems) == 1 and "future.json" in problems[0]
+
+
+def test_only_future_feed_leaves_machine_absent(tmp_path):
+    write(tmp_path / "future.json", feed("m", generated_at="2026-11-20T00:00:00Z"))
+    feeds, problems = prw_metrics.load_usage_feeds([str(tmp_path)], cutoff=CUTOFF)
+    assert feeds == [] and len(problems) == 1
+
+
+def test_main_passes_cutoff_so_future_feeds_are_dropped(tmp_path):
+    write(tmp_path / "future.json", feed("m", generated_at="2026-11-20T00:00:00Z"))
+    out = tmp_path / "out.md"
+    assert prw_metrics.main(["--repos", "example-org/example-repo", "--input-dir", str(FIXTURES),
+                             "--cutoff", CUTOFF, "--output", str(out), "--usage-feed", str(tmp_path),
+                             "--annotations", str(tmp_path / "missing.json")]) == 0
+    assert "future.json" in out.read_text(encoding="utf-8")
+
+
+def test_session_that_started_on_main_is_attributed_to_feature_branch_pr():
+    from prw_local_usage import _final_branch, _note_branch
+    rec = {"branch": None, "any_branch": None}
+    for at, b in enumerate(["main", "feat/x", "main"]):
+        _note_branch(rec, at, b)
+    usage = agg([pr(REPO_A, 5, "feat/x")], [feed(sessions=[session(branch=_final_branch(rec))])])
+    assert list(usage["per_pr"]) == ["%s#5" % REPO_A] and usage["unattributed"]["sessions"] == 0
 
 
 # --- hardening: git timeouts, credential check, validation, repo case, no-change detection ---
 
 class _Done:
     returncode, stdout, stderr = 0, "", ""
+
+
+@pytest.fixture(autouse=True)
+def _fresh_ssh_config_cache(monkeypatch):
+    monkeypatch.setattr(prw_metrics, "_SSH_CONFIGURED", None)
+    monkeypatch.delenv("GIT_SSH", raising=False)
 
 
 def _capture_git(monkeypatch):
@@ -422,6 +475,44 @@ def test_git_timeout_env_override_and_existing_ssh_command_kept(monkeypatch):
     seen = _capture_git(monkeypatch)
     prw_metrics._git(".", "status")
     assert seen["timeout"] == 7 and seen["env"]["GIT_SSH_COMMAND"] == "ssh -i key"
+
+
+def _fake_git_with_config(monkeypatch, configured):
+    calls = []
+
+    def fake(cmd, **kw):
+        calls.append((cmd, kw))
+        done = _Done()
+        if "config" in cmd:
+            done.stdout = configured
+        return done
+    monkeypatch.setattr(prw_metrics.subprocess, "run", fake)
+    return calls
+
+
+def test_git_keeps_users_core_ssh_command(monkeypatch):
+    monkeypatch.delenv("GIT_SSH_COMMAND", raising=False)
+    calls = _fake_git_with_config(monkeypatch, "ssh -i mykey\n")
+    prw_metrics._git(".", "status")
+    assert "GIT_SSH_COMMAND" not in calls[-1][1]["env"]
+    assert any(c[0][-3:] == ["config", "--get", "core.sshCommand"] and c[1]["timeout"] == 5 for c in calls)
+
+
+def test_git_keeps_users_git_ssh(monkeypatch):
+    monkeypatch.delenv("GIT_SSH_COMMAND", raising=False)
+    monkeypatch.setenv("GIT_SSH", "/opt/my-ssh")
+    calls = _fake_git_with_config(monkeypatch, "")
+    prw_metrics._git(".", "status")
+    assert "GIT_SSH_COMMAND" not in calls[-1][1]["env"] and calls[-1][1]["env"]["GIT_SSH"] == "/opt/my-ssh"
+
+
+def test_git_ssh_config_lookup_is_cached_per_process(monkeypatch):
+    monkeypatch.delenv("GIT_SSH_COMMAND", raising=False)
+    calls = _fake_git_with_config(monkeypatch, "")
+    prw_metrics._git(".", "status")
+    prw_metrics._git(".", "fetch")
+    assert sum("config" in c[0] for c in calls) == 1
+    assert calls[-1][1]["env"]["GIT_SSH_COMMAND"].startswith("ssh -o BatchMode=yes")
 
 
 def _hang(monkeypatch):
