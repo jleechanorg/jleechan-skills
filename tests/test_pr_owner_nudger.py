@@ -262,6 +262,17 @@ class DispatcherTest(unittest.TestCase):
             with patch("pr_nudger_intake._linux_cpu", side_effect=OSError):
                 self.assertFalse(nudger.launch_capacity())
 
+    def test_capacity_is_measured_once_per_tick(self):
+        # A launch earlier in the tick must not starve later targets of the same tick.
+        with patch.object(nudger, "launch_capacity", side_effect=[True, False, False]) as measure:
+            nudger.begin_tick_capacity()
+            self.assertTrue(nudger.tick_capacity())
+            self.assertTrue(nudger.tick_capacity())
+            self.assertEqual(measure.call_count, 1)
+            nudger.begin_tick_capacity()
+            self.assertFalse(nudger.tick_capacity())
+            self.assertEqual(measure.call_count, 2)
+
     def test_rate_reset_and_backoff_survive_restart(self):
         self.config["owners"] = []
         self.config["targets"] = [{"repo": "base/project", "number": number} for number in (12, 13)]

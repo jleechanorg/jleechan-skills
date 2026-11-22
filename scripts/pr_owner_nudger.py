@@ -21,6 +21,22 @@ from uuid import UUID
 from pr_nudger_discovery import discover_owners
 import pr_nudger_routes
 from pr_nudger_intake import DUE_SLACK_SECONDS, Intake, RateLimited, launch_capacity, remember_binding  # noqa: F401
+
+_TICK_CAPACITY = None
+
+
+def begin_tick_capacity():
+    """Forget the last reading; the next launch check measures the host afresh."""
+    global _TICK_CAPACITY
+    _TICK_CAPACITY = None
+
+
+def tick_capacity():
+    """Measure once per tick, before this tick's own launches load the host."""
+    global _TICK_CAPACITY
+    if _TICK_CAPACITY is None:
+        _TICK_CAPACITY = launch_capacity()
+    return _TICK_CAPACITY
 from pr_nudger_routes import route
 
 REPO = r"[a-zA-Z0-9-]+/[a-zA-Z0-9_.-]+"
@@ -418,7 +434,7 @@ def dispatch(cwd, owner, local, pr, receipts, config, from_cache, read=None, *,
                             resume_sandbox=resume_sandbox, recheck=recheck,
                             revalidate=revalidate, confirm_owner=confirm_owner,
                             checkpoint_receipt=checkpoint_receipt,
-                            headless_resume=can_resume, admit_launch=launch_capacity),
+                            headless_resume=can_resume, admit_launch=tick_capacity),
                        prompt, receipts is not None)
     except Exception:
         # An interrupted transport may already have acted. Keep its durable intent.
@@ -725,7 +741,7 @@ def dispatch_target(key, target, pr, matches, store, config, read, *, wake_reaso
 
     if not authorized_enrollment and checkout(cwd) != (head_repo, branch, sha):
         return note(key, "stale_checkout", "verify_checkout")
-    if db is not None and not launch_capacity():
+    if db is not None and not tick_capacity():
         return note(key, "blocked_launch_capacity", "bootstrap_owner")
     status = pr_nudger_routes.start_codex_bootstrap(
         enrollment, expected, apply=db is not None, recheck=recheck,
@@ -870,6 +886,7 @@ def tick(config, receipts, state=None):
                     enrolled.setdefault(path, [])
     discovered = discover_owners(enrolled) if enrolled else {}
     yield from errors
+    begin_tick_capacity()
     for key in sorted(observed, key=lambda key: (store.row(key)["next_due"], key)):
         pr, ci_status, wake_reason = observed[key]
         expected = identity(pr)
