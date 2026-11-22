@@ -57,7 +57,7 @@ This event still goes through owner, checkout, and receipt verification.
 
 A target's optional `enrollment` names its `head_repo`, `branch`, canonical
 absolute `cwd`, owning `host` (the local hostname), `cli`, canonical absolute
-`cli_bin` and `profile_dir`, and `model`. Fresh bootstrap requires
+`cli_bin` and `profile_dir`, and `model`. The profile's `AGENTS.md` must start with the shared global policy; append run-specific scope below it. Fresh bootstrap requires
 `launch_authorized: true` and `managed_exclusive: true`. Use that declaration
 only for a dedicated checkout reserved for the managed owner. The local tick
 lock serializes the timer's writes. Runtime checks still verify the branch and

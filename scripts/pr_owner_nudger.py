@@ -389,13 +389,15 @@ def dispatch(cwd, owner, local, pr, receipts, config, from_cache, read=None, *,
             reserved = True
         return True
 
-    prompt = (f"/pr https://github.com/{repo}/pull/{number} (PR owner reminder at {sha}). "
-              "Recheck the live PR and keep its /ironclad contract current. Continue authorized "
-              "/pr actions until you publish Stage 5 at the current head or reach a blocker that "
-              "needs the operator's own authority (merge approval, force-push, credentials, new "
-              "spend, destructive actions). Fixtures, evidence capture and publication, evidence "
-              "routes and finding records are your work. Preserve existing user constraints and "
-              "leave any operator approval or merge to the operator.")
+    prompt = (f"/pr https://github.com/{repo}/pull/{number} (PR owner wake at {sha}). "
+              "Read your /ironclad contract for this PR and the live PR. If you are on track, "
+              "continue. Otherwise keep working until /pr final approval: Stage 5 FINAL_READY at "
+              "the current head. Stop only for a step that is truly impossible for an LLM because "
+              "it needs the operator's own authority: merge approval, force-push, credentials, new "
+              "spend, a destructive action, social-post deletion, or a physical 2FA step. Fixtures, "
+              "evidence capture and publication to the existing evidence store, choosing an "
+              "evidence route, finding records, CI repair and reviews are your work; do them in "
+              "this turn. Leave merge to the operator.")
     if local[-1] != sha:
         prompt += (f" Your checkout is at {local[-1]}. Before any stage work, fetch the exact "
                    "enrolled branch and verify the remote head. Update only by fast-forward "
