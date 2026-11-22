@@ -1,5 +1,7 @@
 # Repository Guide
 
+Keep this file <= 200 lines; move detail to linked docs.
+
 This repository exports portable agent skills. Keep the root limited to package
 metadata, public documentation, and the installer.
 
