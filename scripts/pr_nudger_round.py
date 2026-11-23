@@ -42,9 +42,6 @@ CALLER_MODEL_ENV = (
     "GEMINI_MODEL",
 )
 
-# Explicit caller-CLI override, checked before any model-family inference.
-CALLER_CLI_ENV = "PR_NUDGER_CLI"
-
 # Used only when the caller advertises neither a CLI nor a model. agy is the documented
 # default, and the fallback names an agy-served model.
 AGY_FALLBACK_MODEL = "gemini-3.8-flash-high"

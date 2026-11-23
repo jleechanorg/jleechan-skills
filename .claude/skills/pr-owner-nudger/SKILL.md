@@ -47,7 +47,7 @@ Run these commands from the resolved `jleechan-skills` source root (or seat work
    chooses the CLI (`gemini-*` → `agy`, else `codex`). An explicit `--model` derives the CLI; an
    explicit `--cli` keeps the caller model only when it fits, else `agy` falls back to
    `gemini-3.8-flash-high` and `codex` refuses. Both flags given are used as-is.
-   ```
+
    Pass `--headless-only` when enrolling on a headless host without `cmux` (such as Linux). Point `state_dir` in `~/.config/pr-owner-nudger/config.json` at a fresh directory per round. For `agy`, bootstrap runs in print mode (`-p ... --output-format stream-json --model <model> --dangerously-skip-permissions`) and binds `conversation_id` from the final `{"event":"result"}` line; later wakes resume with `--conversation <id> -p` with `--add-dir <profile>` and the per-PR scope included in the wake prompt.
 4. **First tick:** start the first tick immediately (works on a fresh `state_dir` even before `receipts.sqlite3` exists):
    ```bash
