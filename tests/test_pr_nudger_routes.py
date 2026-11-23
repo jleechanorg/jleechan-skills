@@ -123,6 +123,32 @@ class RouteTests(unittest.TestCase):
                 "role": "user", "content": [{"text": PROMPT}]}}) + "\n")
         assert router._accepted(transcript, (stat.st_ino, stat.st_size), "codex", PROMPT)
 
+    def test_agy_truncated_long_wake_still_proves_delivery(self):
+        # agy keeps only the head of a long USER_INPUT and replaces the rest, plus the
+        # start of its own metadata, with a "<truncated N bytes>" marker.
+        transcript = self.tmp_path / "agy-transcript.jsonl"
+        transcript.write_text("")
+        stat = transcript.stat()
+        prompt = "/pr https://example.invalid/pull/9 (wake at " + "a" * 40 + "). " + "x" * 2500
+        head = prompt[:2000]
+        rest = len(prompt.encode()) - len(head.encode())
+
+        def row(request):
+            return json.dumps({"type": "USER_INPUT", "content": request}) + "\n"
+
+        with transcript.open("a") as stream:
+            # Another prompt with the same head but a different identity must not match.
+            stream.write(row("<USER_REQUEST>\n/pr https://example.invalid/pull/9 (wake at "
+                             + "b" * 40 + ")\n<truncated 900 bytes>\nmeta"))
+        assert not router._accepted(transcript, (stat.st_ino, 0), "agy", prompt)
+        with transcript.open("a") as stream:
+            stream.write(row(f"<USER_REQUEST>\n{head}\n<truncated {rest + 60} bytes>\nime is: 2026"))
+        assert router._accepted(transcript, (stat.st_ino, 0), "agy", prompt)
+        # A truncation that is too small to have held the rest of the prompt is not this prompt.
+        short = tmp_path_short = self.tmp_path / "agy-short.jsonl"
+        short.write_text(row(f"<USER_REQUEST>\n{head}\n<truncated {rest - 1} bytes>\nx"))
+        assert not router._accepted(short, (short.stat().st_ino, 0), "agy", prompt)
+
     def test_headless_submits_exact_resume_and_finds_receipt(self):
         tmp_path = self.tmp_path
         owner, transcript = binding(tmp_path)

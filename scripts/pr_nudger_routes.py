@@ -306,6 +306,16 @@ def _accepted(path, start, cli, prompt):
             match = re.search(r"<USER_REQUEST>\n(.*?)\n</USER_REQUEST>", content, re.S)
             if (match.group(1) if match else content) == prompt:
                 return True
+            # agy stores only the head of a long request and replaces the rest, plus the
+            # start of its own metadata, with a "<truncated N bytes>" marker. Accept that
+            # row when its head is a prefix of the prompt (the PR and head SHA come first)
+            # and the marker is large enough to have held the rest of the prompt.
+            cut = re.fullmatch(r"<USER_REQUEST>\n(.*?)\n<truncated (\d+) bytes>\n.*", content, re.S)
+            if cut:
+                head, gone = cut.group(1), int(cut.group(2))
+                rest = len(prompt.encode()) - len(head.encode())
+                if len(head) >= 200 and prompt.startswith(head) and 0 <= rest <= gone:
+                    return True
             continue
         if cli == "codex":
             msg = row.get("payload", {})
