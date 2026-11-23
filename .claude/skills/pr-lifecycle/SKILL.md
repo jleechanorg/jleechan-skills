@@ -13,6 +13,10 @@ This is the self-contained generic lifecycle contract. [PR Workflow Manager](../
 
 Before selecting a review route, apply [the Codex review dispatch policy](review-routing.md#codex-review-dispatch) when the originating PR driver is Codex, including its delegated runtimes. Codex defaults to at most three review rounds per PR; each round must account for its applicable seats across stages, and its explicit assignment ceiling does not waive a required independent gate. The policy limits automatic dispatch, not evidence collection or self-review, and does not replace the shared-default or repository rules for each seat's scope, quorum, evidence, or qualifications. Claude and agy keep the existing routes.
 
+## Reviewer access smoke test
+
+Before selecting, announcing or relying on a review route in any use of this lifecycle, run the up-front reviewer access smoke test in [advice's candidate checks](../advice/reviewer-selection.md#candidate-checks-fan-out-and-fallback) for every candidate seat the route may dispatch to, and record each result with its time in the candidate report before the first review dispatch. This applies to every driver of `/prw`, `/pr` and stage driving, human or assistant. A documented reviewer name, skill or route is never evidence of access. Local probes settle local CLI seats only; a cloud assistant driver runs on its own remote service, so a missing local executable, binding or host never marks it unavailable — smoke its transport under [cloud assistant drivers](../advice/reviewer-selection.md#cloud-assistant-drivers). A passed smoke proves access at its time only: it is not a review attempt, not quota and not a vote. A failed smoke marks the seat `UNAVAILABLE` with the recorded reason, and the route moves to the next eligible candidate.
+
 ## Terminal goal and first-screen contract
 
 An unqualified `/prw` (`/pr-workflow`) defaults to driving the PR to **`FINAL_READY`** across all applicable Stage 5 gates, unless explicitly requested earlier. One session goal covers all PR work.

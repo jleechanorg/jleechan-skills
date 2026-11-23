@@ -53,6 +53,8 @@ Use a supported non-message health probe when it resolves an unknown needed for 
 and time. A successful probe proves only what it checked, not review capacity or a vote. Do not send chat pings
 or model prompts to every candidate as a health check, or make all probes finish before useful work starts.
 
+**Up-front access smoke test (required).** Before the first review dispatch of a task, smoke every candidate seat the route may use, local CLI and cloud assistant driver alike, and record each result, probe type and time in the candidate report's health column. Use the cheapest supported non-message access probe on the seat's own transport: executable presence, verified binding and quota-cache state for a local CLI; the transport checks in § Cloud assistant drivers for a remote assistant. Never send chat pings or model prompts as smoke; never create an account, login, profile or configuration to make a seat reachable; never borrow another session's cookies or profile. A passed smoke proves access at its time only — not review capacity, not quota, not a vote — and reserves nothing. A failed smoke marks the seat `UNAVAILABLE` with the recorded reason and counts as its evidenced skip reason; move to the next eligible candidate without waiting. Smoke results are health evidence, never attempt receipts.
+
 **Account for every candidate in the existing receipt and user-facing report.** Separate health checks from actual
 review launches/sends. Use disclosure-safe aliases; keep verified identities and private evidence machine-local.
 
@@ -197,6 +199,14 @@ After one eligible Dot vote, do not request another Dot to fill a second vote.
 Missing transports are UNAVAILABLE with the exact blocker; never substitute a forbidden transport. A reply
 counts only with full-scope COVERAGE and the exact SHA-bound VERDICT read back at its source, not an
 acknowledgement, reaction or promise. Route availability does not override disclosure restrictions.
+
+### Cloud assistant drivers
+
+A cloud assistant driver is a reviewer that runs on its own remote assistant service, reached through its owning transport rather than a local executable: Dot through [dot](../dot/SKILL.md), Instinct through [instinct](../instinct/SKILL.md), Hermes through /hermes over Slack, or another named cloud assistant (for example Muse or Grokbot) through its existing configured route, when authorized. The same tier admission, outside-route authorization, isolation, receipt and identity rules apply; the assistant's brand is never a requirement and never extra votes.
+
+- **Local probes do not apply.** A cloud driver has no local executable, so a missing local command, binding, profile or SSH host says nothing about its availability and never terminates an authorized remote check. Smoke its transport instead: the owning skill's session or configuration is present and live under a supported non-message check, the route is authorized for this scope, and using it needs no new account, login, profile or configuration. Route names documented in this repository are not availability; an unauthorized route stays `UNAVAILABLE — disclosure not authorized` however healthy it looks.
+- **The pinned packet must be retrievable by the receiver.** The dispatch carries the complete pinned pointer — repository, full 40-hex base and head revisions or document-bundle hashes, and the PR number — in a form the receiver can actually fetch. When the receiver cannot retrieve the pinned source through an authorized route, record the seat `UNAVAILABLE` for this scope with that reason; never substitute an unpinned or partial copy.
+- **Counting is by reviewer class, not dispatch count.** Each distinct cloud assistant identity contributes at most one vote under § Identity's caps: at most one Dot vote and at most one Instinct vote, never combined into a two-vote quorum; Hermes instances collectively at most one. Two requests to one assistant, account or seat count once. Two eligible cloud drivers of distinct classes may supply the quorum like any eligible outside combination, subject to those caps.
 
 ### Native static fallback
 
