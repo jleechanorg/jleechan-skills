@@ -7,9 +7,16 @@ description: Use when /roadmap is requested to survey, update, and coordinate ro
 
 ## Contract
 
-Run `/roadmap` by producing (or updating) ONE in-flight PR board document in the
-roadmap repo, committing it, pushing it, and showing the URL. Anything else — surveys,
-memory reads, nextsteps rotas — is supporting material, not the deliverable.
+Run `/roadmap` by producing one task-specific PR board document in the canonical
+roadmap repo, committing it, publishing the scoped Markdown commit directly to
+`origin/main`, and showing the verified URL. Give each board a unique descriptive
+filename with the date (for example, `pr-inflight-hermes-muse-2026-11-21.md`).
+If that path already belongs to a different board, append a deterministic short
+task identifier to the slug (for example, `pr-inflight-hermes-muse-2026-11-21-11746-11747.md`);
+reuse an existing file only when continuing that same board request.
+never modify a shared daily `pr-inflight-YYYY-MM-DD.md` board. Do not create a PR
+to publish a board. Anything else — surveys, memory reads, nextsteps rotas — is
+supporting material, not the deliverable.
 
 Survey (optional context gathering). When the board needs history, consult
 whichever of these are available before writing: authorized project memory for prior
@@ -63,8 +70,11 @@ Outside cmux, skip this UI step and return the GitHub link normally.
 
 ## Output document
 
-Path convention: `${ROADMAP_DIR:-$HOME/roadmap}/pr-inflight-YYYY-MM-DD.md` (update the same day's file
-instead of creating a second one). Repo: `$ROADMAP_GITHUB_REPO` (derive with
+Path convention: `${ROADMAP_DIR:-$HOME/roadmap}/pr-inflight-<task-slug>-YYYY-MM-DD.md`.
+Use a concise descriptive task slug and create a separate file for every board request.
+Before writing, check whether the path exists; reuse it only for an update to the same
+board request, otherwise add a deterministic task identifier to avoid collisions.
+Repo: `$ROADMAP_GITHUB_REPO` (derive with
 `gh repo view --json nameWithOwner -q .nameWithOwner` inside `$ROADMAP_DIR`).
 
 Required structure, in this order:
@@ -232,11 +242,16 @@ decide, and to any report of open PRs with user-visible changes (user directive,
 
 - Commit only the board file (`git commit -- <path>`); never sweep unrelated dirty
   files into the commit. Preserve other lanes' uncommitted work exactly as found.
-- Use an isolated branch/worktree and the roadmap repository's PR workflow.
-  Preserve unrelated dirty files and the shared index; do not stash another
-  lane's work to force a rebase or push directly to main.
-- Report the actual pushed commit, PR and commit-pinned board URLs. Do not claim
-  the board is on main before the verified merge; merge authority remains separate.
+- Publish routine authorized board Markdown directly to `origin/main` using the
+  expected-head, normal non-forced update workflow. Build the publication commit in
+  an isolated worktree whose parent is the freshly verified `origin/main`. Before
+  pushing, verify that the remote still equals that parent and that the commit range
+  from the parent changes only this board file. If the remote moved, rebase or
+  recreate the isolated commit on its new head, then recheck both conditions. Preserve
+  unrelated source-worktree files and index state. Do not create a PR for board
+  publication.
+- Report the actual pushed commit and commit-pinned board URL. Claim it is on main
+  only after verifying the remote commit and changed path.
 
 ## Canonical source
 
