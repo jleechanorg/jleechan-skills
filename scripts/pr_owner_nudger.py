@@ -448,6 +448,10 @@ def dispatch(cwd, owner, local, pr, receipts, config, from_cache, read=None, *,
     except Exception:
         # An interrupted transport may already have acted. Keep its durable intent.
         return "reconciliation_required" if reserved else "blocked_route"
+    if status == "expired":
+        if receipts is not None:
+            record("expired")
+        return "expired"
     if reserved:
         if status not in {"delivered", "attempted_delivery", "no_delivery"}:
             return "reconciliation_required"
@@ -612,6 +616,11 @@ def bootstrap_enrollment(target, expected, *, require_launch=True):
     }, None
 
 
+def _expired_outcome(row):
+    return dict(status="expired", next_action=row["next_action"],
+                attempts=row["attempts"], next_due=row["next_due"])
+
+
 def dispatch_target(key, target, pr, matches, store, config, read, *, wake_reason=None):
     expected = identity(pr)
     _, _, head_repo, branch, sha = expected
@@ -639,6 +648,9 @@ def dispatch_target(key, target, pr, matches, store, config, read, *, wake_reaso
             # No process ever wrote a frame and none holds the claim: retire the attempt and back off.
             store.set(key, bootstrap=None)
             return note(key, status, "bootstrap_owner")
+        if status == "expired":
+            store.set(key, bootstrap=None)
+            return note(key, "expired", "expired", progress=True)
         return note(key, status, "reconcile_bootstrap")
 
     if pr_status(pr) != "actionable":
@@ -655,6 +667,27 @@ def dispatch_target(key, target, pr, matches, store, config, read, *, wake_reaso
         return note(key, "reconciliation_required", "reconcile_delivery")
     if target.get("observe_only") is True:
         return note(key, "observing", "refresh_pr", progress=True)
+    if row.get("reason") == "expired":
+        # Stop scheduling/waking an expired target unless a cached bootstrap owner was re-enrolled.
+        if db is not None and isinstance(target.get("enrollment"), dict):
+            managed, reason = bootstrap_enrollment(target, expected, require_launch=False)
+            if not reason:
+                cached = db.execute(
+                    "SELECT owner FROM binding WHERE cwd=? AND repo=? AND number=? AND branch=?",
+                    (managed["cwd"], *key, branch),
+                ).fetchone()
+                if cached:
+                    owner = json.loads(cached[0])
+                    if (owner.get("binding_source") == "bootstrap"
+                            and owner.get("cli") == managed.get("cli")
+                            and any(field in owner and owner[field] != managed.get(field)
+                                    for field in ("cli_bin", "profile_dir", "model"))):
+                        db.execute(
+                            "DELETE FROM binding WHERE cwd=? AND repo=? AND number=? AND branch=?",
+                            (managed["cwd"], *key, branch),
+                        )
+                        return note(key, "enrollment_changed", "bootstrap_owner")
+        return _expired_outcome(row)
     enrollment = target.get("enrollment")
     if isinstance(enrollment, dict) and enrollment.get("host") != socket.gethostname():
         return note(key, "owner_host_unverified", "verify_owner")
@@ -742,6 +775,8 @@ def dispatch_target(key, target, pr, matches, store, config, read, *, wake_reaso
         if status == "cooldown" and previous:
             return note(key, status, "dispatch_owner", progress=True,
                         earliest=previous[1] + cooldown)
+        if status == "expired":
+            return note(key, "expired", "expired", progress=True)
         action = "reconcile_delivery" if status in {"reconciliation_required", "attempted_delivery"} else "dispatch_owner"
         return note(key, status, action)
     enrollment, reason = ((authorized_enrollment, None) if authorized_enrollment
@@ -767,6 +802,8 @@ def dispatch_target(key, target, pr, matches, store, config, read, *, wake_reaso
         enrollment, expected, apply=db is not None, recheck=recheck,
         begin_attempt=lambda: store.begin(key, expected, enrollment)
     )
+    if status == "expired":
+        return note(key, "expired", "expired", progress=True)
     return note(key, status, "reconcile_bootstrap" if store.row(key)["bootstrap"] else "bootstrap_owner")
 
 
@@ -876,10 +913,18 @@ def tick(config, receipts, state=None):
                 wake_reason = "ci_completed"
             observed[key] = pr, ci_status, wake_reason
         except RateLimited as error:
-            yield dict(result, **store.schedule(key, "blocked_github_rate", "refresh_pr",
-                                                earliest=error.until))
+            row = store.row(key)
+            if row.get("reason") == "expired":
+                yield dict(result, **_expired_outcome(row))
+            else:
+                yield dict(result, **store.schedule(key, "blocked_github_rate", "refresh_pr",
+                                                    earliest=error.until))
         except CHECK_ERRORS:
-            yield dict(result, **store.schedule(key, "blocked_pr_refresh", "refresh_pr"))
+            row = store.row(key)
+            if row.get("reason") == "expired":
+                yield dict(result, **_expired_outcome(row))
+            else:
+                yield dict(result, **store.schedule(key, "blocked_pr_refresh", "refresh_pr"))
 
     legacy_enrolled = defaultdict(list)
     errors = []

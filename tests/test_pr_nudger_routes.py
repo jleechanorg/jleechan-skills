@@ -743,3 +743,92 @@ print(json.dumps({{"event": "result", "result": {{"conversation_id": {SESSION!r}
             # Unreadable/missing summary DB fails closed as busy.
             summary_db.unlink()
             assert not router._agy_idle({"ANTIGRAVITY_APP_DATA_DIR": str(app_data)}, SESSION)
+
+    def test_expired_deadline_wrapper_exit_124_returns_expired_across_routes(self):
+        tmp_path = self.tmp_path
+        owner, transcript = binding(tmp_path)
+        wrapper = tmp_path / "codex-deadline-1"
+        wrapper.write_text("#!/bin/bash\nexit 124\n")
+        wrapper.chmod(0o755)
+        owner.update(headless_only=True, cli_bin=str(wrapper))
+
+        with patch.object(router.shutil, "which", return_value=None), \
+             patch.object(router, "_writers", return_value=[]):
+            # Pre-spawn --version exits 124 -> expired.
+            assert router.route(owner, PROMPT, True) == "expired"
+            assert router.start_codex_bootstrap(
+                bootstrap_enrollment(tmp_path) | {"cli_bin": str(wrapper)},
+                BOOTSTRAP_IDENTITY, apply=True, recheck=lambda: True, begin_attempt=Mock(),
+            ) == "expired"
+
+        # Spawned resume child exits 124 after passing --version and login status -> expired.
+        after_spawn = tmp_path / "codex-deadline-spawn"
+        after_spawn.write_text(rf"""#!{sys.executable}
+import sys
+if sys.argv[1:] == ["--version"]:
+    print("codex-cli 0.160.0")
+elif sys.argv[1:] == ["login", "status"]:
+    pass
+else:
+    raise SystemExit(124)
+""")
+        after_spawn.chmod(0o755)
+        owner["cli_bin"] = str(after_spawn)
+        with patch.object(router.shutil, "which", return_value=None), \
+             patch.object(router, "_writers", return_value=[]):
+            assert router.route(owner, PROMPT, True) == "expired"
+
+        # If transcript accepted the prompt before exit 124, delivery still wins.
+        stat = transcript.stat()
+        delivered_child = Mock()
+        delivered_child.poll.return_value = 124
+        with transcript.open("a") as stream:
+            stream.write(json.dumps({"type": "response_item", "payload": {
+                "role": "user", "content": [{"text": PROMPT}],
+            }}) + "\n")
+        assert router._wait_for_receipt(
+            transcript, (stat.st_ino, stat.st_size), "codex", PROMPT, 1, delivered_child,
+        ) == "delivered"
+
+    def test_agy_bootstrap_deadline_exit_124_is_reported_expired_on_inspection(self):
+        tmp_path = self.tmp_path
+        subprocess.run(("git", "init", "-q", str(tmp_path)), check=True)
+        wrapper = tmp_path / "agy-deadline-1"
+        wrapper.write_text("#!/bin/bash\nexit 124\n")
+        wrapper.chmod(0o755)
+        enrollment = {
+            "cwd": str(tmp_path), "cli": "agy", "cli_bin": str(wrapper),
+            "profile_dir": str(tmp_path), "model": "gemini-4-hydrogen-high",
+            "headless_only": True, "host": socket.gethostname(),
+            "managed_exclusive": True, "launch_authorized": True,
+            "head_repo": "owned/head", "branch": "feature-branch",
+        }
+        events = tmp_path / "bootstrap-1.jsonl"
+        events.touch(mode=0o600)
+        attempt = {"id": "attempt", "events_path": str(events), "sha": "a" * 40, "started_at": 60}
+        with patch.object(router, "_managed_claim_path", return_value=tmp_path / "managed.lock"), \
+             patch.object(router.shutil, "which", return_value=None), \
+             patch.object(router, "_writers", return_value=[]):
+            assert router.start_agy_bootstrap(
+                enrollment, BOOTSTRAP_IDENTITY, apply=True, recheck=lambda: True,
+                begin_attempt=lambda: events,
+            ) == "bootstrap_started"
+            exit_file = Path(f"{events}.exit")
+            deadline = time.monotonic() + 5
+            while not exit_file.exists() and time.monotonic() < deadline:
+                time.sleep(0.02)
+            assert exit_file.exists()
+            with patch.object(router.time, "time", return_value=61):
+                assert router.inspect_agy_bootstrap(
+                    enrollment, BOOTSTRAP_IDENTITY, attempt, bind=lambda _s: None,
+                ) == ("expired", None)
+                # Partial/truncated frames after timeout exit 124 also report expired.
+                events.write_text('{"event": "init", "conversation_id": "' + SESSION + '"}\n{"event": ')
+                assert router.inspect_agy_bootstrap(
+                    enrollment, BOOTSTRAP_IDENTITY, attempt, bind=lambda _s: None,
+                ) == ("expired", None)
+                # Codex inspection also treats exit 124 as expired instead of pending/reconcile.
+                codex_enrollment = bootstrap_enrollment(tmp_path)
+                assert router.inspect_codex_bootstrap(
+                    codex_enrollment, BOOTSTRAP_IDENTITY, attempt, bind=lambda _s: None,
+                ) == ("expired", None)
