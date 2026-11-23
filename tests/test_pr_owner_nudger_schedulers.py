@@ -38,6 +38,18 @@ class SchedulerTest(unittest.TestCase):
         if sys.platform == "darwin":
             subprocess.run(["/usr/bin/plutil", "-lint", path], check=True, timeout=15)
 
+    def test_a_named_lane_gets_its_own_units_and_label(self):
+        self.render("systemd", "--name", "pr-owner-nudger-agy")
+        service = (self.stage / "pr-owner-nudger-agy.service").read_text()
+        timer = (self.stage / "pr-owner-nudger-agy.timer").read_text()
+        self.assertIn("Unit=pr-owner-nudger-agy.service", timer.splitlines())
+        self.assertIn("run_pr_owner_nudger.sh", service)
+        self.assertFalse((self.stage / "pr-owner-nudger.service").exists())
+        self.render("launchd", "--name", "pr-owner-nudger-agy")
+        job = plistlib.loads((self.stage / "org.prw.pr-owner-nudger-agy.plist").read_bytes())
+        self.assertEqual(job["Label"], "org.prw.pr-owner-nudger-agy")
+        self.assertEqual(job["ProcessType"], "Interactive")
+
     @unittest.skipUnless(shutil.which("systemd-analyze"), "systemd tools unavailable")
     def test_native_timer_validates_and_dispatch_is_explicit(self):
         self.render("systemd")
