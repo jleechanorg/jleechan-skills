@@ -72,6 +72,20 @@ Only after establishing that no process or delivery exists, clear the
 the attempt file for reconciliation. Changing hosts requires the same positive
 handoff. An unreachable host leaves the attempt pending.
 
+## Running a round
+
+1. Give each PR a dedicated checkout whose local branch is the PR's head branch; the nudger compares that name. If a stale checkout already holds the branch, detach it at the same commit (`git switch --detach`) when it is clean, or use a separate clone when it has work in progress.
+2. Enroll each PR. The command writes the profile (shared policy, then a pilot-scope block and your per-PR scope), links `auth.json`, writes a deadline wrapper and sets the managed enrollment:
+   `python3 scripts/pr_nudger_round.py enroll --repo owner/repo --pr N --cwd <checkout> --model <model> --hours 2 --scope-file <scope.md>`
+   Point `state_dir` at a fresh directory per round, and `retire` every PR you are not driving.
+3. Start the first tick: `python3 scripts/pr_nudger_round.py retry-now --repo owner/repo --pr N --kick`.
+4. Verify each Stage 5 claim yourself before counting it: the head SHA, the stage label and block agree, the required checks (or the repository's own gate), any change since the tested commit, and the base-versus-head proof read from its artifact.
+5. When the window ends, run `retire` for each PR. Merging is the operator's decision.
+
+Changing an enrolled PR's model, wrapper or profile is safe: the nudger retires the session it started (`enrollment_changed`) and bootstraps a fresh one after the usual writer checks. It measures launch capacity once per tick, before its own launches. The LaunchAgent runs as `ProcessType` `Interactive`, because launchd throttles `Standard` jobs and the cmux inventory then times out. Keep extra PR polling on GraphQL; the nudger's REST reads share the account's hourly budget.
+
+To install a new version, extract the nudger scripts from the merged commit into a release directory and switch the job's link between ticks, for example `git archive <commit> scripts | tar -x -C "$releases/<commit>"`, then `ln -sfn "$releases/<commit>" "$active"` while `launchctl print` shows the job not running.
+
 ## Linux user timer
 
 ```bash
