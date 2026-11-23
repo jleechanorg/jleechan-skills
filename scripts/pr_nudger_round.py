@@ -55,30 +55,45 @@ Apply the repository PR overlay that /pr loads (the repository's `.claude/pr-ove
 """
 
 
-def caller_model(environ=None):
-    """Return the calling agent's advertised model, or "" when none is set."""
+def caller_model(environ=None, cli=None):
+    """Return the calling agent's model that suits `cli`, or "" when none is set.
+
+    The first variable set normally wins, but a value from the wrong model family is skipped
+    rather than returned: a host commonly advertises several models at once (an agent's own
+    `PI_MODEL` alongside an `AGY_MODEL` for the agy CLI), and returning the first would ignore
+    a perfectly good same-family value further down the list.
+    """
     environ = os.environ if environ is None else environ
+    first = ""
     for name in CALLER_MODEL_ENV:
         value = environ.get(name, "").strip()
-        if value:
+        if not value:
+            continue
+        if cli is None:
             return value
-    return ""
+        if family_matches(value, cli):
+            return value
+        first = first or value
+    return "" if cli else first
+
+
+def family_matches(model, cli):
+    """Does `model` belong to the family `cli` serves? agy serves gemini-*; codex the rest."""
+    return (cli == "agy") == model.lower().startswith("gemini")
 
 
 def resolve_model(args, environ=None):
     """`--model` wins; otherwise inherit the caller's model; otherwise the CLI default.
 
     A model inherited from a different CLI family would be rejected by the enrolled CLI, so
-    take the caller's value only when it plausibly belongs to the selected CLI. `agy` serves
-    gemini-* models; `codex` serves everything else here.
+    only a family-matched value is taken. `agy` serves gemini-* models; `codex` serves
+    everything else here.
     """
     if args.model:
         return args.model
-    inherited = caller_model(environ)
+    inherited = caller_model(environ, args.cli)
     if inherited:
-        is_agy_model = inherited.lower().startswith("gemini")
-        if (args.cli == "agy") == is_agy_model:
-            return inherited
+        return inherited
     return AGY_FALLBACK_MODEL if args.cli == "agy" else ""
 
 

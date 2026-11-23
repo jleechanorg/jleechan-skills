@@ -89,6 +89,20 @@ class RoundTest(unittest.TestCase):
         self.assertEqual((enrollment["cli"], enrollment["model"]),
                          ("agy", "gemini-9.9-caller"))
 
+    def test_agy_skips_a_cross_family_caller_model_to_reach_a_gemini_one(self):
+        # A host advertises both an agent's own model and the agy CLI's. First-set-wins would
+        # return the non-gemini value and discard the usable gemini one further down.
+        enrollment = self.enroll_model(
+            env={"PI_MODEL": "deepseek-v4.1-flash", "AGY_MODEL": "gemini-9.9-caller"})
+        self.assertEqual((enrollment["cli"], enrollment["model"]),
+                         ("agy", "gemini-9.9-caller"))
+
+    def test_codex_skips_a_cross_family_caller_model_to_reach_a_codex_one(self):
+        enrollment = self.enroll_model(
+            "--cli", "codex", env={"AGY_MODEL": "gemini-9.9-caller", "CODEX_MODEL": "gpt-9-caller"})
+        self.assertEqual((enrollment["cli"], enrollment["model"]),
+                         ("codex", "gpt-9-caller"))
+
     def test_codex_inherits_a_non_gemini_caller_model(self):
         enrollment = self.enroll_model("--cli", "codex", env={"CODEX_MODEL": "gpt-9-caller"})
         self.assertEqual((enrollment["cli"], enrollment["model"]),
