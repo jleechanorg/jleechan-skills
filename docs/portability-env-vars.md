@@ -71,6 +71,7 @@ host aliases, names and paths at `${XDG_CONFIG_HOME:-$HOME/.config}/jleechan-ski
 | `OPERATOR_GH_LOGIN` | GitHub login of the human operator | `gh api user -q .login` | — |
 | `MEM0_HOOKS_DIR` / `MEM0_PYTHON` | mem0 hook directory / interpreter | — | unset: skip mem0 steps / `python3` |
 | `COMFYUI_HOME` | ComfyUI install | — | required where used |
+| `PR_NUDGER_EXIT_FILE` | Internal child-exit receipt file set by `scripts/pr_nudger_routes.py` for detached nudger spawns | internal runtime | unset |
 
 The retired dark-factory and auto-factory tooling is gone from the catalog
 (`docs/specs/2026-11-06-factory-tool-retirement.md`); its variables are not part of this

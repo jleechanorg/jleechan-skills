@@ -1044,3 +1044,245 @@ class DispatcherTest(unittest.TestCase):
                 stored = json.loads(db.execute("SELECT owner FROM binding").fetchone()[0])
             self.assertEqual(stored["cli"], "agy")
             self.assertEqual(stored["session"], "00000000-0000-4000-8000-000000000001")
+
+    def test_expired_deadline_stops_scheduling_and_waking_without_reconciliation_loop(self):
+        session = "00000000-0000-4000-8000-000000000001"
+        self.config["owners"] = [dict(self.owner, session=session, profile_dir=str(self.root))]
+        self.config["targets"] = [{"repo": "base/project", "number": 12}]
+        self.pr["labels"] = [{"name": "stage:2-evidence"}]
+        clock = [1000.0]
+
+        def expire(owner, _prompt, apply):
+            self.assertTrue(apply)
+            self.assertTrue(owner["recheck"]("headless"))
+            owner["checkpoint_receipt"](self.root / "rollout.jsonl", (1, 0))
+            return "expired"
+
+        with patch.object(nudger, "github", return_value=self.pr), \
+             patch.object(nudger, "legacy_tick", return_value=()), \
+             patch.object(nudger, "observe_ci", side_effect=["pending", "reported_success", "reported_success", "reported_success"]), \
+             patch.object(nudger.time, "time", side_effect=lambda: clock[0]), \
+             patch.object(nudger, "route", side_effect=expire) as route:
+            first = self.target_tick()[0]
+            self.assertEqual((first["status"], first["next_action"], first["attempts"], first["next_due"]),
+                             ("expired", "expired", 0, 0))
+            # Neither time passing, CI completing, stage changing, nor head advancing wakes it.
+            clock[0] = 5000.0
+            self.pr["labels"] = [{"name": "stage:3-evidence-review"}]
+            second = self.target_tick()[0]
+            self.assertEqual(second["status"], "expired")
+            # Transient non-actionable PR states (final_ready) must not erase terminal expiry.
+            self.pr["labels"] = [{"name": "stage:5-final-approval"}]
+            self.pr["title"] = "[ready] Example"
+            self.pr["body"] = f"## Execution Record\ncandidate: {self.sha}\nowner: driver\nstatus: FINAL_READY\nnext_action: none"
+            ready_tick = self.target_tick()[0]
+            self.assertEqual(ready_tick["status"], "expired")
+            self.pr["head"]["sha"] = "b" * 40
+            self.pr["labels"] = [{"name": "stage:2-evidence"}]
+            self.pr["title"] = "Example"
+            self.pr["body"] = ""
+            third = self.target_tick()[0]
+            self.assertEqual(third["status"], "expired")
+            route.assert_called_once()
+        with sqlite3.connect(Path(self.config["state_dir"]) / "receipts.sqlite3") as db:
+            self.assertEqual(db.execute("SELECT status FROM delivery").fetchone(), ("expired",))
+
+    def test_expired_bootstrap_clears_attempt_and_stops_scheduling_until_reenrolled(self):
+        self.config["owners"] = []
+        enrollment = {
+            "cwd": str(self.cwd), "head_repo": "fork/project", "branch": "feature",
+            "host": "test-host", "cli": "agy", "cli_bin": "/bin/agy-deadline-1",
+            "profile_dir": str(self.root), "model": "gemini-4-hydrogen-high",
+            "launch_authorized": True, "managed_exclusive": True,
+        }
+        self.config["targets"] = [{"repo": "base/project", "number": 12, "enrollment": enrollment}]
+        state_path = Path(self.config["state_dir"]) / "receipts.sqlite3"
+        clock = [1000.0]
+
+        def start(_enrollment, _identity, *, apply, recheck, begin_attempt):
+            begin_attempt()
+            return "bootstrap_started"
+
+        with patch.object(nudger, "github", return_value=self.pr), \
+             patch.object(nudger.socket, "gethostname", return_value="test-host"), \
+             patch.object(nudger, "launch_capacity", return_value=True), \
+             patch.object(nudger.time, "time", side_effect=lambda: clock[0]), \
+             patch.object(nudger.pr_nudger_routes, "start_agy_bootstrap", side_effect=start, create=True) as launch, \
+             patch.object(nudger.pr_nudger_routes, "inspect_agy_bootstrap", return_value=("expired", None), create=True):
+            self.assertEqual(self.target_tick()[0]["status"], "bootstrap_started")
+            expired = self.target_tick()[0]
+            self.assertEqual((expired["status"], expired["next_action"], expired["next_due"]),
+                             ("expired", "expired", 0))
+            with sqlite3.connect(state_path) as db:
+                self.assertIsNone(db.execute("SELECT bootstrap FROM target").fetchone()[0])
+            clock[0] = 5000.0
+            self.assertEqual(self.target_tick()[0]["status"], "expired")
+            launch.assert_called_once()
+            # Re-enrolling after bootstrap expiry wakes the new enrollment cleanly.
+            enrollment["cli_bin"] = "/bin/agy-deadline-2"
+            self.assertEqual(self.target_tick()[0]["status"], "enrollment_changed")
+            clock[0] = 5600.0
+            self.assertEqual(self.target_tick()[0]["status"], "bootstrap_started")
+            self.assertEqual(launch.call_count, 2)
+
+    def test_pending_delivery_reconciles_to_expired_when_exit_file_is_124(self):
+        session = "00000000-0000-4000-8000-000000000001"
+        self.config["owners"] = [dict(self.owner, session=session, profile_dir=str(self.root))]
+        self.config["targets"] = [{"repo": "base/project", "number": 12}]
+        path = self.root / "rollout.jsonl"
+        path.write_text("")
+        state_path = Path(self.config["state_dir"]) / "receipts.sqlite3"
+        captured = {}
+
+        def delayed_expire(owner, _prompt, apply):
+            self.assertTrue(apply)
+            self.assertTrue(owner["recheck"]("headless"))
+            exit_path = owner["checkpoint_receipt"](path, (path.stat().st_ino, 0))
+            captured["exit_path"] = exit_path
+            return "attempted_delivery"
+
+        with patch.object(nudger, "github", return_value=self.pr), \
+             patch.object(nudger, "legacy_tick", return_value=()), \
+             patch.object(nudger, "route", side_effect=delayed_expire) as route:
+            self.assertEqual(self.target_tick()[0]["status"], "attempted_delivery")
+            Path(captured["exit_path"]).write_text("124\n")
+            reconciled = self.target_tick()[0]
+            self.assertEqual((reconciled["status"], reconciled["next_action"]), ("expired", "expired"))
+            self.assertEqual(self.target_tick()[0]["status"], "expired")
+            route.assert_called_once()
+        with sqlite3.connect(state_path) as db:
+            self.assertEqual(db.execute("SELECT status FROM delivery").fetchone(), ("expired",))
+        self.assertFalse(Path(captured["exit_path"]).exists())
+
+    def test_reenrolling_expired_cmux_managed_target_wakes_new_enrollment(self):
+        session = "00000000-0000-4000-8000-000000000001"
+        enrollment = {
+            "cwd": str(self.cwd), "head_repo": "fork/project", "branch": "feature",
+            "host": "test-host", "cli": "codex", "cli_bin": "/bin/codex-deadline-1",
+            "profile_dir": str(self.root), "model": "gpt-6.1-sol",
+            "headless_only": True, "launch_authorized": True, "managed_exclusive": True,
+        }
+        # Real cmux/configured owners omit cli_bin and model; dispatch_target overlays managed enrollment.
+        self.config["owners"] = [dict(self.owner, session=session, profile_dir=str(self.root))]
+        self.config["targets"] = [{"repo": "base/project", "number": 12, "enrollment": enrollment}]
+        clock = [1000.0]
+        with patch.object(nudger, "github", return_value=self.pr), \
+             patch.object(nudger, "legacy_tick", return_value=()), \
+             patch.object(nudger.socket, "gethostname", return_value="test-host"), \
+             patch.object(nudger.time, "time", side_effect=lambda: clock[0]), \
+             patch.object(nudger, "route", side_effect=["expired", "delivered"]) as route:
+            self.assertEqual(self.target_tick()[0]["status"], "expired")
+            clock[0] = 5000.0
+            self.assertEqual(self.target_tick()[0]["status"], "expired")
+            route.assert_called_once()
+            enrollment["cli_bin"] = "/bin/codex-deadline-2"
+            self.assertEqual(self.target_tick()[0]["status"], "enrollment_changed")
+            clock[0] = 5600.0
+            self.assertEqual(self.target_tick()[0]["status"], "delivered")
+            self.assertEqual(route.call_count, 2)
+            self.assertEqual(route.call_args.args[0]["cli_bin"], "/bin/codex-deadline-2")
+
+    def test_reenrolling_expired_bootstrap_before_inspection_retires_old_attempt(self):
+        self.config["owners"] = []
+        enrollment = {
+            "cwd": str(self.cwd), "head_repo": "fork/project", "branch": "feature",
+            "host": "test-host", "cli": "agy", "cli_bin": "/bin/agy-deadline-1",
+            "profile_dir": str(self.root), "model": "gemini-4-hydrogen-high",
+            "launch_authorized": True, "managed_exclusive": True,
+        }
+        self.config["targets"] = [{"repo": "base/project", "number": 12, "enrollment": enrollment}]
+        state_path = Path(self.config["state_dir"]) / "receipts.sqlite3"
+        clock = [1000.0]
+
+        def start(_enrollment, _identity, *, apply, recheck, begin_attempt):
+            begin_attempt()
+            return "bootstrap_started"
+
+        with patch.object(nudger, "github", return_value=self.pr), \
+             patch.object(nudger.socket, "gethostname", return_value="test-host"), \
+             patch.object(nudger, "launch_capacity", return_value=True), \
+             patch.object(nudger.time, "time", side_effect=lambda: clock[0]), \
+             patch.object(nudger.pr_nudger_routes, "start_agy_bootstrap", side_effect=start, create=True) as launch, \
+             patch.object(nudger.pr_nudger_routes, "inspect_agy_bootstrap", return_value=("expired", None), create=True):
+            self.assertEqual(self.target_tick()[0]["status"], "bootstrap_started")
+            # Re-enroll BEFORE the inspection tick runs.
+            enrollment["cli_bin"] = "/bin/agy-deadline-2"
+            self.assertEqual(self.target_tick()[0]["status"], "enrollment_changed")
+            with sqlite3.connect(state_path) as db:
+                self.assertIsNone(db.execute("SELECT bootstrap FROM target").fetchone()[0])
+            clock[0] = 1600.0
+            self.assertEqual(self.target_tick()[0]["status"], "bootstrap_started")
+            self.assertEqual(launch.call_count, 2)
+
+    def test_updating_configured_owner_cli_bin_after_expiry_wakes_new_wrapper(self):
+        session = "00000000-0000-4000-8000-000000000001"
+        configured = dict(self.owner, session=session, profile_dir=str(self.root),
+                          cli_bin="/bin/codex-deadline-1", model="gpt-6.1-sol")
+        self.config["owners"] = [configured]
+        self.config["targets"] = [{"repo": "base/project", "number": 12}]
+        clock = [1000.0]
+        with patch.object(nudger, "github", return_value=self.pr), \
+             patch.object(nudger, "legacy_tick", return_value=()), \
+             patch.object(nudger.time, "time", side_effect=lambda: clock[0]), \
+             patch.object(nudger, "route", side_effect=["expired", "delivered"]) as route:
+            self.assertEqual(self.target_tick()[0]["status"], "expired")
+            clock[0] = 5000.0
+            self.assertEqual(self.target_tick()[0]["status"], "expired")
+            configured["cli_bin"] = "/bin/codex-deadline-2"
+            self.assertEqual(self.target_tick()[0]["status"], "enrollment_changed")
+            clock[0] = 5600.0
+            self.assertEqual(self.target_tick()[0]["status"], "delivered")
+            self.assertEqual(route.call_count, 2)
+
+    def test_tick_preserves_expired_on_rate_limited_and_refresh_errors(self):
+        session = "00000000-0000-4000-8000-000000000001"
+        self.config["owners"] = [dict(self.owner, session=session, profile_dir=str(self.root))]
+        self.config["targets"] = [{"repo": "base/project", "number": 12}]
+        with patch.object(nudger, "legacy_tick", return_value=()), \
+             patch.object(nudger, "route", return_value="expired"):
+            with patch.object(nudger, "github", return_value=self.pr):
+                self.assertEqual(self.target_tick()[0]["status"], "expired")
+            with patch.object(nudger, "github", side_effect=nudger.RateLimited(5000)):
+                rate_row = self.target_tick()[0]
+                self.assertEqual((rate_row["status"], rate_row["next_action"]), ("expired", "expired"))
+            with patch.object(nudger, "github", side_effect=OSError("network down")):
+                err_row = self.target_tick()[0]
+                self.assertEqual((err_row["status"], err_row["next_action"]), ("expired", "expired"))
+
+    def test_reenrolling_expired_bound_target_wakes_new_enrollment(self):
+        self.config["owners"] = []
+        enrollment = {
+            "cwd": str(self.cwd), "head_repo": "fork/project", "branch": "feature",
+            "host": "test-host", "cli": "agy", "cli_bin": "/bin/agy-deadline-1",
+            "profile_dir": str(self.root), "model": "gemini-4-hydrogen-high",
+            "launch_authorized": True, "managed_exclusive": True,
+        }
+        self.config["targets"] = [{"repo": "base/project", "number": 12, "enrollment": enrollment}]
+        clock = [1000.0]
+
+        def start(_enrollment, _identity, *, apply, recheck, begin_attempt):
+            begin_attempt()
+            return "bootstrap_started"
+
+        def inspect(_enrollment, _identity, _attempt, *, bind):
+            bind("00000000-0000-4000-8000-000000000001")
+            return "bootstrapped", "00000000-0000-4000-8000-000000000001"
+
+        with patch.object(nudger, "github", return_value=self.pr), \
+             patch.object(nudger.socket, "gethostname", return_value="test-host"), \
+             patch.object(nudger, "launch_capacity", return_value=True), \
+             patch.object(nudger.time, "time", side_effect=lambda: clock[0]), \
+             patch.object(nudger.pr_nudger_routes, "start_agy_bootstrap", side_effect=start, create=True) as launch, \
+             patch.object(nudger.pr_nudger_routes, "inspect_agy_bootstrap", side_effect=inspect, create=True), \
+             patch.object(nudger, "route", return_value="expired") as route:
+            self.assertEqual(self.target_tick()[0]["status"], "bootstrap_started")
+            self.assertEqual(self.target_tick()[0]["status"], "bootstrapped")
+            self.assertEqual(self.target_tick()[0]["status"], "expired")
+            clock[0] = 5000.0
+            self.assertEqual(self.target_tick()[0]["status"], "expired")
+            route.assert_called_once()
+            enrollment["cli_bin"] = "/bin/agy-deadline-2"
+            self.assertEqual(self.target_tick()[0]["status"], "enrollment_changed")
+            clock[0] = 5600.0
+            self.assertEqual(self.target_tick()[0]["status"], "bootstrap_started")
+            self.assertEqual(launch.call_count, 2)
