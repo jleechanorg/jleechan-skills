@@ -3,6 +3,7 @@
 
 import argparse
 import plistlib
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -24,6 +25,8 @@ def main():
     parser.add_argument("--name", default=DEFAULT_NAME,
                         help="unit/label name, for a second lane with its own config and state")
     args = parser.parse_args()
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", args.name) or args.name.startswith("."):
+        parser.error("--name may contain only letters, digits, dot, underscore and hyphen")
     name, label = args.name, f"org.prw.{args.name}"
 
     config = args.config.expanduser().absolute()
@@ -38,7 +41,7 @@ def main():
         if args.apply:
             job["ProgramArguments"].append("--apply")
         for key in ("StandardOutPath", "StandardErrorPath"):
-            job[key] = job[key].replace("@HOME@", str(Path.home()))
+            job[key] = job[key].replace("@HOME@", str(Path.home())).replace(DEFAULT_NAME, name)
         with (args.output / filename).open("wb") as output:
             plistlib.dump(job, output)
         return

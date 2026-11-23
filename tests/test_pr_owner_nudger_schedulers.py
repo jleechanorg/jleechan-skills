@@ -49,6 +49,11 @@ class SchedulerTest(unittest.TestCase):
         job = plistlib.loads((self.stage / "org.prw.pr-owner-nudger-agy.plist").read_bytes())
         self.assertEqual(job["Label"], "org.prw.pr-owner-nudger-agy")
         self.assertEqual(job["ProcessType"], "Interactive")
+        self.assertIn("pr-owner-nudger-agy", job["StandardOutPath"])
+        self.assertIn("pr-owner-nudger-agy", job["StandardErrorPath"])
+        for bad in ("../x", "a b", "a{b}", "a\nb"):
+            with self.assertRaises(subprocess.CalledProcessError):
+                self.render("systemd", "--name", bad)
 
     @unittest.skipUnless(shutil.which("systemd-analyze"), "systemd tools unavailable")
     def test_native_timer_validates_and_dispatch_is_explicit(self):
