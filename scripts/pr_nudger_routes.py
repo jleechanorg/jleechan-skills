@@ -296,6 +296,31 @@ def _snapshot(cmux, target, ref, path, pid):
     return screen, cpu, (stat.st_ino, stat.st_size, stat.st_mtime_ns)
 
 
+def _agy_truncated_delivery(content, prompt):
+    """True when `content` is agy's head-and-tail truncation of a request equal to `prompt`.
+
+    agy keeps ~2 KB of head and tail and replaces the middle with "<truncated N bytes>".
+    The head may run into the closing tag. The tail is agy's own metadata when that fills
+    it, otherwise it ends with the prompt. The PR and head SHA open the prompt, so a prefix
+    match of at least 200 characters pins the wake's identity.
+    """
+    cut = re.fullmatch(r"<USER_REQUEST>\n(.*?)\n<truncated (\d+) bytes>\n(.*)", content, re.S)
+    if not cut:
+        return False
+    head, gone, after = cut.group(1), int(cut.group(2)), cut.group(3)
+    tag = "\n</USER_REQUEST>"
+    for length in range(len(tag), 0, -1):
+        if head.endswith(tag[:length]):
+            head = head[:-length]
+            break
+    if len(head) < 200 or not prompt.startswith(head):
+        return False
+    if 0 <= len(prompt.encode()) - len(head.encode()) <= gone:
+        return True
+    rest = prompt[len(head):]
+    return any(after.startswith(rest[-size:]) for size in range(min(len(rest), len(after)), 7, -1))
+
+
 def _accepted(path, start, cli, prompt):
     for row in _rows(path, start):
         kind = row.get("type")
@@ -312,14 +337,8 @@ def _accepted(path, start, cli, prompt):
             # head is a prefix of the prompt (the PR and head SHA come first) and either the
             # marker was large enough to have held the rest of the prompt, or the text after
             # the marker ends with the prompt's own final bytes.
-            cut = re.fullmatch(r"<USER_REQUEST>\n(.*?)\n<truncated (\d+) bytes>\n(.*)", content, re.S)
-            if cut:
-                head, gone, after = cut.group(1), int(cut.group(2)), cut.group(3)
-                rest = len(prompt.encode()) - len(head.encode())
-                if len(head) >= 200 and prompt.startswith(head) and (
-                    0 <= rest <= gone or (len(prompt) > len(head) + 64 and prompt[-64:] in after)
-                ):
-                    return True
+            if _agy_truncated_delivery(content, prompt):
+                return True
             continue
         if cli == "codex":
             msg = row.get("payload", {})

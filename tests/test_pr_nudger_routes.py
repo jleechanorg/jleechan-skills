@@ -156,6 +156,16 @@ class RouteTests(unittest.TestCase):
         kept = self.tmp_path / "agy-middle-out.jsonl"
         kept.write_text(row(f"<USER_REQUEST>\n{head}\n<truncated {middle} bytes>\n{tail}\n</USER_REQUEST>"))
         assert router._accepted(kept, (kept.stat().st_ino, 0), "agy", long_prompt)
+        # The cut can land inside the closing tag: the head then holds the whole prompt.
+        whole = prompt[:2020]
+        edge = self.tmp_path / "agy-edge.jsonl"
+        edge.write_text(row(f"<USER_REQUEST>\n{whole}\n</USE\n<truncated 52 bytes>\nmeta"))
+        assert router._accepted(edge, (edge.stat().st_ino, 0), "agy", whole)
+        # Only a few final characters of the prompt survive in the kept tail.
+        few = self.tmp_path / "agy-few.jsonl"
+        gone = len(long_prompt.encode()) - len(head.encode()) - 12
+        few.write_text(row(f"<USER_REQUEST>\n{head}\n<truncated {gone} bytes>\n{long_prompt[-12:]}\n</USER_REQUEST>"))
+        assert router._accepted(few, (few.stat().st_ino, 0), "agy", long_prompt)
         # The same head and size, but a different tail, is another wake.
         other = self.tmp_path / "agy-other-tail.jsonl"
         other.write_text(row(f"<USER_REQUEST>\n{head}\n<truncated {middle} bytes>\n{'q' * 300}\n</USER_REQUEST>"))
