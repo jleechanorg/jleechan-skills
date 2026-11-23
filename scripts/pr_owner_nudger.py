@@ -675,10 +675,17 @@ def dispatch_target(key, target, pr, matches, store, config, read, *, wake_reaso
         cwd, local, owner = candidates[0]
         if isinstance(enrollment, dict) and enrollment.get("managed_exclusive") is True:
             managed, reason = bootstrap_enrollment(target, expected, require_launch=False)
-            if reason or str(cwd) != managed["cwd"] or any(
-                field in owner and owner[field] != managed.get(field)
-                for field in ("cli", "cli_bin", "profile_dir", "model")
-            ):
+            changed = [field for field in ("cli", "cli_bin", "profile_dir", "model")
+                       if field in owner and owner[field] != managed.get(field)] if not reason else []
+            if (not reason and str(cwd) == managed["cwd"] and changed and from_cache
+                    and owner.get("binding_source") == "bootstrap" and "cli" not in changed):
+                # The operator re-enrolled this managed checkout (new model, wrapper or
+                # profile). Retire the session we started; the next tick bootstraps a
+                # fresh owner after the usual writer checks.
+                db.execute("DELETE FROM binding WHERE cwd=? AND repo=? AND number=? AND branch=?",
+                           (str(cwd), *key, branch))
+                return note(key, "enrollment_changed", "bootstrap_owner")
+            if reason or str(cwd) != managed["cwd"] or changed:
                 return note(key, reason or "enrollment_mismatch", "verify_owner")
             owner = dict(owner, **managed)
             resume_sandbox = enrollment.get("resume_sandbox")

@@ -73,6 +73,37 @@ class StaleOwnerTest(unittest.TestCase):
                 self.assertEqual(outcome["status"], "delivered")
                 route.assert_called_once()
 
+    def test_changed_managed_enrollment_retires_its_bootstrap_binding(self):
+        repo, number, branch, sha = "base/project", 12, "feature", "b" * 40
+        key = repo, number
+        cwd = Path.cwd().resolve()
+        identity = (*key, repo, branch, sha)
+        pr = {"state": "open", "number": number, "title": "Example", "labels": [],
+              "base": {"repo": {"full_name": repo}},
+              "head": {"repo": {"full_name": repo}, "ref": branch, "sha": sha}}
+        enrollment = {"cwd": str(cwd), "head_repo": repo, "branch": branch, "cli": "codex",
+                      "host": socket.gethostname(), "managed_exclusive": True,
+                      "launch_authorized": True, "model": "new-model"}
+        for source, expected in (("bootstrap", "enrollment_changed"), ("cmux", "enrollment_mismatch")):
+            with sqlite3.connect(":memory:", isolation_level=None) as db:
+                db.execute("CREATE TABLE delivery (repo, number, status, time, sha, owner)")
+                db.execute("CREATE TABLE binding (cwd, repo, number, branch, owner, "
+                           "PRIMARY KEY (cwd, repo, number, branch))")
+                store = nudger.Intake(db, None, 100)
+                store.prepare([key])
+                nudger.remember_binding(db, identity, dict(enrollment, model="old-model",
+                                                           session="fixture"), source)
+                with patch.object(nudger, "checkout", return_value=(repo, branch, sha)), \
+                     patch.object(nudger, "route") as route:
+                    outcome = nudger.dispatch_target(
+                        key, {"enrollment": enrollment}, pr, [], store, {}, lambda *_, **__: pr,
+                    )
+                route.assert_not_called()
+                self.assertEqual(outcome["status"], expected)
+                remaining = db.execute("SELECT COUNT(*) FROM binding").fetchone()[0]
+                self.assertEqual(remaining, 0 if source == "bootstrap" else 1)
+
+
 
 class DispatcherTest(unittest.TestCase):
     def setUp(self):
