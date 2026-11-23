@@ -41,11 +41,12 @@ Run these commands from the resolved `jleechan-skills` source root (or seat work
      --repo <owner/repo> --pr <N> --cwd <checkout> \
      --hours <hours> --scope-file <scope.md>
    ```
-   `--cli` defaults to `agy` (`--cli codex` for a Codex owner). `--model` is optional: it inherits
-   the calling agent's model from `PR_NUDGER_MODEL`, `PI_MODEL`, `CLAUDEWA_MODEL`, `CLAUDE_MODEL`,
-   `CODEX_MODEL`, `AGY_MODEL` or `GEMINI_MODEL`, taking it only when it matches the selected CLI's
-   family (`gemini-*` to `agy`, else `codex`); `agy` falls back to `gemini-3.8-flash-high`, and an
-   explicit `--model` always wins.
+   `--cli` and `--model` both inherit from the calling agent, so the PR owner runs as the agent
+   that dispatched it: the caller's model comes from `PR_NUDGER_MODEL`, `PI_MODEL`,
+   `CLAUDEWA_MODEL`, `CLAUDE_MODEL`, `CODEX_MODEL`, `AGY_MODEL` or `GEMINI_MODEL`, and its family
+   chooses the CLI (`gemini-*` → `agy`, else `codex`). An explicit `--model` derives the CLI; an
+   explicit `--cli` keeps the caller model only when it fits, else `agy` falls back to
+   `gemini-3.8-flash-high` and `codex` refuses. Both flags given are used as-is.
    ```
    Pass `--headless-only` when enrolling on a headless host without `cmux` (such as Linux). Point `state_dir` in `~/.config/pr-owner-nudger/config.json` at a fresh directory per round. For `agy`, bootstrap runs in print mode (`-p ... --output-format stream-json --model <model> --dangerously-skip-permissions`) and binds `conversation_id` from the final `{"event":"result"}` line; later wakes resume with `--conversation <id> -p` with `--add-dir <profile>` and the per-PR scope included in the wake prompt.
 4. **First tick:** start the first tick immediately (works on a fresh `state_dir` even before `receipts.sqlite3` exists):

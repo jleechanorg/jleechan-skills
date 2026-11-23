@@ -81,48 +81,51 @@ class RoundTest(unittest.TestCase):
                          "--profiles-dir", str(self.root / "profiles"), *extra)
         return json.loads(self.config.read_text())["targets"][0]["enrollment"]
 
-    def test_add_cli_defaults_to_agy(self):
-        self.assertEqual(self.enroll_model()["cli"], "agy")
+    def test_cli_and_model_both_inherit_from_the_caller(self):
+        # The operator asked for this: neither flag given, the caller's own model decides the
+        # route, so the enrolled owner is the same agent that dispatched it.
+        e = self.enroll_model(env={"CODEX_MODEL": "gpt-9-caller"})
+        self.assertEqual((e["cli"], e["model"]), ("codex", "gpt-9-caller"))
 
-    def test_agy_inherits_the_calling_agents_gemini_model(self):
-        enrollment = self.enroll_model(env={"AGY_MODEL": "gemini-9.9-caller"})
-        self.assertEqual((enrollment["cli"], enrollment["model"]),
-                         ("agy", "gemini-9.9-caller"))
+    def test_a_gemini_caller_model_selects_agy(self):
+        e = self.enroll_model(env={"AGY_MODEL": "gemini-9.9-caller"})
+        self.assertEqual((e["cli"], e["model"]), ("agy", "gemini-9.9-caller"))
 
-    def test_agy_skips_a_cross_family_caller_model_to_reach_a_gemini_one(self):
-        # A host advertises both an agent's own model and the agy CLI's. First-set-wins would
-        # return the non-gemini value and discard the usable gemini one further down.
-        enrollment = self.enroll_model(
-            env={"PI_MODEL": "deepseek-v4.1-flash", "AGY_MODEL": "gemini-9.9-caller"})
-        self.assertEqual((enrollment["cli"], enrollment["model"]),
-                         ("agy", "gemini-9.9-caller"))
+    def test_the_callers_own_var_decides_the_route_not_a_lower_precedence_one(self):
+        # This host's real shape: PI_MODEL (the running agent) precedes AGY_MODEL. The route
+        # must follow the caller's own model, not silently pair agy with a cross-family value.
+        e = self.enroll_model(env={"PI_MODEL": "deepseek-v4.1-flash",
+                                   "AGY_MODEL": "gemini-9.9-caller"})
+        self.assertEqual((e["cli"], e["model"]), ("codex", "deepseek-v4.1-flash"))
 
-    def test_codex_skips_a_cross_family_caller_model_to_reach_a_codex_one(self):
-        enrollment = self.enroll_model(
-            "--cli", "codex", env={"AGY_MODEL": "gemini-9.9-caller", "CODEX_MODEL": "gpt-9-caller"})
-        self.assertEqual((enrollment["cli"], enrollment["model"]),
-                         ("codex", "gpt-9-caller"))
+    def test_no_caller_falls_back_to_agy(self):
+        e = self.enroll_model()
+        self.assertEqual((e["cli"], e["model"]), ("agy", round_cli.AGY_FALLBACK_MODEL))
 
-    def test_codex_inherits_a_non_gemini_caller_model(self):
-        enrollment = self.enroll_model("--cli", "codex", env={"CODEX_MODEL": "gpt-9-caller"})
-        self.assertEqual((enrollment["cli"], enrollment["model"]),
-                         ("codex", "gpt-9-caller"))
+    def test_explicit_cli_keeps_the_caller_model_when_it_fits(self):
+        e = self.enroll_model("--cli", "agy", env={"AGY_MODEL": "gemini-9.9-caller"})
+        self.assertEqual((e["cli"], e["model"]), ("agy", "gemini-9.9-caller"))
 
-    def test_cross_family_caller_model_is_refused_for_codex(self):
-        # A gemini model cannot be handed to codex. codex has no safe fallback, so refusing is
-        # correct: enrolling a codex owner with a model its CLI would reject is worse than a
-        # loud failure here.
+    def test_explicit_cli_overrides_a_cross_family_caller_model(self):
+        # --cli agy with a non-gemini caller model: the CLI wins, and agy takes its fallback.
+        e = self.enroll_model("--cli", "agy", env={"CODEX_MODEL": "gpt-9-caller"})
+        self.assertEqual((e["cli"], e["model"]), ("agy", round_cli.AGY_FALLBACK_MODEL))
+
+    def test_explicit_codex_without_a_fitting_model_refuses(self):
+        # codex has no safe default; enrolling one whose CLI would reject the model is worse
+        # than a loud failure here.
         with self.assertRaises(SystemExit):
             self.enroll_model("--cli", "codex", env={"AGY_MODEL": "gemini-9.9-caller"})
         with self.assertRaises(SystemExit):
             self.enroll_model("--cli", "codex")
 
-    def test_explicit_model_still_wins_over_the_caller(self):
-        enrollment = self.enroll_model("--model", "pinned-model", env={"AGY_MODEL": "gemini-9.9-caller"})
-        self.assertEqual(enrollment["model"], "pinned-model")
+    def test_explicit_model_derives_the_cli(self):
+        e = self.enroll_model("--model", "gemini-9.9-pinned", env={"CODEX_MODEL": "gpt-9-caller"})
+        self.assertEqual((e["cli"], e["model"]), ("agy", "gemini-9.9-pinned"))
 
-    def test_no_caller_and_no_model_falls_back_for_agy(self):
-        self.assertEqual(self.enroll_model()["model"], round_cli.AGY_FALLBACK_MODEL)
+    def test_explicit_model_and_cli_are_used_as_given(self):
+        e = self.enroll_model("--cli", "codex", "--model", "pinned-model")
+        self.assertEqual((e["cli"], e["model"]), ("codex", "pinned-model"))
 
     def test_retry_now_marks_the_target_due(self):
         state = self.root / "state"
