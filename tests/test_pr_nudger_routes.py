@@ -832,3 +832,37 @@ else:
                 assert router.inspect_codex_bootstrap(
                     codex_enrollment, BOOTSTRAP_IDENTITY, attempt, bind=lambda _s: None,
                 ) == ("expired", None)
+
+    def test_resume_records_exit_124_for_late_delivery_reconciliation(self):
+        tmp_path = self.tmp_path
+        owner, transcript = binding(tmp_path)
+        exit_file = tmp_path / "delivery-1.exit"
+        delayed = tmp_path / "codex-deadline-delayed"
+        delayed.write_text(rf"""#!{sys.executable}
+import sys, time
+if sys.argv[1:] == ["--version"]:
+    print("codex-cli 0.160.0")
+elif sys.argv[1:] == ["login", "status"]:
+    pass
+else:
+    time.sleep(0.2)
+    raise SystemExit(124)
+""")
+        delayed.chmod(0o755)
+        receipt = {}
+
+        def checkpoint(path, start):
+            receipt.update(path=str(path), start=list(start), exit_path=str(exit_file))
+            return str(exit_file)
+
+        owner.update(headless_only=True, cli_bin=str(delayed), checkpoint_receipt=checkpoint)
+        with patch.object(router.shutil, "which", return_value=None), \
+             patch.object(router, "_writers", return_value=[]), \
+             patch.object(router, "_wait_for_receipt", return_value="attempted_delivery"):
+            assert router.route(owner, PROMPT, True) == "attempted_delivery"
+        deadline = time.monotonic() + 5
+        while not exit_file.exists() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert exit_file.exists()
+        assert router.verify_delivery_expired({"receipt": receipt}) is True
+        assert router.verify_delivery_receipt(dict(owner, receipt=receipt | {"prompt": PROMPT})) is False

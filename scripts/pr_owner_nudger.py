@@ -4,10 +4,12 @@
 import argparse
 import fcntl
 import json
+import os
 import re
 import socket
 import sqlite3
 import subprocess
+import tempfile
 import time
 from collections import defaultdict
 from contextlib import ExitStack, closing
@@ -330,20 +332,27 @@ def pending_delivery(previous):
 
 
 def reconcile_delivery(db, key, previous, now):
-    """Accept a late positive receipt from the original transcript without resending."""
+    """Accept a late positive transcript receipt or deadline expiry without resending."""
     try:
         owner = json.loads(previous[2])
-        if not pr_nudger_routes.verify_delivery_receipt(owner):
-            return False
     except (TypeError, ValueError):
-        return False
+        return None
+    if pr_nudger_routes.verify_delivery_receipt(owner):
+        status = "delivered"
+    elif pr_nudger_routes.verify_delivery_expired(owner):
+        status = "expired"
+    else:
+        return None
     db.execute("UPDATE delivery SET status=?, time=? WHERE repo=? AND number=?",
-               ("delivered", now, *key))
-    return True
+               (status, now, *key))
+    exit_path = (owner.get("receipt") or {}).get("exit_path")
+    if isinstance(exit_path, str) and Path(exit_path).is_absolute():
+        Path(exit_path).unlink(missing_ok=True)
+    return status
 
 
 def dispatch(cwd, owner, local, pr, receipts, config, from_cache, read=None, *,
-             resume_sandbox=None, wake_reason=None):
+             resume_sandbox=None, wake_reason=None, state=None):
     read = read or github
     expected = identity(pr)
     repo, number, _, branch, sha = expected
@@ -357,8 +366,11 @@ def dispatch(cwd, owner, local, pr, receipts, config, from_cache, read=None, *,
             "SELECT status, time, owner, sha FROM delivery WHERE repo=? AND number=?", key
         ).fetchone()
         if pending_delivery(previous):
-            if reconcile_delivery(receipts, key, previous, time.time()):
+            reconciled = reconcile_delivery(receipts, key, previous, time.time())
+            if reconciled == "delivered":
                 return "delivered_reconciled"
+            if reconciled == "expired":
+                return "expired"
             return "reconciliation_required"
         if (not wake_reason and previous and previous[0] == "delivered" and previous[3] == sha
                 and time.time() - previous[1] < cooldown):
@@ -381,8 +393,8 @@ def dispatch(cwd, owner, local, pr, receipts, config, from_cache, read=None, *,
             remember_binding(receipts, expected, verified, "cmux")
 
     def record(status):
-        fields = ("cwd", "cli", "session", "workspace", "surface", "profile_dir",
-                  "account", "destination", "parent_message_id")
+        fields = ("cwd", "cli", "cli_bin", "session", "workspace", "surface", "profile_dir",
+                  "model", "account", "destination", "parent_message_id")
         audit = json.dumps({**{key: owner[key] for key in fields if key in owner},
                             "branch": branch, "transport": transport, "receipt": receipt})
         receipts.execute("INSERT OR REPLACE INTO delivery VALUES (?, ?, ?, ?, ?, ?)",
@@ -435,8 +447,16 @@ def dispatch(cwd, owner, local, pr, receipts, config, from_cache, read=None, *,
     def checkpoint_receipt(path, start):
         nonlocal receipt
         if reserved:
+            exit_path = None
+            if state is not None and transport == "headless":
+                fd, exit_path = tempfile.mkstemp(prefix="delivery-", suffix=".exit", dir=state)
+                os.close(fd)
             receipt = {"path": str(path), "start": list(start[:2]), "prompt": prompt}
+            if exit_path:
+                receipt["exit_path"] = exit_path
             record("pending_delivery")
+            return exit_path
+        return None
 
     try:
         status = route(dict(owner, pr=number, sha=sha, branch=branch,
@@ -451,6 +471,9 @@ def dispatch(cwd, owner, local, pr, receipts, config, from_cache, read=None, *,
     if status == "expired":
         if receipts is not None:
             record("expired")
+        exit_path = (receipt or {}).get("exit_path")
+        if isinstance(exit_path, str) and Path(exit_path).is_absolute():
+            Path(exit_path).unlink(missing_ok=True)
         return "expired"
     if reserved:
         if status not in {"delivered", "attempted_delivery", "no_delivery"}:
@@ -621,6 +644,17 @@ def _expired_outcome(row):
                 attempts=row["attempts"], next_due=row["next_due"])
 
 
+def _record_expired_enrollment(db, key, expected, enrollment):
+    if db is None or not isinstance(enrollment, dict):
+        return
+    _, _, _, branch, sha = expected
+    fields = ("cwd", "cli", "cli_bin", "profile_dir", "model")
+    audit = json.dumps({**{field: enrollment[field] for field in fields if field in enrollment},
+                        "branch": branch, "binding_source": "bootstrap"})
+    db.execute("INSERT OR REPLACE INTO delivery VALUES (?, ?, ?, ?, ?, ?)",
+               (*key, "expired", time.time(), sha, audit))
+
+
 def dispatch_target(key, target, pr, matches, store, config, read, *, wake_reason=None):
     expected = identity(pr)
     _, _, head_repo, branch, sha = expected
@@ -650,6 +684,7 @@ def dispatch_target(key, target, pr, matches, store, config, read, *, wake_reaso
             return note(key, status, "bootstrap_owner")
         if status == "expired":
             store.set(key, bootstrap=None)
+            _record_expired_enrollment(db, key, expected, enrolled)
             return note(key, "expired", "expired", progress=True)
         return note(key, status, "reconcile_bootstrap")
 
@@ -659,16 +694,19 @@ def dispatch_target(key, target, pr, matches, store, config, read, *, wake_reaso
         "SELECT status, time, owner, sha FROM delivery WHERE repo=? AND number=?", key
     ).fetchone() if db is not None else None
     if pending_delivery(previous):
-        if reconcile_delivery(db, key, previous, store.now):
+        reconciled = reconcile_delivery(db, key, previous, store.now)
+        if reconciled == "delivered":
             cooldown = config.get("cooldown_seconds", 1800)
             earliest = store.now + cooldown if previous[3] == sha else 0
             return note(key, "delivered_reconciled", "refresh_pr", progress=True,
                         earliest=earliest)
+        if reconciled == "expired":
+            return note(key, "expired", "expired", progress=True)
         return note(key, "reconciliation_required", "reconcile_delivery")
     if target.get("observe_only") is True:
         return note(key, "observing", "refresh_pr", progress=True)
     if row.get("reason") == "expired":
-        # Stop scheduling/waking an expired target unless a cached bootstrap owner was re-enrolled.
+        # Stop scheduling/waking an expired target unless a bootstrap owner was re-enrolled.
         if db is not None and isinstance(target.get("enrollment"), dict):
             managed, reason = bootstrap_enrollment(target, expected, require_launch=False)
             if not reason:
@@ -676,16 +714,22 @@ def dispatch_target(key, target, pr, matches, store, config, read, *, wake_reaso
                     "SELECT owner FROM binding WHERE cwd=? AND repo=? AND number=? AND branch=?",
                     (managed["cwd"], *key, branch),
                 ).fetchone()
+                snapshots = []
                 if cached:
-                    owner = json.loads(cached[0])
+                    snapshots.append((json.loads(cached[0]), True))
+                if previous and previous[0] == "expired" and previous[2]:
+                    snapshots.append((json.loads(previous[2]), False))
+                for owner, is_binding in snapshots:
                     if (owner.get("binding_source") == "bootstrap"
-                            and owner.get("cli") == managed.get("cli")
                             and any(field in owner and owner[field] != managed.get(field)
-                                    for field in ("cli_bin", "profile_dir", "model"))):
-                        db.execute(
-                            "DELETE FROM binding WHERE cwd=? AND repo=? AND number=? AND branch=?",
-                            (managed["cwd"], *key, branch),
-                        )
+                                    for field in ("cli", "cli_bin", "profile_dir", "model"))):
+                        if is_binding:
+                            db.execute(
+                                "DELETE FROM binding WHERE cwd=? AND repo=? AND number=? AND branch=?",
+                                (managed["cwd"], *key, branch),
+                            )
+                        if previous and previous[0] == "expired":
+                            db.execute("DELETE FROM delivery WHERE repo=? AND number=?", key)
                         return note(key, "enrollment_changed", "bootstrap_owner")
         return _expired_outcome(row)
     enrollment = target.get("enrollment")
@@ -767,7 +811,7 @@ def dispatch_target(key, target, pr, matches, store, config, read, *, wake_reaso
         cwd, local, owner = candidates[0]
         status = dispatch(
             cwd, owner, local, pr, db, config, from_cache, read,
-            resume_sandbox=resume_sandbox, wake_reason=wake_reason,
+            resume_sandbox=resume_sandbox, wake_reason=wake_reason, state=store.state,
         )
         cooldown = config.get("cooldown_seconds", 1800)
         if status == "delivered":
@@ -803,6 +847,7 @@ def dispatch_target(key, target, pr, matches, store, config, read, *, wake_reaso
         begin_attempt=lambda: store.begin(key, expected, enrollment)
     )
     if status == "expired":
+        _record_expired_enrollment(db, key, expected, enrollment)
         return note(key, "expired", "expired", progress=True)
     return note(key, status, "reconcile_bootstrap" if store.row(key)["bootstrap"] else "bootstrap_owner")
 

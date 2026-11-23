@@ -374,6 +374,16 @@ def verify_delivery_receipt(owner):
         return False
 
 
+def verify_delivery_expired(owner):
+    try:
+        exit_path = owner["receipt"]["exit_path"]
+        if not isinstance(exit_path, str) or not Path(exit_path).is_absolute():
+            return False
+    except (KeyError, TypeError):
+        return False
+    return _read_exit_code(Path(exit_path)) == 124
+
+
 def _wait_for_receipt(path, start, cli, prompt, seconds, child=None):
     for _ in range(seconds):
         code = child.poll() if child is not None else None
@@ -482,7 +492,8 @@ def _managed_claim(path, *, create=True):
 
 
 def _spawn_claimed(command, claim, **kwargs):
-    if claim is None:
+    env = kwargs.get("env") or {}
+    if claim is None and "PR_NUDGER_EXIT_FILE" not in env:
         return subprocess.Popen(command, **kwargs)
     # Some Codex wrappers spawn the native binary without forwarding extra
     # descriptors. The detached holder waits for the enrolled executable.
@@ -490,7 +501,8 @@ def _spawn_claimed(command, claim, **kwargs):
         "import os, subprocess, sys\n"
         "claim = int(sys.argv[1])\n"
         "exit_path = os.environ.pop('PR_NUDGER_EXIT_FILE', None)\n"
-        "rc = subprocess.call(sys.argv[2:], pass_fds=(claim,))\n"
+        "fds = (claim,) if claim >= 0 else ()\n"
+        "rc = subprocess.call(sys.argv[2:], pass_fds=fds)\n"
         "if exit_path:\n"
         "    fd = os.open(exit_path, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_TRUNC, 0o600)\n"
         "    try:\n"
@@ -499,9 +511,10 @@ def _spawn_claimed(command, claim, **kwargs):
         "        os.close(fd)\n"
         "raise SystemExit(rc)"
     )
+    pass_fds = (claim,) if claim is not None else ()
     return subprocess.Popen(
-        (sys.executable, "-c", hold, str(claim), *command),
-        pass_fds=(claim,), **kwargs,
+        (sys.executable, "-c", hold, str(-1 if claim is None else claim), *command),
+        pass_fds=pass_fds, **kwargs,
     )
 
 
@@ -621,10 +634,11 @@ def _resume(cmux, surfaces, cwd, path, env, owner, prompt, apply):
                 if cli == "codex":
                     incoming.write(prompt.encode())
                     incoming.seek(0)
-                owner.get("checkpoint_receipt", lambda *_: None)(path, (stat.st_ino, stat.st_size))
+                exit_path = owner.get("checkpoint_receipt", lambda *_: None)(path, (stat.st_ino, stat.st_size))
+                child_env = {**env, "PR_NUDGER_EXIT_FILE": str(exit_path)} if exit_path else env
                 sent = True
                 child = _spawn_claimed(
-                    cmd, claim, cwd=cwd, env=env,
+                    cmd, claim, cwd=cwd, env=child_env,
                     stdin=incoming if cli == "codex" else subprocess.DEVNULL,
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
                 )
@@ -948,8 +962,7 @@ def _legacy_project_doc_warning(frame, cwd):
     )
 
 
-def _bootstrap_exit_code(attempt):
-    path = Path(f"{attempt['events_path']}.exit")
+def _read_exit_code(path):
     try:
         fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except OSError:
@@ -960,6 +973,10 @@ def _bootstrap_exit_code(attempt):
             return None
         raw = stream.read(32).strip()
     return int(raw) if raw.isdigit() else None
+
+
+def _bootstrap_exit_code(attempt):
+    return _read_exit_code(Path(f"{attempt['events_path']}.exit"))
 
 
 def _read_bootstrap_frames(cwd, attempt, age, pending):

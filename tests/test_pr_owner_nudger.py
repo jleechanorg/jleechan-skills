@@ -1109,6 +1109,41 @@ class DispatcherTest(unittest.TestCase):
             clock[0] = 5000.0
             self.assertEqual(self.target_tick()[0]["status"], "expired")
             launch.assert_called_once()
+            # Re-enrolling after bootstrap expiry wakes the new enrollment cleanly.
+            enrollment["cli_bin"] = "/bin/agy-deadline-2"
+            self.assertEqual(self.target_tick()[0]["status"], "enrollment_changed")
+            clock[0] = 5600.0
+            self.assertEqual(self.target_tick()[0]["status"], "bootstrap_started")
+            self.assertEqual(launch.call_count, 2)
+
+    def test_pending_delivery_reconciles_to_expired_when_exit_file_is_124(self):
+        session = "00000000-0000-4000-8000-000000000001"
+        self.config["owners"] = [dict(self.owner, session=session, profile_dir=str(self.root))]
+        self.config["targets"] = [{"repo": "base/project", "number": 12}]
+        path = self.root / "rollout.jsonl"
+        path.write_text("")
+        state_path = Path(self.config["state_dir"]) / "receipts.sqlite3"
+        captured = {}
+
+        def delayed_expire(owner, _prompt, apply):
+            self.assertTrue(apply)
+            self.assertTrue(owner["recheck"]("headless"))
+            exit_path = owner["checkpoint_receipt"](path, (path.stat().st_ino, 0))
+            captured["exit_path"] = exit_path
+            return "attempted_delivery"
+
+        with patch.object(nudger, "github", return_value=self.pr), \
+             patch.object(nudger, "legacy_tick", return_value=()), \
+             patch.object(nudger, "route", side_effect=delayed_expire) as route:
+            self.assertEqual(self.target_tick()[0]["status"], "attempted_delivery")
+            Path(captured["exit_path"]).write_text("124\n")
+            reconciled = self.target_tick()[0]
+            self.assertEqual((reconciled["status"], reconciled["next_action"]), ("expired", "expired"))
+            self.assertEqual(self.target_tick()[0]["status"], "expired")
+            route.assert_called_once()
+        with sqlite3.connect(state_path) as db:
+            self.assertEqual(db.execute("SELECT status FROM delivery").fetchone(), ("expired",))
+        self.assertFalse(Path(captured["exit_path"]).exists())
 
     def test_reenrolling_expired_bound_target_wakes_new_enrollment(self):
         self.config["owners"] = []
