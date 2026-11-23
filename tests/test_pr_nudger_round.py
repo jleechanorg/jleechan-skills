@@ -38,7 +38,7 @@ class RoundTest(unittest.TestCase):
 
     def test_enroll_writes_profile_wrapper_and_managed_target_then_retire(self):
         scope = self.root / "scope.md"
-        scope.write_text("Scope: prove the portrait carries the gender.\n")
+        scope.write_text("Scope: prove the fixture behavior.\n")
         self.run_cli("enroll", "--repo", "base/project", "--pr", "12", "--cwd", str(self.repo),
                      "--model", "fixture-model", "--hours", "1", "--scope-file", str(scope),
                      "--policy", str(self.policy), "--profiles-dir", str(self.root / "profiles"))
@@ -52,12 +52,21 @@ class RoundTest(unittest.TestCase):
         text = (profile / "AGENTS.md").read_text()
         self.assertTrue(text.startswith("# Shared policy"))
         self.assertIn("owns only base/project PR #12", text)
-        self.assertTrue(text.rstrip().endswith("prove the portrait carries the gender."))
+        self.assertTrue(text.rstrip().endswith("prove the fixture behavior."))
         self.assertEqual(os.readlink(profile / "auth.json"), str(self.codex_home / "auth.json"))
         wrapper = Path(enrollment["cli_bin"]).read_text()
         self.assertIn("exit 124", wrapper)
         self.assertIn("/bin/codex", wrapper)
+        first = enrollment["cli_bin"]
+        with patch.object(round_cli.time, "time", return_value=round_cli.time.time() + 60):
+            self.run_cli("enroll", "--repo", "base/project", "--pr", "12", "--cwd", str(self.repo),
+                         "--model", "fixture-model", "--hours", "2",
+                         "--policy", str(self.policy), "--profiles-dir", str(self.root / "profiles"))
+        # Re-enrolling changes the wrapper path, so the nudger retires the old session.
+        self.assertNotEqual(json.loads(self.config.read_text())["targets"][0]["enrollment"]["cli_bin"], first)
         self.run_cli("retire", "--repo", "base/project", "--pr", "12")
+        with self.assertRaises(SystemExit):
+            self.run_cli("retire", "--repo", "base/project", "--pr", "99")
         self.assertTrue(json.loads(self.config.read_text())["targets"][0]["observe_only"])
 
     def test_retry_now_marks_the_target_due(self):
@@ -70,6 +79,10 @@ class RoundTest(unittest.TestCase):
         self.run_cli("retry-now", "--repo", "base/project", "--pr", "12")
         with sqlite3.connect(state / "receipts.sqlite3") as db:
             self.assertLess(db.execute("SELECT next_due FROM target").fetchone()[0], 9e12)
+        (state / "receipts.sqlite3").unlink()
+        with self.assertRaises(SystemExit):
+            self.run_cli("retry-now", "--repo", "base/project", "--pr", "12")
+        self.assertFalse((state / "receipts.sqlite3").exists())
 
 
 if __name__ == "__main__":

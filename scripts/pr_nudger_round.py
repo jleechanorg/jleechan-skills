@@ -62,7 +62,7 @@ def enroll(args):
     profile = (args.profiles_dir / f"{args.repo.replace('/', '__')}-{args.pr}").resolve()
     profile.mkdir(parents=True, exist_ok=True)
     auth = profile / "auth.json"
-    if not auth.exists():
+    if not (auth.is_symlink() or auth.exists()):
         auth.symlink_to(Path(os.environ.get("CODEX_HOME", HOME / ".codex")) / "auth.json")
     stamp = datetime.fromtimestamp(end, timezone.utc)
     scope = SCOPE.format(repo=args.repo, number=args.pr, branch=branch,
@@ -74,7 +74,8 @@ def enroll(args):
     codex = args.codex or shutil.which("codex")
     if not timeout or not codex:
         sys.exit("enroll needs `timeout` (coreutils) and the codex CLI on PATH")
-    wrapper = profile / "codex-deadline"
+    # A new path per enrollment makes the nudger retire the old session (enrollment_changed).
+    wrapper = profile / f"codex-deadline-{end}"
     wrapper.write_text(WRAPPER.format(end=end, timeout=timeout, codex=codex))
     wrapper.chmod(0o755)
     config = load(args.config)
@@ -87,17 +88,24 @@ def enroll(args):
     }
     save(args.config, config)
     print(f"enrolled {args.repo}#{args.pr} on {branch} until {stamp.astimezone():%-I:%M %p %Z}")
+    if not config.get("enabled"):
+        print("note: the config has enabled=false, so ticks will not dispatch until you enable it")
 
 
 def retire(args):
     config = load(args.config)
+    if not any((t["repo"], t["number"]) == (args.repo, args.pr) for t in config.get("targets", [])):
+        sys.exit(f"{args.repo}#{args.pr} is not a target in {args.config}")
     target(config, args.repo, args.pr)["observe_only"] = True
     save(args.config, config)
     print(f"{args.repo}#{args.pr} is observe-only")
 
 
 def retry_now(args):
-    state = Path(load(args.config)["state_dir"]).expanduser() / "receipts.sqlite3"
+    state_dir = load(args.config).get("state_dir")
+    state = Path(state_dir).expanduser() / "receipts.sqlite3" if state_dir else None
+    if not state or not state.is_file():
+        sys.exit("retry-now needs the config's state_dir with a receipts.sqlite3 from an earlier tick")
     with sqlite3.connect(state) as db:
         db.execute("UPDATE target SET next_due=? WHERE repo=? AND number=?",
                    (time.time(), args.repo, args.pr))
