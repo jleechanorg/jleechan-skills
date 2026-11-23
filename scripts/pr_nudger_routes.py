@@ -77,7 +77,10 @@ def _agy_idle(env, session):
     if summary is None:
         return False
     _, status, not_fully_idle, killed = summary
-    return not killed and not not_fully_idle and status != "CASCADE_RUN_STATUS_RUNNING"
+    return not killed and not not_fully_idle and status == "CASCADE_RUN_STATUS_IDLE"
+
+
+_PROFILE_ENV_KEYS = {"codex": "CODEX_HOME", "claude": "CLAUDE_CONFIG_DIR"}
 
 
 def _session(owner, cwd):
@@ -690,9 +693,7 @@ def route(owner, prompt, apply):
             return "blocked_surface_changed"
         if not _matches_owner(cmux, matches[0], cwd, owner):
             return "blocked_surface_binding"
-        profile_key = "CODEX_HOME" if cli == "codex" else (
-            "CLAUDE_CONFIG_DIR" if cli == "claude" else None
-        )
+        profile_key = _PROFILE_ENV_KEYS.get(cli)
         profile_dir = str(Path(env[profile_key]).resolve()) if profile_key and profile_key in env else owner.get("profile_dir")
         owner.get("confirm_owner", lambda *_: None)(*matches[0][:2], profile_dir)
         return _cmux_route(cmux, matches[0], writers[0], cwd, path, owner, prompt, apply)

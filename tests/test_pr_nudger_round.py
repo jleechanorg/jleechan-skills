@@ -93,7 +93,7 @@ class RoundTest(unittest.TestCase):
         scope.write_text("Scope: prove agy owner.\n")
         with patch.object(round_cli, "POLICY", self.root / "missing-codex.md"), \
                 patch.object(round_cli, "AGY_POLICY", self.root / "missing-agy.md"):
-            self.run_cli("enroll", "--cli", "agy", "--repo", "base/project", "--pr", "12",
+            self.run_cli("enroll", "--cli", "agy", "--headless-only", "--repo", "base/project", "--pr", "12",
                          "--cwd", str(self.repo), "--model", "gemini-4-hydrogen-high",
                          "--hours", "1", "--scope-file", str(scope),
                          "--profiles-dir", str(self.root / "profiles"))
@@ -101,6 +101,7 @@ class RoundTest(unittest.TestCase):
         enrollment = item["enrollment"]
         self.assertEqual(enrollment["cli"], "agy")
         self.assertEqual(enrollment["model"], "gemini-4-hydrogen-high")
+        self.assertTrue(enrollment["headless_only"])
         self.assertNotIn("resume_sandbox", enrollment)
         profile = Path(enrollment["profile_dir"])
         self.assertFalse((profile / "auth.json").exists())

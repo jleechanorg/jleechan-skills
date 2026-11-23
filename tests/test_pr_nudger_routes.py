@@ -686,9 +686,12 @@ print(json.dumps({{"event": "result", "result": {{"conversation_id": {SESSION!r}
             bad_ack = frames[:-1] + [{"event": "result", "result": {"conversation_id": SESSION, "status": "SUCCESS", "response": "NOPE\n"}}]
             events.write_text("".join(json.dumps(row) + "\n" for row in bad_ack))
             assert router.inspect_agy_bootstrap(enrollment, BOOTSTRAP_IDENTITY, attempt, bind=bound.append)[0] == "bootstrap_reconciliation_required"
-            with sqlite3.connect(summary_db) as db:
-                db.execute("UPDATE conversation_summaries SET status='CASCADE_RUN_STATUS_RUNNING', not_fully_idle=1 WHERE conversation_id=?", (SESSION,))
-            assert router.route(owner, PROMPT, True) == "busy"
+            for bad_status in ("CASCADE_RUN_STATUS_RUNNING", "CASCADE_RUN_STATUS_BUSY",
+                               "CASCADE_RUN_STATUS_CANCELING", "CASCADE_RUN_STATUS_UNSPECIFIED", None):
+                with sqlite3.connect(summary_db) as db:
+                    db.execute("UPDATE conversation_summaries SET status=?, not_fully_idle=0 WHERE conversation_id=?",
+                               (bad_status, SESSION))
+                assert router.route(owner, PROMPT, True) == "busy"
             # Unreadable/missing summary DB fails closed as busy.
             summary_db.unlink()
             assert not router._agy_idle({"ANTIGRAVITY_APP_DATA_DIR": str(app_data)}, SESSION)

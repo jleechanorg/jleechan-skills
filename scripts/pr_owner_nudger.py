@@ -317,9 +317,7 @@ def remember_configured(db, expected, cwd, owner):
     except CHECK_ERRORS:
         return True
     if path is not None:
-        profile_key = "CODEX_HOME" if owner["cli"] == "codex" else (
-            "CLAUDE_CONFIG_DIR" if owner["cli"] == "claude" else None
-        )
+        profile_key = pr_nudger_routes._PROFILE_ENV_KEYS.get(owner["cli"])
         verified = dict(owner, cwd=str(cwd), host=socket.gethostname())
         if profile_key and profile_key in env:
             verified["profile_dir"] = str(Path(env[profile_key]).resolve())

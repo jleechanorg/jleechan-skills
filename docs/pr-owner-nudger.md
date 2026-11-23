@@ -5,7 +5,7 @@ Enroll each PR on one owning host. Keep its mode-0600 config at `~/.config/pr-ow
 From the reviewed repository, make a seat package. Transfer the archive through the authorized channel and extract with `tar -xf pr-owner-nudger.tar` in the seat's workspace. Keep the extracted path stable and create the seat's own config.
 
 ```bash
-git archive --output=pr-owner-nudger.tar "$reviewed_sha" scripts/{pr_owner_nudger.py,pr_nudger_intake.py,pr_nudger_routes.py,pr_nudger_discovery.py,run_pr_owner_nudger.sh,render_pr_owner_nudger.py} \
+git archive --output=pr-owner-nudger.tar "$reviewed_sha" scripts/{pr_owner_nudger.py,pr_nudger_intake.py,pr_nudger_routes.py,pr_nudger_discovery.py,pr_nudger_round.py,run_pr_owner_nudger.sh,render_pr_owner_nudger.py} \
   .claude/skills/dot/{SKILL.md,scripts/dot.sh,scripts/dot_chrome.mjs,scripts/dot_reply.mjs} \
   launchd/org.prw.pr-owner-nudger.plist.template systemd/pr-owner-nudger.{service,timer}.template docs/pr-owner-nudger.md
 # In the extracted workspace on the seat
@@ -75,7 +75,7 @@ handoff. An unreachable host leaves the attempt pending.
 ## Running a round
 
 1. Give each PR a dedicated checkout whose local branch is the PR's head branch; the nudger compares that name. If a stale checkout already holds the branch, detach it at the same commit (`git switch --detach`) when it is clean, or use a separate clone when it has work in progress.
-2. Enroll each PR. The command writes the profile (shared policy, then a pilot-scope block and your per-PR scope), links `auth.json` for Codex, writes a deadline wrapper and sets the managed enrollment:
+2. Enroll each PR. The command writes the profile (shared policy, then a pilot-scope block and your per-PR scope), links `auth.json` for Codex, writes a deadline wrapper and sets the managed enrollment (add `--headless-only` on a Linux host without `cmux`):
    `python3 scripts/pr_nudger_round.py enroll --repo owner/repo --pr N --cwd <checkout> --cli <codex|agy> --model <model> --hours 2 --scope-file <scope.md>`
    Point `state_dir` at a fresh directory per round, and `retire` every PR you are not driving.
 3. Start the first tick: `python3 scripts/pr_nudger_round.py retry-now --repo owner/repo --pr N --kick`. On a fresh `state_dir`, `--kick` starts the first tick even before `receipts.sqlite3` exists.

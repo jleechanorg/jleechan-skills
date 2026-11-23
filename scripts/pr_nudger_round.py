@@ -100,6 +100,8 @@ def enroll(args):
     }
     if cli == "codex":
         enrollment["resume_sandbox"] = "danger-full-access"
+    if args.headless_only:
+        enrollment["headless_only"] = True
     item["enrollment"] = enrollment
     save(args.config, config)
     print(f"enrolled {args.repo}#{args.pr} ({cli}) on {branch} until {stamp.astimezone():%-I:%M %p %Z}")
@@ -151,6 +153,8 @@ def main(argv=None):
             cmd.add_argument("--profiles-dir", type=Path, default=PROFILES)
             cmd.add_argument("--cli-bin", help="path to the enrolled CLI executable")
             cmd.add_argument("--codex")
+            cmd.add_argument("--headless-only", action="store_true",
+                             help="enroll for a headless host without cmux")
         if name == "retry-now":
             cmd.add_argument("--kick", action="store_true", help="also start a tick now")
     args = parser.parse_args(argv)
