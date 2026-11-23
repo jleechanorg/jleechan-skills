@@ -306,15 +306,19 @@ def _accepted(path, start, cli, prompt):
             match = re.search(r"<USER_REQUEST>\n(.*?)\n</USER_REQUEST>", content, re.S)
             if (match.group(1) if match else content) == prompt:
                 return True
-            # agy stores only the head of a long request and replaces the rest, plus the
-            # start of its own metadata, with a "<truncated N bytes>" marker. Accept that
-            # row when its head is a prefix of the prompt (the PR and head SHA come first)
-            # and the marker is large enough to have held the rest of the prompt.
-            cut = re.fullmatch(r"<USER_REQUEST>\n(.*?)\n<truncated (\d+) bytes>\n.*", content, re.S)
+            # agy keeps the head and the tail of a long request and replaces the middle with
+            # a "<truncated N bytes>" marker (the tail is agy's own metadata when that is long
+            # enough to fill it, otherwise it ends with the prompt). Accept such a row when its
+            # head is a prefix of the prompt (the PR and head SHA come first) and either the
+            # marker was large enough to have held the rest of the prompt, or the text after
+            # the marker ends with the prompt's own final bytes.
+            cut = re.fullmatch(r"<USER_REQUEST>\n(.*?)\n<truncated (\d+) bytes>\n(.*)", content, re.S)
             if cut:
-                head, gone = cut.group(1), int(cut.group(2))
+                head, gone, after = cut.group(1), int(cut.group(2)), cut.group(3)
                 rest = len(prompt.encode()) - len(head.encode())
-                if len(head) >= 200 and prompt.startswith(head) and 0 <= rest <= gone:
+                if len(head) >= 200 and prompt.startswith(head) and (
+                    0 <= rest <= gone or (len(prompt) > len(head) + 64 and prompt[-64:] in after)
+                ):
                     return True
             continue
         if cli == "codex":
