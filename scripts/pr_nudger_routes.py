@@ -296,6 +296,31 @@ def _snapshot(cmux, target, ref, path, pid):
     return screen, cpu, (stat.st_ino, stat.st_size, stat.st_mtime_ns)
 
 
+def _agy_truncated_delivery(content, prompt):
+    """True when `content` is agy's head-and-tail truncation of a request equal to `prompt`.
+
+    agy keeps ~2 KB of head and tail and replaces the middle with "<truncated N bytes>".
+    The head may run into the closing tag. The tail is agy's own metadata when that fills
+    it, otherwise it ends with the prompt. The PR and head SHA open the prompt, so a prefix
+    match of at least 200 characters pins the wake's identity.
+    """
+    cut = re.fullmatch(r"<USER_REQUEST>\n(.*?)\n<truncated (\d+) bytes>\n(.*)", content, re.S)
+    if not cut:
+        return False
+    head, gone, after = cut.group(1), int(cut.group(2)), cut.group(3)
+    tag = "\n</USER_REQUEST>"
+    for length in range(len(tag), 0, -1):
+        if head.endswith(tag[:length]):
+            head = head[:-length]
+            break
+    if len(head) < 200 or not prompt.startswith(head):
+        return False
+    if 0 <= len(prompt.encode()) - len(head.encode()) <= gone:
+        return True
+    rest = prompt[len(head):]
+    return any(after.startswith(rest[-size:]) for size in range(min(len(rest), len(after)), 7, -1))
+
+
 def _accepted(path, start, cli, prompt):
     for row in _rows(path, start):
         kind = row.get("type")
@@ -305,6 +330,14 @@ def _accepted(path, start, cli, prompt):
             content = row.get("content") or ""
             match = re.search(r"<USER_REQUEST>\n(.*?)\n</USER_REQUEST>", content, re.S)
             if (match.group(1) if match else content) == prompt:
+                return True
+            # agy keeps the head and the tail of a long request and replaces the middle with
+            # a "<truncated N bytes>" marker (the tail is agy's own metadata when that is long
+            # enough to fill it, otherwise it ends with the prompt). Accept such a row when its
+            # head is a prefix of the prompt (the PR and head SHA come first) and either the
+            # marker was large enough to have held the rest of the prompt, or the text after
+            # the marker ends with the prompt's own final bytes.
+            if _agy_truncated_delivery(content, prompt):
                 return True
             continue
         if cli == "codex":
