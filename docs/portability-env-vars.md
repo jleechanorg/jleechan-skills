@@ -40,6 +40,7 @@ host aliases, names and paths at `${XDG_CONFIG_HOME:-$HOME/.config}/jleechan-ski
 | `GITHUB_ORG` | GitHub org/owner for org-wide queries | `${GITHUB_REPOSITORY%%/*}` | — |
 | `CLAUDE_HOME` | Claude Code home | — | `$HOME/.claude` |
 | `CODEX_HOME` | Codex home | — | `$HOME/.codex` |
+| `ANTIGRAVITY_APP_DATA_DIR` | Antigravity CLI state directory (`brain/`, `conversation_summaries.db`) | — | `$HOME/.gemini/antigravity-cli` |
 | `ROADMAP_DIR` | Durable planning/report repository | — | `$HOME/roadmap` if it exists and is a git repository; otherwise skip roadmap steps |
 | `ROADMAP_GITHUB_REPO` | GitHub `owner/repo` of `ROADMAP_DIR` | `gh repo view` inside `ROADMAP_DIR` | — |
 | `WIKI_ROOT` | Personal knowledge wiki checkout | — | unset: skip wiki steps |

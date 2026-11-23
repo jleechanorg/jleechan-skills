@@ -8,11 +8,13 @@ import re
 import select
 import shutil
 import socket
+import sqlite3
 import stat
 import subprocess
 import sys
 import tempfile
 import time
+from urllib.parse import unquote, urlparse
 from uuid import UUID
 
 if __package__:
@@ -33,15 +35,76 @@ def _checked(*args):
     return result.stdout
 
 
+def _agy_app_data():
+    return Path(
+        os.environ.get("ANTIGRAVITY_APP_DATA_DIR") or Path.home() / ".gemini" / "antigravity-cli"
+    ).expanduser()
+
+
+def _agy_summary(app_data, session):
+    db_path = app_data / "conversation_summaries.db"
+    if not db_path.is_file():
+        return None
+    try:
+        with sqlite3.connect(db_path.resolve().as_uri() + "?mode=ro", uri=True) as con:
+            row = con.execute(
+                "SELECT workspace_uris, status, not_fully_idle, killed "
+                "FROM conversation_summaries WHERE conversation_id=?",
+                (session,),
+            ).fetchone()
+    except (OSError, sqlite3.Error):
+        return None
+    if not row:
+        return None
+    try:
+        uris = json.loads(row[0] or "[]")
+    except ValueError:
+        return None
+    paths = set()
+    for uri in uris:
+        parsed = urlparse(str(uri))
+        if parsed.scheme == "file" and parsed.path:
+            try:
+                paths.add(Path(unquote(parsed.path)).resolve())
+            except OSError:
+                continue
+    return paths, row[1], bool(row[2]), bool(row[3])
+
+
+def _agy_idle(env, session):
+    app_data = Path(env.get("ANTIGRAVITY_APP_DATA_DIR") or _agy_app_data()).expanduser()
+    summary = _agy_summary(app_data, session)
+    if summary is None:
+        return True
+    _, status, not_fully_idle, killed = summary
+    return not killed and not not_fully_idle and status != "CASCADE_RUN_STATUS_RUNNING"
+
+
 def _session(owner, cwd):
     cli = owner["cli"]
+    session = owner["session"]
+    if cli == "agy":
+        if str(UUID(session)) != session:
+            return None, None
+        app_data = _agy_app_data()
+        if not app_data.is_absolute() or not app_data.is_dir():
+            return None, None
+        transcript = app_data / "brain" / session / ".system_generated" / "logs" / "transcript.jsonl"
+        if not transcript.is_file():
+            return None, None
+        resolved = transcript.resolve()
+        if not resolved.is_relative_to((app_data / "brain").resolve()):
+            return None, None
+        summary = _agy_summary(app_data, session)
+        if not summary or summary[3] or cwd not in summary[0]:
+            return None, None
+        return resolved, {**os.environ, "ANTIGRAVITY_APP_DATA_DIR": str(app_data)}
     key, default = ("CODEX_HOME", ".codex") if cli == "codex" else (
         "CLAUDE_CONFIG_DIR", ".claude"
     )
     root = Path(owner.get("profile_dir") or os.environ.get(key) or Path.home() / default).expanduser()
     if not root.is_absolute() or not root.is_dir():
         return None, None
-    session = owner["session"]
     pattern = (
         f"sessions/*/*/*/*-{session}.jsonl" if cli == "codex"
         else f"projects/*/{session}.jsonl"
@@ -153,6 +216,14 @@ def _terminal_state(cli, path):
                 "task_complete", "turn_aborted", "task_started"
             ):
                 idle = event["type"] != "task_started"
+        elif cli == "agy":
+            if kind == "USER_INPUT":
+                idle = False
+            elif kind == "PLANNER_RESPONSE":
+                model = row.get("model", model)
+                idle = row.get("status") == "DONE" and not row.get("tool_calls")
+            else:
+                idle = False
         elif kind == "assistant":
             message = row["message"]
             reason = message.get("stop_reason")
@@ -227,6 +298,14 @@ def _snapshot(cmux, target, ref, path, pid):
 def _accepted(path, start, cli, prompt):
     for row in _rows(path, start):
         kind = row.get("type")
+        if cli == "agy":
+            if kind != "USER_INPUT":
+                continue
+            content = row.get("content") or ""
+            match = re.search(r"<USER_REQUEST>\n(.*?)\n</USER_REQUEST>", content, re.S)
+            if (match.group(1) if match else content) == prompt:
+                return True
+            continue
         if cli == "codex":
             msg = row.get("payload", {})
             if kind != "response_item" or msg.get("role") != "user":
@@ -247,7 +326,7 @@ def verify_delivery_receipt(owner):
     """Check the original session beyond the checkpoint recorded before sending."""
     try:
         cli, session = owner["cli"], owner["session"]
-        if cli not in {"codex", "claude"} or str(UUID(session)) != session:
+        if cli not in {"codex", "claude", "agy"} or str(UUID(session)) != session:
             return False
         receipt = owner["receipt"]
         path, _ = _session(owner, Path(owner["cwd"]).resolve(strict=True))
@@ -411,37 +490,51 @@ def _resume(cmux, surfaces, cwd, path, env, owner, prompt, apply):
     if owner.get("headless_resume", owner.get("headless_only")) is not True:
         return "blocked_headless_disabled"
     cli = owner["cli"]
-    if cli != "codex":
+    if cli not in {"codex", "agy"}:
         return "blocked_headless_exclusion_unverified"
     exe = owner.get("cli_bin") or shutil.which(cli)
     if not exe or not Path(exe).is_absolute() or not os.access(exe, os.X_OK):
         return "blocked_cli_unavailable"
-    lock = Path(env["CODEX_HOME"]) / "thread-writer-locks" / f"{owner['session']}.lock"
     if apply and not owner.get("admit_launch", lambda: True)():
         return "blocked_launch_capacity"
-    if not _verified_lock_dir(lock.parent) or not _supported_codex(exe, cwd, env):
-        return "blocked_headless_exclusion_unverified"
-    if not _native_writer_free(lock):
-        return "busy"
-    if _run(exe, "login", "status", cwd=cwd, env=env).returncode:
-        return "blocked_cli_auth"
-    _, recorded_model = _terminal_state(cli, path)
-    model = owner.get("model") or recorded_model
-    if not model:
-        return "blocked_session_model"
     managed = owner.get("managed_exclusive") is True
-    project_config = _PROJECT_DOC_CONFIG if managed else ()
-    sandbox = owner.get("resume_sandbox")
-    if sandbox is not None and (
-        not managed or owner.get("launch_authorized") is not True
-        or sandbox not in ("read-only", "workspace-write", "danger-full-access")
-    ):
-        return "blocked_resume_sandbox"
-    sandbox_config = ("--sandbox", sandbox) if sandbox is not None else ()
-    cmd = (
-        exe, "exec", *sandbox_config, "resume", *project_config,
-        "--model", model, owner["session"], "-",
-    )
+    lock = None
+    if cli == "codex":
+        lock = Path(env["CODEX_HOME"]) / "thread-writer-locks" / f"{owner['session']}.lock"
+        if not _verified_lock_dir(lock.parent) or not _supported_codex(exe, cwd, env):
+            return "blocked_headless_exclusion_unverified"
+        if not _native_writer_free(lock):
+            return "busy"
+        if _run(exe, "login", "status", cwd=cwd, env=env).returncode:
+            return "blocked_cli_auth"
+        _, recorded_model = _terminal_state(cli, path)
+        model = owner.get("model") or recorded_model
+        if not model:
+            return "blocked_session_model"
+        project_config = _PROJECT_DOC_CONFIG if managed else ()
+        sandbox = owner.get("resume_sandbox")
+        if sandbox is not None and (
+            not managed or owner.get("launch_authorized") is not True
+            or sandbox not in ("read-only", "workspace-write", "danger-full-access")
+        ):
+            return "blocked_resume_sandbox"
+        sandbox_config = ("--sandbox", sandbox) if sandbox is not None else ()
+        cmd = (
+            exe, "exec", *sandbox_config, "resume", *project_config,
+            "--model", model, owner["session"], "-",
+        )
+    else:
+        if not _agy_idle(env, owner["session"]):
+            return "busy"
+        _, recorded_model = _terminal_state(cli, path)
+        model = owner.get("model") or recorded_model
+        if not model:
+            return "blocked_session_model"
+        cmd = (
+            exe, "--conversation", owner["session"], "-p", prompt,
+            "--output-format", "stream-json", "--model", model,
+            "--dangerously-skip-permissions",
+        )
     stat = path.stat()
     if _writers(cwd, path):
         return "busy"
@@ -457,16 +550,20 @@ def _resume(cmux, surfaces, cwd, path, env, owner, prompt, apply):
                 return "stale_pr"
             reserved = True
             if (cmux and (_owner_surfaces(cmux, owner) != surfaces or _cwd_claimed(cmux, cwd, surfaces))
-                    or _writers(cwd, path) or not _native_writer_free(lock)):
+                    or _writers(cwd, path)
+                    or (lock is not None and not _native_writer_free(lock))
+                    or (cli == "agy" and not _agy_idle(env, owner["session"]))):
                 return "no_delivery"
-            with tempfile.TemporaryFile() as incoming:
-                incoming.write(prompt.encode())
-                incoming.seek(0)
+            with (tempfile.TemporaryFile() if cli == "codex" else nullcontext(None)) as incoming:
+                if cli == "codex":
+                    incoming.write(prompt.encode())
+                    incoming.seek(0)
                 owner.get("checkpoint_receipt", lambda *_: None)(path, (stat.st_ino, stat.st_size))
                 sent = True
                 child = _spawn_claimed(
-                    cmd, claim, cwd=cwd, env=env, stdin=incoming, stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL, start_new_session=True,
+                    cmd, claim, cwd=cwd, env=env,
+                    stdin=incoming if cli == "codex" else subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
                 )
         return _wait_for_receipt(path, (stat.st_ino, stat.st_size), cli, prompt, 20, child)
     except BlockingIOError:
@@ -559,10 +656,10 @@ def route(owner, prompt, apply):
             return "blocked_prompt"
         if cli == "dot":
             return _dot(owner, prompt, apply)
-        if cli not in {"codex", "claude"}:
+        if cli not in {"codex", "claude", "agy"}:
             return "blocked_cli_unsupported"
         if owner.get("managed_exclusive") is True and (
-            cli != "codex" or owner.get("host") != socket.gethostname()
+            cli not in {"codex", "agy"} or owner.get("host") != socket.gethostname()
             or not Path(owner.get("profile_dir", "")).is_absolute()
         ):
             return "blocked_managed_writer_unverified"
@@ -591,8 +688,11 @@ def route(owner, prompt, apply):
             return "blocked_surface_changed"
         if not _matches_owner(cmux, matches[0], cwd, owner):
             return "blocked_surface_binding"
-        profile_key = "CODEX_HOME" if cli == "codex" else "CLAUDE_CONFIG_DIR"
-        owner.get("confirm_owner", lambda *_: None)(*matches[0][:2], str(Path(env[profile_key]).resolve()))
+        profile_key = "CODEX_HOME" if cli == "codex" else (
+            "CLAUDE_CONFIG_DIR" if cli == "claude" else None
+        )
+        profile_dir = str(Path(env[profile_key]).resolve()) if profile_key and profile_key in env else owner.get("profile_dir")
+        owner.get("confirm_owner", lambda *_: None)(*matches[0][:2], profile_dir)
         return _cmux_route(cmux, matches[0], writers[0], cwd, path, owner, prompt, apply)
     except (KeyError, TypeError, ValueError, OSError, subprocess.SubprocessError):
         return "blocked_route_unverified"
@@ -623,14 +723,16 @@ _BOOTSTRAP_CONFIG = (
 )
 
 
-def _bootstrap_scope(enrollment, identity):
+def _bootstrap_scope(enrollment, identity, expected_cli=None):
     repo, number, head_repo, branch, sha = identity
     # Operator-enrolled exclusive context; the local tick lock does not exclude
     # arbitrary editors. Each launch also rechecks live worktree and writers.
+    cli = enrollment.get("cli")
+    allowed = {expected_cli} if expected_cli else {"codex", "agy"}
     if (enrollment.get("launch_authorized") is not True
             or enrollment.get("managed_exclusive") is not True
             or enrollment.get("host") != socket.gethostname()
-            or enrollment.get("cli") != "codex"
+            or cli not in allowed
             or enrollment.get("head_repo") != head_repo or enrollment.get("branch") != branch
             or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo)
             or not re.fullmatch(r"[0-9a-f]{40}", sha)
@@ -670,11 +772,40 @@ def _bootstrap_writer_free(cwd, enrollment, transcript=None):
     )
 
 
-def start_codex_bootstrap(enrollment, identity, *, apply, recheck, begin_attempt):
-    """Launch an acknowledgment-only seed after the caller durably reserves it."""
+def _launch_bootstrap(cwd, enrollment, command, recheck, begin_attempt, *, env=None, prompt_stdin=None):
     reserved = False
     try:
-        cwd, profile, executable, prompt = _bootstrap_scope(enrollment, identity)
+        with _managed_claim(_managed_claim_path(cwd)) as claim:
+            if not recheck():
+                return "stale_pr"
+            events = begin_attempt()
+            if events is None:
+                return "blocked_bootstrap_reservation"
+            reserved = True
+            if not _bootstrap_writer_free(cwd, enrollment):
+                return "no_bootstrap"
+            with (tempfile.TemporaryFile() if prompt_stdin is not None else nullcontext(None)) as incoming, \
+                 _bootstrap_events(events, write=True) as outgoing:
+                if prompt_stdin is not None:
+                    incoming.write(prompt_stdin.encode())
+                    incoming.seek(0)
+                _spawn_claimed(
+                    command, claim, cwd=cwd, env=env,
+                    stdin=incoming if prompt_stdin is not None else subprocess.DEVNULL,
+                    stdout=outgoing, stderr=subprocess.DEVNULL, start_new_session=True,
+                )
+        return "bootstrap_started"
+    except BlockingIOError:
+        return _BOOTSTRAP_RECONCILE if reserved else "busy"
+    except (KeyError, TypeError, ValueError, OSError, subprocess.SubprocessError) as error:
+        print(f"bootstrap launch failed: {type(error).__name__}: {error}", file=sys.stderr)
+        return _BOOTSTRAP_RECONCILE if reserved else "blocked_bootstrap_unverified"
+
+
+def start_codex_bootstrap(enrollment, identity, *, apply, recheck, begin_attempt):
+    """Launch an acknowledgment-only seed after the caller durably reserves it."""
+    try:
+        cwd, profile, executable, prompt = _bootstrap_scope(enrollment, identity, "codex")
         if not os.access(executable, os.X_OK):
             return "blocked_cli_unavailable"
         if not _bootstrap_writer_free(cwd, enrollment):
@@ -696,34 +827,36 @@ def start_codex_bootstrap(enrollment, identity, *, apply, recheck, begin_attempt
             not isinstance(server, dict) or server.get("enabled") is not False for server in servers
         ):
             return "blocked_bootstrap_tools"
-        with _managed_claim(_managed_claim_path(cwd)) as claim:
-            if not recheck():
-                return "stale_pr"
-            events = begin_attempt()
-            if events is None:
-                return "blocked_bootstrap_reservation"
-            reserved = True
-            if not _bootstrap_writer_free(cwd, enrollment):
-                return "no_bootstrap"
-            # The seed uses a read-only sandbox, disabled side-effect tools and
-            # no personal integrations. Acknowledgment is not PR delivery.
-            command = (
-                executable, "exec", "--json", "--ignore-user-config", "--sandbox", "read-only",
-                *_BOOTSTRAP_CONFIG, "--model", enrollment["model"], "-",
-            )
-            with tempfile.TemporaryFile() as incoming, _bootstrap_events(events, write=True) as outgoing:
-                incoming.write(prompt.encode())
-                incoming.seek(0)
-                _spawn_claimed(
-                    command, claim, cwd=cwd, env=env, stdin=incoming, stdout=outgoing,
-                    stderr=subprocess.DEVNULL, start_new_session=True,
-                )
-        return "bootstrap_started"
-    except BlockingIOError:
-        return _BOOTSTRAP_RECONCILE if reserved else "busy"
+        # The seed uses a read-only sandbox, disabled side-effect tools and
+        # no personal integrations. Acknowledgment is not PR delivery.
+        command = (
+            executable, "exec", "--json", "--ignore-user-config", "--sandbox", "read-only",
+            *_BOOTSTRAP_CONFIG, "--model", enrollment["model"], "-",
+        )
     except (KeyError, TypeError, ValueError, OSError, subprocess.SubprocessError) as error:
         print(f"bootstrap launch failed: {type(error).__name__}: {error}", file=sys.stderr)
-        return _BOOTSTRAP_RECONCILE if reserved else "blocked_bootstrap_unverified"
+        return "blocked_bootstrap_unverified"
+    return _launch_bootstrap(cwd, enrollment, command, recheck, begin_attempt, env=env, prompt_stdin=prompt)
+
+
+def start_agy_bootstrap(enrollment, identity, *, apply, recheck, begin_attempt):
+    """Launch an acknowledgment-only agy seed after the caller durably reserves it."""
+    try:
+        cwd, _, executable, prompt = _bootstrap_scope(enrollment, identity, "agy")
+        if not os.access(executable, os.X_OK):
+            return "blocked_cli_unavailable"
+        if not _bootstrap_writer_free(cwd, enrollment):
+            return "busy"
+        if not apply:
+            return "would_bootstrap"
+        command = (
+            executable, "-p", prompt, "--output-format", "stream-json",
+            "--model", enrollment["model"], "--dangerously-skip-permissions",
+        )
+    except (KeyError, TypeError, ValueError, OSError, subprocess.SubprocessError) as error:
+        print(f"bootstrap launch failed: {type(error).__name__}: {error}", file=sys.stderr)
+        return "blocked_bootstrap_unverified"
+    return _launch_bootstrap(cwd, enrollment, command, recheck, begin_attempt)
 
 
 def _legacy_project_doc_warning(frame, cwd):
@@ -745,6 +878,23 @@ def _legacy_project_doc_warning(frame, cwd):
     )
 
 
+def _read_bootstrap_frames(cwd, attempt, age, pending):
+    with _bootstrap_events(attempt["events_path"]) as stream:
+        payload = stream.read(131073)
+    if len(payload) > 131072:
+        return _BOOTSTRAP_RECONCILE, None
+    if not payload and age >= _BOOTSTRAP_RECEIPT_SECONDS:
+        # A seed that never wrote a frame and holds no claim was never launched.
+        try:
+            with _managed_claim(_managed_claim_path(cwd)):
+                return "bootstrap_abandoned", None
+        except BlockingIOError:
+            return _BOOTSTRAP_RECONCILE, None
+    if not payload.endswith(b"\n"):
+        return pending
+    return "frames", [json.loads(line) for line in payload.splitlines()]
+
+
 def inspect_codex_bootstrap(enrollment, identity, attempt, *, bind=None):
     """Verify one completed seed without sending any prompt or claiming delivery."""
     uncertain = (_BOOTSTRAP_RECONCILE, None)
@@ -752,25 +902,14 @@ def inspect_codex_bootstrap(enrollment, identity, attempt, *, bind=None):
     if not callable(bind):
         return uncertain
     try:
-        cwd, profile, _, prompt = _bootstrap_scope(enrollment, identity)
+        cwd, profile, _, prompt = _bootstrap_scope(enrollment, identity, "codex")
         age = time.time() - attempt["started_at"]
         if attempt["sha"] != identity[4] or not 0 <= age:
             return uncertain
         pending = ("bootstrap_pending", None) if age < _BOOTSTRAP_RECEIPT_SECONDS else uncertain
-        with _bootstrap_events(attempt["events_path"]) as stream:
-            payload = stream.read(131073)
-        if len(payload) > 131072:
-            return uncertain
-        if not payload and age >= _BOOTSTRAP_RECEIPT_SECONDS:
-            # A seed that never wrote a frame and holds no claim was never launched.
-            try:
-                with _managed_claim(_managed_claim_path(cwd)):
-                    return "bootstrap_abandoned", None
-            except BlockingIOError:
-                return uncertain
-        if not payload.endswith(b"\n"):
-            return pending
-        frames = [json.loads(line) for line in payload.splitlines()]
+        state, frames = _read_bootstrap_frames(cwd, attempt, age, pending)
+        if state != "frames":
+            return state, frames
         kinds = [frame["type"] for frame in frames]
         if (kinds[:3] == ["thread.started", "item.completed", "turn.started"]
                 and (_legacy_project_doc_warning(frames[1], cwd)
@@ -816,6 +955,67 @@ def inspect_codex_bootstrap(enrollment, identity, attempt, *, bind=None):
             return uncertain
         with _managed_claim(_managed_claim_path(cwd)):
             if (not _terminal_state("codex", path)[0] or not _native_writer_free(lock)
+                    or not _bootstrap_writer_free(cwd, enrollment, path)):
+                return pending
+            bind(session)
+        return "bootstrapped", session
+    except BlockingIOError:
+        return pending
+    except (AttributeError, KeyError, TypeError, ValueError, OSError, subprocess.SubprocessError):
+        return uncertain
+
+
+def inspect_agy_bootstrap(enrollment, identity, attempt, *, bind=None):
+    """Verify one completed agy seed without sending any prompt or claiming delivery."""
+    uncertain = (_BOOTSTRAP_RECONCILE, None)
+    pending = uncertain
+    if not callable(bind):
+        return uncertain
+    try:
+        cwd, _, _, prompt = _bootstrap_scope(enrollment, identity, "agy")
+        age = time.time() - attempt["started_at"]
+        if attempt["sha"] != identity[4] or not 0 <= age:
+            return uncertain
+        pending = ("bootstrap_pending", None) if age < _BOOTSTRAP_RECEIPT_SECONDS else uncertain
+        state, frames = _read_bootstrap_frames(cwd, attempt, age, pending)
+        if state != "frames":
+            return state, frames
+        events = [frame["event"] for frame in frames]
+        if any(ev not in {"init", "step_update", "result"} for ev in events):
+            return uncertain
+        if events.count("init") > 1 or events.count("result") > 1:
+            return uncertain
+        if "result" not in events:
+            return pending
+        if events[-1] != "result":
+            return uncertain
+        init_cid = None
+        if events[0] == "init":
+            init_cid = frames[0].get("conversation_id")
+            init_cwd = (frames[0].get("init") or {}).get("cwd")
+            if init_cwd and Path(init_cwd).resolve() != cwd:
+                return uncertain
+        for frame in frames:
+            if frame["event"] == "step_update":
+                step = frame["step_update"]
+                if (step.get("step_type") not in {"user_input", "agent_response", "system_message", "thinking", "thought"}
+                        or step.get("tool_calls")):
+                    return uncertain
+        result = frames[-1]["result"]
+        session = result.get("conversation_id") or frames[-1].get("conversation_id")
+        if (not isinstance(session, str) or str(UUID(session)) != session
+                or (init_cid and init_cid != session)
+                or result.get("status") != "SUCCESS"
+                or (result.get("response") or "").strip() != _BOOTSTRAP_ACK):
+            return uncertain
+        path, env = _session(dict(enrollment, session=session), cwd)
+        if path is None:
+            return pending
+        info = path.stat()
+        if not _accepted(path, (info.st_ino, 0), "agy", prompt):
+            return uncertain
+        with _managed_claim(_managed_claim_path(cwd)):
+            if (not _terminal_state("agy", path)[0] or not _agy_idle(env, session)
                     or not _bootstrap_writer_free(cwd, enrollment, path)):
                 return pending
             bind(session)

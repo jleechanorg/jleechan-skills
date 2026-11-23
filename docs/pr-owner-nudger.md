@@ -61,7 +61,7 @@ absolute `cwd`, owning `host` (the local hostname), `cli`, canonical absolute
 `launch_authorized: true` and `managed_exclusive: true`. Use that declaration
 only for a dedicated checkout reserved for the managed owner. The local tick
 lock serializes the timer's writes. Runtime checks still verify the branch and
-look for an existing writer. Fresh bootstrap currently supports Codex only.
+look for an existing writer. Fresh bootstrap supports Codex and `agy`.
 
 Unresolved starts persist in the target's `bootstrap` field with a private event
 file. The next tick checks that file and the exact session transcript before
@@ -75,10 +75,10 @@ handoff. An unreachable host leaves the attempt pending.
 ## Running a round
 
 1. Give each PR a dedicated checkout whose local branch is the PR's head branch; the nudger compares that name. If a stale checkout already holds the branch, detach it at the same commit (`git switch --detach`) when it is clean, or use a separate clone when it has work in progress.
-2. Enroll each PR. The command writes the profile (shared policy, then a pilot-scope block and your per-PR scope), links `auth.json`, writes a deadline wrapper and sets the managed enrollment:
-   `python3 scripts/pr_nudger_round.py enroll --repo owner/repo --pr N --cwd <checkout> --model <model> --hours 2 --scope-file <scope.md>`
+2. Enroll each PR. The command writes the profile (shared policy, then a pilot-scope block and your per-PR scope), links `auth.json` for Codex, writes a deadline wrapper and sets the managed enrollment:
+   `python3 scripts/pr_nudger_round.py enroll --repo owner/repo --pr N --cwd <checkout> --cli <codex|agy> --model <model> --hours 2 --scope-file <scope.md>`
    Point `state_dir` at a fresh directory per round, and `retire` every PR you are not driving.
-3. Start the first tick: `python3 scripts/pr_nudger_round.py retry-now --repo owner/repo --pr N --kick`.
+3. Start the first tick: `python3 scripts/pr_nudger_round.py retry-now --repo owner/repo --pr N --kick`. On a fresh `state_dir`, `--kick` starts the first tick even before `receipts.sqlite3` exists.
 4. Verify each Stage 5 claim yourself before counting it: the head SHA, the stage label and block agree, the required checks (or the repository's own gate), any change since the tested commit, and the base-versus-head proof read from its artifact.
 5. When the window ends, run `retire` for each PR. Merging is the operator's decision.
 

@@ -576,3 +576,100 @@ with r._managed_claim(r._managed_claim_path(cwd)) as claim:
             assert router.route(owner, PROMPT, False) == "blocked_managed_writer_unverified"
             holders.return_value = f"p{WRITER[0]}\nlW\n"
             assert router.route(owner, PROMPT, False) == "would_deliver"
+
+    def test_agy_bootstrap_inspection_and_resume_delivery(self):
+        import sqlite3
+        tmp_path = self.tmp_path
+        subprocess.run(("git", "init", "-q", str(tmp_path)), check=True)
+        app_data = tmp_path / "agy-data"
+        transcript = app_data / f"brain/{SESSION}/.system_generated/logs/transcript.jsonl"
+        transcript.parent.mkdir(parents=True)
+        summary_db = app_data / "conversation_summaries.db"
+        with sqlite3.connect(summary_db) as db:
+            db.execute("CREATE TABLE conversation_summaries (conversation_id TEXT PRIMARY KEY, workspace_uris TEXT, status TEXT, not_fully_idle INTEGER, killed INTEGER)")
+            db.execute("INSERT INTO conversation_summaries VALUES (?, ?, ?, 0, 0)",
+                       (SESSION, json.dumps([tmp_path.as_uri()]), "CASCADE_RUN_STATUS_IDLE"))
+        profile = tmp_path / "profile"
+        profile.mkdir()
+        fake = tmp_path / "fixture-agy"
+        fake.write_text(rf"""#!{sys.executable}
+import json, sys
+assert sys.argv[1:] == [
+    "--conversation", {SESSION!r}, "-p", {PROMPT!r},
+    "--output-format", "stream-json", "--model", "gemini-4-hydrogen-high",
+    "--dangerously-skip-permissions",
+]
+with open({str(transcript)!r}, "a") as stream:
+    stream.write(json.dumps({{
+        "step_index": 2, "source": "USER_EXPLICIT", "type": "USER_INPUT",
+        "status": "DONE", "content": "<USER_REQUEST>\n" + {PROMPT!r} + "\n</USER_REQUEST>\n",
+    }}) + "\n")
+print(json.dumps({{"event": "result", "result": {{"conversation_id": {SESSION!r}, "status": "SUCCESS", "response": "OK\n"}}}}))
+""")
+        fake.chmod(0o700)
+        enrollment = {
+            "cwd": str(tmp_path), "cli": "agy", "cli_bin": str(fake),
+            "profile_dir": str(profile), "model": "gemini-4-hydrogen-high", "headless_only": True,
+            "host": socket.gethostname(), "managed_exclusive": True,
+            "launch_authorized": True, "head_repo": "owned/head", "branch": "feature-branch",
+        }
+        events = tmp_path / "attempt.jsonl"
+        events.touch(mode=0o600)
+        bootstrap_prompt = (
+            f"Verify owner bootstrap for owned/repo#12 at {'a' * 40}. "
+            f"Do not use tools or take any action. Reply exactly {BOOTSTRAP_ACK}."
+        )
+        order = []
+
+        def spawn_bootstrap(command, **kwargs):
+            order.append("spawn")
+            assert command[4:] == (
+                str(fake), "-p", bootstrap_prompt, "--output-format", "stream-json",
+                "--model", "gemini-4-hydrogen-high", "--dangerously-skip-permissions",
+            )
+            assert kwargs["start_new_session"] is True
+
+        with patch.dict(os.environ, {"ANTIGRAVITY_APP_DATA_DIR": str(app_data)}), \
+             patch.object(router, "_managed_claim_path", return_value=tmp_path / "managed.lock"), \
+             patch.object(router.shutil, "which", return_value=None), \
+             patch.object(router, "_writers", return_value=[]), \
+             patch.object(router.subprocess, "Popen", side_effect=spawn_bootstrap):
+            assert router.start_agy_bootstrap(
+                enrollment, BOOTSTRAP_IDENTITY, apply=True, recheck=lambda: True,
+                begin_attempt=lambda: order.append("reserve") or events,
+            ) == "bootstrap_started"
+        assert order == ["reserve", "spawn"]
+
+        transcript.write_text(
+            json.dumps({
+                "step_index": 0, "source": "USER_EXPLICIT", "type": "USER_INPUT", "status": "DONE",
+                "content": f"<USER_REQUEST>\n{bootstrap_prompt}\n</USER_REQUEST>\n",
+            }) + "\n" +
+            json.dumps({
+                "step_index": 1, "source": "MODEL", "type": "PLANNER_RESPONSE", "status": "DONE",
+                "model": "gemini-4-hydrogen-high", "content": BOOTSTRAP_ACK,
+            }) + "\n"
+        )
+        frames = [
+            {"event": "init", "conversation_id": SESSION, "init": {"model": "gemini-4-hydrogen-high", "cwd": str(tmp_path)}},
+            {"event": "step_update", "step_update": {"conversation_id": SESSION, "step_index": 0, "state": "DONE", "step_type": "user_input"}},
+            {"event": "step_update", "step_update": {"conversation_id": SESSION, "step_index": 1, "state": "DONE", "step_type": "agent_response", "text_delta": BOOTSTRAP_ACK}},
+            {"event": "result", "result": {"conversation_id": SESSION, "status": "SUCCESS", "response": f"{BOOTSTRAP_ACK}\n"}},
+        ]
+        events.write_text("".join(json.dumps(row) + "\n" for row in frames))
+        attempt = {"id": "attempt", "events_path": str(events), "sha": "a" * 40, "started_at": 60}
+        bound = []
+        with patch.dict(os.environ, {"ANTIGRAVITY_APP_DATA_DIR": str(app_data)}), \
+             patch.object(router, "_managed_claim_path", return_value=tmp_path / "managed.lock"), \
+             patch.object(router.shutil, "which", return_value=None), \
+             patch.object(router, "_writers", return_value=[]), \
+             patch.object(router.time, "time", return_value=61):
+            assert router.inspect_agy_bootstrap(
+                enrollment, BOOTSTRAP_IDENTITY, attempt, bind=bound.append,
+            ) == ("bootstrapped", SESSION)
+            assert bound == [SESSION]
+            owner = dict(enrollment, session=SESSION, recheck=lambda *_: True)
+            assert router.route(owner, PROMPT, True) == "delivered"
+            with sqlite3.connect(summary_db) as db:
+                db.execute("UPDATE conversation_summaries SET status='CASCADE_RUN_STATUS_RUNNING', not_fully_idle=1 WHERE conversation_id=?", (SESSION,))
+            assert router.route(owner, PROMPT, True) == "busy"
