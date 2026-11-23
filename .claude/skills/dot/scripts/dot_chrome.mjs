@@ -131,7 +131,7 @@ function detectChromeProfile(requestedAccount) {
     : (hasProfDir ? accountConfig.profile_directory : null);
   const profileDirectory = validateProfileDirectory(profileDirectoryValue) ?? 'Default';
   profileDirectoryPath(profileDir, profileDirectory);
-  return { account: req, slug, matchedKey: null, profileDir, profileDirectory, url };
+  return { account: req, slug, matchedKey: null, profileDir, profileDirectory, url, configuredUrl: accountConfig.url };
 }
 
 function isMainModule() {
@@ -167,11 +167,16 @@ class ExistingProfileUnavailable extends Unavailable {
 }
 const existingProfileUnavailable = (code) => { throw new ExistingProfileUnavailable(code); };
 
-const [mode, arg] = process.argv.slice(2);
+const [mode, arg, option, expectedAccountDigest, replyDestination, replyParent, seatId] = process.argv.slice(2);
+const exactDestination = mode === 'send-prepared' && ['--exact-dot-reply', '--exact-destination'].includes(option)
+  ? await import('./dot_reply.mjs') : null;
+const dotReply = option === '--exact-dot-reply' ? exactDestination : null;
+const exactUrl = dotReply ? replyDestination : URL_;
 let ctx = null;
 let clicked = false;
 let aborted = false;
 let commitReceived = false;
+let phaseDeadline, absoluteDeadline;
 const isPreparedMode = mode === 'send-prepared' || (mode === 'send' && process.env.DOT_PREPARED === '1');
 
 function reportPrecommitNoSend(reason, file) {
@@ -390,11 +395,19 @@ async function settlePage(page, currentMode) {
   const deadline = Date.now() + 45000;
   let last = -1, stable = 0;
   while (Date.now() < deadline) {
+    if (exactDestination) {
+      const current = page.url();
+      if (current !== exactUrl) {
+        if (!dotReply || ![URL_, 'https://chatgpt.com/dots/home'].includes(current)) unavailable('destination changed');
+        await sleep(500);
+        continue;
+      }
+    }
     const title = await page.title().catch(() => '');
     const composers = await page.locator(COMPOSER).count().catch(() => 0);
     const bodyText = (await page.evaluate(() => document.body ? document.body.innerText : '').catch(() => ''));
 
-    if (await clickRetryIfSnag(page, bodyText, 2000)) continue;
+    if (!exactDestination && await clickRetryIfSnag(page, bodyText, 2000)) continue;
     if (/just a moment/i.test(title)) { await sleep(1500); continue; }
 
     if (composers >= 1) {
@@ -407,24 +420,22 @@ async function settlePage(page, currentMode) {
       if (session.status === 200 && session.isJson && session.hasUser) {
         clearAuthFailed(USER_DATA_DIR);
       }
+      if (exactDestination && (session.status !== 200 || typeof session.email !== 'string' ||
+          crypto.createHash('sha256').update(session.email, 'utf8').digest('hex') !== expectedAccountDigest)) {
+        unavailable('exact destination needs a verified signed-in profile');
+      }
       if (currentMode === 'send' || currentMode === 'send-prepared') return page;
       const len = bodyText.length;
       if (len > 50) {
         stable = len === last ? stable + 1 : 0;
-        if (stable >= 2) {
-          if (session.status === 200 && session.isJson && session.hasUser) {
-            clearAuthFailed(USER_DATA_DIR);
-          }
-          return page;
-        }
+        if (stable >= 2) return page;
       }
       last = len;
-      await sleep(1000);
-      continue;
     }
     await sleep(1000);
   }
 
+  if (exactDestination && page.url() !== exactUrl) unavailable('destination did not settle');
   const title = await page.title().catch(() => '');
   if (/just a moment/i.test(title)) unavailable('Cloudflare challenge');
 
@@ -444,13 +455,9 @@ async function settlePage(page, currentMode) {
     unavailable('not signed in');
   }
 
-  if (currentMode === 'read') {
-    if (session.status === 200 && session.isJson && session.hasUser) {
-      clearAuthFailed(USER_DATA_DIR);
-    }
-    return page;
-  }
-  return unavailable('composer not found');
+  if (currentMode !== 'read') unavailable('composer not found');
+  if (session.status === 200 && session.isJson && session.hasUser) clearAuthFailed(USER_DATA_DIR);
+  return page;
 }
 
 async function launch() {
@@ -485,6 +492,11 @@ async function launchExistingProfileOnly(launchTimeoutMs) {
 }
 
 async function launchPrepared() {
+  const privateChat = /^https:\/\/chatgpt\.com\/(?:g\/g-[A-Za-z0-9-]+\/)?c\/[0-9a-f-]{36}$/;
+  if (exactDestination && !dotReply && !privateChat.test(exactUrl)) unavailable('invalid private chat binding');
+  if (dotReply && !dotReply.validBinding(URL_, accountInfo.configuredUrl, exactUrl, replyParent, seatId)) {
+    unavailable('invalid configured Dot reply binding');
+  }
   await launchExistingProfileOnly();
   const page = await ctx.newPage();
   await page.goto(URL_, { waitUntil: 'domcontentloaded', timeout: 45000 });
@@ -585,13 +597,8 @@ async function probeSession(expectedDigest) {
     }
   }
 
-  if (cleanupState === 'unresolved') {
-    status = 'unavailable';
-    identityMatch = null;
-    composerAvailable = null;
-    endpointStatus = null;
-  } else if (timedOut) {
-    status = 'unknown';
+  if (cleanupState === 'unresolved' || timedOut) {
+    status = cleanupState === 'unresolved' ? 'unavailable' : 'unknown';
     identityMatch = null;
     composerAvailable = null;
     endpointStatus = null;
@@ -630,32 +637,43 @@ async function clearDraft(page) {
 }
 
 async function read(page, n) {
-  let bodyText = (await page.evaluate(() => document.body.innerText)).trim();
-  if (await clickRetryIfSnag(page, bodyText, 3000)) {
-    bodyText = (await page.evaluate(() => document.body.innerText)).trim();
-  }
+  const readText = async () => (await page.evaluate(() => document.body.innerText)).trim();
+  let bodyText = await readText();
+  if (await clickRetryIfSnag(page, bodyText, 3000)) bodyText = await readText();
   console.log(bodyText.slice(-n));
 }
 
 async function send(page, file, dry, opts = {}) {
+  const scope = dotReply ? await dotReply.openDotReply(page, {
+    parent: replyParent, destination: exactUrl, deadline: phaseDeadline, sleep,
+  }) : page;
+  const composerSelector = dotReply ? '.reply-chain-composer [contenteditable=true][aria-label="Message"]' : COMPOSER;
+  if (!scope || (dotReply && await scope.locator(composerSelector).count() !== 1)) {
+    reportPrecommitNoSend('reply_parent_unverified', file);
+    return;
+  }
   const msg = fs.readFileSync(file, 'utf8').trim();
   let preparedDraft = null;
-  const readComposer = () => page.locator(COMPOSER).first().innerText().catch(() => '');
-  const clear = async () => {
-    await page.locator(COMPOSER).first().focus();
+  const userMessageSelector = dotReply ? '.message-list article.self .message-text'
+    : '[data-message-author-role=user], article.self, article[class*="self"]';
+  const exactAction = (action, draft) => exactDestination.exactAction(page, {
+    destination: exactUrl, parent: dotReply ? replyParent : null, composerSelector,
+    userMessageSelector, action, draft, message: msg, deadline: Math.min(phaseDeadline, absoluteDeadline),
+  });
+  const readComposer = () => scope.locator(composerSelector).first().innerText().catch(() => '');
+  const clear = async (expectedDraft = null) => {
+    if (exactDestination) {
+      if (!(await exactAction('clear', expectedDraft))) return console.error('DOT_DRAFT_CLEANUP refused');
+      await sleep(800);
+      const observed = await exactAction('observe');
+      return console.error(observed && !observed.draft.trim() ? 'DOT_DRAFT_CLEANUP empty_in_context' : 'DOT_DRAFT_CLEANUP unverified');
+    }
+    await scope.locator(composerSelector).first().focus();
     await page.keyboard.press(isMac ? 'Meta+A' : 'Control+A');
     await page.keyboard.press('Backspace');
     await sleep(800);
   };
-  const clearPreparedDraft = async () => {
-    try {
-      if (preparedDraft !== null && (await readComposer()) === preparedDraft) await clear();
-    } catch {}
-  };
-  const getUserMessages = () => page.locator('[data-message-author-role=user], article.self, article[class*="self"]')
-    .allInnerTexts()
-    .then(arr => arr.map(norm))
-    .catch(() => []);
+  const getUserMessages = () => scope.locator(userMessageSelector).allInnerTexts().then(arr => arr.map(norm)).catch(() => []);
 
   const alertText = await page.evaluate(() => {
     const alerts = Array.from(document.querySelectorAll('[role="alert"], [data-testid*="alert"], div[class*="banner"], div[class*="error"]'));
@@ -675,6 +693,7 @@ async function send(page, file, dry, opts = {}) {
   // Full-content normalized message match (never wiping on short prefix substrings)
   const matchesMessage = (userMsg, comp) => {
     if (!userMsg || !comp) return false;
+    if (exactDestination) return norm(userMsg) === norm(comp);
     const sMsg = stripReadReceipt(norm(userMsg));
     const sComp = stripReadReceipt(norm(comp));
     return sMsg === sComp ||
@@ -682,7 +701,8 @@ async function send(page, file, dry, opts = {}) {
       (sComp.includes(sMsg) && sMsg.length >= sComp.length * 0.95);
   };
 
-  await page.click(COMPOSER);
+  if (!exactDestination) await page.click(COMPOSER);
+  else if (!(await exactAction('focus'))) return reportPrecommitNoSend('destination_changed', file);
   await sleep(1500);
   let composer = (await readComposer()).trim();
 
@@ -704,30 +724,30 @@ async function send(page, file, dry, opts = {}) {
   }
   if (composer !== '') { console.log('DOT_DRAFT_PRESENT: ' + composer.slice(0, 300)); return; }
 
-  await page.keyboard.insertText(msg);
+  if (!exactDestination) await page.keyboard.insertText(msg);
+  else if (!(await exactAction('fill'))) return reportPrecommitNoSend('destination_changed', file);
   await sleep(800);
-  const typed = await readComposer();
-  if (norm(typed.trim()) !== norm(msg)) {
+  const typed = exactDestination ? (await exactAction('observe'))?.draft : await readComposer();
+  if (typed == null || norm(typed) !== norm(msg)) {
     if (opts.prepared) reportPrecommitNoSend('composer_mismatch', file);
     else console.log('DOT_COMPOSER_MISMATCH: ' + typed.slice(0, 200));
     return;
   }
   if (opts.prepared) preparedDraft = typed;
   if (dry) {
-    await clear();
-    const left = (await readComposer()).trim();
-    console.log(left === '' ? 'DOT_DRYRUN_OK composer_matched_and_cleared' : 'DOT_DRYRUN_CLEAR_FAILED composer_left=' + left.length);
+    await clear(preparedDraft);
+    const left = exactDestination ? (await exactAction('observe'))?.draft?.trim() : (await readComposer()).trim();
+    console.log(left === '' ? 'DOT_DRYRUN_OK composer_matched_and_cleared' : 'DOT_DRYRUN_CLEAR_FAILED composer_left=' + (left?.length ?? 'unknown'));
     return;
   }
 
-  const countMatches = (msgs, needle) => msgs.filter(m => matchesMessage(m, needle)).length;
-  const beforeMsgs = await getUserMessages();
-  const beforeCount = countMatches(beforeMsgs, norm(msg));
+  const countMatches = messages => messages.filter(message => matchesMessage(message, msg)).length;
+  const beforeCount = exactDestination ? null : countMatches(await getUserMessages());
 
+  const nonce = opts.prepared ? crypto.randomBytes(16).toString('hex') : null;
   if (opts.prepared) {
-    const nonce = crypto.randomBytes(16).toString('hex');
     opts.onPrepared?.();
-    process.stdout.write(`prepared ${nonce}\n`);
+    process.stdout.write(`${exactDestination ? "prepared-exact" : "prepared"} ${nonce}\n`);
     const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
     let decision = null;
     for await (const line of rl) {
@@ -736,31 +756,32 @@ async function send(page, file, dry, opts = {}) {
     }
     rl.close();
     opts.onDecision?.();
-    if (decision !== `commit ${nonce}`) {
+    commitReceived = decision === `commit ${nonce}`;
+    if (!commitReceived || (!exactDestination && (await readComposer()) !== preparedDraft)) {
       aborted = true;
-      await clearPreparedDraft();
+      try {
+        if (preparedDraft !== null && (exactDestination || (await readComposer()) === preparedDraft)) await clear(preparedDraft);
+      } catch { if (exactDestination) console.error('DOT_DRAFT_CLEANUP unverified'); }
       process.stdout.write(`aborted ${nonce}\n`);
-      return;
-    }
-    commitReceived = true;
-    if ((await readComposer()) !== preparedDraft) {
-      aborted = true;
-      await clearPreparedDraft();
-      process.stdout.write(`aborted ${nonce}\n`);
-      console.log('DOT_PREPARED_ABORTED reason=composer_changed');
+      if (commitReceived) console.log('DOT_PREPARED_ABORTED reason=composer_changed');
       return;
     }
   }
 
   if (aborted) return;
   clicked = true;
-  await page.click('button[data-testid=send-button], button[aria-label*=Send]');
+  const exactReceipt = exactDestination && await exactAction('submit', preparedDraft);
+  if (exactReceipt === false && exactDestination) {
+    clicked = false;
+    return process.stdout.write(`aborted ${nonce}\n`);
+  }
+  if (!exactDestination) await page.click('button[data-testid=send-button], button[aria-label*=Send]');
   await sleep(4000);
-  const left = (await readComposer()).trim();
-  const afterMsgs = await getUserMessages();
-  const afterCount = countMatches(afterMsgs, norm(msg));
-  const sentVerified = left === '' && afterCount > beforeCount;
-  console.log(sentVerified ? 'DOT_SENT_VERIFIED' : 'DOT_SEND_UNVERIFIED composer_left=' + left.length);
+  const observation = exactDestination ? await exactAction('observe') : {
+    draft: await readComposer(), count: countMatches(await getUserMessages()),
+  };
+  const verified = observation && !observation.draft.trim() && observation.count > (exactReceipt?.count ?? beforeCount);
+  console.log(verified ? 'DOT_SENT_VERIFIED' : 'DOT_SEND_UNVERIFIED composer_left=' + (observation?.draft.length ?? 'unknown'));
 }
 
 if (isMainModule()) {
@@ -794,8 +815,10 @@ if (isMainModule()) {
         unavailable('no message file');
       }
       let startPhaseTimer;
+      absoluteDeadline = Date.now() + 600000;
       const timeoutPromise = new Promise((_, reject) => {
         startPhaseTimer = () => {
+          phaseDeadline = Date.now() + 120000;
           launchTimer = setTimeout(() => {
             aborted = true;
             reject(new Unavailable('timeout'));
