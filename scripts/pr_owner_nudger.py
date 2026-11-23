@@ -688,11 +688,46 @@ def dispatch_target(key, target, pr, matches, store, config, read, *, wake_reaso
             return note(key, "expired", "expired", progress=True)
         return note(key, status, "reconcile_bootstrap")
 
-    if pr_status(pr) != "actionable":
-        return note(key, pr_status(pr), "refresh_pr", progress=True)
+    status_name = pr_status(pr)
+    if status_name == "closed":
+        return note(key, status_name, "refresh_pr", progress=True)
     previous = db.execute(
         "SELECT status, time, owner, sha FROM delivery WHERE repo=? AND number=?", key
     ).fetchone() if db is not None else None
+    if row.get("reason") == "expired":
+        # Stop scheduling/waking an expired target unless a managed owner was re-enrolled.
+        if db is not None and isinstance(target.get("enrollment"), dict):
+            managed, reason = bootstrap_enrollment(target, expected, require_launch=False)
+            if not reason:
+                cached = db.execute(
+                    "SELECT owner FROM binding WHERE cwd=? AND repo=? AND number=? AND branch=?",
+                    (managed["cwd"], *key, branch),
+                ).fetchone()
+                snapshots = []
+                if previous and previous[0] == "expired" and previous[2]:
+                    snapshots.append((json.loads(previous[2]), False))
+                if cached:
+                    snapshots.append((json.loads(cached[0]), True))
+                for owner, is_binding in snapshots:
+                    if ((not is_binding or owner.get("binding_source") == "bootstrap")
+                            and any(field in owner and owner[field] != managed.get(field)
+                                    for field in ("cli", "cli_bin", "profile_dir", "model"))):
+                        if cached:
+                            cached_owner = json.loads(cached[0])
+                            if cached_owner.get("binding_source") == "bootstrap" or any(
+                                field in cached_owner and cached_owner[field] != managed.get(field)
+                                for field in ("cli", "cli_bin", "profile_dir", "model")
+                            ):
+                                db.execute(
+                                    "DELETE FROM binding WHERE cwd=? AND repo=? AND number=? AND branch=?",
+                                    (managed["cwd"], *key, branch),
+                                )
+                        if previous and previous[0] == "expired":
+                            db.execute("DELETE FROM delivery WHERE repo=? AND number=?", key)
+                        return note(key, "enrollment_changed", "bootstrap_owner")
+        return _expired_outcome(row)
+    if status_name != "actionable":
+        return note(key, status_name, "refresh_pr", progress=True)
     if pending_delivery(previous):
         reconciled = reconcile_delivery(db, key, previous, store.now)
         if reconciled == "delivered":
@@ -705,33 +740,6 @@ def dispatch_target(key, target, pr, matches, store, config, read, *, wake_reaso
         return note(key, "reconciliation_required", "reconcile_delivery")
     if target.get("observe_only") is True:
         return note(key, "observing", "refresh_pr", progress=True)
-    if row.get("reason") == "expired":
-        # Stop scheduling/waking an expired target unless a bootstrap owner was re-enrolled.
-        if db is not None and isinstance(target.get("enrollment"), dict):
-            managed, reason = bootstrap_enrollment(target, expected, require_launch=False)
-            if not reason:
-                cached = db.execute(
-                    "SELECT owner FROM binding WHERE cwd=? AND repo=? AND number=? AND branch=?",
-                    (managed["cwd"], *key, branch),
-                ).fetchone()
-                snapshots = []
-                if cached:
-                    snapshots.append((json.loads(cached[0]), True))
-                if previous and previous[0] == "expired" and previous[2]:
-                    snapshots.append((json.loads(previous[2]), False))
-                for owner, is_binding in snapshots:
-                    if (owner.get("binding_source") == "bootstrap"
-                            and any(field in owner and owner[field] != managed.get(field)
-                                    for field in ("cli", "cli_bin", "profile_dir", "model"))):
-                        if is_binding:
-                            db.execute(
-                                "DELETE FROM binding WHERE cwd=? AND repo=? AND number=? AND branch=?",
-                                (managed["cwd"], *key, branch),
-                            )
-                        if previous and previous[0] == "expired":
-                            db.execute("DELETE FROM delivery WHERE repo=? AND number=?", key)
-                        return note(key, "enrollment_changed", "bootstrap_owner")
-        return _expired_outcome(row)
     enrollment = target.get("enrollment")
     if isinstance(enrollment, dict) and enrollment.get("host") != socket.gethostname():
         return note(key, "owner_host_unverified", "verify_owner")

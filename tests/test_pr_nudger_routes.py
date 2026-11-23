@@ -832,6 +832,23 @@ else:
                 assert router.inspect_codex_bootstrap(
                     codex_enrollment, BOOTSTRAP_IDENTITY, attempt, bind=lambda _s: None,
                 ) == ("expired", None)
+                # Complete failure frames (Codex turn.failed, AGY result.status=ERROR) and oversized
+                # output with confirmed exit 124 also return expired instead of reconciliation.
+                events.write_text(json.dumps({"event": "result", "result": {"conversation_id": SESSION, "status": "ERROR"}}) + "\n")
+                assert router.inspect_agy_bootstrap(
+                    enrollment, BOOTSTRAP_IDENTITY, attempt, bind=lambda _s: None,
+                ) == ("expired", None)
+                events.write_text(
+                    json.dumps({"type": "thread.started", "thread_id": SESSION}) + "\n"
+                    + json.dumps({"type": "turn.failed", "error": {"message": "timed out"}}) + "\n"
+                )
+                assert router.inspect_codex_bootstrap(
+                    codex_enrollment, BOOTSTRAP_IDENTITY, attempt, bind=lambda _s: None,
+                ) == ("expired", None)
+                events.write_text("x" * 131073)
+                assert router.inspect_agy_bootstrap(
+                    enrollment, BOOTSTRAP_IDENTITY, attempt, bind=lambda _s: None,
+                ) == ("expired", None)
 
     def test_resume_records_exit_124_for_late_delivery_reconciliation(self):
         tmp_path = self.tmp_path

@@ -980,11 +980,11 @@ def _bootstrap_exit_code(attempt):
 
 
 def _read_bootstrap_frames(cwd, attempt, age, pending):
+    expired = _bootstrap_exit_code(attempt) == 124
     with _bootstrap_events(attempt["events_path"]) as stream:
         payload = stream.read(131073)
     if len(payload) > 131072:
-        return _BOOTSTRAP_RECONCILE, None
-    expired = _bootstrap_exit_code(attempt) == 124
+        return ("expired", None) if expired else (_BOOTSTRAP_RECONCILE, None)
     if not payload:
         if expired:
             return "expired", None
@@ -1017,10 +1017,10 @@ def inspect_codex_bootstrap(enrollment, identity, attempt, *, bind=None):
         age = time.time() - attempt["started_at"]
         if attempt["sha"] != identity[4] or not 0 <= age:
             return uncertain
-        pending = (
-            ("expired", None) if _bootstrap_exit_code(attempt) == 124
-            else ("bootstrap_pending", None) if age < _BOOTSTRAP_RECEIPT_SECONDS else uncertain
-        )
+        if _bootstrap_exit_code(attempt) == 124:
+            uncertain = pending = ("expired", None)
+        elif age < _BOOTSTRAP_RECEIPT_SECONDS:
+            pending = ("bootstrap_pending", None)
         state, frames = _read_bootstrap_frames(cwd, attempt, age, pending)
         if state != "frames":
             return state, frames
@@ -1090,10 +1090,10 @@ def inspect_agy_bootstrap(enrollment, identity, attempt, *, bind=None):
         age = time.time() - attempt["started_at"]
         if attempt["sha"] != identity[4] or not 0 <= age:
             return uncertain
-        pending = (
-            ("expired", None) if _bootstrap_exit_code(attempt) == 124
-            else ("bootstrap_pending", None) if age < _BOOTSTRAP_RECEIPT_SECONDS else uncertain
-        )
+        if _bootstrap_exit_code(attempt) == 124:
+            uncertain = pending = ("expired", None)
+        elif age < _BOOTSTRAP_RECEIPT_SECONDS:
+            pending = ("bootstrap_pending", None)
         state, frames = _read_bootstrap_frames(cwd, attempt, age, pending)
         if state != "frames":
             return state, frames
