@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -10,6 +11,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import pr_nudger_round as round_cli  # noqa: E402
+import pr_owner_nudger as nudger  # noqa: E402
 
 
 class RoundTest(unittest.TestCase):
@@ -108,6 +110,49 @@ class RoundTest(unittest.TestCase):
         self.assertIn("Scope: prove agy owner.", (profile / "scope.md").read_text())
         self.assertIn("Scope: prove agy owner.", (profile / "AGENTS.md").read_text())
         self.assertIn("/bin/agy", Path(enrollment["cli_bin"]).read_text())
+
+    def test_enroll_scope_instructs_stage5_final_ready_record(self):
+        with patch.object(round_cli, "AGY_POLICY", self.root / "missing-agy.md"):
+            self.run_cli("enroll", "--cli", "agy", "--headless-only", "--repo", "base/project", "--pr", "12",
+                         "--cwd", str(self.repo), "--model", "gemini-4-hydrogen-high",
+                         "--hours", "1", "--profiles-dir", str(self.root / "profiles"))
+        profile = Path(json.loads(self.config.read_text())["targets"][0]["enrollment"]["profile_dir"])
+        scope_text = (profile / "scope.md").read_text()
+        agents_text = (profile / "AGENTS.md").read_text()
+        expected_lines = (
+            "status: FINAL_READY",
+            "candidate: <40-char-sha>",
+            "owner: <owner>",
+            "next_action: none",
+        )
+        for text in (scope_text, agents_text):
+            self.assertIn("stage:5-final-approval", text)
+            for line in expected_lines:
+                self.assertIn(line, text)
+
+        extracted = [
+            match.group(0)
+            for match in re.finditer(
+                r"(?m)^(?:status|candidate|owner|next_action):[ \t]*\S[^\n]*$",
+                scope_text,
+            )
+        ]
+        self.assertEqual(set(extracted), set(expected_lines))
+
+        sha = "a" * 40
+        record = "\n".join(
+            line.replace("<40-char-sha>", sha).replace("<owner>", "agy-owner")
+            for line in extracted
+        )
+        for section in ("## Execution Record", "## PR Stage"):
+            pr = {
+                "state": "open",
+                "title": "[fa] Example",
+                "head": {"sha": sha},
+                "labels": [{"name": "stage:5-final-approval"}],
+                "body": f"{section}\n{record}\n",
+            }
+            self.assertEqual(nudger.pr_status(pr), "final_ready")
 
 
 if __name__ == "__main__":

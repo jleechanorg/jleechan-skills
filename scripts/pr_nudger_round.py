@@ -33,6 +33,11 @@ SCOPE = """
 
 ## Pilot scope (this profile only)
 This dedicated owner session owns only {repo} PR #{number} (branch `{branch}`). The run ends {end_utc} ({end_local}). Work on this host only. Do not merge. Drive the PR to /pr final approval (Stage 5).
+When Stage 5 is complete so the nudger stops waking you, set `stage:5-final-approval` as the only `stage:*` label, keep one `## PR Stage` or `## Execution Record` section in the PR body with no active `blocker:` (omit or `blocker: none`), and emit unindented lines (with the exact 40-char head SHA, unquoted):
+status: FINAL_READY
+candidate: <40-char-sha>
+owner: <owner>
+next_action: none
 Fresh repro required: per evidence-standards § Evidence Sequencing, reproduce the failure on the exact pre-change revision on the real boundary, run the same scenario at the current head, and publish both to the existing evidence store.
 Apply the repository PR overlay that /pr loads (the repository's `.claude/pr-overlay.md`, else the operator overlay).
 """
