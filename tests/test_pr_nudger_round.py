@@ -40,6 +40,7 @@ class RoundTest(unittest.TestCase):
         scope = self.root / "scope.md"
         scope.write_text("Scope: prove the fixture behavior.\n")
         self.run_cli("enroll", "--repo", "base/project", "--pr", "12", "--cwd", str(self.repo),
+                     "--cli", "codex",
                      "--model", "fixture-model", "--hours", "1", "--scope-file", str(scope),
                      "--policy", str(self.policy), "--profiles-dir", str(self.root / "profiles"))
         item = json.loads(self.config.read_text())["targets"][0]
@@ -60,6 +61,7 @@ class RoundTest(unittest.TestCase):
         first = enrollment["cli_bin"]
         with patch.object(round_cli.time, "time", return_value=round_cli.time.time() + 60):
             self.run_cli("enroll", "--repo", "base/project", "--pr", "12", "--cwd", str(self.repo),
+                         "--cli", "codex",
                          "--model", "fixture-model", "--hours", "2",
                          "--policy", str(self.policy), "--profiles-dir", str(self.root / "profiles"))
         # Re-enrolling changes the wrapper path, so the nudger retires the old session.
@@ -68,6 +70,45 @@ class RoundTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             self.run_cli("retire", "--repo", "base/project", "--pr", "99")
         self.assertTrue(json.loads(self.config.read_text())["targets"][0]["observe_only"])
+
+    def enroll_model(self, *extra, env=None):
+        """Enroll and return the persisted model, with the calling agent's env cleared."""
+        clean = {k: "" for k in round_cli.CALLER_MODEL_ENV}
+        clean.update(env or {})
+        with patch.dict(os.environ, clean):
+            self.run_cli("enroll", "--repo", "base/project", "--pr", "12", "--cwd", str(self.repo),
+                         "--hours", "1", "--policy", str(self.policy),
+                         "--profiles-dir", str(self.root / "profiles"), *extra)
+        return json.loads(self.config.read_text())["targets"][0]["enrollment"]
+
+    def test_add_cli_defaults_to_agy(self):
+        self.assertEqual(self.enroll_model()["cli"], "agy")
+
+    def test_agy_inherits_the_calling_agents_gemini_model(self):
+        enrollment = self.enroll_model(env={"AGY_MODEL": "gemini-9.9-caller"})
+        self.assertEqual((enrollment["cli"], enrollment["model"]),
+                         ("agy", "gemini-9.9-caller"))
+
+    def test_codex_inherits_a_non_gemini_caller_model(self):
+        enrollment = self.enroll_model("--cli", "codex", env={"CODEX_MODEL": "gpt-9-caller"})
+        self.assertEqual((enrollment["cli"], enrollment["model"]),
+                         ("codex", "gpt-9-caller"))
+
+    def test_cross_family_caller_model_is_refused_for_codex(self):
+        # A gemini model cannot be handed to codex. codex has no safe fallback, so refusing is
+        # correct: enrolling a codex owner with a model its CLI would reject is worse than a
+        # loud failure here.
+        with self.assertRaises(SystemExit):
+            self.enroll_model("--cli", "codex", env={"AGY_MODEL": "gemini-9.9-caller"})
+        with self.assertRaises(SystemExit):
+            self.enroll_model("--cli", "codex")
+
+    def test_explicit_model_still_wins_over_the_caller(self):
+        enrollment = self.enroll_model("--model", "pinned-model", env={"AGY_MODEL": "gemini-9.9-caller"})
+        self.assertEqual(enrollment["model"], "pinned-model")
+
+    def test_no_caller_and_no_model_falls_back_for_agy(self):
+        self.assertEqual(self.enroll_model()["model"], round_cli.AGY_FALLBACK_MODEL)
 
     def test_retry_now_marks_the_target_due(self):
         state = self.root / "state"

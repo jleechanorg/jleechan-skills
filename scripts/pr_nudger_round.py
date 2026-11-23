@@ -29,6 +29,23 @@ remaining=$((end - $(date +%s)))
 ((remaining>0)) || exit 124
 exec {timeout} --kill-after=2 "${{remaining}}s" {cli} "$@"
 """
+# Env vars the calling coding agent advertises its own model through, most specific first.
+# A nudger enrolled without `--model` inherits the caller's model so the PR owner runs on
+# the same model that dispatched it, instead of needing the operator to name one twice.
+CALLER_MODEL_ENV = (
+    "PR_NUDGER_MODEL",
+    "PI_MODEL",
+    "CLAUDEWA_MODEL",
+    "CLAUDE_MODEL",
+    "CODEX_MODEL",
+    "AGY_MODEL",
+    "GEMINI_MODEL",
+)
+
+# Used when neither `--model` nor the caller advertises one. agy is the default CLI, so the
+# fallback names an agy-served model.
+AGY_FALLBACK_MODEL = "gemini-3.8-flash-high"
+
 SCOPE = """
 
 ## Pilot scope (this profile only)
@@ -36,6 +53,33 @@ This dedicated owner session owns only {repo} PR #{number} (branch `{branch}`). 
 Fresh repro required: per evidence-standards § Evidence Sequencing, reproduce the failure on the exact pre-change revision on the real boundary, run the same scenario at the current head, and publish both to the existing evidence store.
 Apply the repository PR overlay that /pr loads (the repository's `.claude/pr-overlay.md`, else the operator overlay).
 """
+
+
+def caller_model(environ=None):
+    """Return the calling agent's advertised model, or "" when none is set."""
+    environ = os.environ if environ is None else environ
+    for name in CALLER_MODEL_ENV:
+        value = environ.get(name, "").strip()
+        if value:
+            return value
+    return ""
+
+
+def resolve_model(args, environ=None):
+    """`--model` wins; otherwise inherit the caller's model; otherwise the CLI default.
+
+    A model inherited from a different CLI family would be rejected by the enrolled CLI, so
+    take the caller's value only when it plausibly belongs to the selected CLI. `agy` serves
+    gemini-* models; `codex` serves everything else here.
+    """
+    if args.model:
+        return args.model
+    inherited = caller_model(environ)
+    if inherited:
+        is_agy_model = inherited.lower().startswith("gemini")
+        if (args.cli == "agy") == is_agy_model:
+            return inherited
+    return AGY_FALLBACK_MODEL if args.cli == "agy" else ""
 
 
 def load(path):
@@ -61,6 +105,10 @@ def enroll(args):
     cwd = Path(args.cwd).resolve(strict=True)
     head_repo, branch, _ = checkout(cwd)
     cli = args.cli
+    model = resolve_model(args)
+    if not model:
+        sys.exit("enroll needs --model, or a caller that advertises its model "
+                 f"via {'/'.join(CALLER_MODEL_ENV)}")
     end = int(time.time() + args.hours * 3600)
     profile = (args.profiles_dir / f"{args.repo.replace('/', '__')}-{args.pr}").resolve()
     profile.mkdir(parents=True, exist_ok=True)
@@ -95,7 +143,7 @@ def enroll(args):
     item["observe_only"] = False
     enrollment = {
         "host": socket.gethostname(), "cwd": str(cwd), "head_repo": head_repo, "branch": branch,
-        "cli": cli, "cli_bin": str(wrapper), "profile_dir": str(profile), "model": args.model,
+        "cli": cli, "cli_bin": str(wrapper), "profile_dir": str(profile), "model": model,
         "managed_exclusive": True, "launch_authorized": True,
     }
     if cli == "codex":
@@ -145,8 +193,10 @@ def main(argv=None):
         cmd.add_argument("--pr", type=int, required=True)
         if name == "enroll":
             cmd.add_argument("--cwd", required=True, help="dedicated worktree on the PR's head branch")
-            cmd.add_argument("--cli", choices=("codex", "agy"), default="codex")
-            cmd.add_argument("--model", required=True)
+            cmd.add_argument("--cli", choices=("codex", "agy"), default="agy")
+            cmd.add_argument("--model",
+                             help="model for the enrolled CLI; defaults to the calling agent's "
+                                  f"model from {'/'.join(CALLER_MODEL_ENV)}, else {AGY_FALLBACK_MODEL} for agy")
             cmd.add_argument("--hours", type=float, default=2.0)
             cmd.add_argument("--scope-file", help="per-PR scope and proof lines appended to the profile")
             cmd.add_argument("--policy", type=Path)
