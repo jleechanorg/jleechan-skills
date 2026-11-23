@@ -296,7 +296,7 @@ def discover(cwd, repos, local, inspection, read=None):
 
 
 def remember_configured(db, expected, cwd, owner):
-    if db is None or owner.get("cmux_discovered") or owner.get("cli") not in {"codex", "claude"}:
+    if db is None or owner.get("cmux_discovered") or owner.get("cli") not in {"codex", "claude", "agy"}:
         return True
     repo, number, _, branch, _ = expected
     row = db.execute(
@@ -317,9 +317,10 @@ def remember_configured(db, expected, cwd, owner):
     except CHECK_ERRORS:
         return True
     if path is not None:
-        profile_key = "CODEX_HOME" if owner["cli"] == "codex" else "CLAUDE_CONFIG_DIR"
-        verified = dict(owner, cwd=str(cwd), host=socket.gethostname(),
-                        profile_dir=str(Path(env[profile_key]).resolve()))
+        profile_key = pr_nudger_routes._PROFILE_ENV_KEYS.get(owner["cli"])
+        verified = dict(owner, cwd=str(cwd), host=socket.gethostname())
+        if profile_key and profile_key in env:
+            verified["profile_dir"] = str(Path(env[profile_key]).resolve())
         remember_binding(db, expected, verified, "configured")
     return True
 
@@ -422,6 +423,14 @@ def dispatch(cwd, owner, local, pr, receipts, config, from_cache, read=None, *,
         prompt += " GitHub now reports passing checks for this head. Verify the applicable checks and resume the next gate."
     elif wake_reason == "stage_changed":
         prompt += " The PR stage changed at this head. Verify the new stage and continue its next obligation."
+    if owner.get("cli") == "agy" and owner.get("profile_dir"):
+        profile = Path(owner["profile_dir"])
+        for candidate in (profile / "scope.md", profile / "AGENTS.md"):
+            if candidate.is_file():
+                scope_line = " ".join(candidate.read_text().split())
+                if scope_line:
+                    prompt += f" Scope ({candidate}): {scope_line}"
+                break
 
     def checkpoint_receipt(path, start):
         nonlocal receipt
@@ -590,7 +599,7 @@ def bootstrap_enrollment(target, expected, *, require_launch=True):
     authorized = enrollment.get("launch_authorized") is True
     if not enrollment.get("managed_exclusive") is True or (require_launch and not authorized):
         return None, "missing_launch_authority"
-    if enrollment.get("cli") != "codex":
+    if enrollment.get("cli") not in {"codex", "agy"}:
         return None, "bootstrap_cli_unsupported"
     cwd = Path(enrollment["cwd"])
     if not cwd.is_absolute() or cwd.resolve() != cwd or (
@@ -616,7 +625,9 @@ def dispatch_target(key, target, pr, matches, store, config, read, *, wake_reaso
         enrolled, reason = bootstrap_enrollment(target, expected)
         if reason or enrolled != attempt["enrollment"]:
             return note(key, "reconciliation_required", "reconcile_bootstrap")
-        status, session = pr_nudger_routes.inspect_codex_bootstrap(
+        inspect = (pr_nudger_routes.inspect_agy_bootstrap if enrolled["cli"] == "agy"
+                   else pr_nudger_routes.inspect_codex_bootstrap)
+        status, session = inspect(
             enrolled, tuple(attempt["identity"]), attempt,
             bind=lambda session: store.bind(key, expected, dict(enrolled, session=session)),
         )
@@ -750,7 +761,9 @@ def dispatch_target(key, target, pr, matches, store, config, read, *, wake_reaso
         return note(key, "stale_checkout", "verify_checkout")
     if db is not None and not tick_capacity():
         return note(key, "blocked_launch_capacity", "bootstrap_owner")
-    status = pr_nudger_routes.start_codex_bootstrap(
+    start = (pr_nudger_routes.start_agy_bootstrap if enrollment["cli"] == "agy"
+             else pr_nudger_routes.start_codex_bootstrap)
+    status = start(
         enrollment, expected, apply=db is not None, recheck=recheck,
         begin_attempt=lambda: store.begin(key, expected, enrollment)
     )

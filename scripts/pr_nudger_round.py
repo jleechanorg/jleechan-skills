@@ -4,6 +4,7 @@
 import argparse
 import json
 import os
+import shlex
 import shutil
 import socket
 import sqlite3
@@ -20,12 +21,13 @@ HOME = Path.home()
 CONFIG = HOME / ".config/pr-owner-nudger/config.json"
 PROFILES = Path(os.environ.get("XDG_STATE_HOME", HOME / ".local/state")) / "pr-owner-nudger/profiles"
 POLICY = Path(os.environ.get("CODEX_HOME", HOME / ".codex")) / "AGENTS.md"
+AGY_POLICY = HOME / ".gemini/GEMINI.md"
 WRAPPER = """#!/bin/bash
 set -eu
 end={end}
 remaining=$((end - $(date +%s)))
 ((remaining>0)) || exit 124
-exec {timeout} --kill-after=2 "${{remaining}}s" {codex} "$@"
+exec {timeout} --kill-after=2 "${{remaining}}s" {cli} "$@"
 """
 SCOPE = """
 
@@ -58,36 +60,51 @@ def target(config, repo, number):
 def enroll(args):
     cwd = Path(args.cwd).resolve(strict=True)
     head_repo, branch, _ = checkout(cwd)
+    cli = args.cli
     end = int(time.time() + args.hours * 3600)
     profile = (args.profiles_dir / f"{args.repo.replace('/', '__')}-{args.pr}").resolve()
     profile.mkdir(parents=True, exist_ok=True)
-    auth = profile / "auth.json"
-    if not (auth.is_symlink() or auth.exists()):
-        auth.symlink_to(Path(os.environ.get("CODEX_HOME", HOME / ".codex")) / "auth.json")
+    if cli == "codex":
+        auth = profile / "auth.json"
+        if not (auth.is_symlink() or auth.exists()):
+            auth.symlink_to(Path(os.environ.get("CODEX_HOME", HOME / ".codex")) / "auth.json")
+    if args.policy is not None:
+        policy_text = args.policy.read_text().rstrip()
+    elif cli == "agy":
+        policy_text = AGY_POLICY.read_text().rstrip() if AGY_POLICY.is_file() else ""
+    else:
+        policy_text = POLICY.read_text().rstrip()
     stamp = datetime.fromtimestamp(end, timezone.utc)
     scope = SCOPE.format(repo=args.repo, number=args.pr, branch=branch,
                          end_utc=stamp.strftime("%Y-%m-%dT%H:%MZ"),
                          end_local=stamp.astimezone().strftime("%-I:%M %p %Z"))
     extra = Path(args.scope_file).read_text() if args.scope_file else ""
-    (profile / "AGENTS.md").write_text(args.policy.read_text().rstrip() + scope + extra)
+    (profile / "scope.md").write_text(scope.lstrip() + extra)
+    agents_body = (policy_text + scope + extra) if policy_text else (scope.lstrip() + extra)
+    (profile / "AGENTS.md").write_text(agents_body)
     timeout = shutil.which("timeout") or shutil.which("gtimeout")
-    codex = args.codex or shutil.which("codex")
-    if not timeout or not codex:
-        sys.exit("enroll needs `timeout` (coreutils) and the codex CLI on PATH")
+    cli_bin = args.cli_bin or (args.codex if cli == "codex" else None) or shutil.which(cli)
+    if not timeout or not cli_bin:
+        sys.exit(f"enroll needs `timeout` (coreutils) and the {cli} CLI on PATH")
     # A new path per enrollment makes the nudger retire the old session (enrollment_changed).
-    wrapper = profile / f"codex-deadline-{end}"
-    wrapper.write_text(WRAPPER.format(end=end, timeout=timeout, codex=codex))
+    wrapper = profile / f"{cli}-deadline-{end}"
+    wrapper.write_text(WRAPPER.format(end=end, timeout=timeout, cli=shlex.quote(cli_bin)))
     wrapper.chmod(0o755)
     config = load(args.config)
     item = target(config, args.repo, args.pr)
     item["observe_only"] = False
-    item["enrollment"] = {
+    enrollment = {
         "host": socket.gethostname(), "cwd": str(cwd), "head_repo": head_repo, "branch": branch,
-        "cli": "codex", "cli_bin": str(wrapper), "profile_dir": str(profile), "model": args.model,
-        "managed_exclusive": True, "launch_authorized": True, "resume_sandbox": "danger-full-access",
+        "cli": cli, "cli_bin": str(wrapper), "profile_dir": str(profile), "model": args.model,
+        "managed_exclusive": True, "launch_authorized": True,
     }
+    if cli == "codex":
+        enrollment["resume_sandbox"] = "danger-full-access"
+    if args.headless_only:
+        enrollment["headless_only"] = True
+    item["enrollment"] = enrollment
     save(args.config, config)
-    print(f"enrolled {args.repo}#{args.pr} on {branch} until {stamp.astimezone():%-I:%M %p %Z}")
+    print(f"enrolled {args.repo}#{args.pr} ({cli}) on {branch} until {stamp.astimezone():%-I:%M %p %Z}")
     if not config.get("enabled"):
         print("note: the config has enabled=false, so ticks will not dispatch until you enable it")
 
@@ -104,11 +121,12 @@ def retire(args):
 def retry_now(args):
     state_dir = load(args.config).get("state_dir")
     state = Path(state_dir).expanduser() / "receipts.sqlite3" if state_dir else None
-    if not state or not state.is_file():
+    if state and state.is_file():
+        with sqlite3.connect(state) as db:
+            db.execute("UPDATE target SET next_due=? WHERE repo=? AND number=?",
+                       (time.time(), args.repo, args.pr))
+    elif not args.kick:
         sys.exit("retry-now needs the config's state_dir with a receipts.sqlite3 from an earlier tick")
-    with sqlite3.connect(state) as db:
-        db.execute("UPDATE target SET next_due=? WHERE repo=? AND number=?",
-                   (time.time(), args.repo, args.pr))
     if args.kick:
         uid = os.getuid()
         command = (["launchctl", "kickstart", f"gui/{uid}/org.prw.pr-owner-nudger"]
@@ -127,12 +145,16 @@ def main(argv=None):
         cmd.add_argument("--pr", type=int, required=True)
         if name == "enroll":
             cmd.add_argument("--cwd", required=True, help="dedicated worktree on the PR's head branch")
+            cmd.add_argument("--cli", choices=("codex", "agy"), default="codex")
             cmd.add_argument("--model", required=True)
             cmd.add_argument("--hours", type=float, default=2.0)
             cmd.add_argument("--scope-file", help="per-PR scope and proof lines appended to the profile")
-            cmd.add_argument("--policy", type=Path, default=POLICY)
+            cmd.add_argument("--policy", type=Path)
             cmd.add_argument("--profiles-dir", type=Path, default=PROFILES)
+            cmd.add_argument("--cli-bin", help="path to the enrolled CLI executable")
             cmd.add_argument("--codex")
+            cmd.add_argument("--headless-only", action="store_true",
+                             help="enroll for a headless host without cmux")
         if name == "retry-now":
             cmd.add_argument("--kick", action="store_true", help="also start a tick now")
     args = parser.parse_args(argv)
