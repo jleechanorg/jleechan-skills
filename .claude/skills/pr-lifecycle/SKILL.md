@@ -31,7 +31,7 @@ Execute the PR's next unmet obligation continuously through `FINAL_READY`. Statu
 
 ## Precedence and scope
 
-Target repository instructions (`AGENTS.md`, `CLAUDE.md`) take precedence within their domain. Apply shared defaults only where silent; never remove a local requirement or infer an ungranted exception. Bind head repository, branch, SHA, and base from live PR metadata (`gh pr view`).
+Target repository instructions (`AGENTS.md`, `CLAUDE.md`) take precedence within their domain. Apply shared defaults only where silent; never remove a local requirement or infer an ungranted exception. A repository or operator PR overlay refines these defaults as described in [pr-workflow-manager](../pr-workflow-manager/SKILL.md#one-operational-contract). Bind head repository, branch, SHA, and base from live PR metadata (`gh pr view`).
 
 ### Existing authorization and prepared plans
 
