@@ -16,6 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pr_owner_nudger import checkout  # noqa: E402
+from render_pr_owner_nudger import DEFAULT_NAME, lane_targets  # noqa: E402
 
 HOME = Path.home()
 CONFIG = HOME / ".config/pr-owner-nudger/config.json"
@@ -128,9 +129,10 @@ def retry_now(args):
     elif not args.kick:
         sys.exit("retry-now needs the config's state_dir with a receipts.sqlite3 from an earlier tick")
     if args.kick:
+        label, service = lane_targets(args.name)
         uid = os.getuid()
-        command = (["launchctl", "kickstart", f"gui/{uid}/org.prw.pr-owner-nudger"]
-                   if sys.platform == "darwin" else ["systemctl", "--user", "start", "pr-owner-nudger.service"])
+        command = (["launchctl", "kickstart", f"gui/{uid}/{label}"]
+                   if sys.platform == "darwin" else ["systemctl", "--user", "start", service])
         subprocess.run(command, check=True, timeout=30)
     print(f"{args.repo}#{args.pr} is due now")
 
@@ -157,7 +159,14 @@ def main(argv=None):
                              help="enroll for a headless host without cmux")
         if name == "retry-now":
             cmd.add_argument("--kick", action="store_true", help="also start a tick now")
+            cmd.add_argument("--name", default=DEFAULT_NAME,
+                             help="unit/label name of the nudger lane to kick")
     args = parser.parse_args(argv)
+    if args.command == "retry-now":
+        try:
+            lane_targets(args.name)
+        except ValueError as exc:
+            parser.error(str(exc))
     {"enroll": enroll, "retire": retire, "retry-now": retry_now}[args.command](args)
 
 

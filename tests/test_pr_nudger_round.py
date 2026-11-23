@@ -88,6 +88,33 @@ class RoundTest(unittest.TestCase):
         run.assert_called_once()
         self.assertFalse((state / "receipts.sqlite3").exists())
 
+    def test_retry_now_kick_supports_named_lanes(self):
+        self.config.write_text(json.dumps({"state_dir": str(self.root / "missing"), "targets": []}))
+        with patch.object(round_cli.os, "getuid", return_value=501), \
+                patch.object(round_cli.subprocess, "run") as run:
+            with patch.object(round_cli.sys, "platform", "darwin"):
+                self.run_cli("retry-now", "--repo", "base/project", "--pr", "12", "--kick")
+                self.run_cli("retry-now", "--repo", "base/project", "--pr", "12", "--kick",
+                             "--name", "pr-owner-nudger-agy")
+            with patch.object(round_cli.sys, "platform", "linux"):
+                self.run_cli("retry-now", "--repo", "base/project", "--pr", "12", "--kick")
+                self.run_cli("retry-now", "--repo", "base/project", "--pr", "12", "--kick",
+                             "--name", "pr-owner-nudger-agy")
+        self.assertEqual(
+            [call.args[0] for call in run.call_args_list],
+            [
+                ["launchctl", "kickstart", "gui/501/org.prw.pr-owner-nudger"],
+                ["launchctl", "kickstart", "gui/501/org.prw.pr-owner-nudger-agy"],
+                ["systemctl", "--user", "start", "pr-owner-nudger.service"],
+                ["systemctl", "--user", "start", "pr-owner-nudger-agy.service"],
+            ],
+        )
+        for bad in ("../x", "a b", ".hidden"):
+            with patch.object(round_cli.subprocess, "run") as bad_run:
+                with self.assertRaises(SystemExit):
+                    self.run_cli("retry-now", "--repo", "base/project", "--pr", "12", "--kick", "--name", bad)
+                bad_run.assert_not_called()
+
     def test_enroll_supports_agy_cli_without_codex_auth_or_codex_policy(self):
         scope = self.root / "scope.md"
         scope.write_text("Scope: prove agy owner.\n")
