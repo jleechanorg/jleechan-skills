@@ -778,6 +778,43 @@ else:
              patch.object(router, "_writers", return_value=[]):
             assert router.route(owner, PROMPT, True) == "expired"
 
+        # Pre-spawn `login status` and `mcp list` exiting 124 -> expired across resume and bootstrap.
+        login_124 = tmp_path / "codex-deadline-login"
+        login_124.write_text(rf"""#!{sys.executable}
+import sys
+if sys.argv[1:] == ["--version"]:
+    print("codex-cli 0.160.0")
+elif sys.argv[1:] == ["login", "status"]:
+    raise SystemExit(124)
+""")
+        login_124.chmod(0o755)
+        owner["cli_bin"] = str(login_124)
+        with patch.object(router.shutil, "which", return_value=None), \
+             patch.object(router, "_writers", return_value=[]):
+            assert router.route(owner, PROMPT, True) == "expired"
+            assert router.start_codex_bootstrap(
+                bootstrap_enrollment(tmp_path) | {"cli_bin": str(login_124)},
+                BOOTSTRAP_IDENTITY, apply=True, recheck=lambda: True, begin_attempt=Mock(),
+            ) == "expired"
+
+        mcp_124 = tmp_path / "codex-deadline-mcp"
+        mcp_124.write_text(rf"""#!{sys.executable}
+import sys
+if sys.argv[1:] == ["--version"]:
+    print("codex-cli 0.160.0")
+elif sys.argv[1:] == ["login", "status"]:
+    pass
+elif sys.argv[-3:] == ["mcp", "list", "--json"]:
+    raise SystemExit(124)
+""")
+        mcp_124.chmod(0o755)
+        with patch.object(router.shutil, "which", return_value=None), \
+             patch.object(router, "_writers", return_value=[]):
+            assert router.start_codex_bootstrap(
+                bootstrap_enrollment(tmp_path) | {"cli_bin": str(mcp_124)},
+                BOOTSTRAP_IDENTITY, apply=True, recheck=lambda: True, begin_attempt=Mock(),
+            ) == "expired"
+
         # If transcript accepted the prompt before exit 124, delivery still wins.
         stat = transcript.stat()
         delivered_child = Mock()

@@ -1234,6 +1234,21 @@ class DispatcherTest(unittest.TestCase):
             self.assertEqual(self.target_tick()[0]["status"], "delivered")
             self.assertEqual(route.call_count, 2)
 
+    def test_tick_preserves_expired_on_rate_limited_and_refresh_errors(self):
+        session = "00000000-0000-4000-8000-000000000001"
+        self.config["owners"] = [dict(self.owner, session=session, profile_dir=str(self.root))]
+        self.config["targets"] = [{"repo": "base/project", "number": 12}]
+        with patch.object(nudger, "legacy_tick", return_value=()), \
+             patch.object(nudger, "route", return_value="expired"):
+            with patch.object(nudger, "github", return_value=self.pr):
+                self.assertEqual(self.target_tick()[0]["status"], "expired")
+            with patch.object(nudger, "github", side_effect=nudger.RateLimited(5000)):
+                rate_row = self.target_tick()[0]
+                self.assertEqual((rate_row["status"], rate_row["next_action"]), ("expired", "expired"))
+            with patch.object(nudger, "github", side_effect=OSError("network down")):
+                err_row = self.target_tick()[0]
+                self.assertEqual((err_row["status"], err_row["next_action"]), ("expired", "expired"))
+
     def test_reenrolling_expired_bound_target_wakes_new_enrollment(self):
         self.config["owners"] = []
         enrollment = {
