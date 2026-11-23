@@ -75,7 +75,7 @@ def _agy_idle(env, session):
     app_data = Path(env.get("ANTIGRAVITY_APP_DATA_DIR") or _agy_app_data()).expanduser()
     summary = _agy_summary(app_data, session)
     if summary is None:
-        return True
+        return False
     _, status, not_fully_idle, killed = summary
     return not killed and not not_fully_idle and status != "CASCADE_RUN_STATUS_RUNNING"
 
@@ -217,13 +217,11 @@ def _terminal_state(cli, path):
             ):
                 idle = event["type"] != "task_started"
         elif cli == "agy":
-            if kind == "USER_INPUT":
+            if kind in {"USER_INPUT", "GENERIC"}:
                 idle = False
             elif kind == "PLANNER_RESPONSE":
                 model = row.get("model", model)
                 idle = row.get("status") == "DONE" and not row.get("tool_calls")
-            else:
-                idle = False
         elif kind == "assistant":
             message = row["message"]
             reason = message.get("stop_reason")
@@ -524,16 +522,20 @@ def _resume(cmux, surfaces, cwd, path, env, owner, prompt, apply):
             "--model", model, owner["session"], "-",
         )
     else:
+        if not managed or owner.get("launch_authorized") is not True:
+            return "blocked_headless_exclusion_unverified"
         if not _agy_idle(env, owner["session"]):
             return "busy"
         _, recorded_model = _terminal_state(cli, path)
         model = owner.get("model") or recorded_model
         if not model:
             return "blocked_session_model"
+        profile_dir = owner.get("profile_dir")
+        add_dir = ("--add-dir", str(Path(profile_dir).resolve())) if profile_dir and Path(profile_dir).is_dir() else ()
         cmd = (
             exe, "--conversation", owner["session"], "-p", prompt,
             "--output-format", "stream-json", "--model", model,
-            "--dangerously-skip-permissions",
+            *add_dir, "--dangerously-skip-permissions",
         )
     stat = path.stat()
     if _writers(cwd, path):
@@ -842,7 +844,7 @@ def start_codex_bootstrap(enrollment, identity, *, apply, recheck, begin_attempt
 def start_agy_bootstrap(enrollment, identity, *, apply, recheck, begin_attempt):
     """Launch an acknowledgment-only agy seed after the caller durably reserves it."""
     try:
-        cwd, _, executable, prompt = _bootstrap_scope(enrollment, identity, "agy")
+        cwd, profile, executable, prompt = _bootstrap_scope(enrollment, identity, "agy")
         if not os.access(executable, os.X_OK):
             return "blocked_cli_unavailable"
         if not _bootstrap_writer_free(cwd, enrollment):
@@ -851,7 +853,8 @@ def start_agy_bootstrap(enrollment, identity, *, apply, recheck, begin_attempt):
             return "would_bootstrap"
         command = (
             executable, "-p", prompt, "--output-format", "stream-json",
-            "--model", enrollment["model"], "--dangerously-skip-permissions",
+            "--model", enrollment["model"], "--disable-slash-commands",
+            "--add-dir", str(profile), "--dangerously-skip-permissions",
         )
     except (KeyError, TypeError, ValueError, OSError, subprocess.SubprocessError) as error:
         print(f"bootstrap launch failed: {type(error).__name__}: {error}", file=sys.stderr)

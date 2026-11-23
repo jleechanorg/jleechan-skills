@@ -425,6 +425,14 @@ def dispatch(cwd, owner, local, pr, receipts, config, from_cache, read=None, *,
         prompt += " GitHub now reports passing checks for this head. Verify the applicable checks and resume the next gate."
     elif wake_reason == "stage_changed":
         prompt += " The PR stage changed at this head. Verify the new stage and continue its next obligation."
+    if owner.get("cli") == "agy" and owner.get("profile_dir"):
+        profile = Path(owner["profile_dir"])
+        for candidate in (profile / "scope.md", profile / "AGENTS.md"):
+            if candidate.is_file():
+                scope_line = " ".join(candidate.read_text().split())
+                if scope_line:
+                    prompt += f" Scope ({candidate}): {scope_line}"
+                break
 
     def checkpoint_receipt(path, start):
         nonlocal receipt

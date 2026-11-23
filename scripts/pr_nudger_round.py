@@ -68,13 +68,20 @@ def enroll(args):
         auth = profile / "auth.json"
         if not (auth.is_symlink() or auth.exists()):
             auth.symlink_to(Path(os.environ.get("CODEX_HOME", HOME / ".codex")) / "auth.json")
-    policy = args.policy or (AGY_POLICY if cli == "agy" and AGY_POLICY.is_file() else POLICY)
+    if args.policy is not None:
+        policy_text = args.policy.read_text().rstrip()
+    elif cli == "agy":
+        policy_text = AGY_POLICY.read_text().rstrip() if AGY_POLICY.is_file() else ""
+    else:
+        policy_text = POLICY.read_text().rstrip()
     stamp = datetime.fromtimestamp(end, timezone.utc)
     scope = SCOPE.format(repo=args.repo, number=args.pr, branch=branch,
                          end_utc=stamp.strftime("%Y-%m-%dT%H:%MZ"),
                          end_local=stamp.astimezone().strftime("%-I:%M %p %Z"))
     extra = Path(args.scope_file).read_text() if args.scope_file else ""
-    (profile / "AGENTS.md").write_text(policy.read_text().rstrip() + scope + extra)
+    (profile / "scope.md").write_text(scope.lstrip() + extra)
+    agents_body = (policy_text + scope + extra) if policy_text else (scope.lstrip() + extra)
+    (profile / "AGENTS.md").write_text(agents_body)
     timeout = shutil.which("timeout") or shutil.which("gtimeout")
     cli_bin = args.cli_bin or (args.codex if cli == "codex" else None) or shutil.which(cli)
     if not timeout or not cli_bin:

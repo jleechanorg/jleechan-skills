@@ -106,7 +106,7 @@ Drive the PR through the [pr-lifecycle completion loop](../pr-lifecycle/SKILL.md
 
 ## Headless PR owner (`--nudge`)
 
-`/pr --nudge <PR>` hands execution to a headless PR owner under [pr-owner-nudger](../pr-owner-nudger/SKILL.md): verify or create a dedicated checkout on the PR head branch, write the per-PR scope from the PR's `/ironclad` contract, run `scripts/pr_nudger_round.py enroll` with the chosen `--cli` (`codex` or `agy`) and `--model`, start the first tick with `scripts/pr_nudger_round.py retry-now --kick`, and turn the current session into the independent Stage 5 verifier rather than writing on the branch. `/pr --nudge --stop <PR>` retires the target via `scripts/pr_nudger_round.py retire`. Enabling dispatch (`enabled: true`) and merging stay with the operator.
+`/pr --nudge <PR>` hands execution to a headless PR owner under [pr-owner-nudger](../pr-owner-nudger/SKILL.md): resolve the `jleechan-skills` source checkout holding `scripts/pr_nudger_round.py`, verify or create a dedicated checkout on the PR head branch, write the per-PR scope from the PR's `/ironclad` contract, run `scripts/pr_nudger_round.py enroll` with the chosen `--cli` (`codex` or `agy`) and `--model`, start the first tick with `scripts/pr_nudger_round.py retry-now --kick`, and turn the current session into the independent Stage 5 verifier rather than writing on the branch. `/pr --nudge --stop <PR>` retires the target via `scripts/pr_nudger_round.py retire`. Enabling dispatch (`enabled: true`) and merging stay with the operator.
 
 ## Boundaries
 

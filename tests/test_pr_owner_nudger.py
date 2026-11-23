@@ -997,12 +997,15 @@ class DispatcherTest(unittest.TestCase):
         route.assert_not_called()
 
     def test_agy_bootstrap_enrollment_dispatches_and_binds_session(self):
+        profile = self.root / "agy-profile"
+        profile.mkdir()
+        (profile / "scope.md").write_text("## Pilot scope\nDrive PR #12.\nCriterion: pytest passes.\n")
         self.config["owners"] = []
         self.config["targets"] = [{
             "repo": "base/project", "number": 12, "enrollment": {
                 "cwd": str(self.cwd), "head_repo": "fork/project", "branch": "feature",
                 "host": "test-host", "cli": "agy", "cli_bin": "/bin/agy",
-                "profile_dir": str(self.root), "model": "gemini-4-hydrogen-high",
+                "profile_dir": str(profile), "model": "gemini-4-hydrogen-high",
                 "launch_authorized": True, "managed_exclusive": True,
             }
         }]
@@ -1018,17 +1021,25 @@ class DispatcherTest(unittest.TestCase):
             bind("00000000-0000-4000-8000-000000000001")
             return "bootstrapped", "00000000-0000-4000-8000-000000000001"
 
+        prompts = []
+
+        def deliver(_owner, prompt, _apply):
+            prompts.append(prompt)
+            return "delivered"
+
         with patch.object(nudger, "github", return_value=self.pr), \
              patch.object(nudger.socket, "gethostname", return_value="test-host"), \
              patch.object(nudger, "launch_capacity", return_value=True), \
              patch.object(nudger.pr_nudger_routes, "start_agy_bootstrap", side_effect=start, create=True) as launch, \
              patch.object(nudger.pr_nudger_routes, "inspect_agy_bootstrap", side_effect=inspect, create=True), \
-             patch.object(nudger, "route", return_value="delivered") as route:
+             patch.object(nudger, "route", side_effect=deliver) as route:
             self.assertEqual(self.target_tick()[0]["status"], "bootstrap_started")
             self.assertEqual(self.target_tick()[0]["status"], "bootstrapped")
             self.assertEqual(self.target_tick()[0]["status"], "delivered")
             launch.assert_called_once()
             route.assert_called_once()
+            self.assertTrue(prompts[0].isprintable())
+            self.assertIn("Drive PR #12. Criterion: pytest passes.", prompts[0])
             with sqlite3.connect(state_path) as db:
                 stored = json.loads(db.execute("SELECT owner FROM binding").fetchone()[0])
             self.assertEqual(stored["cli"], "agy")

@@ -88,13 +88,15 @@ class RoundTest(unittest.TestCase):
         run.assert_called_once()
         self.assertFalse((state / "receipts.sqlite3").exists())
 
-    def test_enroll_supports_agy_cli_without_codex_auth(self):
+    def test_enroll_supports_agy_cli_without_codex_auth_or_codex_policy(self):
         scope = self.root / "scope.md"
         scope.write_text("Scope: prove agy owner.\n")
-        self.run_cli("enroll", "--cli", "agy", "--repo", "base/project", "--pr", "12",
-                     "--cwd", str(self.repo), "--model", "gemini-4-hydrogen-high",
-                     "--hours", "1", "--scope-file", str(scope),
-                     "--policy", str(self.policy), "--profiles-dir", str(self.root / "profiles"))
+        with patch.object(round_cli, "POLICY", self.root / "missing-codex.md"), \
+                patch.object(round_cli, "AGY_POLICY", self.root / "missing-agy.md"):
+            self.run_cli("enroll", "--cli", "agy", "--repo", "base/project", "--pr", "12",
+                         "--cwd", str(self.repo), "--model", "gemini-4-hydrogen-high",
+                         "--hours", "1", "--scope-file", str(scope),
+                         "--profiles-dir", str(self.root / "profiles"))
         item = json.loads(self.config.read_text())["targets"][0]
         enrollment = item["enrollment"]
         self.assertEqual(enrollment["cli"], "agy")
@@ -102,6 +104,8 @@ class RoundTest(unittest.TestCase):
         self.assertNotIn("resume_sandbox", enrollment)
         profile = Path(enrollment["profile_dir"])
         self.assertFalse((profile / "auth.json").exists())
+        self.assertIn("Scope: prove agy owner.", (profile / "scope.md").read_text())
+        self.assertIn("Scope: prove agy owner.", (profile / "AGENTS.md").read_text())
         self.assertIn("/bin/agy", Path(enrollment["cli_bin"]).read_text())
 
 
