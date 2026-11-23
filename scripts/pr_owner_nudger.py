@@ -644,6 +644,11 @@ def _expired_outcome(row):
                 attempts=row["attempts"], next_due=row["next_due"])
 
 
+def _enrollment_fields_changed(prev, current):
+    return [field for field in ("cli", "cli_bin", "profile_dir", "model")
+            if field in prev and prev[field] != current.get(field)]
+
+
 def _record_expired_enrollment(db, key, expected, enrollment):
     if db is None or not isinstance(enrollment, dict):
         return
@@ -666,10 +671,20 @@ def dispatch_target(key, target, pr, matches, store, config, read, *, wake_reaso
         if tuple(attempt["identity"][:-1]) != expected[:-1]:
             return note(key, "reconciliation_required", "reconcile_bootstrap")
         enrolled, reason = bootstrap_enrollment(target, expected)
-        if reason or enrolled != attempt["enrollment"]:
-            return note(key, "reconciliation_required", "reconcile_bootstrap")
-        inspect = (pr_nudger_routes.inspect_agy_bootstrap if enrolled["cli"] == "agy"
+        attempt_enrolled = attempt["enrollment"]
+        inspect = (pr_nudger_routes.inspect_agy_bootstrap if attempt_enrolled["cli"] == "agy"
                    else pr_nudger_routes.inspect_codex_bootstrap)
+        if reason or enrolled != attempt_enrolled:
+            status, _ = inspect(
+                attempt_enrolled, tuple(attempt["identity"]), attempt, bind=lambda _s: None,
+            )
+            if status == "expired":
+                store.set(key, bootstrap=None)
+                if not reason:
+                    return note(key, "enrollment_changed", "bootstrap_owner")
+                _record_expired_enrollment(db, key, expected, attempt_enrolled)
+                return note(key, "expired", "expired", progress=True)
+            return note(key, "reconciliation_required", "reconcile_bootstrap")
         status, session = inspect(
             enrolled, tuple(attempt["identity"]), attempt,
             bind=lambda session: store.bind(key, expected, dict(enrolled, session=session)),
@@ -695,7 +710,7 @@ def dispatch_target(key, target, pr, matches, store, config, read, *, wake_reaso
         "SELECT status, time, owner, sha FROM delivery WHERE repo=? AND number=?", key
     ).fetchone() if db is not None else None
     if row.get("reason") == "expired":
-        # Stop scheduling/waking an expired target unless a managed owner was re-enrolled.
+        # Stop scheduling/waking an expired target unless a managed/configured owner changed.
         if db is not None and isinstance(target.get("enrollment"), dict):
             managed, reason = bootstrap_enrollment(target, expected, require_launch=False)
             if not reason:
@@ -703,28 +718,31 @@ def dispatch_target(key, target, pr, matches, store, config, read, *, wake_reaso
                     "SELECT owner FROM binding WHERE cwd=? AND repo=? AND number=? AND branch=?",
                     (managed["cwd"], *key, branch),
                 ).fetchone()
+                cached_owner = json.loads(cached[0]) if cached else None
                 snapshots = []
                 if previous and previous[0] == "expired" and previous[2]:
                     snapshots.append((json.loads(previous[2]), False))
-                if cached:
-                    snapshots.append((json.loads(cached[0]), True))
+                if cached_owner is not None:
+                    snapshots.append((cached_owner, True))
                 for owner, is_binding in snapshots:
                     if ((not is_binding or owner.get("binding_source") == "bootstrap")
-                            and any(field in owner and owner[field] != managed.get(field)
-                                    for field in ("cli", "cli_bin", "profile_dir", "model"))):
-                        if cached:
-                            cached_owner = json.loads(cached[0])
-                            if cached_owner.get("binding_source") == "bootstrap" or any(
-                                field in cached_owner and cached_owner[field] != managed.get(field)
-                                for field in ("cli", "cli_bin", "profile_dir", "model")
-                            ):
-                                db.execute(
-                                    "DELETE FROM binding WHERE cwd=? AND repo=? AND number=? AND branch=?",
-                                    (managed["cwd"], *key, branch),
-                                )
+                            and _enrollment_fields_changed(owner, managed)):
+                        if cached_owner is not None and (
+                            cached_owner.get("binding_source") == "bootstrap"
+                            or _enrollment_fields_changed(cached_owner, managed)
+                        ):
+                            db.execute(
+                                "DELETE FROM binding WHERE cwd=? AND repo=? AND number=? AND branch=?",
+                                (managed["cwd"], *key, branch),
+                            )
                         if previous and previous[0] == "expired":
                             db.execute("DELETE FROM delivery WHERE repo=? AND number=?", key)
                         return note(key, "enrollment_changed", "bootstrap_owner")
+        elif (db is not None and previous and previous[0] == "expired" and previous[2]
+              and len(matches) == 1 and len(matches[0][2]) == 1):
+            if _enrollment_fields_changed(json.loads(previous[2]), matches[0][2][0]):
+                db.execute("DELETE FROM delivery WHERE repo=? AND number=?", key)
+                return note(key, "enrollment_changed", "dispatch_owner")
         return _expired_outcome(row)
     if status_name != "actionable":
         return note(key, status_name, "refresh_pr", progress=True)
@@ -771,8 +789,7 @@ def dispatch_target(key, target, pr, matches, store, config, read, *, wake_reaso
         cwd, local, owner = candidates[0]
         if isinstance(enrollment, dict) and enrollment.get("managed_exclusive") is True:
             managed, reason = bootstrap_enrollment(target, expected, require_launch=False)
-            changed = [field for field in ("cli", "cli_bin", "profile_dir", "model")
-                       if field in owner and owner[field] != managed.get(field)] if not reason else []
+            changed = _enrollment_fields_changed(owner, managed) if not reason else []
             if (not reason and str(cwd) == managed["cwd"] and changed and from_cache
                     and owner.get("binding_source") == "bootstrap" and "cli" not in changed):
                 # The operator re-enrolled this managed checkout (new model, wrapper or
