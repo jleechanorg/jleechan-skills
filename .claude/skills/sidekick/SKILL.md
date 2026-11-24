@@ -254,13 +254,16 @@ The sidekick and every lane it owns checkpoint at a ≤5 min cadence:
      (`ps` / load), not by trusting a worker flag alone.
    - Resource admission gate (crash 2026-08-30): before spawning any lane
      or CLI delegation, apply `parallelize-to-ceiling` § Resource admission
-     gate on the host that will run it. Memory: defer only when available RAM
-     is below 4 GB (macOS `vm_stat` free+inactive+purgeable+speculative,
-     Linux `free -g` available) or macOS pressure is 4; never gate on the swap used/total ratio,
-     because macOS sizes swap dynamically. CPU: measure idle with
-     `top -l 2 -n 0 -s 2` (macOS) or `top -bn2 -d1` (Linux); below 25% idle
-     run at most 2 heavy lanes, below 10% start none on that host and move
-     portable lanes to the peer host via `/lm` or `/mac-mirror`.
+     gate on the host that will run it: defer only when available RAM is
+     below 4 GB (macOS: (free+inactive+purgeable+speculative) × page size
+     from `vm_stat`; Linux: `free -g` available) or macOS pressure is 4;
+     never gate on the swap used/total ratio, because macOS sizes swap
+     dynamically. For CPU, follow `parallelize-to-ceiling/references/host-load-balancing.md`:
+     the Mac caps (below 25% idle at most two heavy lanes, below 10% none)
+     are Mac-only; Linux decisions use its own measured capacity. Move a
+     portable lane to the peer host only after measuring that host as
+     eligible; if no host fits, defer that heavy run and continue
+     independent safe work.
    - Never fork a multi-minute CLI delegation (agy, codex, claude -p) as a
      foreground Bash call — always run_in_background + explicit timeout,
      then read the output file on the task notification. A foreground fork
