@@ -338,6 +338,16 @@ class ScheduleRendererTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "under /tmp"):
             renderer.render(self.config, Path.home() / "not-a-stage", "macos")
 
+    def test_staging_output_accepts_diskm_scratch_directory(self):
+        with tempfile.TemporaryDirectory(dir="/var/tmp") as scratch_dir:
+            scratch_root = Path(scratch_dir).resolve()
+            stage_dir = scratch_root / "scratch-stage"
+            with patch.dict(os.environ, {"DISKM_SCRATCH": str(scratch_root)}), \
+                    patch.object(renderer, "node22_bins", return_value=[self.root / "node-bin"]):
+                out = renderer.render(self.config, stage_dir, "macos")
+            self.assertEqual(out, stage_dir)
+            self.assertEqual(len(list(out.glob("*.plist"))), 3)
+
     def test_staging_rejects_parent_symlink_outside_tmp_before_writing(self):
         with tempfile.TemporaryDirectory(dir="/var/tmp") as outside:
             target = Path(outside).resolve()

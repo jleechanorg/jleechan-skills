@@ -6,7 +6,7 @@ Spec: {title, snapshot, subtitle, branch, pr, bead, bead_db, done:[str], span,
   phases:[{title, rows:[{id, name, owner, bead, detail, start, lo, hi, label}]}],
   flow:[[group...] | "‖" | str]}
 Minutes throughout. hi=null means unknown (grey). Color is chosen from hi.
-Without out.html the path is /tmp/timeline/<branch>-pr<N>.html, stable across
+Without out.html the path is <scratch root>/timeline/<branch>-pr<N>.html, stable across
 rebuilds. --publish secret-scans the HTML, creates or edits one secret gist
 (id kept in <html>.gist), prints the direct preview URL, and creates or updates
 one bead (id kept in <html>.bead).

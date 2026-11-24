@@ -47,6 +47,7 @@ host aliases, names and paths at `${XDG_CONFIG_HOME:-$HOME/.config}/jleechan-ski
 | `PROJECTS_DIR` | Parent directory scanned for multiple checkouts (history search only) | — | unset: scan only `PROJECT_ROOT` |
 | `ANTIGRAVITY_EXPORT_DIR` | Folder of exported Antigravity conversations (history search only) | — | unset: skip that source |
 | `USER_SCOPE_ROOT` | User dotfiles / user-scope checkout | — | required where used |
+| `DISKM_SCRATCH` | Host scratch volume root for disposable outputs and staging | `diskm volume path scratch` | `/tmp` where permitted |
 
 ## Hosts and remote machines
 

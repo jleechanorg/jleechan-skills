@@ -172,11 +172,11 @@ def render(config_path, output, host):
         fail("Chrome DevTools MCP must be version 1.6.0")
     output = Path(output).expanduser().resolve()
     allowed_roots = [Path("/tmp").resolve()]
-    scratch_root = os.environ.get("SCRATCH_ROOT")
+    scratch_root = os.environ.get("DISKM_SCRATCH")
     if scratch_root and Path(scratch_root).is_dir():
         allowed_roots.append(Path(scratch_root).resolve())
     if not any(output.is_relative_to(root) for root in allowed_roots):
-        fail("staging output must be under /tmp or $SCRATCH_ROOT")
+        fail("staging output must be under /tmp or $DISKM_SCRATCH")
     if os.path.lexists(output):
         fail("render destination already exists; choose a new staging directory")
     output.parent.mkdir(parents=True, exist_ok=True)

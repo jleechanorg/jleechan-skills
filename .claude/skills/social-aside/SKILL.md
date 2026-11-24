@@ -48,7 +48,7 @@ not independent drafting.
    Apply [unique per-publication tracking](../social/SKILL.md#unique-tracking-for-every-publication):
    allocate a fresh placement ID for each distinct post/comment, check existing
    posting records for collisions, and replace copied UTM campaigns on owned links.
-   Never reuse an OpenAI placement's tag for another community or publication.
+   Never reuse an earlier placement's tag for another community or publication.
    Preserve the same ID when revising or resuming that one publication.
    Keep verification notes separate from public copy. When review is requested,
    review the exact revision and sources; report failed or unavailable reviewers

@@ -14,7 +14,7 @@ filename with the date (for example, `pr-inflight-example-topic-2026-11-21.md`).
 If that path already belongs to a different board, append a deterministic short
 task identifier to the slug (for example, `pr-inflight-example-topic-2026-11-21-101-102.md`);
 reuse an existing file only when continuing that same board request.
-never modify a shared daily `pr-inflight-YYYY-MM-DD.md` board. Do not create a PR
+Never modify a shared daily `pr-inflight-YYYY-MM-DD.md` board. Do not create a PR
 to publish a board. Anything else — surveys, memory reads, nextsteps rotas — is
 supporting material, not the deliverable.
 

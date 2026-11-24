@@ -108,7 +108,7 @@ run_chrome() {
   local rc=0 runner=()
   configure_chrome_runner
   local budget="${DOT_CHROME_TIMEOUT_SECS:-130}" grace="${DOT_CHROME_KILL_GRACE_SECS:-10}" out_file timed_out_file scratch_tmp
-  scratch_tmp="$("${HOME}/.claude/skills/scratch-space/scripts/scratch-dir.sh" tmp 2>/dev/null || printf '%s' "${TMPDIR:-/tmp}")"
+  scratch_tmp="$("${CLAUDE_HOME:-$HOME/.claude}/skills/scratch-space/scripts/scratch-dir.sh" tmp 2>/dev/null || printf '%s' "${TMPDIR:-/tmp}")"
   out_file="$(mktemp "${scratch_tmp}/dot-chrome-out.XXXXXX")"
   timed_out_file="$(mktemp "${scratch_tmp}/dot-chrome-timedout.XXXXXX")"
   rm -f "$timed_out_file"
