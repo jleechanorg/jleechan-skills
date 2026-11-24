@@ -12,6 +12,7 @@ import sqlite3
 import subprocess
 import sys
 import time
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -21,9 +22,9 @@ from pr_owner_nudger import (  # noqa: E402
     DEFAULT_PRUNE_AFTER_HOURS,
     DEFAULT_PRUNE_CLOSED_AFTER_HOURS,
     checkout,
-    delete_target_state,
     github,
     pr_status,
+    prune_config_targets,
     prune_hours,
     repo_slug,
     save_config,
@@ -342,7 +343,7 @@ def prune(args):
     state_dir = config.get("state_dir")
     db_path = Path(state_dir).expanduser() / "receipts.sqlite3" if state_dir else None
     now = time.time()
-    kept = []
+    prune_snapshots = {}
     pruned = []
     db = sqlite3.connect(db_path) if db_path and db_path.is_file() else None
     try:
@@ -352,16 +353,12 @@ def prune(args):
                 item, repo, number, db, now, ttl_seconds, closed_grace_seconds
             )
             if reason:
+                prune_snapshots[repo, number] = item
                 pruned.append((repo, number, reason))
-            else:
-                kept.append(item)
         if pruned and not args.dry_run:
-            config["targets"] = kept
-            save(args.config, config)
-            if db is not None:
-                with db:
-                    for repo, number, _ in pruned:
-                        delete_target_state(db, (repo, number))
+            with db if db is not None else nullcontext():
+                actually_pruned = prune_config_targets(args.config, prune_snapshots, db)
+            pruned = [entry for entry in pruned if entry[:2] in actually_pruned]
     finally:
         if db is not None:
             db.close()

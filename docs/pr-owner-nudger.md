@@ -40,6 +40,11 @@ Add exact targets to the same config. For example,
 An enabled `--apply` tick persists all target rows before its first remote
 read. Observe-only targets refresh without sending messages or launching an
 owner. Inspection without `--apply` leaves SQLite and owner sessions untouched.
+Enabled `--apply` ticks also prune closed or merged targets after
+`prune_closed_after_hours` (default `0` hours) and expired targets after
+`prune_after_hours` (default `24` hours), rewriting the config atomically with
+mode `0600` while preserving concurrent edits and active or `observe_only`
+non-expired targets.
 
 A target can set `pickup_after_seconds` to `3600` when the operator requires
 one hour of inactivity on its exact remote branch. The activity must match the
@@ -81,7 +86,7 @@ handoff. An unreachable host leaves the attempt pending.
    Point `state_dir` at a fresh directory per round, and `retire` every PR you are not driving.
 3. Start the first tick: `python3 scripts/pr_nudger_round.py retry-now --repo owner/repo --pr N --kick`. On a fresh `state_dir`, `--kick` starts the first tick even before `receipts.sqlite3` exists.
 4. Verify each Stage 5 claim yourself before counting it: the head SHA, the stage label and block agree, the required checks (or the repository's own gate), any change since the tested commit, and the base-versus-head proof read from its artifact. To stop further nudger wakes at Stage 5 (`pr_status` returning `final_ready`), the PR must hold only `stage:5-final-approval` among `stage:*` labels and one `## PR Stage` or `## Execution Record` section with no active `blocker:` and unindented `status: FINAL_READY`, `candidate: <40-char-sha>`, `owner: <owner>`, and `next_action: none` lines.
-5. When the window ends, run `retire` for each PR. Merging is the operator's decision.
+5. When the window ends, run `retire` for each PR. Merging is the operator's decision. Run `python3 scripts/pr_nudger_round.py prune` (with optional `--dry-run`, `--prune-after-hours`, or `--prune-closed-after-hours`) to remove stale closed or expired targets on demand.
 
 Changing an enrolled PR's model, wrapper or profile is safe: the nudger retires the session it started (`enrollment_changed`) and bootstraps a fresh one after the usual writer checks. It measures launch capacity once per tick, before its own launches. The LaunchAgent runs as `ProcessType` `Interactive`, because launchd throttles `Standard` jobs and the cmux inventory then times out. Keep extra PR polling on GraphQL; the nudger's REST reads share the account's hourly budget.
 

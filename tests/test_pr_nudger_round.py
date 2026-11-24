@@ -344,6 +344,46 @@ class RoundTest(unittest.TestCase):
             self.assertEqual([t["number"] for t in json.loads(self.config.read_text())["targets"]],
                              [12, 14])
 
+    def test_prune_subcommand_preserves_concurrent_edits_and_closed_grace_period(self):
+        state = self.root / "state"
+        state.mkdir()
+        now = 2_000_000_000.0
+        config = {
+            "enabled": True,
+            "state_dir": str(state),
+            "prune_closed_after_hours": 2,
+            "targets": [
+                {"repo": "base/project", "number": 12, "observe_only": False},
+                {"repo": "base/project", "number": 13, "observe_only": False},
+            ],
+        }
+        self.config.write_text(json.dumps(config))
+        self.config.chmod(0o600)
+        with sqlite3.connect(state / "receipts.sqlite3") as db:
+            db.execute("CREATE TABLE target (repo TEXT, number INTEGER, reason TEXT, expired_at REAL, closed_at REAL)")
+            db.execute("INSERT INTO target VALUES ('base/project', 12, 'closed', NULL, ?)", (now - 3 * 3600,))
+            db.execute("INSERT INTO target VALUES ('base/project', 13, 'closed', NULL, ?)", (now - 1 * 3600,))
+
+        def fake_github(_cwd, endpoint, **_kwargs):
+            num = int(endpoint.rsplit("/", 1)[1])
+            if num == 13:
+                updated = json.loads(self.config.read_text())
+                updated["targets"].append({"repo": "base/project", "number": 14, "observe_only": True})
+                self.config.write_text(json.dumps(updated))
+            return {"number": num, "state": "closed", "labels": [], "title": "PR", "body": "",
+                    "head": {"sha": "a" * 40, "ref": "f", "repo": {"full_name": "base/project"}},
+                    "base": {"repo": {"full_name": "base/project"}}}
+
+        with patch.object(round_cli.time, "time", return_value=now), \
+             patch.object(round_cli, "github", side_effect=fake_github, create=True):
+            self.run_cli("prune")
+
+        self.assertEqual([t["number"] for t in json.loads(self.config.read_text())["targets"]], [13, 14])
+        self.assertEqual(self.config.stat().st_mode & 0o777, 0o600)
+        with sqlite3.connect(state / "receipts.sqlite3") as db:
+            kept = [r[0] for r in db.execute("SELECT number FROM target ORDER BY number").fetchall()]
+            self.assertEqual(kept, [13])
+
 
 if __name__ == "__main__":
     unittest.main()
