@@ -1,0 +1,9 @@
+[Unit]
+Description=Inspect enrolled PR owners
+
+[Service]
+Type=oneshot
+# Allow the recorded, detached headless owner to finish after this tick.
+KillMode=process
+ExecStart=/bin/bash {wrapper} --config {config}{apply}
+UnsetEnvironment=GITHUB_TOKEN GH_TOKEN

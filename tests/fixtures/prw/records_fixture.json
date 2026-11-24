@@ -1,0 +1,409 @@
+[
+  {
+    "repo": "example-org/example-repo",
+    "number": 100,
+    "url": "https://github.com/example-org/example-repo/pull/100",
+    "title": "[blocked][awaiting spec] Draft refactor",
+    "author": "alice-dev",
+    "author_type": "User",
+    "created_at": "2026-10-15T00:00:00Z",
+    "merged_at": null,
+    "closed_at": null,
+    "is_draft": true,
+    "labels": [
+      "stage:0-spec"
+    ],
+    "status": "blocked",
+    "timeline_complete": true,
+    "events": [
+      {
+        "type": "labeled",
+        "at": "2026-10-15T00:00:00Z",
+        "actor": "alice-dev",
+        "actor_type": "User",
+        "label": "stage:0-spec"
+      }
+    ],
+    "attempts": [],
+    "branch": "feature/pr-100-work"
+  },
+  {
+    "repo": "example-org/example-repo",
+    "number": 101,
+    "url": "https://github.com/example-org/example-repo/pull/101",
+    "title": "[ready][await merge] Add parser",
+    "author": "alice-dev",
+    "author_type": "User",
+    "created_at": "2026-10-29T09:00:00Z",
+    "merged_at": "2026-11-01T09:00:00Z",
+    "closed_at": "2026-11-01T09:00:00Z",
+    "is_draft": false,
+    "labels": [],
+    "status": "ready",
+    "timeline_complete": true,
+    "events": [
+      {
+        "type": "labeled",
+        "at": "2026-10-29T09:30:00Z",
+        "actor": "alice-dev",
+        "actor_type": "User",
+        "label": "stage:1-code"
+      },
+      {
+        "type": "commit",
+        "at": "2026-10-29T10:00:00Z",
+        "actor": "alice-dev",
+        "actor_type": "User"
+      },
+      {
+        "type": "ready_for_review",
+        "at": "2026-10-31T09:00:00Z",
+        "actor": "alice-dev",
+        "actor_type": "User"
+      },
+      {
+        "type": "unlabeled",
+        "at": "2026-10-31T09:00:00Z",
+        "actor": "alice-dev",
+        "actor_type": "User",
+        "label": "stage:1-code"
+      },
+      {
+        "type": "labeled",
+        "at": "2026-10-31T09:00:00Z",
+        "actor": "alice-dev",
+        "actor_type": "User",
+        "label": "stage:3-review"
+      },
+      {
+        "type": "review_requested",
+        "at": "2026-10-31T10:00:00Z",
+        "actor": "alice-dev",
+        "actor_type": "User",
+        "reviewer": "reviewer-one"
+      },
+      {
+        "type": "commit",
+        "at": "2026-10-31T11:00:00Z",
+        "actor": "alice-dev",
+        "actor_type": "User"
+      },
+      {
+        "type": "review",
+        "at": "2026-10-31T12:30:00Z",
+        "actor": "reviewer-one",
+        "actor_type": "User",
+        "review_state": "COMMENTED"
+      },
+      {
+        "type": "comment",
+        "at": "2026-11-01T08:00:00Z",
+        "actor": "alice-dev",
+        "actor_type": "User"
+      },
+      {
+        "type": "unlabeled",
+        "at": "2026-11-01T09:00:00Z",
+        "actor": "alice-dev",
+        "actor_type": "User",
+        "label": "stage:3-review"
+      }
+    ],
+    "attempts": [
+      {
+        "key": "*@2026-10-31T09:00:00Z",
+        "kind": "readiness",
+        "reviewer": null,
+        "opened_at": "2026-10-31T09:00:00Z",
+        "closed_at": "2026-10-31T12:30:00Z",
+        "closed_reason": "review",
+        "closed_by": "reviewer-one"
+      },
+      {
+        "key": "reviewer-one@2026-10-31T10:00:00Z",
+        "kind": "requested",
+        "reviewer": "reviewer-one",
+        "opened_at": "2026-10-31T10:00:00Z",
+        "closed_at": "2026-10-31T12:30:00Z",
+        "closed_reason": "review",
+        "closed_by": "reviewer-one"
+      }
+    ],
+    "branch": "feature/pr-101-work"
+  },
+  {
+    "repo": "example-org/example-repo",
+    "number": 102,
+    "url": "https://github.com/example-org/example-repo/pull/102",
+    "title": "[ready][await merge] Fix retry",
+    "author": "alice-dev",
+    "author_type": "User",
+    "created_at": "2026-10-20T00:00:00Z",
+    "merged_at": "2026-11-03T12:00:00Z",
+    "closed_at": "2026-11-03T12:00:00Z",
+    "is_draft": false,
+    "labels": [],
+    "status": "ready",
+    "timeline_complete": true,
+    "events": [
+      {
+        "type": "commit",
+        "at": "2026-10-20T00:30:00Z",
+        "actor": "alice-dev",
+        "actor_type": "User"
+      },
+      {
+        "type": "review_requested",
+        "at": "2026-11-01T10:00:00Z",
+        "actor": "alice-dev",
+        "actor_type": "User",
+        "reviewer": "reviewer-two"
+      },
+      {
+        "type": "review_requested",
+        "at": "2026-11-02T10:00:00Z",
+        "actor": "alice-dev",
+        "actor_type": "User",
+        "reviewer": "reviewer-two"
+      },
+      {
+        "type": "review",
+        "at": "2026-11-02T16:00:00Z",
+        "actor": "reviewer-two",
+        "actor_type": "User",
+        "review_state": "APPROVED"
+      },
+      {
+        "type": "comment",
+        "at": "2026-11-03T12:00:00Z",
+        "actor": "alice-dev",
+        "actor_type": "User"
+      }
+    ],
+    "attempts": [
+      {
+        "key": "reviewer-two@2026-11-01T10:00:00Z",
+        "kind": "requested",
+        "reviewer": "reviewer-two",
+        "opened_at": "2026-11-01T10:00:00Z",
+        "closed_at": "2026-11-02T10:00:00Z",
+        "closed_reason": "superseded",
+        "closed_by": null
+      },
+      {
+        "key": "reviewer-two@2026-11-02T10:00:00Z",
+        "kind": "requested",
+        "reviewer": "reviewer-two",
+        "opened_at": "2026-11-02T10:00:00Z",
+        "closed_at": "2026-11-02T16:00:00Z",
+        "closed_reason": "review",
+        "closed_by": "reviewer-two"
+      }
+    ],
+    "branch": "feature/pr-102-work"
+  },
+  {
+    "repo": "example-org/example-repo",
+    "number": 103,
+    "url": "https://github.com/example-org/example-repo/pull/103",
+    "title": "[ready][await merge] Update docs",
+    "author": "alice-dev",
+    "author_type": "User",
+    "created_at": "2026-10-31T00:00:00Z",
+    "merged_at": "2026-11-07T00:00:00Z",
+    "closed_at": "2026-11-07T00:00:00Z",
+    "is_draft": false,
+    "labels": [
+      "stage:4-ci"
+    ],
+    "status": "ready",
+    "timeline_complete": true,
+    "events": [
+      {
+        "type": "commit",
+        "at": "2026-10-31T00:00:00Z",
+        "actor": "alice-dev",
+        "actor_type": "User"
+      },
+      {
+        "type": "ready_for_review",
+        "at": "2026-11-01T00:00:00Z",
+        "actor": "alice-dev",
+        "actor_type": "User"
+      },
+      {
+        "type": "review",
+        "at": "2026-11-01T03:00:00Z",
+        "actor": "review-bot",
+        "actor_type": "Bot",
+        "review_state": "COMMENTED"
+      },
+      {
+        "type": "labeled",
+        "at": "2026-11-05T00:00:00Z",
+        "actor": "alice-dev",
+        "actor_type": "User",
+        "label": "stage:4-ci"
+      },
+      {
+        "type": "comment",
+        "at": "2026-11-06T12:00:00Z",
+        "actor": "review-bot",
+        "actor_type": "Bot"
+      }
+    ],
+    "attempts": [
+      {
+        "key": "*@2026-11-01T00:00:00Z",
+        "kind": "readiness",
+        "reviewer": null,
+        "opened_at": "2026-11-01T00:00:00Z",
+        "closed_at": "2026-11-01T03:00:00Z",
+        "closed_reason": "review",
+        "closed_by": "review-bot"
+      }
+    ],
+    "branch": "feature/pr-103-work"
+  },
+  {
+    "repo": "example-org/example-repo",
+    "number": 104,
+    "url": "https://github.com/example-org/example-repo/pull/104",
+    "title": "[ready][await merge] Add logging",
+    "author": "ci-agent",
+    "author_type": "Bot",
+    "created_at": "2026-11-08T06:00:00Z",
+    "merged_at": "2026-11-10T18:00:00Z",
+    "closed_at": "2026-11-10T18:00:00Z",
+    "is_draft": false,
+    "labels": [],
+    "status": "ready",
+    "timeline_complete": true,
+    "events": [
+      {
+        "type": "commit",
+        "at": "2026-11-08T06:30:00Z",
+        "actor": "ci-agent",
+        "actor_type": "Bot"
+      },
+      {
+        "type": "review_requested",
+        "at": "2026-11-08T12:00:00Z",
+        "actor": "ci-agent",
+        "actor_type": "Bot",
+        "reviewer": "reviewer-one"
+      },
+      {
+        "type": "review",
+        "at": "2026-11-08T13:00:00Z",
+        "actor": "reviewer-one",
+        "actor_type": "User",
+        "review_state": "APPROVED"
+      },
+      {
+        "type": "comment",
+        "at": "2026-11-10T17:00:00Z",
+        "actor": "alice-dev",
+        "actor_type": "User"
+      }
+    ],
+    "attempts": [
+      {
+        "key": "reviewer-one@2026-11-08T12:00:00Z",
+        "kind": "requested",
+        "reviewer": "reviewer-one",
+        "opened_at": "2026-11-08T12:00:00Z",
+        "closed_at": "2026-11-08T13:00:00Z",
+        "closed_reason": "review",
+        "closed_by": "reviewer-one"
+      }
+    ],
+    "branch": "feature/pr-104-work"
+  },
+  {
+    "repo": "example-org/example-repo",
+    "number": 105,
+    "url": "https://github.com/example-org/example-repo/pull/105",
+    "title": "[waiting][review requested] Add cache layer",
+    "author": "alice-dev",
+    "author_type": "User",
+    "created_at": "2026-11-10T00:00:00Z",
+    "merged_at": null,
+    "closed_at": null,
+    "is_draft": false,
+    "labels": [
+      "stage:3-review"
+    ],
+    "status": "waiting",
+    "timeline_complete": true,
+    "events": [
+      {
+        "type": "commit",
+        "at": "2026-11-10T00:30:00Z",
+        "actor": "alice-dev",
+        "actor_type": "User"
+      },
+      {
+        "type": "labeled",
+        "at": "2026-11-11T09:00:00Z",
+        "actor": "alice-dev",
+        "actor_type": "User",
+        "label": "stage:3-review"
+      },
+      {
+        "type": "review_requested",
+        "at": "2026-11-11T09:00:00Z",
+        "actor": "alice-dev",
+        "actor_type": "User",
+        "reviewer": "reviewer-one"
+      },
+      {
+        "type": "review_requested",
+        "at": "2026-11-12T09:00:00Z",
+        "actor": "alice-dev",
+        "actor_type": "User",
+        "reviewer": "reviewer-two"
+      },
+      {
+        "type": "comment",
+        "at": "2026-11-12T10:00:00Z",
+        "actor": "review-bot",
+        "actor_type": "Bot"
+      },
+      {
+        "type": "comment",
+        "at": "2026-11-14T01:00:00Z",
+        "actor": "alice-dev",
+        "actor_type": "User"
+      },
+      {
+        "type": "review",
+        "at": "2026-11-14T02:00:00Z",
+        "actor": "reviewer-one",
+        "actor_type": "User",
+        "review_state": "APPROVED"
+      }
+    ],
+    "attempts": [
+      {
+        "key": "reviewer-one@2026-11-11T09:00:00Z",
+        "kind": "requested",
+        "reviewer": "reviewer-one",
+        "opened_at": "2026-11-11T09:00:00Z",
+        "closed_at": "2026-11-14T02:00:00Z",
+        "closed_reason": "review",
+        "closed_by": "reviewer-one"
+      },
+      {
+        "key": "reviewer-two@2026-11-12T09:00:00Z",
+        "kind": "requested",
+        "reviewer": "reviewer-two",
+        "opened_at": "2026-11-12T09:00:00Z",
+        "closed_at": null,
+        "closed_reason": null,
+        "closed_by": null
+      }
+    ],
+    "branch": "feature/pr-105-work"
+  }
+]

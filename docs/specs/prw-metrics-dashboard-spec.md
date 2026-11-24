@@ -6,10 +6,9 @@ A lightweight, automated metrics collector and renderer that publishes a single,
 1. Multi-repository delivery velocity and cycle times across rolling seven-day windows (`W1` preceding vs. `W2` recent).
 2. Labeled stage dwell time across Stages 0 through 5, explicitly separated from agent idle time.
 3. Operational execution state via `[status][short detail]` titles (`working`, `waiting`, `blocked`, `queued`, `ready`, `unknown`), separating operational activity from lifecycle stages.
-4. Granular, per-attempt handoff waiting delays and strict time semantics (distinguishing operation elapsed, active wall time union, agent effort sum, and non-waste residuals).
-5. Human interaction and episode annotations (`good`, `bad`, `mixed`, `unknown`) with channel coverage auditing.
+4. Granular, per-attempt handoff waiting delays and GitHub-observable time semantics (operation elapsed time and per-attempt handoff delay). Active wall time union and agent effort sum need session telemetry and are shown as `UNKNOWN`.
+5. GitHub-observed activity counts split by actor type, with optional episode quality labels from an annotations file.
 6. An actionable Open PR Attention Table that connects open PRs to their earliest unmet required obligations, accountable owners, active job handles, and receipt links.
-7. Private telemetry retention in `<org>/roadmap` (window data lives in GCS via `dashboards/prw/telemetry-index/<window>.json`; root files stay in `dashboards/prw/telemetry/`), enabling deterministic study readback and historical reconstruction when local Scratch directories are rotated.
 
 ---
 
@@ -38,11 +37,10 @@ A lightweight, automated metrics collector and renderer that publishes a single,
   creation-to-merge p50/p90/p99 for the complete 14-day merged cohort, split into
   all merges, merges within 7 days, and backlog merges over 7 days. Show each
   cohort's sample size.
-- **Private Telemetry Retention**: Sanitized event/episode records, collected PR records, timeline events, handoff receipts and per-source cutoffs (fixed fields only; PR bodies, raw message text, transcripts, excerpts and error strings are never retained) are stored per `<window_slug>` (window data lives in GCS via `dashboards/prw/telemetry-index/<window>.json`; root files stay in `dashboards/prw/telemetry/`; objects are content-addressed by raw sha256), ensuring deterministic audit studies and dashboard rebuilds even after local host Scratch is cleared.
 
 ### 3.2 Time Semantics & Active Work Model
 - **Per-Attempt Timestamps**: Timestamp subtraction for review handoff intervals (`review_requested_at` to `actual_review_started_at`) must be computed strictly within the same review attempt. Timestamps from different attempts are never combined.
-- **Strict Time Semantics**:
+- **Strict Time Semantics** (GitHub-observable only; active wall time and agent effort need session telemetry and render `UNKNOWN`):
   - `PR elapsed`: `merged_at - created_at` (open PRs right-censored at collection cutoff).
   - `Task elapsed`: `endpoint_at - original_accepted_at` (missing acceptance is `UNKNOWN`; closure sprint duration is separate).
   - `Observed operation elapsed`: `queued_at -> completed_at` for CLI or model operations, encompassing setup, provider queuing, and I/O. Labeled *operation elapsed*, never pure CPU or reasoning active time unless inner execution boundaries exist.
@@ -58,11 +56,6 @@ A lightweight, automated metrics collector and renderer that publishes a single,
   `k = ceil((p / 100) * n)` and the value at sorted index `k - 1`. Thus p50 is the
   lower middle item for an even sample; existing `median` fields retain their
   conventional arithmetic-average meaning for even samples.
-- **Observed PR Cost Distribution**: Show per-PR cost percentiles only across
-  PRs with at least one explicitly attributed, fully priced usage event, and show
-  that cohort's `n`. Label this as an observed attributed sample; do not imply
-  complete PR cost or lifecycle population coverage. Exclude partial or unknown
-  per-PR cost records.
 - **Residual Rule**: Residual duration (`PR elapsed - observed_active_wall_time`) is NOT wasted time. It contains observed waiting times, human reflection, and unobserved periods.
 - **Honest Missing Data**: If owner, job, or hold observation is absent during an open interval, `eligible_unattended_interval` evaluates strictly to `UNKNOWN`, never `0s`.
 
@@ -72,21 +65,12 @@ A lightweight, automated metrics collector and renderer that publishes a single,
 - **Decoupling Status from Stages**: Status tokens reflect present-moment execution activity or pending dependency. They must NEVER be reinterpreted as lifecycle stage transitions. Lifecycle stages remain tracked strictly by mechanical labels (`stage:*`) and PR review ledgers.
 - **Legacy Compatibility**: Historical PRs carrying two-letter stage prefixes (e.g. `[fa]`, `[sp]`) or trailing stage suffixes (e.g. `[final approval]`) are parsed for historical stage dwell without converting status tokens into stages.
 
-### 3.4 Human Interactions & Episode Annotation
-- **Deduplicated Episodes**: Raw message count is distinguished from deduplicated intervention episodes (one distinct human contribution/issue plus clarifying follow-ups = 1 episode). Record episode boundaries and source `message_id`s.
-- **Human Actor and Source Identity**: A positively classified `actor_status: human` establishes the speaker independently of the source channel; `role=user` or a channel label alone is not human proof. Deduplicate message IDs within explicit `source_namespace`, falling back to channel/origin; missing or malformed IDs make message identity coverage partial or unknown and cannot prove Dot connector completeness.
-- **Bot and Origin Filtering**: Count initial task assignment messages in raw human messages and initial task requests, but exclude them from qualifying follow-up episodes. Exclude automated bots, background agents, quota/resume watchdogs, and copied/mirrored transcripts; unclear origins remain `UNKNOWN`.
-- **Semantic Classification**: Four categories authored by driver, reviewer, or bounded model pass citing specific evidence (never keyword/regex rules):
-  - `good` (*value-adding*): Intended human review, new domain judgment, spec revision from valid video evidence, requested merge decision.
-  - `bad` (*avoidable*): Human effort caused by an evidenced agent error, rule miss, or unresumed authorized step. Root-cause `/harness` work belongs to the same episode.
-  - `mixed`: The human contribution itself contains both useful new domain judgment and correction of an agent miss; annotator disagreement alone is not `mixed`.
-  - `unknown`: Insufficient context, unclear responsibility, or uncertain PR association.
-- **Attribution & Coverage Rules**:
-  - Preserve `pr_attribution: "unassigned"` for task-level episodes; never force assignment to a PR.
-  - Never divide an incident sample by total PR population to claim a failure rate.
-  - Never claim "zero-touch" unless all relevant human channels (including Dot history) are audited.
-  - Count post-merge corrections under `post_merge`.
-- **Cross-Annotator Calibration**: Evaluate sample episodes across independent annotators. A valid explicit adjudicated label wins; without one, use an agreed annotator label and record unresolved disagreement as `unknown`.
+### 3.4 GitHub-Observed Activity & Optional Annotations
+- **Activity Counts by Actor Type**: Count GitHub-observed PR activity (comments, reviews, review requests) per window, split by the actor login type: `Bot` versus `User`. Agents act under the user's own login, so the `User` count is labelled "user-login activity (includes agents acting as the user)" and is never called human intervention.
+- **Episode Quality Labels**: `good`, `bad`, `mixed` labels come only from an optional `--annotations` file (default `${PRW_METRICS_STATE_DIR:-$HOME/.local/share/prw-metrics-slim}/annotations.json`) shaped `{"<repo>#<number>": {"label": "good|bad|mixed", "evidence": "<url>"}}`. A missing key means `UNKNOWN`. Labels are authored by a driver, reviewer, or model pass citing evidence, never by keyword or regex rules.
+- **Annotation Loading**: `load_annotations(path)` returns `{"labels": {...}, "status": "OK"|"ABSENT"|"INVALID"}`. `main` loads the file and passes the result to `aggregate`, which copies `status` into the top-level `metrics["annotations_status"]` (separate from per-repo `health`) and renders labels `UNKNOWN` unless status is `OK`. An absent file means no labels; an `INVALID` file does not abort the run. The earlier `human-context-annotations-final.jsonl` is not migrated.
+- **No Native Session Logs**: Native session logs are not read for nudges or any other signal.
+- **Attribution Rules**: Never divide an incident sample by total PR population to claim a failure rate, and never claim "zero-touch" from these counts.
 
 ### 3.5 Dashboard Health States
 The dashboard must cleanly surface operational states in the header and tables:
@@ -100,7 +84,7 @@ The dashboard must cleanly surface operational states in the header and tables:
 ### 3.6 Scheduling & Publication
 - **Calendar Intervals**: Scheduled via `launchd` in 4-hour calendar slots at `00:17`, `04:17`, `08:17`, `12:17`, `16:17`, `20:17` local time, writing all timestamps in UTC.
 - **State and Lock Directories**: After configuration is loaded, create the effective state directory and lock-file parent required for collection.
-- **Scoped Publication**: Publishes strictly to `dashboards/prw/README.md`, `dashboards/prw/telemetry/` and `dashboards/prw/telemetry-index/` in private `roadmap` (window objects go to the private telemetry bucket first; a failed upload blocks the publication) using standard fast-forward git pushes with remote-head reconciliation. Never uses force-push.
+- **Scoped Publication**: Publishes strictly to `dashboards/prw/README.md` in private `roadmap` using standard fast-forward git pushes with remote-head reconciliation. Never uses force-push.
 - **Atomic Failure Handling**: On API or script failure, the existing dashboard is preserved; no partial or empty Markdown commit is published.
 
 ---
@@ -118,31 +102,19 @@ See [User Story: PRW Metrics Dashboard](../user-stories/prw-metrics-dashboard.md
 
 ## 5. Proof Plan
 
-### 5.1 Automated TDD Unit Tests
-1. **`tests/test_prw_metrics.py`**:
-   - Pagination handling across $> 100$ items.
-   - Deduplication of overlapping search results across shards.
-   - Half-open window partitioning (`W1` vs. `W2`).
-   - Timestamp subtraction arithmetic within single attempts.
-   - Time semantics: active wall union vs agent effort sum; operation elapsed labeling.
-   - Parsing of `[status][short detail]` titles without reinterpreting them as stages.
-   - Human episode deduplication and bot origin filtering.
-   - Assertion that missing telemetry outputs `UNKNOWN` instead of `0s`.
-   - Markdown rendering across `FRESH`, `STALE`, `PARTIAL_FAILURE`, and `EMPTY` states.
-2. **`tests/test_prw_metrics_scheduler.py`**:
-   - Verification of `@HOME@` placeholder replacement in the launchd plist template.
-   - Validation that the six `:17` calendar slots are present.
-   - Verification that no tokens or private credentials exist in the template or wrapper.
-   - Validation of temporary rendered plist via `plutil -lint`.
+### 5.1 Automated Tests
+Tests live in `tests/test_prw_metrics_collect.py`, `_aggregate.py`, `_render.py`, `_publish.py`, `_util.py`, `_installer.py` and `_pipeline.py`, covering pagination across more than 100 items, half-open window partitioning, per-attempt timestamp arithmetic, `[status][short detail]` title parsing, actor-type counts, annotation loading states, `UNKNOWN` instead of `0s`, rendering across `FRESH`, `STALE`, `PARTIAL_FAILURE` and `EMPTY`, and the launchd installer (`@HOME@` replacement, six `:17` slots, no credentials, `plutil -lint`).
 
 ### 5.2 Real Operational & Visual Verification
-1. **Launchd Job Verification**: Execute `launchctl print gui/$(id -u)/com.jleechan.prw-metrics` to confirm job registration, execute one manual test run, and verify generated output.
-2. **Private Publication Verification**: Verify clean push and readback of `dashboards/prw/README.md` and telemetry records on the private `roadmap` repository.
+1. **Launchd Job Verification**: Execute `launchctl print gui/$(id -u)/com.jleechan.prw-metrics-slim` to confirm job registration, execute one manual test run, and verify generated output.
+2. **Private Publication Verification**: Verify clean push and readback of `dashboards/prw/README.md` on the private `roadmap` repository.
 3. **Browser Visual Inspection**: Open `https://github.com/<org>/roadmap/blob/main/dashboards/prw/README.md` in a verified headless browser session to ensure tables render cleanly on narrow and wide desktop viewports.
 
 ---
 
 ## 6. Mock / Layout Preview
+
+The dashboard has seven sections, all rendered; section 3 is mostly `UNKNOWN`. There is no web dashboard, web export, or SQL layer: the only output is the Markdown file.
 
 ```markdown
 # PRW Quality & Handoff Metrics Dashboard
@@ -150,7 +122,6 @@ See [User Story: PRW Metrics Dashboard](../user-stories/prw-metrics-dashboard.md
 **Status**: FRESH | **Generated (UTC)**: 2026-11-07 12:17:00Z | **Data Cutoff (UTC)**: 2026-11-07 12:00:00Z
 **Rolling Horizon**: [2026-10-24 12:00:00Z, 2026-11-07 12:00:00Z)
 **Windows**: W1 (Prior 7d): [10-24, 10-31) | W2 (Recent 7d): [10-31, 11-07)
-**Telemetry Coverage**: 85.2% (14 / 16 active PRs observed)
 
 ---
 
@@ -182,10 +153,10 @@ See [User Story: PRW Metrics Dashboard](../user-stories/prw-metrics-dashboard.md
 | Metric | Sample (n) | Median | p75 | Definition / Notes |
 |---|:---:|:---:|:---:|---|
 | **Observed Operation Elapsed** | 42 | 4m 12s | 11m 30s | Queued to completed CLI/API span (includes setup & I/O) |
-| **Observed Active Wall Time** | 38 | 1.85h | 4.20h | Union of substantive agent/tool execution intervals |
-| **Agent Effort (Sum)** | 38 | 3.10h | 8.45h | Sum of parallel worker active intervals (can exceed wall time) |
-| **Observed Waiting Time** | 38 | 0.45h | 1.60h | Union of CI queues, provider limits, and human holds |
-| **Residual (Non-Wasted)** | 38 | 0.60h | 2.10h | Elapsed minus active wall time; includes reflection & unobserved spans |
+| **Observed Active Wall Time** | 0 | UNKNOWN | UNKNOWN | Union of substantive agent/tool execution intervals |
+| **Agent Effort (Sum)** | 0 | UNKNOWN | UNKNOWN | Sum of parallel worker active intervals (can exceed wall time) |
+| **Observed Waiting Time** | 0 | UNKNOWN | UNKNOWN | Union of CI queues, provider limits, and human holds |
+| **Residual (Non-Wasted)** | 0 | UNKNOWN | UNKNOWN | Elapsed minus active wall time; includes reflection & unobserved spans |
 
 ---
 
@@ -200,10 +171,21 @@ See [User Story: PRW Metrics Dashboard](../user-stories/prw-metrics-dashboard.md
 
 ---
 
-## 5. Human Interaction & Episode Breakdown
+## 5. GitHub-Observed Activity & Episode Labels
 
-| Category | Episodes | Raw Messages | Share of Observed | Operational Meaning |
-|---|:---:|:---:|:---:|---|
+| Actor type | Activity count | Meaning |
+|---|:---:|---|
+| **Bot** | 212 | Automated reviewers and workflow accounts |
+| **User** | 96 | User-login activity (includes agents acting as the user) |
+
+| Episode label | PRs | Meaning |
+|---|:---:|---|
+| **good / bad / mixed** | 6 / 2 / 1 | From `--annotations` only |
+| **UNKNOWN** | 31 | No annotation for the PR |
+
+*Note: annotations status `OK`. User-login activity is not human intervention.*
+
+---|:---:|:---:|:---:|---|
 | **Good (Value-Adding)** | 14 | 22 | 70.0% | Spec refinement from video evidence, requested merge decision |
 | **Bad (Avoidable)** | 4 | 7 | 20.0% | Agent rule miss, unresumed authorized action |
 | **Mixed** | 2 | 5 | 10.0% | New guidance combined with error correction |
@@ -239,156 +221,7 @@ See [User Story: PRW Metrics Dashboard](../user-stories/prw-metrics-dashboard.md
 | Risk | Severity | Mitigation |
 |---|:---:|---|
 | **Accidental Credential Leakage** | Critical | Sourcing profile and ambient `gh` CLI credentials only. Zero tokens, passwords, or personal hostnames in plists, scripts, or tracked Markdown files. |
-| **Merge / Git Publication Conflict** | Medium | The publisher fetches the remote `roadmap` branch, attempts a clean fast-forward rebase, reconciles only `dashboards/prw/README.md` and telemetry files, and fails safely without force-pushing. |
+| **Merge / Git Publication Conflict** | Medium | The publisher fetches the remote `roadmap` branch, attempts a clean fast-forward rebase, reconciles only `dashboards/prw/README.md`, and fails safely without force-pushing. |
 | **Misleading Idle Accusations** | High | Clear visual and lexical separation between stage dwell (elapsed calendar time) and eligible unattended delay. Residual duration (`elapsed - active`) is explicitly defined as non-waste. Unobserved telemetry is strictly displayed as `UNKNOWN (telemetry coverage 0%)`. |
-| **Telemetry Loss Across Host Rotations** | Medium | Sanitized event logs (fixed scalar fields) and receipts are retained in `<org>/roadmap` and its telemetry bucket (window data lives in GCS via `dashboards/prw/telemetry-index/<window>.json`; root files stay in `dashboards/prw/telemetry/`), guaranteeing reproducible audit studies and deterministic rebuilds even when local Scratch is rotated. |
 | **Subjective Human Intervention Scoring** | Medium | Grounded in four strict semantic categories authored by model/human evaluation with cited evidence rationales, origin metadata checks (excluding bots), cross-annotator calibration, and explicit preservation of `unassigned` task episodes. |
 | **Host Sleep / Network Interruption** | Low | If the host is asleep or offline during a scheduled slot, the job runs on next wake; the previous dashboard remains intact and is explicitly stamped with its prior cutoff and `STALE` status. |
-
-## Usage Feed Slice
-
-The existing `scripts/prw_metrics.py` command accepts `--usage-events <jsonl>` and
-`--usage-rates <json>`. The JSONL feed contains native request usage wrappers with
-`request_id`, `message_id`, `timestamp`, `model`, `raw_usage`,
-and optional `usage_conflict` and `attributions`. Rates may be supplied as dated
-records or as a provider rate card keyed by exact model SKU.
-
-Supported native Anthropic usage fields include uncached input, cache reads, separate
-5 minute and 1 hour cache writes, and output. Reasoning is reported as a diagnostic
-subset included in output. Unknown SKUs, unsupported records, missing prices, and
-conflicts remain unknown. No per-PR share is inferred: only supported explicit
-attribution with evidence references and a rationale produces a PR subtotal; any
-remainder stays unallocated.
-
-The retention snapshot keeps sanitized token/cost totals and rate provenance and
-excludes prompts, responses, request paths, and rationale text. The rate card provides
-a public model-list equivalent, not actual invoice amounts. For deterministic native
-history collection, repeat --history-root <path> for every configured Claude or Codex
-root. The collector scans every JSONL file under those roots and selects records by the
-half-open UTC interval [cutoff - days, cutoff). --cutoff is the same UTC-aware cutoff
-used by the dashboard; --days defaults to 14. File modification times do not limit the
-history scan.
-
-Claude usage comes from assistant request records and retains request/message IDs,
-timestamp, model, token buckets, and service metadata when present. Codex usage comes
-from each token_usage_record response and its payload.usage; response IDs are
-deduplicated by the existing aggregator, and model identity comes from the matching
-turn_id context. Codex cached input is subtracted from total input only when both
-counts are known and consistent. Reasoning output is a diagnostic subset of output.
-Generic cache-write counts without TTL remain unpriced. Missing model, rate, or billing
-scope metadata stays unknown; API/subscription spend is not inferred from token counts.
-
-Human metadata collection retains structured user-event IDs, timestamps, turn/session
-identifiers, and source fingerprints only. Claude human verification uses explicit
-native origin metadata. Codex user-role records remain candidates until a reviewed
-annotation verifies their origin. Initial/follow-up episode roles, quality labels, and
-scores are never inferred from message order or text. Exact-ID annotations are read
-from --history-annotations <jsonl>; an explicit provider/request-ID binding can supply
-a PR attribution with the existing evidence fields. Incidental PR mentions do not bind
-usage.
-
-For per-PR human steering, --pr-lookup-cache <json> supplies a cached PR snapshot
-with validated repository, branch, and lifecycle timestamps. --repository-map <json>
-uses exact recorded-CWD mappings under cwdToRepo; only entries with
-native_origin_validated status are passed to the collector, and no CWD paths are
-exported. The dashboard joins human events first by an exact reviewed PR binding,
-then by exact repository, branch, and event-time overlap. If no PR lifecycle interval
-overlaps but the exact repository + branch identifies one PR across the full snapshot,
-that snapshot association is retained at low confidence; it is not event-time proof.
-When repository context is unavailable, a branch-only join is allowed only when the
-branch is unique across the configured PR snapshot and is labeled low confidence.
-Ambiguous branches remain unassigned. Direct, repository/branch, and branch-only
-message counts stay separate. Reviewed actor_kind=automated_watch excludes a row even
-when the native role says user. Reviewed context decisions (confirm, override, or unassigned) take
-precedence over best-effort branch association; reviewed multi-PR/global unassignment
-stays unassigned, while the original branch association remains audit metadata.
-Nudge messages and episodes require the explicit message_kind, human_nudge_eligible,
-and episode ID fields. Initial task, new requirement, status request, and follow-through
-categories come only from reviewed annotations. Per-PR rows with no attributed event
-show UNKNOWN coverage, not zero steering.
-
-The retained and rendered human_summary.per_pr rows expose direct reviewed PR
-bindings separately from branch-context associations. Exact reviewed bindings are
-explicit evidence; exact repository + branch + event-time matches are best-effort.
-When repository context is unavailable, a globally unique branch may be shown as a
-separate low-confidence association. Ambiguous branches remain unassigned. Each row
-shows verified messages, candidate messages, explicit initial requests, and only
-follow-up episode labels from retained annotations. No first-message rule, keyword
-classification, or absence-as-zero steering verdict is used.
-
---history-export <jsonl> writes a deterministic combined JSONL of normalized usage
-and human metadata, with no raw prompt/response text or source paths; this file can be
-fed back through --usage-events. The dashboard records root/file coverage, window
-exclusions, parse/read errors, duplicate usage rows, explicit PR bindings, and human
-candidate/verified/unannotated counts. Status is scoped to the supplied roots. Only the
-Claude and Codex JSONL sources are collected; other runtimes and unconfigured roots are
-not claimed as covered. A complete scan is still not a fleet or PR population total.
-
-The cache-write TTL buckets remain separate and never
-use a generic cache-write price. The card's `standard_global_public_list_price` basis
-prices only events with explicit `standard` service tier, `global` inference geography,
-and `standard` speed. Missing or different metadata stays unpriced. Events are limited
-to the existing dashboard interval `[cutoff - 14 days, cutoff)`; outside-window and
-undated records are reported separately.
-
-### Bounded retained usage publication
-
-Retained usage must preserve every sanitized record while keeping each JSONL Git
-blob at or below 32 MiB. Small and empty snapshots retain the legacy
-`usage_events.jsonl` format; larger snapshots use numbered JSONL parts with an
-ordered byte-count, row-count and SHA256 manifest. A record is never split,
-truncated or sampled. An individually oversized record fails publication visibly.
-
-Retained loading accepts legacy windows and verifies complete shard families,
-including files transported by published-ref export. Missing, corrupt, unexpected or ambiguous usage
-files fail visibly rather than become complete coverage. Republishing a window
-atomically replaces its usage family, including shrinking or empty snapshots;
-other windows, unrelated repository paths and local worktree changes remain intact.
-The privacy projection, unknown values, duplicate/conflict semantics and existing
-retention policy do not change. Focused acceptance uses tiny byte limits and real
-local Git publication/readback; it does not require another native-history scan.
-
-Retained collection indexes full decoded JSON records with the prior Python
-equality semantics, retaining first-seen order and distinct/conflicting records.
-Request IDs alone never determine equality; dictionary key order is immaterial,
-array order and string/number distinctions remain significant, and equivalent
-boolean/integer/float values retain their previous equality behavior.
-
-Complete privacy-projected summary snapshots also obey the 32 MiB per-blob bound.
-Small snapshots keep summary_snapshot.json. Larger snapshots use a verified
-manifest and numbered JSONL transport parts containing base64 fragments of the
-complete UTF-8 JSON document. This preserves every projected summary event and
-field without truncation; fragments may cross UTF-8 boundaries and are decoded
-only after byte-integrity verification and reassembly. Published-ref export carries
-both formats, and retained loading exposes reconstructed summary_snapshots.
-Caller-supplied summary parts are reconstructed and privacy-projected before
-publication. Same-window replacement removes stale summary parts as well as usage
-parts; small, empty, shrinking, corrupt and repeated snapshots have focused proof.
-
-The final publisher validates every telemetry blob, including manifests and other
-metadata, against the 32 MiB hard limit before any Git write. If metadata itself
-exceeds that limit, publication fails explicitly without dropping records or
-committing a partial dashboard. Test-only part budgets are separate from this
-hard limit; production defaults bind both to 32 MiB.
-
-### Reviewed human-metadata retractions
-
-Exact-event annotations may retract prior unsupported metadata. Explicit
-actor_kind=unknown or human_origin=unknown/unverified_candidate marks the record
-as an unverified candidate, never an automated message. Explicit null clears
-optional episode/quality/review, message-kind/nudge, score and direct-PR-binding
-fields; omitted keys preserve prior values. Explicit context unassignment remains
-necessary to prevent branch fallback when no single PR is supported. Original
-source evidence and previous annotations remain in their immutable audit records.
-
-Fresh acquisition and normalized replay use one application function, before
-provider/event-ID deduplication. Every copy receives the correction; unrelated
-IDs and usage records are unchanged. Candidate counts are observations, not proof
-of human origin. UNKNOWN per-PR verified-message/episode totals must remain NULL
-in query results rather than become an asserted actual-human zero. Synthetic
-fresh/replay, duplicate, alias, omitted-field and query fixtures prove this boundary;
-no correction implies all other annotation rows are false.
-
-Risk: an incorrect reviewed correction can retract valid evidence, so only explicit
-fields on exact selected event IDs change; keep the previous feed and correction
-provenance. No new user interface is introduced, so visual mocks are not applicable.
