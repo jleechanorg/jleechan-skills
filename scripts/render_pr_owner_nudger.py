@@ -10,6 +10,13 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_NAME = "pr-owner-nudger"
 
 
+def lane_targets(name):
+    """Validate a scheduler lane name and return (launchd_label, systemd_service)."""
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", name) or name.startswith("."):
+        raise ValueError("--name may contain only letters, digits, dot, underscore and hyphen")
+    return f"org.prw.{name}", f"{name}.service"
+
+
 def quote_systemd_path(path):
     escapes = str.maketrans({"\\": "\\\\", '"': '\\"', "%": "%%", "$": "$$",
                              "\n": "\\n", "\r": "\\r"})
@@ -25,9 +32,11 @@ def main():
     parser.add_argument("--name", default=DEFAULT_NAME,
                         help="unit/label name, for a second lane with its own config and state")
     args = parser.parse_args()
-    if not re.fullmatch(r"[A-Za-z0-9._-]+", args.name) or args.name.startswith("."):
-        parser.error("--name may contain only letters, digits, dot, underscore and hyphen")
-    name, label = args.name, f"org.prw.{args.name}"
+    try:
+        label, _ = lane_targets(args.name)
+    except ValueError as exc:
+        parser.error(str(exc))
+    name = args.name
 
     config = args.config.expanduser().absolute()
     wrapper = ROOT / "scripts" / "run_pr_owner_nudger.sh"
