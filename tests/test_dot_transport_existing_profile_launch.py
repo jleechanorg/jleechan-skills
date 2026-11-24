@@ -1232,6 +1232,46 @@ process.stdout.write = (chunk, ...args) => {
         self.assertTrue(lock.is_symlink())
         self.assertFalse(self.launch_record.exists())
 
+    def test_macos_disable_features_tracks_v10_vs_v11_cookie_store(self):
+        import sqlite3
+        import sys
+
+        if sys.platform != "darwin":
+            self.skipTest("macOS keychain launch flags only apply on Darwin")
+        cookies_db = self.profile / "Default" / "Cookies"
+        cookies_db.parent.mkdir(parents=True, exist_ok=True)
+
+        def write_store(prefix):
+            if cookies_db.exists():
+                cookies_db.unlink()
+            if prefix is None:
+                return
+            with sqlite3.connect(cookies_db) as con:
+                con.execute("CREATE TABLE cookies (name TEXT, encrypted_value BLOB)")
+                con.execute(
+                    "INSERT INTO cookies VALUES (?, ?)",
+                    ("__Secure-next-auth.session-token.0", prefix + b"ciphertext"),
+                )
+
+        cases = [
+            ("v10", b"v10", "--disable-features=MacAppCodeSignClone,KeychainKeyProviderUserDataDirProtection"),
+            ("v11", b"v11", "--disable-features=MacAppCodeSignClone"),
+            ("fresh", None, "--disable-features=MacAppCodeSignClone"),
+        ]
+        for label, prefix, expected_flag in cases:
+            with self.subTest(label=label):
+                write_store(prefix)
+                if self.launch_record.exists():
+                    self.launch_record.unlink()
+                proc = self._run()
+                self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+                recorded = json.loads(self.launch_record.read_text(encoding="utf-8"))
+                self.assertIn(expected_flag, recorded["args"])
+                self.assertEqual(
+                    sum(1 for a in recorded["args"] if a.startswith("--disable-features=")),
+                    1,
+                )
+
 
 if __name__ == "__main__":
     unittest.main()
