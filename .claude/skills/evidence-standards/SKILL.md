@@ -218,7 +218,7 @@ A claim mixing Layer 2 (real BQ) with Layer 1 (synthetic LLM) is **not** Layer 2
 
 Keep the original evidence and its provenance intact. Give the intended reviewer accessible reproduction directions and artifact links in the PR, a checked-in document, an access-controlled receipt/store, or an authorized gist, including the reviewed/tested SHA, dependencies, exact commands and expected results the evidence class requires. Underlying artifacts may stay in authorized private hosting. The separate sanitized review receipt follows `pr-lifecycle` § Review records in the PR description, including its gist URL (or, for a one-liner fast-path `/es` record, the PR-body section), exact reviewed SHA, and `PUBLICATION BLOCKED` state when publication cannot complete. Artifact hosting is not review-record completion.
 
-Publish or send artifacts only to the current task's authorized audience and destination. Sanitize any shareable copy, keep private originals, and identify the relationship between them. An unlisted gist is accessible to anyone with its URL; it is not an access-controlled secret store.
+Publish or send artifacts only to the current task's authorized audience and destination. Sanitize any shareable copy, keep private originals, and identify the relationship between them. A viewer without sign-in is a public destination even when linked from a private PR. An unlisted gist is accessible to anyone with its URL; it is not an access-controlled secret store.
 
 In authorized evidence, redact authentication tokens, including bearer, access, refresh, custom and session tokens and token-bearing URL components. Account emails and IDs may stay visible; their presence alone is not a privacy defect or an extra redaction or approval gate. Ordinary game/test content likewise needs no separate privacy certification merely because it is readable.
 
@@ -269,7 +269,9 @@ media cells in a findings table need inline copies. The element under test must
 change in the pixels, not only in a caption; below-fold or caption-only video
 does not prove the claim, and an independent reviewer must decode the relevant
 frames. Verify the intended
-reviewer's access, media content type and rendered PR-body URLs; use clickable
+reviewer's access, media content type and rendered PR-body URLs. For video, play
+the exact delivered file through the claimed action and the settled destination.
+Check that captions, masks and crops preserve the complete screen. Use clickable
 authorized hosts rather than `gs://` or `storage.cloud.google.com/` links. The
 sanitized receipt lists the same media hashes and access mode. Never make private
 media public merely to satisfy reachability, use placeholders/crops that hide the

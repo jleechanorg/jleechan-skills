@@ -145,6 +145,10 @@ installPageScript, page
 
 `Buffer` is also available (built-in). Everything else (fs, require, process, fetch, setTimeout-as-promise) is **not** in the REPL sandbox — use the stdout pattern to ship data out.
 
+### 7. `aside repl` CLI `openTab()` closes on exit; `bringToFront()` stays background in GUI
+- **`aside repl` CLI vs `aside-mcp` `repl`:** Tabs opened with `openTab(url)` inside a one-shot `aside repl` CLI invocation close automatically when that CLI process exits. When staging a tab that must stay open for the user, open it through `aside-mcp`'s persistent `repl` tool instead.
+- **GUI tab selection:** Calling `page.bringToFront()` inside `aside-mcp` leaves `active: false` in the Aside GUI when other tabs exist in that profile window. Only when the operator explicitly asks to bring an Aside tab forward on screen, raise `process "Aside"` via `osascript` (`AXRaise` on the target profile window + `AXPress` on the matching tab title) and verify `active: true, focusedWindow: true` via `listBrowserTabs()` — never target personal Google Chrome or port `9222`.
+
 ## Source transcripts
 
 Original investigation: aside repl live probe during social-poster skill build (2026-07-05). Captured by running each candidate API call individually:

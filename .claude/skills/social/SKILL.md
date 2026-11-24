@@ -12,6 +12,14 @@ author's latest changes with earlier versions; preserve their message, voice,
 personal metaphors, uncertainty, dates, quantities, scope, and explicit deletions.
 When asked to explain edits, inspect and explain without changing the draft.
 
+For every social draft or revision, briefly explain to the user outside the post
+why the chosen wording fits the source and the user's goal. If the draft includes
+a question, ground it directly in the original post or discussion; identify the
+specific source point and explain why the question is worth asking. Questions are optional: omit
+them when no relevant, grounded question adds value. Never add a generic question
+just for engagement. Keep this rationale separate from the publishable copy and
+preserve applicable community rules, user intent, and approval boundaries.
+
 Keep the reader's discussion and useful next action central. Preserve concrete
 experience and process; do not replace them with imagined objections. Reviewing
 prompts, LOC counts, and evidence does not mean reading production source line by
@@ -35,11 +43,42 @@ approval. Do not solicit approval for imagined objections. Preserve supplied
 uncertainty and scope; this gate never weakens truthful status, contradictory
 evidence, safety/security notices, or tool, permission, and instruction duties.
 
-Use meaningful clickable link labels. Preserve exact destinations and tracking
-parameters; when requested, include the relevant links at both top and bottom.
+Use meaningful clickable link labels. Preserve destination hosts, paths, fragments
+and functional query parameters. Assign tracking parameters using the per-publication
+policy below rather than preserving copied attribution from another placement.
+When requested, include the relevant links at both top and bottom.
 Use original media from the requested source, preserve originals and aspect
 ratios, and place compact panels immediately after their matching explanation.
 Read [Reddit editing](references/reddit-editing.md) before changing Reddit media.
+
+## Unique tracking for every publication
+
+Give every distinct post or comment its own attribution tag, including replies
+and cross-platform versions. Never copy an earlier placement's UTM campaign into
+a new publication, such as reusing a launch post's campaign tag on a later reply.
+
+- Allocate a unique `placement_id` when drafting. Use it as `utm_campaign` on
+  owned product/landing-page links. A useful format is
+  `<project>_<platform>_<community-or-account>_<thread-or-topic>_<YYYYMMDD>_<short-id>`.
+  Date or subreddit alone is not unique. For example,
+  `myproject_reddit_somesub_1abc23_20261104_a7c2` identifies one comment, not all
+  posts in that community. A second destination or another comment gets a different ID.
+- Set `utm_source` to the actual platform, such as `reddit` or `x`, and
+  `utm_medium=social`. Optional `utm_content` distinguishes link positions within
+  the same publication; it does not replace the unique publication campaign.
+- Reuse that publication's tag across repeated links and draft revisions. Resume
+  or retry an uncertain submission with the same recorded ID only after checking
+  whether it already published; never create a duplicate to get a fresh tag.
+- Check the durable posting records for collisions. Record the placement ID,
+  destination/thread, exact tagged URLs and eventual published permalink together.
+- Replace stale copied `utm_*` values on owned links while preserving all unrelated
+  parameters. Do not alter signed URLs, authentication tokens, third-party links,
+  or short-link destinations without a supported, authorized tracking path. Do not
+  invent redirects or claim attribution exists where it cannot be configured.
+- Before publishing, inspect the actual staged hyperlink targets, not just their
+  labels, for the assigned tag and absence of another placement's campaign. After
+  publishing, verify the live link targets and record their accepted parameters.
+  A missing or wrong tag is an unfinished verification item, not successful tracking.
 
 ## Runtime owner
 
@@ -55,3 +94,19 @@ request authorizes its exact content, destination, and outcome, subject to tool
 and policy approvals; do not invent a magic posting token. Never infer publishing
 permission from a draft request. Do not delete published posts as cleanup. Follow the current runtime's explicit
 deletion authorization and confirmation rules.
+
+## Reddit destination selection and promotion
+
+For Reddit destination research, treat any dated candidate-thread notes as
+leads, not an allowlist or authorization to post. Recheck the latest thread,
+current rules, AI-content restrictions, account eligibility and existing activity.
+Do not fan out near-identical promotions or turn genuine participation into
+karma farming. After a removal, report it and pause automatic distribution; do
+not retry, retitle or switch communities to evade filtering. A later explicit
+user decision can select a permitted next action, subject to platform rules.
+
+Treat older linked guidance as historical where it conflicts with this policy.
+No title phrase guarantees removal or acceptance, no fixed promotion ratio or
+cooldown applies universally, and no platform setting silently authorizes
+cross-posting to additional destinations. Preserve a media-bearing Reddit
+composer rather than reopening or closing it solely to test persistence.

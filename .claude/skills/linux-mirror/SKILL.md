@@ -13,6 +13,10 @@ for fresh resource checks on both hosts, host selection and task ownership; this
 skill owns Linux transport and response proof. Record the measurements and
 decision before starting the remote checkout or agent.
 
+If this host is blocked (disk full, CPU/memory admission gate, missing tool,
+unavailable simulator, host-local auth), use this skill to move the work to
+Linux and keep working there; do not stop or wait.
+
 Follow the [lightweight caller contract](../linux-remote/SKILL.md#lightweight-caller-remote-execution-owner): the caller drives transport and verifies receipts; the target agent owns execution.
 
 ## Setup (once, per pair of machines)

@@ -45,6 +45,11 @@ not independent drafting.
    Verify the signed-in identity before staging or publishing.
 3. Draft for the selected audience. Verify public claims and linked sources,
    preserve voice and deletions, and use meaningful links at requested positions.
+   Apply [unique per-publication tracking](../social/SKILL.md#unique-tracking-for-every-publication):
+   allocate a fresh placement ID for each distinct post/comment, check existing
+   posting records for collisions, and replace copied UTM campaigns on owned links.
+   Never reuse an earlier placement's tag for another community or publication.
+   Preserve the same ID when revising or resuming that one publication.
    Keep verification notes separate from public copy. When review is requested,
    review the exact revision and sources; report failed or unavailable reviewers
    honestly, without carrying an old approval onto revised content.
@@ -52,6 +57,10 @@ not independent drafting.
    durable roadmap location. Reuse the campaign folder; otherwise use
    `social/YYYY-MM-DD-topic/`. Record title/body/captions, source URLs, intended
    account/destination, revision, media paths/provenance, composer URL and status.
+   Include `placement_id`, assigned `utm_source`/`utm_medium`/`utm_campaign`, optional
+   `utm_content`, and every exact tagged URL. Bind the published permalink to this
+   record after submission; record unsupported tracking separately rather than
+   pretending it was configured.
    Keep full original media and exact staged composites there, or reference
    existing durable copies. Do not store credentials. Read saved files back.
 5. For Instagram media posts, keep “Share to Threads” and “Share to Facebook”
@@ -63,7 +72,10 @@ not independent drafting.
    elements and media positions. For Reddit read
    [Reddit editing](../social/references/reddit-editing.md) before mutation.
    Compare substantive paragraphs and links with the pre-edit backup; preserve
-   unrelated user edits. Capture a screenshot and exact composer URL.
+   unrelated user edits. Inspect actual rendered hyperlink targets and their query
+   parameters: each owned tracked link must carry this publication's assigned tag,
+   not a campaign copied from the source post. Resolve mismatches before publishing.
+   Capture a screenshot and exact composer URL.
 6. Save/status checks must preserve a working media composer. Report local draft,
    browser-staged, saved text, staged media, persisted media, and published state
    separately according to evidence. Never reload or close a media-bearing
@@ -71,6 +83,10 @@ not independent drafting.
 7. Publish only within explicit current scope. After uncertain submission, inspect
    account history or the existing permalink before any retry. Verify the live
    permalink's author, text, links and media before reporting publication.
+   Recheck live hyperlink targets against the recorded per-publication tracking
+   parameters, and save the accepted URLs with the publication receipt. Report a
+   missing or incorrect tag as unresolved; do not silently claim attribution worked
+   or edit a live post outside the current authorization.
    Stop dependent mutations when the outcome is uncertain; preserve the draft
    and report the exact unresolved action. Never use deletion as cleanup.
 
