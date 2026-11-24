@@ -26,6 +26,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 TEMPLATE = Path(__file__).resolve().parent.parent / "assets" / "template.html"
+LEGACY_TIMELINE_DIR = Path("/tmp/timeline")
 COLS = 60
 SECRET_RE = re.compile(
     r"gh[pousr]_[A-Za-z0-9]{30,}|github_pat_\w{20,}|sk-[A-Za-z0-9_-]{20,}|(?:AKIA|ASIA)[0-9A-Z]{16}"
@@ -95,6 +96,32 @@ def run(cmd, cwd=None, stdin=None):
     if r.returncode:
         raise RuntimeError(f"{' '.join(cmd[:3])}: {r.stderr.strip()[-300:]}")
     return r.stdout.strip()
+
+
+def _migrate_legacy_sidecars(dest: Path, suffixes: tuple[str, ...]) -> None:
+    """Copy legacy /tmp/timeline sidecars to the scratch-root dest when missing there."""
+    legacy_dir = LEGACY_TIMELINE_DIR
+    if dest.parent.resolve() == legacy_dir.resolve() or not legacy_dir.is_dir():
+        return
+    for suffix in suffixes:
+        target = Path(f"{dest}{suffix}")
+        legacy = legacy_dir / f"{dest.name}{suffix}"
+        if target.exists() or target.is_symlink() or not legacy.is_file() or legacy.is_symlink():
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(legacy.read_text())
+
+
+def _preserve_legacy_publication_sidecars(dest: Path) -> None:
+    """Migrate .gist and .bead from legacy /tmp/timeline unless a different owner claimed it."""
+    legacy_owner = LEGACY_TIMELINE_DIR / f"{dest.name}.owner"
+    dest_owner = Path(f"{dest}.owner")
+    if legacy_owner.is_symlink():
+        return
+    if legacy_owner.is_file() and dest_owner.is_file():
+        if legacy_owner.read_text().strip() != dest_owner.read_text().strip():
+            return
+    _migrate_legacy_sidecars(dest, (".gist", ".bead"))
 
 
 def claim_path(spec, dest):
@@ -187,7 +214,9 @@ def main(spec_path, out_path=None, branch=None, pr=None, publish=False):
         if Path(f"{dest}{suffix}").is_symlink():
             sys.exit(f"build.py: {dest}{suffix} is a symlink; refusing to write through it")
     if not out_path:
+        _migrate_legacy_sidecars(dest, (".owner",))
         claim_path(spec, dest)
+        _preserve_legacy_publication_sidecars(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
     rows = [(p["title"], r) for p in spec["phases"] for r in p["rows"]]
     for _, r in rows:
