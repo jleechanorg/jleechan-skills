@@ -24,3 +24,4 @@ with full section details preserved below so agents loading this skill get the c
 Also read the target repository's `AGENTS.md`/`CLAUDE.md` and `.github/pull_request_template.md` for local
 required fields, CI markers, evidence records, and domain-specific content. Preserve those requirements while
 applying the shared structure. Do not replace a repository template or local gate with this skill.
+Any user-visible or runtime behaviour not in the operator's ask must be disclosed under `## Behaviour not asked for` per `~/.codex/AGENTS.md` § "Build only what the user asked for (No speculative enforcement)".
