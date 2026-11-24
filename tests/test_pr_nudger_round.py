@@ -495,6 +495,34 @@ class RoundTest(unittest.TestCase):
             self.run_cli("prune")
             self.assertEqual(json.loads(self.config.read_text())["targets"], [])
 
+    def test_prune_preserves_reopened_non_expired_observe_only_despite_stale_delivery_expiry(self):
+        state = self.root / "state"
+        state.mkdir()
+        now = 2_000_000_000.0
+        config = {
+            "enabled": True,
+            "state_dir": str(state),
+            "prune_after_hours": 24,
+            "targets": [{"repo": "base/project", "number": 12, "observe_only": True}],
+        }
+        self.config.write_text(json.dumps(config))
+        with sqlite3.connect(state / "receipts.sqlite3") as db:
+            db.execute("CREATE TABLE target (repo TEXT, number INTEGER, next_action TEXT, observed_status TEXT, reason TEXT, expired_at REAL, closed_at REAL)")
+            db.execute("CREATE TABLE delivery (repo TEXT, number INTEGER, status TEXT, time REAL)")
+            db.execute("INSERT INTO target VALUES ('base/project', 12, 'refresh_pr', 'actionable', 'observing', NULL, NULL)")
+            db.execute("INSERT INTO delivery VALUES ('base/project', 12, 'expired', ?)", (now - 30 * 3600,))
+
+        def fake_github(_cwd, _endpoint, **_kwargs):
+            return {"number": 12, "state": "open", "labels": [], "title": "PR", "body": "",
+                    "head": {"sha": "a" * 40, "ref": "f", "repo": {"full_name": "base/project"}},
+                    "base": {"repo": {"full_name": "base/project"}}}
+
+        with patch.object(round_cli.time, "time", return_value=now), \
+             patch.object(round_cli, "github", side_effect=fake_github, create=True):
+            self.run_cli("prune")
+
+        self.assertEqual([t["number"] for t in json.loads(self.config.read_text())["targets"]], [12])
+
 
 if __name__ == "__main__":
     unittest.main()

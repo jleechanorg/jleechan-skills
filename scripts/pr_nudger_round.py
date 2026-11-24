@@ -278,18 +278,26 @@ def _table_columns(db, table):
     return {row[1] for row in db.execute(f"PRAGMA table_info({table})").fetchall()}
 
 
+def _deadline_epoch(enrollment):
+    """Extract unix-epoch deadline >= 1_000_000_000 (epoch-seconds guard) from wrapper path, else None."""
+    if not isinstance(enrollment, dict):
+        return None
+    match = re.search(r"-deadline-(\d+)$", str(enrollment.get("cli_bin", "")))
+    if not match:
+        return None
+    deadline = int(match.group(1))
+    return deadline if deadline >= 1_000_000_000 else None
+
+
 def _enrollment_restarted(item, repo, number, db, now, ttl_seconds):
     if item.get("observe_only"):
         return False
     enrollment = item.get("enrollment")
     if not isinstance(enrollment, dict):
         return False
-    match = re.search(r"-deadline-(\d+)$", str(enrollment.get("cli_bin", "")))
-    if match:
-        deadline = int(match.group(1))
-        if deadline >= 1_000_000_000:
-            return deadline > now or now - deadline < ttl_seconds
-        return deadline > now
+    deadline = _deadline_epoch(enrollment)
+    if deadline is not None:
+        return deadline > now or now - deadline < ttl_seconds
     if db is None:
         return False
     if "owner" in _table_columns(db, "delivery"):
@@ -378,16 +386,19 @@ def _prune_reason_for_target(item, repo, number, db, now, ttl_seconds, closed_gr
     target_cols = _table_columns(db, "target")
     expired_at = None
     is_expired = False
+    target_row = None
     if {"reason", "expired_at"} <= target_cols:
-        row = db.execute("SELECT reason, expired_at FROM target WHERE repo=? AND number=?", (repo, number)).fetchone()
-        if row and row[0] == "expired":
+        target_row = db.execute("SELECT reason, expired_at FROM target WHERE repo=? AND number=?", (repo, number)).fetchone()
+        if target_row and target_row[0] == "expired":
             is_expired = True
-            expired_at = row[1]
+            expired_at = target_row[1]
     elif "reason" in target_cols:
-        row = db.execute("SELECT reason FROM target WHERE repo=? AND number=?", (repo, number)).fetchone()
-        is_expired = bool(row and row[0] == "expired")
+        target_row = db.execute("SELECT reason FROM target WHERE repo=? AND number=?", (repo, number)).fetchone()
+        is_expired = bool(target_row and target_row[0] == "expired")
 
-    if (is_expired and expired_at is None) or not is_expired:
+    # Authoritative target.reason!='expired' (including 'observing'/reopened) must not be
+    # overridden by historical delivery expiry rows.
+    if (is_expired and expired_at is None) or (target_row is None or "reason" not in target_cols):
         delivery_cols = _table_columns(db, "delivery")
         if {"status", "time"} <= delivery_cols:
             row = db.execute(
@@ -402,12 +413,9 @@ def _prune_reason_for_target(item, repo, number, db, now, ttl_seconds, closed_gr
         return "expired"
 
     if not item.get("observe_only"):
-        cli_bin = (item.get("enrollment") or {}).get("cli_bin", "")
-        match = re.search(r"-deadline-(\d+)$", str(cli_bin))
-        if match:
-            deadline = int(match.group(1))
-            if deadline >= 1_000_000_000 and now - deadline >= ttl_seconds:
-                return "expired_deadline"
+        deadline = _deadline_epoch(item.get("enrollment"))
+        if deadline is not None and now - deadline >= ttl_seconds:
+            return "expired_deadline"
     return None
 
 
