@@ -41,13 +41,22 @@ class Intake:
                 repo TEXT, number INTEGER, next_action TEXT, observed_status TEXT,
                 reason TEXT, attempts INTEGER DEFAULT 0, next_due REAL DEFAULT 0,
                 head TEXT, observed_at REAL, stage TEXT, remote_push_at REAL,
-                bootstrap TEXT, owner_session TEXT, PRIMARY KEY (repo, number));
+                bootstrap TEXT, owner_session TEXT, expired_at REAL, closed_at REAL,
+                PRIMARY KEY (repo, number));
             CREATE TABLE IF NOT EXISTS target_ci (
                 repo TEXT, number INTEGER, head TEXT, status TEXT, observed_at REAL,
                 PRIMARY KEY (repo, number));
             CREATE TABLE IF NOT EXISTS github_budget (
                 bucket TEXT PRIMARY KEY, reset_at REAL NOT NULL);
         """)
+        existing_cols = {
+            col[1] for col in self.db.execute("PRAGMA table_info(target)").fetchall()
+        }
+        for col in ("expired_at", "closed_at"):
+            if col not in existing_cols:
+                self.db.execute(f"ALTER TABLE target ADD COLUMN {col} REAL")
+        if not keys:
+            return
         self.db.execute("BEGIN IMMEDIATE")
         try:
             self.db.executemany(
@@ -62,7 +71,7 @@ class Intake:
     def row(self, key):
         if self.db is None:
             return dict(attempts=0, next_due=0, head=None, observed_status=None,
-                        bootstrap=None, owner_session=None)
+                        bootstrap=None, owner_session=None, expired_at=None, closed_at=None)
         cursor = self.db.execute("SELECT * FROM target WHERE repo=? AND number=?", key)
         return dict(zip((column[0] for column in cursor.description), cursor.fetchone()))
 
@@ -103,7 +112,27 @@ class Intake:
         else:
             attempts = row["attempts"] + 1
             due = max(self.now + (600, 1200, 2400, 3600)[min(attempts - 1, 3)], earliest)
-        self.set(key, reason=reason, next_action=action, attempts=attempts, next_due=due)
+        if reason == "expired":
+            expired_at = row.get("expired_at") if row.get("expired_at") is not None else self.now
+            closed_at = None
+        elif reason == "closed":
+            expired_at = None
+            closed_at = (
+                row.get("closed_at")
+                if row.get("closed_at") is not None
+                and (row.get("reason") == "closed" or row.get("observed_status") == "closed")
+                else self.now
+            )
+        elif reason.startswith("blocked_") and row.get("observed_status") == "closed":
+            expired_at = None
+            closed_at = row.get("closed_at")
+        else:
+            expired_at = None
+            closed_at = None
+        self.set(
+            key, reason=reason, next_action=action, attempts=attempts, next_due=due,
+            expired_at=expired_at, closed_at=closed_at,
+        )
         return dict(status=reason, next_action=action, attempts=attempts, next_due=due)
 
     def budget_until(self, bucket="core"):

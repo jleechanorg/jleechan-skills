@@ -281,6 +281,248 @@ class RoundTest(unittest.TestCase):
             }
             self.assertEqual(nudger.pr_status(pr), "final_ready")
 
+    def test_prune_subcommand_removes_closed_and_expired_targets_preserving_active_and_0600(self):
+        state = self.root / "state"
+        state.mkdir()
+        now = 2_000_000_000.0
+        config = {
+            "enabled": True,
+            "state_dir": str(state),
+            "prune_after_hours": 24,
+            "targets": [
+                # PR 12: open and active with future deadline -> KEEP
+                {"repo": "base/project", "number": 12, "observe_only": False,
+                 "enrollment": {"cli_bin": str(self.root / f"codex-deadline-{int(now + 3600)}")}},
+                # PR 13: closed/merged on GitHub -> PRUNE
+                {"repo": "base/project", "number": 13, "observe_only": False},
+                # PR 14: open & observe_only (even with old deadline) -> KEEP
+                {"repo": "base/project", "number": 14, "observe_only": True,
+                 "enrollment": {"cli_bin": str(self.root / "codex-deadline-1700000000")}},
+                # PR 15: open on GitHub, expired in receipts.sqlite3 > 24h ago -> PRUNE
+                {"repo": "base/project", "number": 15, "observe_only": False},
+                # PR 16: open on GitHub, expired 1h ago (< 24h) -> KEEP until TTL
+                {"repo": "base/project", "number": 16, "observe_only": False},
+                # PR 17: open on GitHub, deadline wrapper expired > 24h ago -> PRUNE
+                {"repo": "base/project", "number": 17, "observe_only": False,
+                 "enrollment": {"cli_bin": str(self.root / f"codex-deadline-{int(now - 25 * 3600)}")}},
+            ],
+        }
+        self.config.write_text(json.dumps(config))
+        self.config.chmod(0o600)
+        with sqlite3.connect(state / "receipts.sqlite3") as db:
+            db.execute("CREATE TABLE target (repo TEXT, number INTEGER, reason TEXT, expired_at REAL, closed_at REAL)")
+            db.execute("CREATE TABLE delivery (repo TEXT, number INTEGER, status TEXT, time REAL)")
+            db.execute("INSERT INTO target VALUES ('base/project', 12, 'delivered', NULL, NULL)")
+            db.execute("INSERT INTO target VALUES ('base/project', 13, 'delivered', NULL, NULL)")
+            db.execute("INSERT INTO target VALUES ('base/project', 15, 'expired', ?, NULL)", (now - 25 * 3600,))
+            db.execute("INSERT INTO target VALUES ('base/project', 16, 'expired', ?, NULL)", (now - 1 * 3600,))
+            db.execute("INSERT INTO delivery VALUES ('base/project', 15, 'expired', ?)", (now - 25 * 3600,))
+            db.execute("INSERT INTO delivery VALUES ('base/project', 16, 'expired', ?)", (now - 1 * 3600,))
+
+        def fake_github(_cwd, endpoint, **_kwargs):
+            num = int(endpoint.rsplit("/", 1)[1])
+            return {"number": num, "state": "closed" if num == 13 else "open", "labels": [],
+                    "title": "PR", "body": "", "head": {"sha": "a" * 40, "ref": "f", "repo": {"full_name": "base/project"}},
+                    "base": {"repo": {"full_name": "base/project"}}}
+
+        with patch.object(round_cli.time, "time", return_value=now), \
+             patch.object(round_cli, "github", side_effect=fake_github, create=True):
+            self.run_cli("prune", "--dry-run")
+            self.assertEqual([t["number"] for t in json.loads(self.config.read_text())["targets"]],
+                             [12, 13, 14, 15, 16, 17])
+
+            self.run_cli("prune")
+            self.assertEqual([t["number"] for t in json.loads(self.config.read_text())["targets"]],
+                             [12, 14, 16])
+            self.assertEqual(self.config.stat().st_mode & 0o777, 0o600)
+            with sqlite3.connect(state / "receipts.sqlite3") as db:
+                kept = [r[0] for r in db.execute("SELECT number FROM target ORDER BY number").fetchall()]
+                self.assertEqual(kept, [12, 16])
+
+            # Explicit --prune-after-hours 0.5 prunes PR 16 (expired 1h ago) while keeping 12 and 14.
+            self.run_cli("prune", "--prune-after-hours", "0.5")
+            self.assertEqual([t["number"] for t in json.loads(self.config.read_text())["targets"]],
+                             [12, 14])
+
+    def test_prune_subcommand_preserves_concurrent_edits_and_closed_grace_period(self):
+        state = self.root / "state"
+        state.mkdir()
+        now = 2_000_000_000.0
+        config = {
+            "enabled": True,
+            "state_dir": str(state),
+            "prune_closed_after_hours": 2,
+            "targets": [
+                {"repo": "base/project", "number": 12, "observe_only": False},
+                {"repo": "base/project", "number": 13, "observe_only": False},
+            ],
+        }
+        self.config.write_text(json.dumps(config))
+        self.config.chmod(0o600)
+        with sqlite3.connect(state / "receipts.sqlite3") as db:
+            db.execute("CREATE TABLE target (repo TEXT, number INTEGER, reason TEXT, expired_at REAL, closed_at REAL)")
+            db.execute("INSERT INTO target VALUES ('base/project', 12, 'closed', NULL, ?)", (now - 3 * 3600,))
+            db.execute("INSERT INTO target VALUES ('base/project', 13, 'closed', NULL, ?)", (now - 1 * 3600,))
+
+        def fake_github(_cwd, endpoint, **_kwargs):
+            num = int(endpoint.rsplit("/", 1)[1])
+            if num == 13:
+                updated = json.loads(self.config.read_text())
+                updated["targets"].append({"repo": "base/project", "number": 14, "observe_only": True})
+                self.config.write_text(json.dumps(updated))
+            return {"number": num, "state": "closed", "labels": [], "title": "PR", "body": "",
+                    "head": {"sha": "a" * 40, "ref": "f", "repo": {"full_name": "base/project"}},
+                    "base": {"repo": {"full_name": "base/project"}}}
+
+        with patch.object(round_cli.time, "time", return_value=now), \
+             patch.object(round_cli, "github", side_effect=fake_github, create=True):
+            self.run_cli("prune")
+
+        self.assertEqual([t["number"] for t in json.loads(self.config.read_text())["targets"]], [13, 14])
+        self.assertEqual(self.config.stat().st_mode & 0o777, 0o600)
+        with sqlite3.connect(state / "receipts.sqlite3") as db:
+            kept = [r[0] for r in db.execute("SELECT number FROM target ORDER BY number").fetchall()]
+            self.assertEqual(kept, [13])
+
+    def test_prune_preserves_reenrolled_final_ready_offline_and_starts_closed_grace(self):
+        state = self.root / "state"
+        state.mkdir()
+        now = 2_000_000_000.0
+        sha = "a" * 40
+        config = {
+            "enabled": True,
+            "state_dir": str(state),
+            "prune_after_hours": 24,
+            "prune_closed_after_hours": 2,
+            "targets": [
+                # PR 12: freshly re-enrolled (future deadline + changed cli_bin) despite stale SQLite expiry -> KEEP
+                {"repo": "base/project", "number": 12, "observe_only": False,
+                 "enrollment": {"cli_bin": str(self.root / f"codex-deadline-{int(now + 3600)}")}},
+                # PR 13: open FINAL_READY even with old deadline + stale SQLite expiry -> KEEP
+                {"repo": "base/project", "number": 13, "observe_only": False,
+                 "enrollment": {"cli_bin": str(self.root / f"codex-deadline-{int(now - 30 * 3600)}")}},
+                # PR 14: closed on GitHub, no initial closed_at -> initialize grace, prune only at +2h
+                {"repo": "base/project", "number": 14, "observe_only": False},
+                # PR 15: offline GitHub error -> KEEP + warn on stderr
+                {"repo": "base/project", "number": 15, "observe_only": False,
+                 "enrollment": {"cli_bin": str(self.root / f"codex-deadline-{int(now - 30 * 3600)}")}},
+            ],
+        }
+        self.config.write_text(json.dumps(config))
+        self.config.chmod(0o600)
+        with sqlite3.connect(state / "receipts.sqlite3") as db:
+            db.execute("CREATE TABLE target (repo TEXT, number INTEGER, next_action TEXT, reason TEXT, expired_at REAL, closed_at REAL)")
+            db.execute("CREATE TABLE delivery (repo TEXT, number INTEGER, status TEXT, time REAL, owner TEXT)")
+            db.execute("INSERT INTO target VALUES ('base/project', 12, 'expired', 'expired', ?, NULL)", (now - 30 * 3600,))
+            db.execute("INSERT INTO delivery VALUES ('base/project', 12, 'expired', ?, ?)",
+                       (now - 30 * 3600, json.dumps({"cli_bin": str(self.root / "codex-deadline-old")})))
+            db.execute("INSERT INTO target VALUES ('base/project', 13, 'expired', 'expired', ?, NULL)", (now - 30 * 3600,))
+
+        final_body = f"## PR Stage\nstatus: FINAL_READY\ncandidate: {sha}\nowner: agy\nnext_action: none\n"
+
+        def fake_github(_cwd, endpoint, **_kwargs):
+            num = int(endpoint.rsplit("/", 1)[1])
+            if num == 15:
+                raise OSError("network offline")
+            if num == 13:
+                return {"number": 13, "state": "open", "labels": [{"name": "stage:5-final-approval"}],
+                        "title": "[ready] Done", "body": final_body,
+                        "head": {"sha": sha, "ref": "f", "repo": {"full_name": "base/project"}},
+                        "base": {"repo": {"full_name": "base/project"}}}
+            return {"number": num, "state": "closed" if num == 14 else "open", "labels": [],
+                    "title": "PR", "body": "",
+                    "head": {"sha": sha, "ref": "f", "repo": {"full_name": "base/project"}},
+                    "base": {"repo": {"full_name": "base/project"}}}
+
+        clock = [now]
+        with patch.object(round_cli.time, "time", side_effect=lambda: clock[0]), \
+             patch.object(round_cli, "github", side_effect=fake_github, create=True):
+            self.run_cli("prune")
+            self.assertEqual([t["number"] for t in json.loads(self.config.read_text())["targets"]], [12, 13, 14, 15])
+
+            clock[0] = now + 3600.0
+            self.run_cli("prune")
+            self.assertEqual([t["number"] for t in json.loads(self.config.read_text())["targets"]], [12, 13, 14, 15])
+
+            clock[0] = now + 2 * 3600.0
+            self.run_cli("prune")
+            self.assertEqual([t["number"] for t in json.loads(self.config.read_text())["targets"]], [12, 13, 15])
+
+    def test_prune_standalone_grace_no_db_reopen_resets_and_replacement_deadline_ages_out(self):
+        state = self.root / "fresh-state"
+        now = 2_000_000_000.0
+        config = {
+            "enabled": True,
+            "state_dir": str(state),
+            "prune_after_hours": 24,
+            "prune_closed_after_hours": 2,
+            "targets": [
+                {"repo": "base/project", "number": 12, "observe_only": False,
+                 "enrollment": {"cli_bin": str(self.root / f"codex-deadline-{int(now + 3600)}")}},
+                {"repo": "base/project", "number": 14, "observe_only": False},
+            ],
+        }
+        self.config.write_text(json.dumps(config))
+        pr14_state = ["closed"]
+
+        def fake_github(_cwd, endpoint, **_kwargs):
+            num = int(endpoint.rsplit("/", 1)[1])
+            return {"number": num, "state": pr14_state[0] if num == 14 else "open", "labels": [],
+                    "title": "PR", "body": "",
+                    "head": {"sha": "a" * 40, "ref": "f", "repo": {"full_name": "base/project"}},
+                    "base": {"repo": {"full_name": "base/project"}}}
+
+        clock = [now]
+        with patch.object(round_cli.time, "time", side_effect=lambda: clock[0]), \
+             patch.object(round_cli, "github", side_effect=fake_github, create=True):
+            # No pre-existing DB: initializes closed_at for PR 14 at t=now.
+            self.run_cli("prune")
+            self.assertTrue((state / "receipts.sqlite3").is_file())
+            self.assertEqual([t["number"] for t in json.loads(self.config.read_text())["targets"]], [12, 14])
+            # Reopening PR 14 at t+1.5h clears closed_at; reclosing at t+2h starts a fresh 2h grace window.
+            clock[0] = now + 1.5 * 3600
+            pr14_state[0] = "open"
+            self.run_cli("prune")
+            clock[0] = now + 2.0 * 3600
+            pr14_state[0] = "closed"
+            self.run_cli("prune")
+            self.assertEqual([t["number"] for t in json.loads(self.config.read_text())["targets"]], [12, 14])
+            # At t+4h (2h after re-closure) PR 14 prunes; at t+26h (25h after PR 12's +1h deadline) PR 12 also prunes.
+            clock[0] = now + 4.0 * 3600
+            self.run_cli("prune")
+            self.assertEqual([t["number"] for t in json.loads(self.config.read_text())["targets"]], [12])
+            clock[0] = now + 26.0 * 3600
+            self.run_cli("prune")
+            self.assertEqual(json.loads(self.config.read_text())["targets"], [])
+
+    def test_prune_preserves_reopened_non_expired_observe_only_despite_stale_delivery_expiry(self):
+        state = self.root / "state"
+        state.mkdir()
+        now = 2_000_000_000.0
+        config = {
+            "enabled": True,
+            "state_dir": str(state),
+            "prune_after_hours": 24,
+            "targets": [{"repo": "base/project", "number": 12, "observe_only": True}],
+        }
+        self.config.write_text(json.dumps(config))
+        with sqlite3.connect(state / "receipts.sqlite3") as db:
+            db.execute("CREATE TABLE target (repo TEXT, number INTEGER, next_action TEXT, observed_status TEXT, reason TEXT, expired_at REAL, closed_at REAL)")
+            db.execute("CREATE TABLE delivery (repo TEXT, number INTEGER, status TEXT, time REAL)")
+            db.execute("INSERT INTO target VALUES ('base/project', 12, 'refresh_pr', 'actionable', 'observing', NULL, NULL)")
+            db.execute("INSERT INTO delivery VALUES ('base/project', 12, 'expired', ?)", (now - 30 * 3600,))
+
+        def fake_github(_cwd, _endpoint, **_kwargs):
+            return {"number": 12, "state": "open", "labels": [], "title": "PR", "body": "",
+                    "head": {"sha": "a" * 40, "ref": "f", "repo": {"full_name": "base/project"}},
+                    "base": {"repo": {"full_name": "base/project"}}}
+
+        with patch.object(round_cli.time, "time", return_value=now), \
+             patch.object(round_cli, "github", side_effect=fake_github, create=True):
+            self.run_cli("prune")
+
+        self.assertEqual([t["number"] for t in json.loads(self.config.read_text())["targets"]], [12])
+
 
 if __name__ == "__main__":
     unittest.main()

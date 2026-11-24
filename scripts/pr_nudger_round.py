@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Operator commands for one nudger round: enroll, retire, retry-now."""
+"""Operator commands for one nudger round: enroll, retire, retry-now, prune."""
 
 import argparse
+import fcntl
 import json
 import os
+import re
 import shlex
 import shutil
 import socket
@@ -11,11 +13,26 @@ import sqlite3
 import subprocess
 import sys
 import time
+from contextlib import ExitStack, closing
 from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from pr_owner_nudger import checkout  # noqa: E402
+from pr_nudger_intake import Intake  # noqa: E402
+from pr_owner_nudger import (  # noqa: E402
+    CHECK_ERRORS,
+    DEFAULT_PRUNE_AFTER_HOURS,
+    DEFAULT_PRUNE_CLOSED_AFTER_HOURS,
+    _enrollment_fields_changed,
+    checkout,
+    config_lock,
+    github,
+    pr_status,
+    prune_config_targets,
+    prune_hours,
+    repo_slug,
+    save_config,
+)
 from render_pr_owner_nudger import DEFAULT_NAME, lane_targets  # noqa: E402
 
 HOME = Path.home()
@@ -154,9 +171,7 @@ def load(path):
 
 
 def save(path, config):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(config, indent=2) + "\n")
-    path.chmod(0o600)
+    save_config(path, config)
 
 
 def target(config, repo, number):
@@ -209,31 +224,33 @@ def enroll(args):
     wrapper = profile / f"{cli}-deadline-{end}"
     wrapper.write_text(WRAPPER.format(end=end, timeout=timeout, cli=shlex.quote(cli_bin)))
     wrapper.chmod(0o755)
-    config = load(args.config)
-    item = target(config, args.repo, args.pr)
-    item["observe_only"] = False
-    enrollment = {
-        "host": socket.gethostname(), "cwd": str(cwd), "head_repo": head_repo, "branch": branch,
-        "cli": cli, "cli_bin": str(wrapper), "profile_dir": str(profile), "model": model,
-        "managed_exclusive": True, "launch_authorized": True,
-    }
-    if cli == "codex":
-        enrollment["resume_sandbox"] = "danger-full-access"
-    if args.headless_only:
-        enrollment["headless_only"] = True
-    item["enrollment"] = enrollment
-    save(args.config, config)
+    with config_lock(args.config):
+        config = load(args.config)
+        item = target(config, args.repo, args.pr)
+        item["observe_only"] = False
+        enrollment = {
+            "host": socket.gethostname(), "cwd": str(cwd), "head_repo": head_repo, "branch": branch,
+            "cli": cli, "cli_bin": str(wrapper), "profile_dir": str(profile), "model": model,
+            "managed_exclusive": True, "launch_authorized": True,
+        }
+        if cli == "codex":
+            enrollment["resume_sandbox"] = "danger-full-access"
+        if args.headless_only:
+            enrollment["headless_only"] = True
+        item["enrollment"] = enrollment
+        save(args.config, config)
     print(f"enrolled {args.repo}#{args.pr} ({cli}) on {branch} until {stamp.astimezone():%-I:%M %p %Z}")
     if not config.get("enabled"):
         print("note: the config has enabled=false, so ticks will not dispatch until you enable it")
 
 
 def retire(args):
-    config = load(args.config)
-    if not any((t["repo"], t["number"]) == (args.repo, args.pr) for t in config.get("targets", [])):
-        sys.exit(f"{args.repo}#{args.pr} is not a target in {args.config}")
-    target(config, args.repo, args.pr)["observe_only"] = True
-    save(args.config, config)
+    with config_lock(args.config):
+        config = load(args.config)
+        if not any((t["repo"], t["number"]) == (args.repo, args.pr) for t in config.get("targets", [])):
+            sys.exit(f"{args.repo}#{args.pr} is not a target in {args.config}")
+        target(config, args.repo, args.pr)["observe_only"] = True
+        save(args.config, config)
     print(f"{args.repo}#{args.pr} is observe-only")
 
 
@@ -253,6 +270,204 @@ def retry_now(args):
                    if sys.platform == "darwin" else ["systemctl", "--user", "start", service])
         subprocess.run(command, check=True, timeout=30)
     print(f"{args.repo}#{args.pr} is due now")
+
+
+def _table_columns(db, table):
+    if db is None:
+        return set()
+    return {row[1] for row in db.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
+def _deadline_epoch(enrollment):
+    """Extract unix-epoch deadline >= 1_000_000_000 (epoch-seconds guard) from wrapper path, else None."""
+    if not isinstance(enrollment, dict):
+        return None
+    match = re.search(r"-deadline-(\d+)$", str(enrollment.get("cli_bin", "")))
+    if not match:
+        return None
+    deadline = int(match.group(1))
+    return deadline if deadline >= 1_000_000_000 else None
+
+
+def _enrollment_restarted(item, repo, number, db, now, ttl_seconds):
+    if item.get("observe_only"):
+        return False
+    enrollment = item.get("enrollment")
+    if not isinstance(enrollment, dict):
+        return False
+    deadline = _deadline_epoch(enrollment)
+    if deadline is not None:
+        return deadline > now or now - deadline < ttl_seconds
+    if db is None:
+        return False
+    if "owner" in _table_columns(db, "delivery"):
+        row = db.execute("SELECT owner FROM delivery WHERE repo=? AND number=?", (repo, number)).fetchone()
+        if row and row[0]:
+            try:
+                if _enrollment_fields_changed(json.loads(row[0]), enrollment):
+                    return True
+            except (TypeError, ValueError):
+                pass
+    if "owner" in _table_columns(db, "binding"):
+        binding_cols = _table_columns(db, "binding")
+        if {"cwd", "branch"} <= binding_cols and enrollment.get("cwd") and enrollment.get("branch"):
+            rows = db.execute(
+                "SELECT owner FROM binding WHERE cwd=? AND repo=? AND number=? AND branch=?",
+                (enrollment["cwd"], repo, number, enrollment["branch"]),
+            ).fetchall()
+        else:
+            rows = db.execute("SELECT owner FROM binding WHERE repo=? AND number=?", (repo, number)).fetchall()
+        for (raw_owner,) in rows:
+            if not raw_owner:
+                continue
+            try:
+                if _enrollment_fields_changed(json.loads(raw_owner), enrollment):
+                    return True
+            except (TypeError, ValueError):
+                pass
+    return False
+
+
+def _prune_reason_for_target(item, repo, number, db, now, ttl_seconds, closed_grace_seconds, *, dry_run=False):
+    try:
+        pr = github(Path.cwd(), f"repos/{repo}/pulls/{number}", inspection=True)
+    except CHECK_ERRORS:
+        print(f"warning: skipping {repo}#{number}: GitHub verification unavailable", file=sys.stderr)
+        return None
+    status_name = pr_status(pr)
+    if status_name == "closed":
+        if closed_grace_seconds == 0:
+            return "closed"
+        cols = _table_columns(db, "target")
+        closed_at = None
+        if "closed_at" in cols:
+            row = db.execute("SELECT closed_at FROM target WHERE repo=? AND number=?", (repo, number)).fetchone()
+            closed_at = row[0] if row else None
+            if closed_at is None and not dry_run:
+                if "next_action" in cols:
+                    db.execute(
+                        "INSERT OR IGNORE INTO target(repo, number, next_action) VALUES (?, ?, 'refresh_pr')",
+                        (repo, number),
+                    )
+                else:
+                    db.execute(
+                        "INSERT OR IGNORE INTO target(repo, number) VALUES (?, ?)",
+                        (repo, number),
+                    )
+                if "reason" in cols:
+                    db.execute(
+                        "UPDATE target SET reason='closed', closed_at=? WHERE repo=? AND number=? AND closed_at IS NULL",
+                        (now, repo, number),
+                    )
+                else:
+                    db.execute(
+                        "UPDATE target SET closed_at=? WHERE repo=? AND number=? AND closed_at IS NULL",
+                        (now, repo, number),
+                    )
+        if closed_at is not None and now - closed_at >= closed_grace_seconds:
+            return "closed"
+        return None
+    if db is not None and not dry_run:
+        cols = _table_columns(db, "target")
+        if "closed_at" in cols:
+            if "reason" in cols:
+                db.execute(
+                    "UPDATE target SET closed_at=NULL, reason=CASE WHEN reason='closed' THEN NULL ELSE reason END"
+                    " WHERE repo=? AND number=? AND (closed_at IS NOT NULL OR reason='closed')",
+                    (repo, number),
+                )
+            else:
+                db.execute("UPDATE target SET closed_at=NULL WHERE repo=? AND number=? AND closed_at IS NOT NULL", (repo, number))
+    if status_name != "actionable":
+        return None
+    if _enrollment_restarted(item, repo, number, db, now, ttl_seconds):
+        return None
+
+    target_cols = _table_columns(db, "target")
+    expired_at = None
+    is_expired = False
+    target_row = None
+    if {"reason", "expired_at"} <= target_cols:
+        target_row = db.execute("SELECT reason, expired_at FROM target WHERE repo=? AND number=?", (repo, number)).fetchone()
+        if target_row and target_row[0] == "expired":
+            is_expired = True
+            expired_at = target_row[1]
+    elif "reason" in target_cols:
+        target_row = db.execute("SELECT reason FROM target WHERE repo=? AND number=?", (repo, number)).fetchone()
+        is_expired = bool(target_row and target_row[0] == "expired")
+
+    # Authoritative target.reason!='expired' (including 'observing'/reopened) must not be
+    # overridden by historical delivery expiry rows.
+    if (is_expired and expired_at is None) or (target_row is None or "reason" not in target_cols):
+        delivery_cols = _table_columns(db, "delivery")
+        if {"status", "time"} <= delivery_cols:
+            row = db.execute(
+                "SELECT status, time FROM delivery WHERE repo=? AND number=?", (repo, number)
+            ).fetchone()
+            if row and row[0] == "expired":
+                is_expired = True
+                if expired_at is None:
+                    expired_at = row[1]
+
+    if is_expired and expired_at is not None and now - expired_at >= ttl_seconds:
+        return "expired"
+
+    if not item.get("observe_only"):
+        deadline = _deadline_epoch(item.get("enrollment"))
+        if deadline is not None and now - deadline >= ttl_seconds:
+            return "expired_deadline"
+    return None
+
+
+def prune(args):
+    config = load(args.config)
+    overrides = {}
+    if args.prune_after_hours is not None:
+        overrides["prune_after_hours"] = args.prune_after_hours
+    if args.prune_closed_after_hours is not None:
+        overrides["prune_closed_after_hours"] = args.prune_closed_after_hours
+    merged_cfg = {**config, **overrides}
+    try:
+        ttl_seconds = prune_hours(merged_cfg, "prune_after_hours", DEFAULT_PRUNE_AFTER_HOURS) * 3600
+        closed_grace_seconds = prune_hours(
+            merged_cfg, "prune_closed_after_hours", DEFAULT_PRUNE_CLOSED_AFTER_HOURS
+        ) * 3600
+    except ValueError as exc:
+        sys.exit(f"prune: {exc}")
+
+    state_dir = config.get("state_dir", "~/.local/state/pr-owner-nudger")
+    state_path = Path(state_dir).expanduser().resolve()
+    db_path = state_path / "receipts.sqlite3"
+    now = time.time()
+    prune_snapshots = {}
+    pruned = []
+    with ExitStack() as stack:
+        use_db = db_path.is_file() or (not args.dry_run and closed_grace_seconds > 0 and bool(config.get("targets")))
+        if not args.dry_run and use_db:
+            state_path.mkdir(mode=0o700, parents=True, exist_ok=True)
+            lock = stack.enter_context((state_path / "tick.lock").open("a"))
+            fcntl.flock(lock, fcntl.LOCK_EX)
+        db = stack.enter_context(closing(sqlite3.connect(db_path, isolation_level=None))) if use_db else None
+        if db is not None and not args.dry_run:
+            Intake(db, state_path, now).prepare([])
+        for item in config.get("targets", []):
+            repo, number = repo_slug(item["repo"]), item["number"]
+            reason = _prune_reason_for_target(
+                item, repo, number, db, now, ttl_seconds, closed_grace_seconds, dry_run=args.dry_run
+            )
+            if reason:
+                prune_snapshots[repo, number] = item
+                pruned.append((repo, number, reason))
+        if pruned and not args.dry_run:
+            actually_pruned = prune_config_targets(args.config, prune_snapshots, db)
+            pruned = [entry for entry in pruned if entry[:2] in actually_pruned]
+
+    if not pruned:
+        print("no targets to prune")
+        return
+    verb = "would prune" if args.dry_run else "pruned"
+    for repo, number, reason in pruned:
+        print(f"{verb} {repo}#{number} ({reason})")
 
 
 def main(argv=None):
@@ -285,13 +500,19 @@ def main(argv=None):
             cmd.add_argument("--kick", action="store_true", help="also start a tick now")
             cmd.add_argument("--name", default=DEFAULT_NAME,
                              help="unit/label name of the nudger lane to kick")
+    prune_cmd = sub.add_parser("prune", help="remove closed/merged and expired targets from config")
+    prune_cmd.add_argument("--dry-run", action="store_true", help="report targets without modifying files")
+    prune_cmd.add_argument("--prune-after-hours", type=float,
+                           help="hours after expiry before pruning (default: config or 24)")
+    prune_cmd.add_argument("--prune-closed-after-hours", type=float,
+                           help="hours after close/merge before pruning (default: config or 0)")
     args = parser.parse_args(argv)
     if args.command == "retry-now":
         try:
             lane_targets(args.name)
         except ValueError as exc:
             parser.error(str(exc))
-    {"enroll": enroll, "retire": retire, "retry-now": retry_now}[args.command](args)
+    {"enroll": enroll, "retire": retire, "retry-now": retry_now, "prune": prune}[args.command](args)
 
 
 if __name__ == "__main__":
