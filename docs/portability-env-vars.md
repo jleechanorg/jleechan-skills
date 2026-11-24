@@ -72,6 +72,8 @@ host aliases, names and paths at `${XDG_CONFIG_HOME:-$HOME/.config}/jleechan-ski
 | `MEM0_HOOKS_DIR` / `MEM0_PYTHON` | mem0 hook directory / interpreter | — | unset: skip mem0 steps / `python3` |
 | `COMFYUI_HOME` | ComfyUI install | — | required where used |
 | `PR_NUDGER_EXIT_FILE` | Internal child-exit receipt file set by `scripts/pr_nudger_routes.py` for detached nudger spawns | internal runtime | unset |
+| `PR_NUDGER_MODEL` | Model `/pr --nudge` inherits for its enrolled PR owner; highest-priority override of the caller-model lookup | calling agent's runtime environment | unset (falls through to the caller-model list below) |
+| `PI_MODEL` / `CLAUDEWA_MODEL` / `CLAUDE_MODEL` / `CODEX_MODEL` / `AGY_MODEL` / `GEMINI_MODEL` | Calling agent's own model, in lookup order; `/pr --nudge enroll` derives both its `--cli` and `--model` from whichever is set first, so the PR owner runs as the agent that dispatched it | the calling agent's own runtime | unset (`agy` + `gemini-3.8-flash-high` when none is set) |
 
 The retired dark-factory and auto-factory tooling is gone from the catalog
 (`docs/specs/2026-11-06-factory-tool-retirement.md`); its variables are not part of this

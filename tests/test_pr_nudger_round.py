@@ -42,6 +42,7 @@ class RoundTest(unittest.TestCase):
         scope = self.root / "scope.md"
         scope.write_text("Scope: prove the fixture behavior.\n")
         self.run_cli("enroll", "--repo", "base/project", "--pr", "12", "--cwd", str(self.repo),
+                     "--cli", "codex",
                      "--model", "fixture-model", "--hours", "1", "--scope-file", str(scope),
                      "--policy", str(self.policy), "--profiles-dir", str(self.root / "profiles"))
         item = json.loads(self.config.read_text())["targets"][0]
@@ -62,6 +63,7 @@ class RoundTest(unittest.TestCase):
         first = enrollment["cli_bin"]
         with patch.object(round_cli.time, "time", return_value=round_cli.time.time() + 60):
             self.run_cli("enroll", "--repo", "base/project", "--pr", "12", "--cwd", str(self.repo),
+                         "--cli", "codex",
                          "--model", "fixture-model", "--hours", "2",
                          "--policy", str(self.policy), "--profiles-dir", str(self.root / "profiles"))
         # Re-enrolling changes the wrapper path, so the nudger retires the old session.
@@ -70,6 +72,104 @@ class RoundTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             self.run_cli("retire", "--repo", "base/project", "--pr", "99")
         self.assertTrue(json.loads(self.config.read_text())["targets"][0]["observe_only"])
+
+    def enroll_model(self, *extra, env=None):
+        """Enroll and return the persisted model, with the calling agent's env cleared."""
+        clean = {k: "" for k in round_cli.CALLER_MODEL_ENV}
+        clean.update(env or {})
+        with patch.dict(os.environ, clean):
+            self.run_cli("enroll", "--repo", "base/project", "--pr", "12", "--cwd", str(self.repo),
+                         "--hours", "1", "--policy", str(self.policy),
+                         "--profiles-dir", str(self.root / "profiles"), *extra)
+        return json.loads(self.config.read_text())["targets"][0]["enrollment"]
+
+    def test_cli_and_model_both_inherit_from_the_caller(self):
+        # The operator asked for this: neither flag given, the caller's own model decides the
+        # route, so the enrolled owner is the same agent that dispatched it.
+        e = self.enroll_model(env={"CODEX_MODEL": "gpt-9-caller"})
+        self.assertEqual((e["cli"], e["model"]), ("codex", "gpt-9-caller"))
+
+    def test_a_gemini_caller_model_selects_agy(self):
+        e = self.enroll_model(env={"AGY_MODEL": "gemini-9.9-caller"})
+        self.assertEqual((e["cli"], e["model"]), ("agy", "gemini-9.9-caller"))
+
+    def test_the_callers_own_var_decides_the_route_not_a_lower_precedence_one(self):
+        # This host's real shape: PI_MODEL (the running agent) precedes AGY_MODEL. The route
+        # must follow the caller's own model, not silently pair agy with a cross-family value.
+        e = self.enroll_model(env={"PI_MODEL": "deepseek-v4.1-flash",
+                                   "AGY_MODEL": "gemini-9.9-caller"})
+        self.assertEqual((e["cli"], e["model"]), ("codex", "deepseek-v4.1-flash"))
+
+    def test_no_caller_falls_back_to_agy(self):
+        e = self.enroll_model()
+        self.assertEqual((e["cli"], e["model"]), ("agy", round_cli.AGY_FALLBACK_MODEL))
+
+    def test_explicit_cli_keeps_the_caller_model_when_it_fits(self):
+        e = self.enroll_model("--cli", "agy", env={"AGY_MODEL": "gemini-9.9-caller"})
+        self.assertEqual((e["cli"], e["model"]), ("agy", "gemini-9.9-caller"))
+
+    def test_explicit_cli_overrides_a_cross_family_caller_model(self):
+        # --cli agy with a non-gemini caller model: the CLI wins, and agy takes its fallback.
+        e = self.enroll_model("--cli", "agy", env={"CODEX_MODEL": "gpt-9-caller"})
+        self.assertEqual((e["cli"], e["model"]), ("agy", round_cli.AGY_FALLBACK_MODEL))
+
+    def test_explicit_codex_without_a_fitting_model_refuses(self):
+        # codex has no safe default; enrolling one whose CLI would reject the model is worse
+        # than a loud failure here.
+        with self.assertRaises(SystemExit):
+            self.enroll_model("--cli", "codex", env={"AGY_MODEL": "gemini-9.9-caller"})
+        with self.assertRaises(SystemExit):
+            self.enroll_model("--cli", "codex")
+
+    def test_explicit_model_derives_the_cli(self):
+        e = self.enroll_model("--model", "gemini-9.9-pinned", env={"CODEX_MODEL": "gpt-9-caller"})
+        self.assertEqual((e["cli"], e["model"]), ("agy", "gemini-9.9-pinned"))
+
+    def test_explicit_model_and_cli_are_used_as_given(self):
+        e = self.enroll_model("--cli", "codex", "--model", "pinned-model")
+        self.assertEqual((e["cli"], e["model"]), ("codex", "pinned-model"))
+
+    def test_a_claude_caller_model_is_never_handed_to_codex(self):
+        # A Claude identifier is not codex-family: agy is gemini-only and `codex exec --model`
+        # rejects a Claude name, so inheriting one would enrol an owner that fails at bootstrap.
+        self.assertFalse(round_cli.family_matches("claude-opus-5-5", "codex"))
+        self.assertFalse(round_cli.family_matches("claude-opus-5-5", "agy"))
+        self.assertEqual(round_cli.cli_for_model("claude-opus-5-5"), "")
+
+    def test_claude_caller_model_falls_back_instead_of_enrolling_codex(self):
+        e = self.enroll_model(env={"CLAUDE_MODEL": "claude-opus-5-5"})
+        self.assertEqual(e["cli"], "agy")
+        self.assertEqual(e["model"], round_cli.AGY_FALLBACK_MODEL)
+
+    def test_codex_still_accepts_a_non_gemini_non_claude_model(self):
+        # The permissive default is deliberate: unknown codex-served families must keep working.
+        for model in ("deepseek-v4.1-flash", "gpt-6.2-sol", "gpt-6-luna"):
+            self.assertTrue(round_cli.family_matches(model, "codex"), model)
+            self.assertEqual(round_cli.cli_for_model(model), "codex")
+
+    def test_pr_nudger_model_takes_top_precedence(self):
+        e = self.enroll_model(env={"PR_NUDGER_MODEL": "gemini-9.9-override",
+                                   "PI_MODEL": "deepseek-v4.1-flash",
+                                   "CODEX_MODEL": "gpt-9-caller"})
+        self.assertEqual((e["cli"], e["model"]), ("agy", "gemini-9.9-override"))
+
+    def test_both_explicit_flags_are_used_as_is(self):
+        e_agy = self.enroll_model("--cli", "agy", "--model", "custom-model")
+        self.assertEqual((e_agy["cli"], e_agy["model"]), ("agy", "custom-model"))
+        e_codex = self.enroll_model("--cli", "codex", "--model", "gemini-3.8-flash-high")
+        self.assertEqual((e_codex["cli"], e_codex["model"]), ("codex", "gemini-3.8-flash-high"))
+
+    def test_explicit_claude_model_without_cli_is_refused(self):
+        with self.assertRaises(SystemExit) as ctx:
+            self.enroll_model("--model", "claude-opus-5-5")
+        self.assertIn("claude-opus-5-5", str(ctx.exception))
+        self.assertFalse(self.config.exists())
+
+    def test_explicit_model_without_cli_still_derives_the_route(self):
+        e_gemini = self.enroll_model("--model", "gemini-9.9-pinned")
+        self.assertEqual((e_gemini["cli"], e_gemini["model"]), ("agy", "gemini-9.9-pinned"))
+        e_codex = self.enroll_model("--model", "gpt-9-pinned")
+        self.assertEqual((e_codex["cli"], e_codex["model"]), ("codex", "gpt-9-pinned"))
 
     def test_retry_now_marks_the_target_due(self):
         state = self.root / "state"

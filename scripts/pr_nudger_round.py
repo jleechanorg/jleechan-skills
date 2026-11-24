@@ -30,6 +30,23 @@ remaining=$((end - $(date +%s)))
 ((remaining>0)) || exit 124
 exec {timeout} --kill-after=2 "${{remaining}}s" {cli} "$@"
 """
+# Env vars the calling coding agent advertises its own model through, most specific first.
+# A nudger enrolled without `--model`/`--cli` inherits the caller's model, and derives the CLI
+# from that model's family, so the PR owner runs as the same agent that dispatched it.
+CALLER_MODEL_ENV = (
+    "PR_NUDGER_MODEL",
+    "PI_MODEL",
+    "CLAUDEWA_MODEL",
+    "CLAUDE_MODEL",
+    "CODEX_MODEL",
+    "AGY_MODEL",
+    "GEMINI_MODEL",
+)
+
+# Used only when the caller advertises neither a CLI nor a model. agy is the documented
+# default, and the fallback names an agy-served model.
+AGY_FALLBACK_MODEL = "gemini-3.8-flash-high"
+
 SCOPE = """
 
 ## Pilot scope (this profile only)
@@ -42,6 +59,94 @@ next_action: none
 Fresh repro required: per evidence-standards § Evidence Sequencing, reproduce the failure on the exact pre-change revision on the real boundary, run the same scenario at the current head, and publish both to the existing evidence store.
 Apply the repository PR overlay that /pr loads (the repository's `.claude/pr-overlay.md`, else the operator overlay).
 """
+
+
+def caller_model(environ=None):
+    """Return the caller's own advertised model (first variable set), or "".
+
+    The caller's identity is taken at face value here: the CLI is then derived from this
+    model's family, so both halves of the route come from the same declaration instead of
+    being picked from different variables on a host that advertises several models.
+    """
+    environ = os.environ if environ is None else environ
+    for name in CALLER_MODEL_ENV:
+        value = environ.get(name, "").strip()
+        if value:
+            return value
+    return ""
+
+
+# Models only the codex CLI can run. Anything not matched here or by the agy family below is
+# treated as codex-compatible (the permissive default), so this list encodes the exclusions we
+# actually know about rather than an invented allowlist of every codex model.
+CLAUDE_MODEL_PREFIXES = ("claude", "opus", "sonnet", "haiku")
+
+
+def model_family(model):
+    """Classify `model` as "agy", "claude" or "codex".
+
+    `agy` serves gemini-*. Claude identifiers are their own family because neither enrolled CLI
+    can run them here: agy is gemini-only and codex exec --model rejects a Claude name. Treating
+    "not gemini" as "codex" is what let `--cli codex` inherit `claude-opus-5-5` and enrol an
+    owner whose CLI would fail at bootstrap.
+    """
+    name = model.strip().lower()
+    if name.startswith("gemini"):
+        return "agy"
+    if name.startswith(CLAUDE_MODEL_PREFIXES):
+        return "claude"
+    return "codex"
+
+
+def cli_for_model(model):
+    """Which enrolled CLI serves `model`? "" when no enrolled CLI can run it."""
+    family = model_family(model)
+    return "" if family == "claude" else family
+
+
+def family_matches(model, cli):
+    """Does `model` belong to the family `cli` serves?"""
+    return cli_for_model(model) == cli
+
+
+def resolve_route(args, environ=None):
+    """Resolve the (cli, model) pair an enrollment will use.
+
+    Precedence: an explicit flag wins; anything unstated is inherited from the caller.
+      - `--cli` and `--model` both given: used as-is.
+      - `--cli` only: model comes from the caller when it suits that CLI, else the CLI's own
+        fallback (agy: AGY_FALLBACK_MODEL; codex: refuse, since it has no safe default).
+      - `--model` only: CLI is derived from that model's family (unsupported models return "", "").
+      - neither: the caller's model decides both; unsupported or missing caller models fall
+        back to agy + AGY_FALLBACK_MODEL.
+    """
+    environ = os.environ if environ is None else environ
+    explicit_cli = getattr(args, "cli", None)
+    explicit_model = getattr(args, "model", None)
+
+    if explicit_model:
+        if explicit_cli:
+            return explicit_cli, explicit_model
+        derived = cli_for_model(explicit_model)
+        if derived:
+            return derived, explicit_model
+        # A model no enrolled CLI can run, given without --cli, has no valid route.
+        return "", ""
+
+    inherited = caller_model(environ)
+    if explicit_cli:
+        if inherited and family_matches(inherited, explicit_cli):
+            return explicit_cli, inherited
+        return explicit_cli, (AGY_FALLBACK_MODEL if explicit_cli == "agy" else "")
+
+    if inherited:
+        derived = cli_for_model(inherited)
+        if derived:
+            return derived, inherited
+        # e.g. CLAUDE_MODEL on a host with no agent-specific var: no enrolled CLI runs it, so
+        # fall back rather than hand agy or codex a model it will reject at bootstrap.
+        return "agy", AGY_FALLBACK_MODEL
+    return "agy", AGY_FALLBACK_MODEL
 
 
 def load(path):
@@ -66,7 +171,15 @@ def target(config, repo, number):
 def enroll(args):
     cwd = Path(args.cwd).resolve(strict=True)
     head_repo, branch, _ = checkout(cwd)
-    cli = args.cli
+    cli, model = resolve_route(args)
+    if not model or not cli:
+        if args.model:
+            sys.exit(
+                f"enroll: model {args.model!r} has no supported enrolled CLI; "
+                "pass --cli explicitly to override"
+            )
+        sys.exit(f"enroll needs --model, or a caller that advertises a {cli}-family model "
+                 f"via {'/'.join(CALLER_MODEL_ENV)} (codex has no safe default)")
     end = int(time.time() + args.hours * 3600)
     profile = (args.profiles_dir / f"{args.repo.replace('/', '__')}-{args.pr}").resolve()
     profile.mkdir(parents=True, exist_ok=True)
@@ -101,7 +214,7 @@ def enroll(args):
     item["observe_only"] = False
     enrollment = {
         "host": socket.gethostname(), "cwd": str(cwd), "head_repo": head_repo, "branch": branch,
-        "cli": cli, "cli_bin": str(wrapper), "profile_dir": str(profile), "model": args.model,
+        "cli": cli, "cli_bin": str(wrapper), "profile_dir": str(profile), "model": model,
         "managed_exclusive": True, "launch_authorized": True,
     }
     if cli == "codex":
@@ -152,8 +265,14 @@ def main(argv=None):
         cmd.add_argument("--pr", type=int, required=True)
         if name == "enroll":
             cmd.add_argument("--cwd", required=True, help="dedicated worktree on the PR's head branch")
-            cmd.add_argument("--cli", choices=("codex", "agy"), default="codex")
-            cmd.add_argument("--model", required=True)
+            cmd.add_argument("--cli", choices=("codex", "agy"),
+                             help="enrolled CLI; defaults to the calling agent's model family "
+                                  "(gemini-* -> agy; claude*/opus*/sonnet*/haiku* have no "
+                                  "enrolled CLI and fall back to agy + default model when "
+                                  "inherited; other models -> codex)")
+            cmd.add_argument("--model",
+                             help="model for the enrolled CLI; defaults to the calling agent's "
+                                  f"model from {'/'.join(CALLER_MODEL_ENV)}")
             cmd.add_argument("--hours", type=float, default=2.0)
             cmd.add_argument("--scope-file", help="per-PR scope and proof lines appended to the profile")
             cmd.add_argument("--policy", type=Path)
