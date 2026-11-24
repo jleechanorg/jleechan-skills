@@ -374,14 +374,28 @@ def verify_delivery_receipt(owner):
         return False
 
 
+def verify_delivery_expired(owner):
+    try:
+        exit_path = owner["receipt"]["exit_path"]
+        if not isinstance(exit_path, str) or not Path(exit_path).is_absolute():
+            return False
+    except (KeyError, TypeError):
+        return False
+    return _read_exit_code(Path(exit_path)) == 124
+
+
 def _wait_for_receipt(path, start, cli, prompt, seconds, child=None):
     for _ in range(seconds):
-        exited = child is not None and child.poll() is not None
+        code = child.poll() if child is not None else None
         if _accepted(path, start, cli, prompt):
             return "delivered"
-        if exited:
-            break
+        if code is not None:
+            return "expired" if code == 124 else "attempted_delivery"
         time.sleep(1)
+    if _accepted(path, start, cli, prompt):
+        return "delivered"
+    if child is not None and child.poll() == 124:
+        return "expired"
     return "attempted_delivery"
 
 
@@ -478,18 +492,29 @@ def _managed_claim(path, *, create=True):
 
 
 def _spawn_claimed(command, claim, **kwargs):
-    if claim is None:
+    env = kwargs.get("env") or {}
+    if claim is None and "PR_NUDGER_EXIT_FILE" not in env:
         return subprocess.Popen(command, **kwargs)
     # Some Codex wrappers spawn the native binary without forwarding extra
     # descriptors. The detached holder waits for the enrolled executable.
     hold = (
-        "import subprocess, sys\n"
+        "import os, subprocess, sys\n"
         "claim = int(sys.argv[1])\n"
-        "raise SystemExit(subprocess.call(sys.argv[2:], pass_fds=(claim,)))"
+        "exit_path = os.environ.pop('PR_NUDGER_EXIT_FILE', None)\n"
+        "fds = (claim,) if claim >= 0 else ()\n"
+        "rc = subprocess.call(sys.argv[2:], pass_fds=fds)\n"
+        "if exit_path:\n"
+        "    fd = os.open(exit_path, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_TRUNC, 0o600)\n"
+        "    try:\n"
+        "        os.write(fd, f'{rc}\\n'.encode())\n"
+        "    finally:\n"
+        "        os.close(fd)\n"
+        "raise SystemExit(rc)"
     )
+    pass_fds = (claim,) if claim is not None else ()
     return subprocess.Popen(
-        (sys.executable, "-c", hold, str(claim), *command),
-        pass_fds=(claim,), **kwargs,
+        (sys.executable, "-c", hold, str(-1 if claim is None else claim), *command),
+        pass_fds=pass_fds, **kwargs,
     )
 
 
@@ -514,8 +539,14 @@ def _managed_cmux_claim(cwd, owner, pid):
         return exclusive == {pid}
 
 
+class _DeadlineExpired(Exception):
+    """The enrolled deadline wrapper exited 124."""
+
+
 def _supported_codex(executable, cwd, env):
     version = _run(executable, "--version", cwd=cwd, env=env)
+    if version.returncode == 124:
+        raise _DeadlineExpired()
     match = re.fullmatch(r"codex-cli (\d+)\.(\d+)\.(\d+)\s*", version.stdout)
     return not version.returncode and bool(match and tuple(map(int, match.groups())) >= (0, 160, 0))
 
@@ -535,11 +566,18 @@ def _resume(cmux, surfaces, cwd, path, env, owner, prompt, apply):
     lock = None
     if cli == "codex":
         lock = Path(env["CODEX_HOME"]) / "thread-writer-locks" / f"{owner['session']}.lock"
-        if not _verified_lock_dir(lock.parent) or not _supported_codex(exe, cwd, env):
+        try:
+            supported = _supported_codex(exe, cwd, env)
+        except _DeadlineExpired:
+            return "expired"
+        if not _verified_lock_dir(lock.parent) or not supported:
             return "blocked_headless_exclusion_unverified"
         if not _native_writer_free(lock):
             return "busy"
-        if _run(exe, "login", "status", cwd=cwd, env=env).returncode:
+        login = _run(exe, "login", "status", cwd=cwd, env=env)
+        if login.returncode == 124:
+            return "expired"
+        if login.returncode:
             return "blocked_cli_auth"
         _, recorded_model = _terminal_state(cli, path)
         model = owner.get("model") or recorded_model
@@ -596,10 +634,11 @@ def _resume(cmux, surfaces, cwd, path, env, owner, prompt, apply):
                 if cli == "codex":
                     incoming.write(prompt.encode())
                     incoming.seek(0)
-                owner.get("checkpoint_receipt", lambda *_: None)(path, (stat.st_ino, stat.st_size))
+                exit_path = owner.get("checkpoint_receipt", lambda *_: None)(path, (stat.st_ino, stat.st_size))
+                child_env = {**env, "PR_NUDGER_EXIT_FILE": str(exit_path)} if exit_path else env
                 sent = True
                 child = _spawn_claimed(
-                    cmd, claim, cwd=cwd, env=env,
+                    cmd, claim, cwd=cwd, env=child_env,
                     stdin=incoming if cli == "codex" else subprocess.DEVNULL,
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
                 )
@@ -825,8 +864,9 @@ def _launch_bootstrap(cwd, enrollment, command, recheck, begin_attempt, *, env=N
                 if prompt_stdin is not None:
                     incoming.write(prompt_stdin.encode())
                     incoming.seek(0)
+                child_env = {**(os.environ if env is None else env), "PR_NUDGER_EXIT_FILE": f"{events}.exit"}
                 _spawn_claimed(
-                    command, claim, cwd=cwd, env=env,
+                    command, claim, cwd=cwd, env=child_env,
                     stdin=incoming if prompt_stdin is not None else subprocess.DEVNULL,
                     stdout=outgoing, stderr=subprocess.DEVNULL, start_new_session=True,
                 )
@@ -851,11 +891,16 @@ def start_codex_bootstrap(enrollment, identity, *, apply, recheck, begin_attempt
         env = {**os.environ, "CODEX_HOME": str(profile)}
         if not _supported_codex(executable, cwd, env):
             return "blocked_headless_exclusion_unverified"
-        if _run(executable, "login", "status", cwd=cwd, env=env).returncode:
+        login = _run(executable, "login", "status", cwd=cwd, env=env)
+        if login.returncode == 124:
+            return "expired"
+        if login.returncode:
             return "blocked_cli_auth"
         # Ask the CLI about enabled MCP servers. An empty TOML table does not
         # reliably replace servers inherited from project or machine config.
         inventory = _run(executable, *_BOOTSTRAP_CONFIG, "mcp", "list", "--json", cwd=cwd, env=env)
+        if inventory.returncode == 124:
+            return "expired"
         if inventory.returncode:
             return "blocked_bootstrap_tools"
         servers = json.loads(inventory.stdout)
@@ -869,6 +914,8 @@ def start_codex_bootstrap(enrollment, identity, *, apply, recheck, begin_attempt
             executable, "exec", "--json", "--ignore-user-config", "--sandbox", "read-only",
             *_BOOTSTRAP_CONFIG, "--model", enrollment["model"], "-",
         )
+    except _DeadlineExpired:
+        return "expired"
     except (KeyError, TypeError, ValueError, OSError, subprocess.SubprocessError) as error:
         print(f"bootstrap launch failed: {type(error).__name__}: {error}", file=sys.stderr)
         return "blocked_bootstrap_unverified"
@@ -915,21 +962,48 @@ def _legacy_project_doc_warning(frame, cwd):
     )
 
 
+def _read_exit_code(path):
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError:
+        return None
+    with os.fdopen(fd, "rb") as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1:
+            return None
+        raw = stream.read(32).strip()
+    return int(raw) if raw.isdigit() else None
+
+
+def _bootstrap_exit_code(attempt):
+    return _read_exit_code(Path(f"{attempt['events_path']}.exit"))
+
+
 def _read_bootstrap_frames(cwd, attempt, age, pending):
+    expired = _bootstrap_exit_code(attempt) == 124
     with _bootstrap_events(attempt["events_path"]) as stream:
         payload = stream.read(131073)
     if len(payload) > 131072:
-        return _BOOTSTRAP_RECONCILE, None
-    if not payload and age >= _BOOTSTRAP_RECEIPT_SECONDS:
-        # A seed that never wrote a frame and holds no claim was never launched.
-        try:
-            with _managed_claim(_managed_claim_path(cwd)):
-                return "bootstrap_abandoned", None
-        except BlockingIOError:
-            return _BOOTSTRAP_RECONCILE, None
-    if not payload.endswith(b"\n"):
+        return ("expired", None) if expired else (_BOOTSTRAP_RECONCILE, None)
+    if not payload:
+        if expired:
+            return "expired", None
+        if age >= _BOOTSTRAP_RECEIPT_SECONDS:
+            # A seed that never wrote a frame and holds no claim was never launched.
+            try:
+                with _managed_claim(_managed_claim_path(cwd)):
+                    return "bootstrap_abandoned", None
+            except BlockingIOError:
+                return _BOOTSTRAP_RECONCILE, None
         return pending
-    return "frames", [json.loads(line) for line in payload.splitlines()]
+    if not payload.endswith(b"\n"):
+        return ("expired", None) if expired else pending
+    try:
+        return "frames", [json.loads(line) for line in payload.splitlines()]
+    except ValueError:
+        if expired:
+            return "expired", None
+        raise
 
 
 def inspect_codex_bootstrap(enrollment, identity, attempt, *, bind=None):
@@ -943,7 +1017,10 @@ def inspect_codex_bootstrap(enrollment, identity, attempt, *, bind=None):
         age = time.time() - attempt["started_at"]
         if attempt["sha"] != identity[4] or not 0 <= age:
             return uncertain
-        pending = ("bootstrap_pending", None) if age < _BOOTSTRAP_RECEIPT_SECONDS else uncertain
+        if _bootstrap_exit_code(attempt) == 124:
+            uncertain = pending = ("expired", None)
+        elif age < _BOOTSTRAP_RECEIPT_SECONDS:
+            pending = ("bootstrap_pending", None)
         state, frames = _read_bootstrap_frames(cwd, attempt, age, pending)
         if state != "frames":
             return state, frames
@@ -1013,7 +1090,10 @@ def inspect_agy_bootstrap(enrollment, identity, attempt, *, bind=None):
         age = time.time() - attempt["started_at"]
         if attempt["sha"] != identity[4] or not 0 <= age:
             return uncertain
-        pending = ("bootstrap_pending", None) if age < _BOOTSTRAP_RECEIPT_SECONDS else uncertain
+        if _bootstrap_exit_code(attempt) == 124:
+            uncertain = pending = ("expired", None)
+        elif age < _BOOTSTRAP_RECEIPT_SECONDS:
+            pending = ("bootstrap_pending", None)
         state, frames = _read_bootstrap_frames(cwd, attempt, age, pending)
         if state != "frames":
             return state, frames
