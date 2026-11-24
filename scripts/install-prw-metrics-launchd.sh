@@ -1,78 +1,95 @@
 #!/usr/bin/env bash
-# install-prw-metrics-launchd.sh — Install and bootstrap prw-metrics launchd agent (bd-yq6x).
+# Install the slim PRW metrics launchd job under its own label (com.jleechan.prw-metrics-slim).
+# Installing never loads or starts anything; only --activate enables and bootstraps the slim label.
+# The old com.jleechan.prw-metrics label is never written, loaded or unloaded here.
 #
-# Follows the 6-step checklist in .claude/skills/launchd/SKILL.md:
-# 1. Renders @HOME@ and @REPO_ROOT@ placeholders
-# 2. Validates rendered plist with plutil -lint
-# 3. Bootouts any existing registration
-# 4. Installs rendered plist into ~/Library/LaunchAgents/
-# 5. Bootstraps into gui/$(id -u)
-# 6. Verifies registration with launchctl list / print
-
+# Usage: install-prw-metrics-launchd.sh --repos a/b,c/d --roadmap-remote URL [--roadmap-branch main]
+#          [--source-repo PATH] [--source-rev REV] [--dry-run] [--replace-slim] [--activate]
 set -euo pipefail
 
+LABEL="com.jleechan.prw-metrics-slim"
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PLIST_TEMPLATE="${1:-$REPO_DIR/launchd/com.jleechan.prw-metrics.plist.template}"
-LAUNCH_AGENTS_DIR="$HOME/Library/LaunchAgents"
+TEMPLATE="$REPO_DIR/launchd/$LABEL.plist.template"
+SOURCE_REPO="$REPO_DIR"
+SOURCE_REV="origin/main"
+REPOS="" REMOTE="" BRANCH="main"
+DRY_RUN=0 REPLACE=0 ACTIVATE=0
+
+die() { echo "ERROR: $*" >&2; exit 1; }
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --repos) REPOS="${2:?}"; shift 2 ;;
+    --roadmap-remote) REMOTE="${2:?}"; shift 2 ;;
+    --roadmap-branch) BRANCH="${2:?}"; shift 2 ;;
+    --source-repo) SOURCE_REPO="${2:?}"; shift 2 ;;
+    --source-rev) SOURCE_REV="${2:?}"; shift 2 ;;
+    --dry-run) DRY_RUN=1; shift ;;
+    --replace-slim) REPLACE=1; shift ;;
+    --activate) ACTIVATE=1; shift ;;
+    *) die "unknown argument: $1" ;;
+  esac
+done
+[[ -n "$REPOS" ]] || die "--repos is required"
+[[ -n "$REMOTE" ]] || die "--roadmap-remote is required"
+[[ -f "$TEMPLATE" ]] || die "template not found: $TEMPLATE"
+
+SHA="$(git -C "$SOURCE_REPO" rev-parse --verify "${SOURCE_REV}^{commit}")" || die "cannot resolve $SOURCE_REV"
+RELEASE_DIR="$HOME/.local/share/prw-metrics-slim/releases/$SHA"
+PLIST_DEST="$HOME/Library/LaunchAgents/$LABEL.plist"
 UID_NUM="$(/usr/bin/id -u)"
 
-if [[ ! -f "$PLIST_TEMPLATE" ]]; then
-  echo "ERROR: Plist template not found at $PLIST_TEMPLATE" >&2
-  exit 1
-fi
-
-TEMP_PLIST="$(mktemp "${TMPDIR:-/tmp}/prw-metrics-plist.XXXXXX")"
-trap 'rm -f "$TEMP_PLIST"' EXIT
-
-echo "Rendering $PLIST_TEMPLATE -> $TEMP_PLIST ..."
-LABEL="$(python3 - "$PLIST_TEMPLATE" "$TEMP_PLIST" "$HOME" "$REPO_DIR" <<'PY'
+render() {
+  python3 - "$TEMPLATE" "$HOME" "$RELEASE_DIR" "$REPOS" "$REMOTE" "$BRANCH" <<'PY'
 import plistlib, sys
-tpl_path, dest_path, home_val, repo_val = sys.argv[1:5]
-with open(tpl_path, "rb") as f:
-    data = plistlib.load(f)
-if not isinstance(data, dict) or not data.get("Label") or not isinstance(data.get("Label"), str):
-    sys.exit(1)
-def replace_tokens(obj):
+tpl, home, release, repos, remote, branch = sys.argv[1:7]
+subs = {"@HOME@": home, "@RELEASE_DIR@": release, "@REPOS@": repos,
+        "@ROADMAP_REMOTE@": remote, "@ROADMAP_BRANCH@": branch}
+def fill(obj):
     if isinstance(obj, str):
-        return obj.replace("@HOME@", home_val).replace("@REPO_ROOT@", repo_val)
+        for key, val in subs.items():
+            obj = obj.replace(key, val)
+        return obj
     if isinstance(obj, list):
-        return [replace_tokens(x) for x in obj]
+        return [fill(x) for x in obj]
     if isinstance(obj, dict):
-        return {k: replace_tokens(v) for k, v in obj.items()}
+        return {k: fill(v) for k, v in obj.items()}
     return obj
-rendered = replace_tokens(data)
-with open(dest_path, "wb") as f:
-    plistlib.dump(rendered, f, sort_keys=False)
-print(rendered["Label"])
+with open(tpl, "rb") as f:
+    sys.stdout.buffer.write(plistlib.dumps(fill(plistlib.load(f)), sort_keys=False))
 PY
-)" || {
-    echo "ERROR: Could not parse Label or render plist from $PLIST_TEMPLATE" >&2
-    exit 1
 }
 
-PLIST_DEST="$LAUNCH_AGENTS_DIR/${LABEL}.plist"
-
-mkdir -p "$LAUNCH_AGENTS_DIR"
-mkdir -p "$HOME/Library/Logs"
-
-if [[ -x /usr/bin/plutil ]]; then
-  echo "Validating plist with plutil -lint ..."
-  /usr/bin/plutil -lint "$TEMP_PLIST"
+if [[ "$DRY_RUN" == 1 ]]; then
+  render
+  exit 0
 fi
 
-cp "$TEMP_PLIST" "$PLIST_DEST"
-chmod 644 "$PLIST_DEST"
-
-echo "Booting out previous registration (if any) ..."
-/bin/launchctl bootout "gui/${UID_NUM}/${LABEL}" 2>/dev/null || true
-
-echo "Bootstrapping ${LABEL} into gui/${UID_NUM} ..."
-/bin/launchctl bootstrap "gui/${UID_NUM}" "$PLIST_DEST"
-
-echo "Verifying service registration ..."
-if /bin/launchctl print "gui/${UID_NUM}/${LABEL}" >/dev/null 2>&1; then
-  echo "SUCCESS: $LABEL is registered with launchd (verified via launchctl print)"
+if launchctl print "gui/$UID_NUM/$LABEL" >/dev/null 2>&1; then
+  LOADED=1
+  [[ "$REPLACE" == 1 ]] || die "$LABEL is already loaded; pass --replace-slim to reinstall"
 else
-  echo "ERROR: Failed to verify service registration for $LABEL" >&2
-  exit 1
+  LOADED=0
+fi
+
+mkdir -p "$RELEASE_DIR" "$HOME/Library/Logs"
+git -C "$SOURCE_REPO" archive "$SHA" scripts | tar -x -C "$RELEASE_DIR"
+python3 "$RELEASE_DIR/scripts/prw_metrics.py" --help
+
+# Stage the plist inside the release directory. It is copied into ~/Library/LaunchAgents only by
+# --activate, because launchd loads everything in that folder at the next login.
+STAGED="$RELEASE_DIR/$LABEL.plist"
+render > "$STAGED.tmp"
+if [[ -x /usr/bin/plutil ]]; then /usr/bin/plutil -lint "$STAGED.tmp" >/dev/null; fi
+mv "$STAGED.tmp" "$STAGED"
+chmod 644 "$STAGED"
+echo "installed $LABEL at release $SHA (staged at $STAGED, not loaded)"
+
+if [[ "$ACTIVATE" == 1 ]]; then
+  [[ "$LOADED" == 0 ]] || launchctl bootout "gui/$UID_NUM/$LABEL"
+  mkdir -p "$HOME/Library/LaunchAgents"
+  cp "$STAGED" "$PLIST_DEST"
+  launchctl enable "gui/$UID_NUM/$LABEL"
+  launchctl bootstrap "gui/$UID_NUM" "$PLIST_DEST"
+  echo "activated $LABEL"
 fi

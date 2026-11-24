@@ -1,0 +1,9 @@
+[Unit]
+Description=Check enrolled PR owners every ten minutes
+
+[Timer]
+OnCalendar=*:0/10
+Unit=pr-owner-nudger.service
+
+[Install]
+WantedBy=timers.target

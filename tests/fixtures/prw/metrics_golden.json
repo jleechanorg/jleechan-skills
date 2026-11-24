@@ -1,0 +1,79 @@
+{
+  "cutoff": "2026-11-14T00:00:00Z",
+  "repos": ["example-org/example-repo"],
+  "annotations_status": "ABSENT",
+  "health": {
+    "example-org/example-repo": {"ok": true, "pages": 3, "truncated_prs": [], "error": null}
+  },
+  "windows": {
+    "w1": {"start": "2026-10-31T00:00:00Z", "end": "2026-11-07T00:00:00Z"},
+    "w2": {"start": "2026-11-07T00:00:00Z", "end": "2026-11-14T00:00:00Z"}
+  },
+  "merge_stats": {
+    "example-org/example-repo": {
+      "w1": {
+        "all": {"n": 2, "p50": 259200, "p75": 1252800, "p90": 1252800, "p99": 1252800},
+        "comparable": {"n": 1, "p50": 259200, "p75": 259200, "p90": 259200, "p99": 259200},
+        "backlog": {"n": 1, "p50": 1252800, "p75": 1252800, "p90": 1252800, "p99": 1252800}
+      },
+      "w2": {
+        "all": {"n": 2, "p50": 216000, "p75": 604800, "p90": 604800, "p99": 604800},
+        "comparable": {"n": 2, "p50": 216000, "p75": 604800, "p90": 604800, "p99": 604800},
+        "backlog": {"n": 0, "p50": null, "p75": null, "p90": null, "p99": null}
+      },
+      "horizon": {
+        "all": {"n": 4, "p50": 259200, "p75": 604800, "p90": 1252800, "p99": 1252800},
+        "comparable": {"n": 3, "p50": 259200, "p75": 604800, "p90": 604800, "p99": 604800},
+        "backlog": {"n": 1, "p50": 1252800, "p75": 1252800, "p90": 1252800, "p99": 1252800}
+      }
+    }
+  },
+  "elapsed": {
+    "example-org/example-repo": {"n": 4, "p50": 259200, "p75": 604800, "p90": 1252800, "p99": 1252800}
+  },
+  "stage_dwell": {
+    "example-org/example-repo": {
+      "stage:0-spec": {"n": 1, "p50": 1209600, "p75": 1209600, "p90": 1209600, "p99": 1209600},
+      "stage:1-code": {"n": 1, "p50": 32400, "p75": 32400, "p90": 32400, "p99": 32400},
+      "stage:3-review": {"n": 2, "p50": 86400, "p75": 226800, "p90": 226800, "p99": 226800},
+      "stage:4-ci": {"n": 1, "p50": 172800, "p75": 172800, "p90": 172800, "p99": 172800}
+    }
+  },
+  "handoff": {
+    "example-org/example-repo": {
+      "requested": {"n": 3, "p50": 9000, "p75": 21600, "p90": 21600, "p99": 21600},
+      "readiness": {"n": 2, "p50": 10800, "p75": 12600, "p90": 12600, "p99": 12600},
+      "open_attempts": 2,
+      "superseded_attempts": 1
+    }
+  },
+  "user_activity": {
+    "example-org/example-repo": {
+      "User": {"comments": 3, "reviews": 3, "commits": 3},
+      "Bot": {"comments": 2, "reviews": 1, "commits": 1}
+    }
+  },
+  "episode_labels": {},
+  "open_attention": [
+    {
+      "repo": "example-org/example-repo",
+      "number": 100,
+      "url": "https://github.com/example-org/example-repo/pull/100",
+      "title": "[blocked][awaiting spec] Draft refactor",
+      "owner": "alice-dev",
+      "age_sec": 2592000,
+      "earliest_unmet": "stage:0-spec",
+      "status": "blocked"
+    },
+    {
+      "repo": "example-org/example-repo",
+      "number": 105,
+      "url": "https://github.com/example-org/example-repo/pull/105",
+      "title": "[waiting][review requested] Add cache layer",
+      "owner": "alice-dev",
+      "age_sec": 345600,
+      "earliest_unmet": "stage:3-review",
+      "status": "waiting"
+    }
+  ]
+}

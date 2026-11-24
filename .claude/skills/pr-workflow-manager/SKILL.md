@@ -41,6 +41,13 @@ An unqualified `/prw` (`/pr-workflow`) defaults to driving the PR to **`FINAL_RE
 
 Before selecting a branch, stage, or gate, inspect the target repository's `AGENTS.md`, `CLAUDE.md`, and scoped instructions. Local repository instructions take precedence within their domain. Where local instructions are silent, apply the canonical [pr-lifecycle](../pr-lifecycle/SKILL.md) completion loop.
 
+**Repository overlay.** Then load the repository's PR overlay, if any: `.claude/pr-overlay.md` read from the PR's actual base ref (for example `git show origin/<base>:.claude/pr-overlay.md`), so a PR cannot loosen its own rules; if the PR edits the file, the base version still governs. If there is none, use the operator overlay at `${XDG_CONFIG_HOME:-$HOME/.config}/jleechan-skills/pr-overlays/<owner>/<repo>.md` when it exists. An overlay is plain Markdown with up to three headings:
+- `## Proof route`: how this repository produces behavior proof;
+- `## Preview`: `required`, `opportunistic` or `none`;
+- `## CI`: which stages wait on remote CI, and when a slow required check is replaced by the [local-equivalent record](../pr-green-definition/SKILL.md#backlogged-ci--local-equivalent-gate-1-evidence).
+
+Precedence, highest first: target `AGENTS.md`/`CLAUDE.md`, then the repository overlay, then the operator overlay, then the shared defaults. Either overlay may relax a repository rule only by quoting the operator instruction that grants the exception, with its date and where it was given (session, PR comment or message), so a reviewer can trace it. If the PR's reviewer cannot locate the cited message, the grant counts for nothing. A repository overlay's grant counts once it has merged through the repository's normal review. An operator overlay's grant lapses when a repository overlay lands. Otherwise the repository rule wins. In the PR's stage or execution record, name the overlay and its commit or file hash, and copy verbatim every repository rule it relaxed and the grant quoted for it.
+
 ## Verify ownership and exact branch
 
 - Read target repository `AGENTS.md`/`CLAUDE.md`, current user scope, existing PR, and source-owner/hold records. Reconcile with any sole writer before writing to prevent competing updates.
@@ -96,6 +103,10 @@ Apply these compact defaults where explicit repository instructions are silent; 
 ## Autonomous execution and boundaries
 
 Drive the PR through the [pr-lifecycle completion loop](../pr-lifecycle/SKILL.md#the-autonomous-completion-loop), which owns route selection, gate order, obligation records, asynchronous work, evidence applicability and final claim-to-proof checks. Load [six-stage.md](../pr-lifecycle/six-stage.md) stage rules only when the target repository opts into that workflow; its [evidence publication section](../pr-lifecycle/six-stage.md#evidence-attached-to-every-stage-exit) applies to every PR under the selected route. Load the relevant [on-demand routing/recovery references](../pr-lifecycle/SKILL.md#review-obligations-by-changed-claim-and-risk) when their decisions are needed. Open new PRs as drafts; undraft only after its applicable draft gates pass, except an early undraft under the [preview-deploy exception](../pr-lifecycle/SKILL.md#draft-phase-final-acceptance-gates-in-order) when a repository's preview workflow (e.g. a GCP preview gated on non-draft PRs) must run to produce evidence. The [self-review fallback](../pr-lifecycle/review-recovery.md#self-review-fallback-when-independent-votes-cannot-be-obtained) is the other case: once every seat in the order of attempts has a receipt or an evidenced skip reason and the source votes are still short, undraft after every other draft gate passes.
+
+## Headless PR owner (`--nudge`)
+
+`/pr --nudge <PR>` hands execution to a headless PR owner under [pr-owner-nudger](../pr-owner-nudger/SKILL.md): resolve the `jleechan-skills` source checkout holding `scripts/pr_nudger_round.py`, verify or create a dedicated checkout on the PR head branch, write the per-PR scope from the PR's `/ironclad` contract, run `scripts/pr_nudger_round.py enroll` with the chosen `--cli` (`codex` or `agy`) and `--model`, start the first tick with `scripts/pr_nudger_round.py retry-now --kick`, and turn the current session into the independent Stage 5 verifier rather than writing on the branch. `/pr --nudge --stop <PR>` retires the target via `scripts/pr_nudger_round.py retire`. Enabling dispatch (`enabled: true`) and merging stay with the operator.
 
 ## Boundaries
 

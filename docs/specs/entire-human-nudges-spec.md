@@ -1,5 +1,8 @@
 # Entire-backed human nudge metrics
 
+> **Superseded.** The collector, the nudge adjudication script and the `--history-replay`, `--history-annotations`, `--entire-parser`, `--entire-agent`, `--session-bindings` and `--nudge-packets` flags this spec describes were removed with the old PRW metrics layers. It is kept for history only; do not follow its commands.
+
+
 ## Outcome
 
 Record Entire as a tool used by this repository and provide a runnable path from native transcripts through the pinned Entire SDK and model adjudication into the existing human-nudge metric. Reuse the current annotation, aggregation, coverage and rendering contracts.
@@ -34,7 +37,7 @@ Unit tests may use deterministic judge-command fakes to test transport and aggre
 
 The SDK normalizes and may omit or merge events, so source/coverage gaps must survive. Its module requires Go 1.27.4; CI and local verification must use an eligible compiler. Model input may contain private excerpts as part of the explicitly requested adjudication; document that data flow and never upload raw histories to browser reviewers. The prior smoke's schema-inspection exposure remains historical failure evidence, not a justification to log source values.
 
-Existing owners are `scripts/native_usage_collector.py`, `scripts/prw_metrics.py`, the reviewed annotation schema in `docs/specs/prw-metrics-dashboard-spec.md`, and their tests. Extend those seams rather than creating a second counter. SDK dependency/version documentation lives with the small Go tool and is linked by its real caller.
+Existing owners are `scripts/prw_metrics.py`, the reviewed annotation schema in `docs/specs/prw-metrics-dashboard-spec.md`, and their tests. Extend those seams rather than creating a second counter. SDK dependency/version documentation lives with the small Go tool and is linked by its real caller.
 
 ## Existing schedule integration
 
