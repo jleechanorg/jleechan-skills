@@ -337,7 +337,7 @@ cmd_login() {
   fi
   local profile_args=() store_args=("--password-store=gnome-libsecret") chrome_rc=0
   [[ -n "$PROFILE_DIRECTORY" ]] && profile_args+=("--profile-directory=$PROFILE_DIRECTORY")
-  [[ "$(uname -s)" == "Darwin" ]] && store_args=("--password-store=keychain")
+  [[ "$(uname -s)" == "Darwin" ]] && store_args=("--password-store=keychain" "--disable-features=MacAppCodeSignClone")
   "$chrome_bin" --user-data-dir="$dir" --no-first-run "${profile_args[@]}" "${store_args[@]}" --no-default-browser-check "$target_url" || chrome_rc=$?
   exit "$chrome_rc"
 }

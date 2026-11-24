@@ -189,6 +189,10 @@ function reportPrecommitNoSend(reason, file) {
   }) + '\n');
 }
 
+function hasLegacyV10SessionCookies(dir, prof) {
+  const db = path.join(profileDirectoryPath(dir, prof), 'Cookies'); if (!fs.existsSync(db)) return false;
+  try { const [v10, v11] = execFileSync('sqlite3', [`file:${db.replace(/%/g, '%25').replace(/\?/g, '%3F').replace(/#/g, '%23')}?mode=ro`, "SELECT sum(hex(substr(encrypted_value,1,3))='763130'),sum(hex(substr(encrypted_value,1,3))='763131') FROM cookies WHERE name LIKE '%session-token%';"], { encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] }).trim().split('|').map((v) => parseInt(v, 10) || 0); return v10 > 0 && v11 === 0; } catch { return false; }
+}
 function chromeLaunchOptions(profDir) {
   const isLinux = os.platform() === 'linux', hasDisplay = !!process.env.DISPLAY;
   const profileDirectory = profDir || accountInfo?.profileDirectory;
@@ -203,7 +207,7 @@ function chromeLaunchOptions(profDir) {
       ignoreDefaultArgs.push('--password-store=basic', '--use-mock-keychain');
     }
   } else if (isMac) {
-    args.push('--password-store=keychain');
+    args.push('--password-store=keychain', '--disable-features=' + (hasLegacyV10SessionCookies(USER_DATA_DIR, profileDirectory) ? 'MacAppCodeSignClone,KeychainKeyProviderUserDataDirProtection' : 'MacAppCodeSignClone'));
     ignoreDefaultArgs.push('--use-mock-keychain', '--password-store=basic');
   }
   return { executablePath: CHROME, headless: isLinux ? !hasDisplay : true, userAgent: UA, ignoreDefaultArgs, args };
