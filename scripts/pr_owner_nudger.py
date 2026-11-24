@@ -130,7 +130,7 @@ def _expired_since(db, key, store):
     return store.now
 
 
-def _should_prune_target(key, outcome, store, receipts, config):
+def _should_prune_target(key, outcome, store, receipts, config, pr=None):
     if receipts is None:
         return False
     status = outcome.get("status")
@@ -139,6 +139,8 @@ def _should_prune_target(key, outcome, store, receipts, config):
         closed_at = store.row(key).get("closed_at")
         return closed_at is not None and store.now - closed_at >= grace_seconds
     if status == "expired":
+        if pr is not None and pr_status(pr) != "actionable":
+            return False
         ttl_seconds = prune_hours(config, "prune_after_hours", DEFAULT_PRUNE_AFTER_HOURS) * 3600
         expired_at = _expired_since(receipts, key, store)
         return store.now - expired_at >= ttl_seconds
@@ -1161,7 +1163,7 @@ def tick(config, receipts, state=None, *, config_path=None):
             action = "reconcile_bootstrap" if store.row(key)["bootstrap"] else "verify_owner"
             outcome = store.schedule(key, "blocked_target_verification", action)
         row_out = dict(repo=key[0], pr=key[1], sha=expected[-1], ci_status=ci_status, **outcome)
-        if _should_prune_target(key, outcome, store, receipts, config):
+        if _should_prune_target(key, outcome, store, receipts, config, pr=pr):
             if prune_config_targets(config_path, {key: targets[key]}, receipts):
                 row_out["pruned"] = True
         yield row_out

@@ -55,6 +55,8 @@ class Intake:
         for col in ("expired_at", "closed_at"):
             if col not in existing_cols:
                 self.db.execute(f"ALTER TABLE target ADD COLUMN {col} REAL")
+        if not keys:
+            return
         self.db.execute("BEGIN IMMEDIATE")
         try:
             self.db.executemany(

@@ -1550,3 +1550,29 @@ class DispatcherTest(unittest.TestCase):
             store.observation(key, self.sha, "actionable", None)
             store.schedule(key, "delivered", "refresh_pr", progress=True)
             self.assertIsNone(store.row(key)["closed_at"])
+
+    def test_expired_target_that_becomes_final_ready_is_never_pruned(self):
+        session = "00000000-0000-4000-8000-000000000001"
+        self.config["owners"] = [dict(self.owner, session=session, profile_dir=str(self.root))]
+        self.config["targets"] = [{"repo": "base/project", "number": 12}]
+        config_path = self.root / "config.json"
+        config_path.write_text(json.dumps(self.config))
+        clock = [1000.0]
+        final_pr = {
+            **self.pr,
+            "labels": [{"name": "stage:5-final-approval"}],
+            "title": "[ready] Done",
+            "body": f"## PR Stage\nstatus: FINAL_READY\ncandidate: {self.sha}\nowner: agy\nnext_action: none\n",
+        }
+        pr_state = [self.pr]
+        with patch.object(nudger, "github", side_effect=lambda *_a, **_k: pr_state[0]), \
+             patch.object(nudger, "legacy_tick", return_value=()), \
+             patch.object(nudger.time, "time", side_effect=lambda: clock[0]), \
+             patch.object(nudger, "route", return_value="expired"):
+            _, rows = self._run_config_tick(config_path, apply=True)
+            self.assertEqual(rows[0]["status"], "expired")
+            pr_state[0] = final_pr
+            clock[0] = 1000.0 + 25 * 3600
+            _, rows = self._run_config_tick(config_path, apply=True)
+            self.assertFalse(rows[0].get("pruned"))
+            self.assertEqual([t["number"] for t in json.loads(config_path.read_text())["targets"]], [12])

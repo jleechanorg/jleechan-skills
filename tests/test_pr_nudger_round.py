@@ -448,6 +448,53 @@ class RoundTest(unittest.TestCase):
             self.run_cli("prune")
             self.assertEqual([t["number"] for t in json.loads(self.config.read_text())["targets"]], [12, 13, 15])
 
+    def test_prune_standalone_grace_no_db_reopen_resets_and_replacement_deadline_ages_out(self):
+        state = self.root / "fresh-state"
+        now = 2_000_000_000.0
+        config = {
+            "enabled": True,
+            "state_dir": str(state),
+            "prune_after_hours": 24,
+            "prune_closed_after_hours": 2,
+            "targets": [
+                {"repo": "base/project", "number": 12, "observe_only": False,
+                 "enrollment": {"cli_bin": str(self.root / f"codex-deadline-{int(now + 3600)}")}},
+                {"repo": "base/project", "number": 14, "observe_only": False},
+            ],
+        }
+        self.config.write_text(json.dumps(config))
+        pr14_state = ["closed"]
+
+        def fake_github(_cwd, endpoint, **_kwargs):
+            num = int(endpoint.rsplit("/", 1)[1])
+            return {"number": num, "state": pr14_state[0] if num == 14 else "open", "labels": [],
+                    "title": "PR", "body": "",
+                    "head": {"sha": "a" * 40, "ref": "f", "repo": {"full_name": "base/project"}},
+                    "base": {"repo": {"full_name": "base/project"}}}
+
+        clock = [now]
+        with patch.object(round_cli.time, "time", side_effect=lambda: clock[0]), \
+             patch.object(round_cli, "github", side_effect=fake_github, create=True):
+            # No pre-existing DB: initializes closed_at for PR 14 at t=now.
+            self.run_cli("prune")
+            self.assertTrue((state / "receipts.sqlite3").is_file())
+            self.assertEqual([t["number"] for t in json.loads(self.config.read_text())["targets"]], [12, 14])
+            # Reopening PR 14 at t+1.5h clears closed_at; reclosing at t+2h starts a fresh 2h grace window.
+            clock[0] = now + 1.5 * 3600
+            pr14_state[0] = "open"
+            self.run_cli("prune")
+            clock[0] = now + 2.0 * 3600
+            pr14_state[0] = "closed"
+            self.run_cli("prune")
+            self.assertEqual([t["number"] for t in json.loads(self.config.read_text())["targets"]], [12, 14])
+            # At t+4h (2h after re-closure) PR 14 prunes; at t+26h (25h after PR 12's +1h deadline) PR 12 also prunes.
+            clock[0] = now + 4.0 * 3600
+            self.run_cli("prune")
+            self.assertEqual([t["number"] for t in json.loads(self.config.read_text())["targets"]], [12])
+            clock[0] = now + 26.0 * 3600
+            self.run_cli("prune")
+            self.assertEqual(json.loads(self.config.read_text())["targets"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

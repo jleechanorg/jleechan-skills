@@ -13,11 +13,12 @@ import sqlite3
 import subprocess
 import sys
 import time
-from contextlib import ExitStack, closing, nullcontext
+from contextlib import ExitStack, closing
 from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pr_nudger_intake import Intake  # noqa: E402
 from pr_owner_nudger import (  # noqa: E402
     CHECK_ERRORS,
     DEFAULT_PRUNE_AFTER_HOURS,
@@ -277,23 +278,38 @@ def _table_columns(db, table):
     return {row[1] for row in db.execute(f"PRAGMA table_info({table})").fetchall()}
 
 
-def _enrollment_restarted(item, repo, number, db, now):
+def _enrollment_restarted(item, repo, number, db, now, ttl_seconds):
     if item.get("observe_only"):
         return False
     enrollment = item.get("enrollment")
     if not isinstance(enrollment, dict):
         return False
     match = re.search(r"-deadline-(\d+)$", str(enrollment.get("cli_bin", "")))
-    if match and int(match.group(1)) > now:
-        return True
+    if match:
+        deadline = int(match.group(1))
+        if deadline >= 1_000_000_000:
+            return deadline > now or now - deadline < ttl_seconds
+        return deadline > now
     if db is None:
         return False
-    for table in ("delivery", "binding"):
-        if "owner" not in _table_columns(db, table):
-            continue
-        for (raw_owner,) in db.execute(
-            f"SELECT owner FROM {table} WHERE repo=? AND number=?", (repo, number)
-        ).fetchall():
+    if "owner" in _table_columns(db, "delivery"):
+        row = db.execute("SELECT owner FROM delivery WHERE repo=? AND number=?", (repo, number)).fetchone()
+        if row and row[0]:
+            try:
+                if _enrollment_fields_changed(json.loads(row[0]), enrollment):
+                    return True
+            except (TypeError, ValueError):
+                pass
+    if "owner" in _table_columns(db, "binding"):
+        binding_cols = _table_columns(db, "binding")
+        if {"cwd", "branch"} <= binding_cols and enrollment.get("cwd") and enrollment.get("branch"):
+            rows = db.execute(
+                "SELECT owner FROM binding WHERE cwd=? AND repo=? AND number=? AND branch=?",
+                (enrollment["cwd"], repo, number, enrollment["branch"]),
+            ).fetchall()
+        else:
+            rows = db.execute("SELECT owner FROM binding WHERE repo=? AND number=?", (repo, number)).fetchall()
+        for (raw_owner,) in rows:
             if not raw_owner:
                 continue
             try:
@@ -320,10 +336,16 @@ def _prune_reason_for_target(item, repo, number, db, now, ttl_seconds, closed_gr
             row = db.execute("SELECT closed_at FROM target WHERE repo=? AND number=?", (repo, number)).fetchone()
             closed_at = row[0] if row else None
             if closed_at is None and not dry_run:
-                db.execute(
-                    "INSERT OR IGNORE INTO target(repo, number, next_action) VALUES (?, ?, 'refresh_pr')",
-                    (repo, number),
-                )
+                if "next_action" in cols:
+                    db.execute(
+                        "INSERT OR IGNORE INTO target(repo, number, next_action) VALUES (?, ?, 'refresh_pr')",
+                        (repo, number),
+                    )
+                else:
+                    db.execute(
+                        "INSERT OR IGNORE INTO target(repo, number) VALUES (?, ?)",
+                        (repo, number),
+                    )
                 if "reason" in cols:
                     db.execute(
                         "UPDATE target SET reason='closed', closed_at=? WHERE repo=? AND number=? AND closed_at IS NULL",
@@ -337,9 +359,20 @@ def _prune_reason_for_target(item, repo, number, db, now, ttl_seconds, closed_gr
         if closed_at is not None and now - closed_at >= closed_grace_seconds:
             return "closed"
         return None
+    if db is not None and not dry_run:
+        cols = _table_columns(db, "target")
+        if "closed_at" in cols:
+            if "reason" in cols:
+                db.execute(
+                    "UPDATE target SET closed_at=NULL, reason=CASE WHEN reason='closed' THEN NULL ELSE reason END"
+                    " WHERE repo=? AND number=? AND (closed_at IS NOT NULL OR reason='closed')",
+                    (repo, number),
+                )
+            else:
+                db.execute("UPDATE target SET closed_at=NULL WHERE repo=? AND number=? AND closed_at IS NOT NULL", (repo, number))
     if status_name != "actionable":
         return None
-    if _enrollment_restarted(item, repo, number, db, now):
+    if _enrollment_restarted(item, repo, number, db, now, ttl_seconds):
         return None
 
     target_cols = _table_columns(db, "target")
@@ -401,23 +434,25 @@ def prune(args):
     prune_snapshots = {}
     pruned = []
     with ExitStack() as stack:
-        has_db = db_path.is_file()
-        if not args.dry_run and has_db:
+        use_db = db_path.is_file() or (not args.dry_run and closed_grace_seconds > 0 and bool(config.get("targets")))
+        if not args.dry_run and use_db:
+            state_path.mkdir(mode=0o700, parents=True, exist_ok=True)
             lock = stack.enter_context((state_path / "tick.lock").open("a"))
             fcntl.flock(lock, fcntl.LOCK_EX)
-        db = stack.enter_context(closing(sqlite3.connect(db_path))) if has_db else None
-        with db if (db is not None and not args.dry_run) else nullcontext():
-            for item in config.get("targets", []):
-                repo, number = repo_slug(item["repo"]), item["number"]
-                reason = _prune_reason_for_target(
-                    item, repo, number, db, now, ttl_seconds, closed_grace_seconds, dry_run=args.dry_run
-                )
-                if reason:
-                    prune_snapshots[repo, number] = item
-                    pruned.append((repo, number, reason))
-            if pruned and not args.dry_run:
-                actually_pruned = prune_config_targets(args.config, prune_snapshots, db)
-                pruned = [entry for entry in pruned if entry[:2] in actually_pruned]
+        db = stack.enter_context(closing(sqlite3.connect(db_path, isolation_level=None))) if use_db else None
+        if db is not None and not args.dry_run:
+            Intake(db, state_path, now).prepare([])
+        for item in config.get("targets", []):
+            repo, number = repo_slug(item["repo"]), item["number"]
+            reason = _prune_reason_for_target(
+                item, repo, number, db, now, ttl_seconds, closed_grace_seconds, dry_run=args.dry_run
+            )
+            if reason:
+                prune_snapshots[repo, number] = item
+                pruned.append((repo, number, reason))
+        if pruned and not args.dry_run:
+            actually_pruned = prune_config_targets(args.config, prune_snapshots, db)
+            pruned = [entry for entry in pruned if entry[:2] in actually_pruned]
 
     if not pruned:
         print("no targets to prune")
