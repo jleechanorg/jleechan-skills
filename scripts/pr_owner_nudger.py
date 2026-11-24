@@ -13,7 +13,7 @@ import subprocess
 import tempfile
 import time
 from collections import defaultdict
-from contextlib import ExitStack, closing
+from contextlib import ExitStack, closing, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.error import HTTPError
@@ -56,6 +56,24 @@ def prune_hours(config, key, default):
             or not math.isfinite(value) or value < 0):
         raise ValueError(f"{key} must be a non-negative finite number")
     return float(value)
+
+
+@contextmanager
+def config_lock(path):
+    """Serialize read-modify-write updates on a nudger config file."""
+    resolved = Path(path).expanduser().resolve()
+    resolved.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = resolved.with_name(f".{resolved.name}.lock")
+    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        os.fchmod(fd, 0o600)
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
 
 
 def save_config(path, config):
@@ -132,20 +150,21 @@ def prune_config_targets(config_path, pruned_snapshots, receipts=None):
     if not config_path or not pruned_snapshots:
         return set()
     config_path = Path(config_path)
-    disk_config = json.loads(config_path.read_text())
-    kept = []
-    pruned = set()
-    for item in disk_config.get("targets", []):
-        key = (repo_slug(item["repo"]), item["number"])
-        if key in pruned_snapshots and item == pruned_snapshots[key]:
-            pruned.add(key)
-        else:
-            kept.append(item)
-    if pruned:
-        disk_config["targets"] = kept
-        save_config(config_path, disk_config)
-        for key in sorted(pruned):
-            delete_target_state(receipts, key)
+    with config_lock(config_path):
+        disk_config = json.loads(config_path.read_text())
+        kept = []
+        pruned = set()
+        for item in disk_config.get("targets", []):
+            key = (repo_slug(item["repo"]), item["number"])
+            if key in pruned_snapshots and item == pruned_snapshots[key]:
+                pruned.add(key)
+            else:
+                kept.append(item)
+        if pruned:
+            disk_config["targets"] = kept
+            save_config(config_path, disk_config)
+            for key in sorted(pruned):
+                delete_target_state(receipts, key)
     return pruned
 
 
@@ -1060,8 +1079,9 @@ def observe_ci(repo, number, head, budget):
 
 
 def tick(config, receipts, state=None, *, config_path=None):
-    prune_hours(config, "prune_after_hours", DEFAULT_PRUNE_AFTER_HOURS)
-    prune_hours(config, "prune_closed_after_hours", DEFAULT_PRUNE_CLOSED_AFTER_HOURS)
+    if config_path is not None:
+        prune_hours(config, "prune_after_hours", DEFAULT_PRUNE_AFTER_HOURS)
+        prune_hours(config, "prune_closed_after_hours", DEFAULT_PRUNE_CLOSED_AFTER_HOURS)
     targets = configured_targets(config)
     store = Intake(receipts, state, time.time())
     if targets:
@@ -1127,8 +1147,6 @@ def tick(config, receipts, state=None, *, config_path=None):
     discovered = discover_owners(enrolled) if enrolled else {}
     yield from errors
     begin_tick_capacity()
-    pending_results = []
-    prune_snapshots = {}
     for key in sorted(observed, key=lambda key: (store.row(key)["next_due"], key)):
         pr, ci_status, wake_reason = observed[key]
         expected = identity(pr)
@@ -1144,12 +1162,8 @@ def tick(config, receipts, state=None, *, config_path=None):
             outcome = store.schedule(key, "blocked_target_verification", action)
         row_out = dict(repo=key[0], pr=key[1], sha=expected[-1], ci_status=ci_status, **outcome)
         if _should_prune_target(key, outcome, store, receipts, config):
-            prune_snapshots[key] = targets[key]
-        pending_results.append((key, row_out))
-    actually_pruned = prune_config_targets(config_path, prune_snapshots, receipts) if receipts is not None else set()
-    for key, row_out in pending_results:
-        if key in actually_pruned:
-            row_out["pruned"] = True
+            if prune_config_targets(config_path, {key: targets[key]}, receipts):
+                row_out["pruned"] = True
         yield row_out
     yield from legacy_tick(config, receipts, legacy_enrolled, discovered, targets, read if targets else None)
 
@@ -1171,11 +1185,11 @@ def main(argv=None):
         cooldown = config.get("cooldown_seconds", 1800)
         if type(cooldown) is not int or cooldown < 1:
             raise ValueError("Cooldown must be a positive integer")
-        prune_hours(config, "prune_after_hours", DEFAULT_PRUNE_AFTER_HOURS)
-        prune_hours(config, "prune_closed_after_hours", DEFAULT_PRUNE_CLOSED_AFTER_HOURS)
         with ExitStack() as stack:
             receipts = state = None
             if args.apply:
+                prune_hours(config, "prune_after_hours", DEFAULT_PRUNE_AFTER_HOURS)
+                prune_hours(config, "prune_closed_after_hours", DEFAULT_PRUNE_CLOSED_AFTER_HOURS)
                 state = Path(config.get("state_dir", "~/.local/state/pr-owner-nudger")).expanduser().resolve()
                 state.mkdir(mode=0o700, parents=True, exist_ok=True)
                 lock = stack.enter_context((state / "tick.lock").open("a"))

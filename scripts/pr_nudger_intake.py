@@ -117,9 +117,13 @@ class Intake:
             expired_at = None
             closed_at = (
                 row.get("closed_at")
-                if row.get("reason") == "closed" and row.get("closed_at") is not None
+                if row.get("closed_at") is not None
+                and (row.get("reason") == "closed" or row.get("observed_status") == "closed")
                 else self.now
             )
+        elif reason.startswith("blocked_") and row.get("observed_status") == "closed":
+            expired_at = None
+            closed_at = row.get("closed_at")
         else:
             expired_at = None
             closed_at = None

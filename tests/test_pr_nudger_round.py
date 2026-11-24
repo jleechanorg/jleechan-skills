@@ -384,6 +384,70 @@ class RoundTest(unittest.TestCase):
             kept = [r[0] for r in db.execute("SELECT number FROM target ORDER BY number").fetchall()]
             self.assertEqual(kept, [13])
 
+    def test_prune_preserves_reenrolled_final_ready_offline_and_starts_closed_grace(self):
+        state = self.root / "state"
+        state.mkdir()
+        now = 2_000_000_000.0
+        sha = "a" * 40
+        config = {
+            "enabled": True,
+            "state_dir": str(state),
+            "prune_after_hours": 24,
+            "prune_closed_after_hours": 2,
+            "targets": [
+                # PR 12: freshly re-enrolled (future deadline + changed cli_bin) despite stale SQLite expiry -> KEEP
+                {"repo": "base/project", "number": 12, "observe_only": False,
+                 "enrollment": {"cli_bin": str(self.root / f"codex-deadline-{int(now + 3600)}")}},
+                # PR 13: open FINAL_READY even with old deadline + stale SQLite expiry -> KEEP
+                {"repo": "base/project", "number": 13, "observe_only": False,
+                 "enrollment": {"cli_bin": str(self.root / f"codex-deadline-{int(now - 30 * 3600)}")}},
+                # PR 14: closed on GitHub, no initial closed_at -> initialize grace, prune only at +2h
+                {"repo": "base/project", "number": 14, "observe_only": False},
+                # PR 15: offline GitHub error -> KEEP + warn on stderr
+                {"repo": "base/project", "number": 15, "observe_only": False,
+                 "enrollment": {"cli_bin": str(self.root / f"codex-deadline-{int(now - 30 * 3600)}")}},
+            ],
+        }
+        self.config.write_text(json.dumps(config))
+        self.config.chmod(0o600)
+        with sqlite3.connect(state / "receipts.sqlite3") as db:
+            db.execute("CREATE TABLE target (repo TEXT, number INTEGER, next_action TEXT, reason TEXT, expired_at REAL, closed_at REAL)")
+            db.execute("CREATE TABLE delivery (repo TEXT, number INTEGER, status TEXT, time REAL, owner TEXT)")
+            db.execute("INSERT INTO target VALUES ('base/project', 12, 'expired', 'expired', ?, NULL)", (now - 30 * 3600,))
+            db.execute("INSERT INTO delivery VALUES ('base/project', 12, 'expired', ?, ?)",
+                       (now - 30 * 3600, json.dumps({"cli_bin": str(self.root / "codex-deadline-old")})))
+            db.execute("INSERT INTO target VALUES ('base/project', 13, 'expired', 'expired', ?, NULL)", (now - 30 * 3600,))
+
+        final_body = f"## PR Stage\nstatus: FINAL_READY\ncandidate: {sha}\nowner: agy\nnext_action: none\n"
+
+        def fake_github(_cwd, endpoint, **_kwargs):
+            num = int(endpoint.rsplit("/", 1)[1])
+            if num == 15:
+                raise OSError("network offline")
+            if num == 13:
+                return {"number": 13, "state": "open", "labels": [{"name": "stage:5-final-approval"}],
+                        "title": "[ready] Done", "body": final_body,
+                        "head": {"sha": sha, "ref": "f", "repo": {"full_name": "base/project"}},
+                        "base": {"repo": {"full_name": "base/project"}}}
+            return {"number": num, "state": "closed" if num == 14 else "open", "labels": [],
+                    "title": "PR", "body": "",
+                    "head": {"sha": sha, "ref": "f", "repo": {"full_name": "base/project"}},
+                    "base": {"repo": {"full_name": "base/project"}}}
+
+        clock = [now]
+        with patch.object(round_cli.time, "time", side_effect=lambda: clock[0]), \
+             patch.object(round_cli, "github", side_effect=fake_github, create=True):
+            self.run_cli("prune")
+            self.assertEqual([t["number"] for t in json.loads(self.config.read_text())["targets"]], [12, 13, 14, 15])
+
+            clock[0] = now + 3600.0
+            self.run_cli("prune")
+            self.assertEqual([t["number"] for t in json.loads(self.config.read_text())["targets"]], [12, 13, 14, 15])
+
+            clock[0] = now + 2 * 3600.0
+            self.run_cli("prune")
+            self.assertEqual([t["number"] for t in json.loads(self.config.read_text())["targets"]], [12, 13, 15])
+
 
 if __name__ == "__main__":
     unittest.main()

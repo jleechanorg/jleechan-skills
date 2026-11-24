@@ -2,6 +2,7 @@
 """Operator commands for one nudger round: enroll, retire, retry-now, prune."""
 
 import argparse
+import fcntl
 import json
 import os
 import re
@@ -12,7 +13,7 @@ import sqlite3
 import subprocess
 import sys
 import time
-from contextlib import nullcontext
+from contextlib import ExitStack, closing, nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -21,7 +22,9 @@ from pr_owner_nudger import (  # noqa: E402
     CHECK_ERRORS,
     DEFAULT_PRUNE_AFTER_HOURS,
     DEFAULT_PRUNE_CLOSED_AFTER_HOURS,
+    _enrollment_fields_changed,
     checkout,
+    config_lock,
     github,
     pr_status,
     prune_config_targets,
@@ -220,31 +223,33 @@ def enroll(args):
     wrapper = profile / f"{cli}-deadline-{end}"
     wrapper.write_text(WRAPPER.format(end=end, timeout=timeout, cli=shlex.quote(cli_bin)))
     wrapper.chmod(0o755)
-    config = load(args.config)
-    item = target(config, args.repo, args.pr)
-    item["observe_only"] = False
-    enrollment = {
-        "host": socket.gethostname(), "cwd": str(cwd), "head_repo": head_repo, "branch": branch,
-        "cli": cli, "cli_bin": str(wrapper), "profile_dir": str(profile), "model": model,
-        "managed_exclusive": True, "launch_authorized": True,
-    }
-    if cli == "codex":
-        enrollment["resume_sandbox"] = "danger-full-access"
-    if args.headless_only:
-        enrollment["headless_only"] = True
-    item["enrollment"] = enrollment
-    save(args.config, config)
+    with config_lock(args.config):
+        config = load(args.config)
+        item = target(config, args.repo, args.pr)
+        item["observe_only"] = False
+        enrollment = {
+            "host": socket.gethostname(), "cwd": str(cwd), "head_repo": head_repo, "branch": branch,
+            "cli": cli, "cli_bin": str(wrapper), "profile_dir": str(profile), "model": model,
+            "managed_exclusive": True, "launch_authorized": True,
+        }
+        if cli == "codex":
+            enrollment["resume_sandbox"] = "danger-full-access"
+        if args.headless_only:
+            enrollment["headless_only"] = True
+        item["enrollment"] = enrollment
+        save(args.config, config)
     print(f"enrolled {args.repo}#{args.pr} ({cli}) on {branch} until {stamp.astimezone():%-I:%M %p %Z}")
     if not config.get("enabled"):
         print("note: the config has enabled=false, so ticks will not dispatch until you enable it")
 
 
 def retire(args):
-    config = load(args.config)
-    if not any((t["repo"], t["number"]) == (args.repo, args.pr) for t in config.get("targets", [])):
-        sys.exit(f"{args.repo}#{args.pr} is not a target in {args.config}")
-    target(config, args.repo, args.pr)["observe_only"] = True
-    save(args.config, config)
+    with config_lock(args.config):
+        config = load(args.config)
+        if not any((t["repo"], t["number"]) == (args.repo, args.pr) for t in config.get("targets", [])):
+            sys.exit(f"{args.repo}#{args.pr} is not a target in {args.config}")
+        target(config, args.repo, args.pr)["observe_only"] = True
+        save(args.config, config)
     print(f"{args.repo}#{args.pr} is observe-only")
 
 
@@ -272,20 +277,69 @@ def _table_columns(db, table):
     return {row[1] for row in db.execute(f"PRAGMA table_info({table})").fetchall()}
 
 
-def _prune_reason_for_target(item, repo, number, db, now, ttl_seconds, closed_grace_seconds):
-    pr = None
+def _enrollment_restarted(item, repo, number, db, now):
+    if item.get("observe_only"):
+        return False
+    enrollment = item.get("enrollment")
+    if not isinstance(enrollment, dict):
+        return False
+    match = re.search(r"-deadline-(\d+)$", str(enrollment.get("cli_bin", "")))
+    if match and int(match.group(1)) > now:
+        return True
+    if db is None:
+        return False
+    for table in ("delivery", "binding"):
+        if "owner" not in _table_columns(db, table):
+            continue
+        for (raw_owner,) in db.execute(
+            f"SELECT owner FROM {table} WHERE repo=? AND number=?", (repo, number)
+        ).fetchall():
+            if not raw_owner:
+                continue
+            try:
+                if _enrollment_fields_changed(json.loads(raw_owner), enrollment):
+                    return True
+            except (TypeError, ValueError):
+                pass
+    return False
+
+
+def _prune_reason_for_target(item, repo, number, db, now, ttl_seconds, closed_grace_seconds, *, dry_run=False):
     try:
         pr = github(Path.cwd(), f"repos/{repo}/pulls/{number}", inspection=True)
     except CHECK_ERRORS:
-        pr = None
-    if pr is not None and pr_status(pr) == "closed":
+        print(f"warning: skipping {repo}#{number}: GitHub verification unavailable", file=sys.stderr)
+        return None
+    status_name = pr_status(pr)
+    if status_name == "closed":
         if closed_grace_seconds == 0:
             return "closed"
         cols = _table_columns(db, "target")
+        closed_at = None
         if "closed_at" in cols:
             row = db.execute("SELECT closed_at FROM target WHERE repo=? AND number=?", (repo, number)).fetchone()
-            if row and row[0] is not None and now - row[0] >= closed_grace_seconds:
-                return "closed"
+            closed_at = row[0] if row else None
+            if closed_at is None and not dry_run:
+                db.execute(
+                    "INSERT OR IGNORE INTO target(repo, number, next_action) VALUES (?, ?, 'refresh_pr')",
+                    (repo, number),
+                )
+                if "reason" in cols:
+                    db.execute(
+                        "UPDATE target SET reason='closed', closed_at=? WHERE repo=? AND number=? AND closed_at IS NULL",
+                        (now, repo, number),
+                    )
+                else:
+                    db.execute(
+                        "UPDATE target SET closed_at=? WHERE repo=? AND number=? AND closed_at IS NULL",
+                        (now, repo, number),
+                    )
+        if closed_at is not None and now - closed_at >= closed_grace_seconds:
+            return "closed"
+        return None
+    if status_name != "actionable":
+        return None
+    if _enrollment_restarted(item, repo, number, db, now):
         return None
 
     target_cols = _table_columns(db, "target")
@@ -340,28 +394,30 @@ def prune(args):
     except ValueError as exc:
         sys.exit(f"prune: {exc}")
 
-    state_dir = config.get("state_dir")
-    db_path = Path(state_dir).expanduser() / "receipts.sqlite3" if state_dir else None
+    state_dir = config.get("state_dir", "~/.local/state/pr-owner-nudger")
+    state_path = Path(state_dir).expanduser().resolve()
+    db_path = state_path / "receipts.sqlite3"
     now = time.time()
     prune_snapshots = {}
     pruned = []
-    db = sqlite3.connect(db_path) if db_path and db_path.is_file() else None
-    try:
-        for item in config.get("targets", []):
-            repo, number = repo_slug(item["repo"]), item["number"]
-            reason = _prune_reason_for_target(
-                item, repo, number, db, now, ttl_seconds, closed_grace_seconds
-            )
-            if reason:
-                prune_snapshots[repo, number] = item
-                pruned.append((repo, number, reason))
-        if pruned and not args.dry_run:
-            with db if db is not None else nullcontext():
+    with ExitStack() as stack:
+        has_db = db_path.is_file()
+        if not args.dry_run and has_db:
+            lock = stack.enter_context((state_path / "tick.lock").open("a"))
+            fcntl.flock(lock, fcntl.LOCK_EX)
+        db = stack.enter_context(closing(sqlite3.connect(db_path))) if has_db else None
+        with db if (db is not None and not args.dry_run) else nullcontext():
+            for item in config.get("targets", []):
+                repo, number = repo_slug(item["repo"]), item["number"]
+                reason = _prune_reason_for_target(
+                    item, repo, number, db, now, ttl_seconds, closed_grace_seconds, dry_run=args.dry_run
+                )
+                if reason:
+                    prune_snapshots[repo, number] = item
+                    pruned.append((repo, number, reason))
+            if pruned and not args.dry_run:
                 actually_pruned = prune_config_targets(args.config, prune_snapshots, db)
-            pruned = [entry for entry in pruned if entry[:2] in actually_pruned]
-    finally:
-        if db is not None:
-            db.close()
+                pruned = [entry for entry in pruned if entry[:2] in actually_pruned]
 
     if not pruned:
         print("no targets to prune")

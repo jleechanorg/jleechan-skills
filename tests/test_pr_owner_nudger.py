@@ -7,7 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import closing, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -1500,3 +1500,53 @@ class DispatcherTest(unittest.TestCase):
                 code, rows = self._run_config_tick(config_path, apply=True)
                 self.assertEqual(code, 1)
                 self.assertEqual(rows[-1]["status"], "blocked_configuration_or_state")
+
+    def test_non_apply_inspection_ignores_prune_ttl_and_apply_streams_before_later_error(self):
+        config_path = self.root / "config.json"
+        self.config["owners"] = []
+        self.config["prune_after_hours"] = -1
+        self.config["targets"] = [{"repo": "base/project", "number": 12}]
+        config_path.write_text(json.dumps(self.config))
+        with patch.object(nudger, "github", return_value=self.pr), \
+             patch.object(nudger, "legacy_tick", return_value=()):
+            code, rows = self._run_config_tick(config_path, apply=False)
+            self.assertEqual(code, 0)
+            self.assertEqual(rows[0]["pr"], 12)
+
+        self.config["prune_after_hours"] = 24
+        self.config["targets"] = [
+            {"repo": "base/project", "number": 12},
+            {"repo": "base/project", "number": 13},
+        ]
+        config_path.write_text(json.dumps(self.config))
+        state_dir = Path(self.config["state_dir"])
+        state_dir.mkdir(parents=True, exist_ok=True)
+        with patch.object(nudger, "github", side_effect=lambda _c, ep, **_k: dict(self.pr, number=int(ep.rsplit("/", 1)[1]))), \
+             patch.object(nudger, "legacy_tick", return_value=()), \
+             patch.object(nudger, "dispatch_target", side_effect=[
+                 {"status": "observing", "next_action": "refresh_pr", "attempts": 0, "next_due": 0},
+                 RuntimeError("boom"),
+             ]):
+            with closing(sqlite3.connect(state_dir / "receipts.sqlite3", isolation_level=None)) as db:
+                db.execute("CREATE TABLE IF NOT EXISTS binding (cwd TEXT, repo TEXT, number INTEGER, branch TEXT, owner TEXT)")
+                gen = nudger.tick(self.config, db, state_dir, config_path=config_path)
+                first = next(gen)
+                self.assertEqual(first["pr"], 12)
+                with self.assertRaises(RuntimeError):
+                    next(gen)
+
+    def test_closed_at_preserved_across_transient_blocked_schedule(self):
+        with sqlite3.connect(":memory:") as db:
+            store = nudger.Intake(db, self.root, 1000.0)
+            key = ("base/project", 12)
+            store.prepare([key])
+            store.observation(key, self.sha, "closed", None)
+            store.schedule(key, "closed", "refresh_pr", progress=True)
+            self.assertEqual(store.row(key)["closed_at"], 1000.0)
+            store.now = 1500.0
+            store.schedule(key, "blocked_github_rate", "refresh_pr", earliest=2000.0)
+            self.assertEqual(store.row(key)["closed_at"], 1000.0)
+            store.now = 1600.0
+            store.observation(key, self.sha, "actionable", None)
+            store.schedule(key, "delivered", "refresh_pr", progress=True)
+            self.assertIsNone(store.row(key)["closed_at"])
