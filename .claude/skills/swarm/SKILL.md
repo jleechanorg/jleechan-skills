@@ -21,6 +21,7 @@ Decide in this order:
 
 1. Fewer than three independent units, or work one agent finishes in minutes: no swarm. Do it inline.
 2. A lane that must survive this session uses remote tmux when available. A refused local admission uses remote only when that host is configured and admitted; otherwise keep the lane blocked, report the measured blocker and recheck condition, and continue independent work.
+   When a mirrored remote session already owns the branch, a requested Workflow (ultracode) fan-out runs inside that remote session, which carries the user opt-in; the local side does not start a second workflow on the same branch.
 3. The work-list and stages are known up front and no lane needs steering: use Workflow only with the user opt-in stated above; otherwise use Agent lanes.
 4. Otherwise: Agent lanes.
 
