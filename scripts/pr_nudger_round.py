@@ -113,27 +113,25 @@ def resolve_route(args, environ=None):
     """Resolve the (cli, model) pair an enrollment will use.
 
     Precedence: an explicit flag wins; anything unstated is inherited from the caller.
-      - `--cli` and `--model` both given: used when the model fits that CLI, else refused.
+      - `--cli` and `--model` both given: used as-is.
       - `--cli` only: model comes from the caller when it suits that CLI, else the CLI's own
         fallback (agy: AGY_FALLBACK_MODEL; codex: refuse, since it has no safe default).
-      - `--model` only: CLI is derived from that model's family.
-      - neither: the caller's model decides both; with no caller model, agy + fallback.
+      - `--model` only: CLI is derived from that model's family (unsupported models return "", "").
+      - neither: the caller's model decides both; unsupported or missing caller models fall
+        back to agy + AGY_FALLBACK_MODEL.
     """
     environ = os.environ if environ is None else environ
     explicit_cli = getattr(args, "cli", None)
     explicit_model = getattr(args, "model", None)
 
     if explicit_model:
-        # A model the selected CLI cannot run would enrol an owner that fails at bootstrap, so
-        # refuse rather than guess. A refused pair returns an empty model, which enroll()
-        # turns into a named error.
-        if explicit_cli and not family_matches(explicit_model, explicit_cli):
-            return explicit_cli, ""
+        if explicit_cli:
+            return explicit_cli, explicit_model
         derived = cli_for_model(explicit_model)
         if derived:
             return derived, explicit_model
         # A model no enrolled CLI can run, given without --cli, has no valid route.
-        return (explicit_cli or "agy"), explicit_model
+        return "", ""
 
     inherited = caller_model(environ)
     if explicit_cli:
@@ -174,7 +172,12 @@ def enroll(args):
     cwd = Path(args.cwd).resolve(strict=True)
     head_repo, branch, _ = checkout(cwd)
     cli, model = resolve_route(args)
-    if not model:
+    if not model or not cli:
+        if args.model:
+            sys.exit(
+                f"enroll: model {args.model!r} has no supported enrolled CLI; "
+                "pass --cli explicitly to override"
+            )
         sys.exit(f"enroll needs --model, or a caller that advertises a {cli}-family model "
                  f"via {'/'.join(CALLER_MODEL_ENV)} (codex has no safe default)")
     end = int(time.time() + args.hours * 3600)
@@ -264,7 +267,9 @@ def main(argv=None):
             cmd.add_argument("--cwd", required=True, help="dedicated worktree on the PR's head branch")
             cmd.add_argument("--cli", choices=("codex", "agy"),
                              help="enrolled CLI; defaults to the calling agent's model family "
-                                  "(gemini-* -> agy, else codex)")
+                                  "(gemini-* -> agy; claude*/opus*/sonnet*/haiku* have no "
+                                  "enrolled CLI and fall back to agy + default model when "
+                                  "inherited; other models -> codex)")
             cmd.add_argument("--model",
                              help="model for the enrolled CLI; defaults to the calling agent's "
                                   f"model from {'/'.join(CALLER_MODEL_ENV)}")

@@ -147,16 +147,29 @@ class RoundTest(unittest.TestCase):
             self.assertTrue(round_cli.family_matches(model, "codex"), model)
             self.assertEqual(round_cli.cli_for_model(model), "codex")
 
-    def test_explicit_mismatched_pair_is_refused(self):
-        # --cli codex with a gemini model would enrol a codex owner that rejects the model.
-        with self.assertRaises(SystemExit):
-            self.enroll_model("--cli", "codex", "--model", "gemini-9.9-pinned")
-        with self.assertRaises(SystemExit):
-            self.enroll_model("--cli", "agy", "--model", "gpt-9-pinned")
+    def test_pr_nudger_model_takes_top_precedence(self):
+        e = self.enroll_model(env={"PR_NUDGER_MODEL": "gemini-9.9-override",
+                                   "PI_MODEL": "deepseek-v4.1-flash",
+                                   "CODEX_MODEL": "gpt-9-caller"})
+        self.assertEqual((e["cli"], e["model"]), ("agy", "gemini-9.9-override"))
+
+    def test_both_explicit_flags_are_used_as_is(self):
+        e_agy = self.enroll_model("--cli", "agy", "--model", "custom-model")
+        self.assertEqual((e_agy["cli"], e_agy["model"]), ("agy", "custom-model"))
+        e_codex = self.enroll_model("--cli", "codex", "--model", "gemini-3.8-flash-high")
+        self.assertEqual((e_codex["cli"], e_codex["model"]), ("codex", "gemini-3.8-flash-high"))
+
+    def test_explicit_claude_model_without_cli_is_refused(self):
+        with self.assertRaises(SystemExit) as ctx:
+            self.enroll_model("--model", "claude-opus-5-5")
+        self.assertIn("claude-opus-5-5", str(ctx.exception))
+        self.assertFalse(self.config.exists())
 
     def test_explicit_model_without_cli_still_derives_the_route(self):
-        e = self.enroll_model("--model", "gemini-9.9-pinned")
-        self.assertEqual((e["cli"], e["model"]), ("agy", "gemini-9.9-pinned"))
+        e_gemini = self.enroll_model("--model", "gemini-9.9-pinned")
+        self.assertEqual((e_gemini["cli"], e_gemini["model"]), ("agy", "gemini-9.9-pinned"))
+        e_codex = self.enroll_model("--model", "gpt-9-pinned")
+        self.assertEqual((e_codex["cli"], e_codex["model"]), ("codex", "gpt-9-pinned"))
 
     def test_retry_now_marks_the_target_due(self):
         state = self.root / "state"
