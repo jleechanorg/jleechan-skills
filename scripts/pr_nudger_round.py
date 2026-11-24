@@ -70,9 +70,32 @@ def caller_model(environ=None):
     return ""
 
 
+# Models only the codex CLI can run. Anything not matched here or by the agy family below is
+# treated as codex-compatible (the permissive default), so this list encodes the exclusions we
+# actually know about rather than an invented allowlist of every codex model.
+CLAUDE_MODEL_PREFIXES = ("claude", "opus", "sonnet", "haiku")
+
+
+def model_family(model):
+    """Classify `model` as "agy", "claude" or "codex".
+
+    `agy` serves gemini-*. Claude identifiers are their own family because neither enrolled CLI
+    can run them here: agy is gemini-only and codex exec --model rejects a Claude name. Treating
+    "not gemini" as "codex" is what let `--cli codex` inherit `claude-opus-5-5` and enrol an
+    owner whose CLI would fail at bootstrap.
+    """
+    name = model.strip().lower()
+    if name.startswith("gemini"):
+        return "agy"
+    if name.startswith(CLAUDE_MODEL_PREFIXES):
+        return "claude"
+    return "codex"
+
+
 def cli_for_model(model):
-    """Which enrolled CLI serves `model`? agy serves gemini-*; codex serves everything else."""
-    return "agy" if model.lower().startswith("gemini") else "codex"
+    """Which enrolled CLI serves `model`? "" when no enrolled CLI can run it."""
+    family = model_family(model)
+    return "" if family == "claude" else family
 
 
 def family_matches(model, cli):
@@ -84,7 +107,7 @@ def resolve_route(args, environ=None):
     """Resolve the (cli, model) pair an enrollment will use.
 
     Precedence: an explicit flag wins; anything unstated is inherited from the caller.
-      - `--cli` and `--model` both given: used as-is (a mismatch is the caller's to catch).
+      - `--cli` and `--model` both given: used when the model fits that CLI, else refused.
       - `--cli` only: model comes from the caller when it suits that CLI, else the CLI's own
         fallback (agy: AGY_FALLBACK_MODEL; codex: refuse, since it has no safe default).
       - `--model` only: CLI is derived from that model's family.
@@ -94,13 +117,17 @@ def resolve_route(args, environ=None):
     explicit_cli = getattr(args, "cli", None)
     explicit_model = getattr(args, "model", None)
 
-    if explicit_cli and explicit_model:
-        return explicit_cli, explicit_model
-
     if explicit_model:
-        if explicit_cli:
-            return explicit_cli, explicit_model
-        return cli_for_model(explicit_model), explicit_model
+        # A model the selected CLI cannot run would enrol an owner that fails at bootstrap, so
+        # refuse rather than guess. A refused pair returns an empty model, which enroll()
+        # turns into a named error.
+        if explicit_cli and not family_matches(explicit_model, explicit_cli):
+            return explicit_cli, ""
+        derived = cli_for_model(explicit_model)
+        if derived:
+            return derived, explicit_model
+        # A model no enrolled CLI can run, given without --cli, has no valid route.
+        return (explicit_cli or "agy"), explicit_model
 
     inherited = caller_model(environ)
     if explicit_cli:
@@ -109,7 +136,12 @@ def resolve_route(args, environ=None):
         return explicit_cli, (AGY_FALLBACK_MODEL if explicit_cli == "agy" else "")
 
     if inherited:
-        return cli_for_model(inherited), inherited
+        derived = cli_for_model(inherited)
+        if derived:
+            return derived, inherited
+        # e.g. CLAUDE_MODEL on a host with no agent-specific var: no enrolled CLI runs it, so
+        # fall back rather than hand agy or codex a model it will reject at bootstrap.
+        return "agy", AGY_FALLBACK_MODEL
     return "agy", AGY_FALLBACK_MODEL
 
 

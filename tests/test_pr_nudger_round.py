@@ -127,6 +127,35 @@ class RoundTest(unittest.TestCase):
         e = self.enroll_model("--cli", "codex", "--model", "pinned-model")
         self.assertEqual((e["cli"], e["model"]), ("codex", "pinned-model"))
 
+    def test_a_claude_caller_model_is_never_handed_to_codex(self):
+        # A Claude identifier is not codex-family: agy is gemini-only and `codex exec --model`
+        # rejects a Claude name, so inheriting one would enrol an owner that fails at bootstrap.
+        self.assertFalse(round_cli.family_matches("claude-opus-5-5", "codex"))
+        self.assertFalse(round_cli.family_matches("claude-opus-5-5", "agy"))
+        self.assertEqual(round_cli.cli_for_model("claude-opus-5-5"), "")
+
+    def test_claude_caller_model_falls_back_instead_of_enrolling_codex(self):
+        e = self.enroll_model(env={"CLAUDE_MODEL": "claude-opus-5-5"})
+        self.assertEqual(e["cli"], "agy")
+        self.assertEqual(e["model"], round_cli.AGY_FALLBACK_MODEL)
+
+    def test_codex_still_accepts_a_non_gemini_non_claude_model(self):
+        # The permissive default is deliberate: unknown codex-served families must keep working.
+        for model in ("deepseek-v4.1-flash", "gpt-6.2-sol", "gpt-6-luna"):
+            self.assertTrue(round_cli.family_matches(model, "codex"), model)
+            self.assertEqual(round_cli.cli_for_model(model), "codex")
+
+    def test_explicit_mismatched_pair_is_refused(self):
+        # --cli codex with a gemini model would enrol a codex owner that rejects the model.
+        with self.assertRaises(SystemExit):
+            self.enroll_model("--cli", "codex", "--model", "gemini-9.9-pinned")
+        with self.assertRaises(SystemExit):
+            self.enroll_model("--cli", "agy", "--model", "gpt-9-pinned")
+
+    def test_explicit_model_without_cli_still_derives_the_route(self):
+        e = self.enroll_model("--model", "gemini-9.9-pinned")
+        self.assertEqual((e["cli"], e["model"]), ("agy", "gemini-9.9-pinned"))
+
     def test_retry_now_marks_the_target_due(self):
         state = self.root / "state"
         state.mkdir()
