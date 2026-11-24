@@ -253,20 +253,14 @@ The sidekick and every lane it owns checkpoint at a ≤5 min cadence:
      (`parallelize-to-ceiling` skill) and prove concurrency by sampling live
      (`ps` / load), not by trusting a worker flag alone.
    - Resource admission gate (crash 2026-08-30): before spawning any lane
-     or CLI delegation, probe swap and memory pressure; DEFER spawns when
-     swap >80% used or pressure >=2 (WARNING) — spawning into starvation
-     can silently kill the parent session and every lane with it.
-     - macOS: `sysctl vm.swapusage` + `sysctl kern.memorystatus_vm_pressure_level`
-     - Linux: `free`/`vmstat` (swap used %) + `/proc/pressure/memory` PSI
-       `some` line (avg10); gate the same thresholds.
-     - Cross-platform one-liner:
-       ```bash
-       case "$(uname -s)" in
-         Darwin) sysctl vm.swapusage; sysctl kern.memorystatus_vm_pressure_level ;;
-         Linux)  free | awk '/^Swap/{ if ($2==0) print "swap used=0%"; else printf "swap used=%.0f%%\n", $3/$2*100 }'; \
-                 awk '{print $2}' /proc/pressure/memory 2>/dev/null || true ;;
-       esac
-       ```
+     or CLI delegation, apply `parallelize-to-ceiling` § Resource admission
+     gate on the host that will run it. Memory: defer only when available RAM
+     is below 4 GB (macOS `vm_stat` free+inactive+purgeable+speculative,
+     Linux `free -g` available) or macOS pressure is 4; never gate on the swap used/total ratio,
+     because macOS sizes swap dynamically. CPU: measure idle with
+     `top -l 2 -n 0 -s 2` (macOS) or `top -bn2 -d1` (Linux); below 25% idle
+     run at most 2 heavy lanes, below 10% start none on that host and move
+     portable lanes to the peer host via `/lm` or `/mac-mirror`.
    - Never fork a multi-minute CLI delegation (agy, codex, claude -p) as a
      foreground Bash call — always run_in_background + explicit timeout,
      then read the output file on the task notification. A foreground fork
