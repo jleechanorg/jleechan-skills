@@ -1286,3 +1286,217 @@ class DispatcherTest(unittest.TestCase):
             clock[0] = 5600.0
             self.assertEqual(self.target_tick()[0]["status"], "bootstrap_started")
             self.assertEqual(launch.call_count, 2)
+
+    def _run_config_tick(self, path, *, apply=True):
+        output = io.StringIO()
+        with redirect_stdout(output):
+            args = ["--config", str(path)] + (["--apply"] if apply else [])
+            code = nudger.main(args)
+        return code, [json.loads(line) for line in output.getvalue().splitlines()]
+
+    def test_apply_prunes_closed_and_merged_targets_atomically_preserving_0600(self):
+        self.config["owners"] = []
+        self.config["targets"] = [
+            {"repo": "base/project", "number": 12},
+            {"repo": "base/project", "number": 13},
+            {"repo": "base/project", "number": 14},
+            {"repo": "base/project", "number": 15, "observe_only": True},
+        ]
+        config_path = self.root / "mac-live.json"
+        config_path.write_text(json.dumps(self.config))
+        config_path.chmod(0o600)
+
+        prs = {
+            12: dict(self.pr, number=12, state="open"),
+            13: dict(self.pr, number=13, state="closed", merged=False),
+            14: dict(self.pr, number=14, state="closed", merged=True),
+            15: dict(self.pr, number=15, state="open"),
+        }
+
+        def read(_cwd, endpoint, **_kwargs):
+            return prs[int(endpoint.rsplit("/", 1)[1])]
+
+        with patch.object(nudger, "github", side_effect=read), \
+             patch.object(nudger, "legacy_tick", return_value=()):
+            code, dry = self._run_config_tick(config_path, apply=False)
+            self.assertEqual(code, 0)
+            self.assertEqual([t["number"] for t in json.loads(config_path.read_text())["targets"]],
+                             [12, 13, 14, 15])
+            self.assertFalse(any(row.get("pruned") for row in dry))
+
+            code, rows = self._run_config_tick(config_path, apply=True)
+            self.assertEqual(code, 0)
+
+        by_pr = {row["pr"]: row for row in rows}
+        self.assertEqual((by_pr[13]["status"], by_pr[13].get("pruned")), ("closed", True))
+        self.assertEqual((by_pr[14]["status"], by_pr[14].get("pruned")), ("closed", True))
+        self.assertFalse(by_pr[12].get("pruned"))
+        self.assertEqual((by_pr[15]["status"], by_pr[15].get("pruned")), ("observing", None))
+
+        remaining = json.loads(config_path.read_text())["targets"]
+        self.assertEqual([t["number"] for t in remaining], [12, 15])
+        self.assertEqual(config_path.stat().st_mode & 0o777, 0o600)
+
+        state_path = Path(self.config["state_dir"]) / "receipts.sqlite3"
+        with sqlite3.connect(state_path) as db:
+            kept = [row[0] for row in db.execute("SELECT number FROM target ORDER BY number").fetchall()]
+            self.assertEqual(kept, [12, 15])
+
+    def test_apply_prunes_closed_target_after_configured_grace_period(self):
+        self.config["owners"] = []
+        self.config["prune_closed_after_hours"] = 1
+        self.config["targets"] = [
+            {"repo": "base/project", "number": 12},
+            {"repo": "base/project", "number": 13},
+        ]
+        config_path = self.root / "config.json"
+        config_path.write_text(json.dumps(self.config))
+        config_path.chmod(0o600)
+        clock = [1000.0]
+
+        def read(_cwd, endpoint, **_kwargs):
+            num = int(endpoint.rsplit("/", 1)[1])
+            return dict(self.pr, number=num, state="closed" if num == 13 else "open")
+
+        with patch.object(nudger, "github", side_effect=read), \
+             patch.object(nudger, "legacy_tick", return_value=()), \
+             patch.object(nudger.time, "time", side_effect=lambda: clock[0]):
+            _, rows = self._run_config_tick(config_path, apply=True)
+            self.assertFalse({r["pr"]: r for r in rows}[13].get("pruned"))
+            self.assertEqual([t["number"] for t in json.loads(config_path.read_text())["targets"]], [12, 13])
+
+            clock[0] = 4599.0
+            _, rows = self._run_config_tick(config_path, apply=True)
+            self.assertFalse({r["pr"]: r for r in rows}[13].get("pruned"))
+            self.assertEqual([t["number"] for t in json.loads(config_path.read_text())["targets"]], [12, 13])
+
+            clock[0] = 4600.0
+            _, rows = self._run_config_tick(config_path, apply=True)
+            self.assertTrue({r["pr"]: r for r in rows}[13].get("pruned"))
+            self.assertEqual([t["number"] for t in json.loads(config_path.read_text())["targets"]], [12])
+
+    def test_apply_prunes_expired_targets_after_ttl_and_keeps_active_and_observing(self):
+        session = "00000000-0000-4000-8000-000000000001"
+        self.config["owners"] = [dict(self.owner, session=session, profile_dir=str(self.root))]
+        self.config["targets"] = [
+            {"repo": "base/project", "number": 12},
+            {"repo": "base/project", "number": 13, "observe_only": True},
+            {"repo": "base/project", "number": 14},
+        ]
+        config_path = self.root / "config.json"
+        config_path.write_text(json.dumps(self.config))
+        config_path.chmod(0o600)
+        clock = [1000.0]
+
+        def read(_cwd, endpoint, **_kwargs):
+            return dict(self.pr, number=int(endpoint.rsplit("/", 1)[1]))
+
+        def route_for(owner, _prompt, _apply):
+            return "expired" if owner["pr"] == 12 else "delivered"
+
+        with patch.object(nudger, "github", side_effect=read), \
+             patch.object(nudger, "legacy_tick", return_value=()), \
+             patch.object(nudger.time, "time", side_effect=lambda: clock[0]), \
+             patch.object(nudger, "route", side_effect=route_for):
+            _, rows = self._run_config_tick(config_path, apply=True)
+            by_pr = {r["pr"]: r for r in rows}
+            self.assertEqual(by_pr[12]["status"], "expired")
+            self.assertFalse(by_pr[12].get("pruned"))
+            self.assertEqual([t["number"] for t in json.loads(config_path.read_text())["targets"]], [12, 13, 14])
+
+            # 23 hours later (< 24h default TTL): expired target is NOT pruned yet.
+            clock[0] = 1000.0 + 23 * 3600
+            _, rows = self._run_config_tick(config_path, apply=True)
+            self.assertFalse({r["pr"]: r for r in rows}[12].get("pruned"))
+            self.assertEqual([t["number"] for t in json.loads(config_path.read_text())["targets"]], [12, 13, 14])
+
+            # 24 hours later (>= 24h default TTL): expired target IS pruned; open/observing stay.
+            clock[0] = 1000.0 + 24 * 3600
+            _, rows = self._run_config_tick(config_path, apply=True)
+            self.assertTrue({r["pr"]: r for r in rows}[12].get("pruned"))
+            self.assertEqual([t["number"] for t in json.loads(config_path.read_text())["targets"]], [13, 14])
+            self.assertEqual(config_path.stat().st_mode & 0o777, 0o600)
+
+    def test_apply_respects_custom_prune_after_hours_and_reenrollment_resets_ttl(self):
+        session = "00000000-0000-4000-8000-000000000001"
+        configured = dict(self.owner, session=session, profile_dir=str(self.root),
+                          cli_bin="/bin/codex-deadline-1", model="gpt-6.1-sol")
+        self.config["owners"] = [configured]
+        self.config["prune_after_hours"] = 2
+        self.config["targets"] = [{"repo": "base/project", "number": 12}]
+        config_path = self.root / "config.json"
+        config_path.write_text(json.dumps(self.config))
+        clock = [1000.0]
+
+        with patch.object(nudger, "github", return_value=self.pr), \
+             patch.object(nudger, "legacy_tick", return_value=()), \
+             patch.object(nudger.time, "time", side_effect=lambda: clock[0]), \
+             patch.object(nudger, "route", side_effect=["expired", "delivered"]):
+            self._run_config_tick(config_path, apply=True)
+            clock[0] = 1000.0 + 1.5 * 3600
+            self._run_config_tick(config_path, apply=True)
+            self.assertEqual([t["number"] for t in json.loads(config_path.read_text())["targets"]], [12])
+
+            # Re-enrolling before 2h resets expiry so it is not pruned at 2h.
+            configured["cli_bin"] = "/bin/codex-deadline-2"
+            config_path.write_text(json.dumps(self.config))
+            _, rows = self._run_config_tick(config_path, apply=True)
+            self.assertEqual(rows[0]["status"], "enrollment_changed")
+            clock[0] = 1000.0 + 3 * 3600
+            _, rows = self._run_config_tick(config_path, apply=True)
+            self.assertEqual(rows[0]["status"], "delivered")
+            self.assertEqual([t["number"] for t in json.loads(config_path.read_text())["targets"]], [12])
+
+        # Verify custom prune_after_hours=2 prunes a non-reenrolled target at 2h.
+        with patch.object(nudger, "github", return_value=self.pr), \
+             patch.object(nudger, "legacy_tick", return_value=()), \
+             patch.object(nudger.time, "time", side_effect=lambda: clock[0]), \
+             patch.object(nudger, "route", return_value="expired"):
+            clock[0] = 20000.0
+            _, rows = self._run_config_tick(config_path, apply=True)
+            self.assertEqual(rows[0]["status"], "expired")
+            self.assertFalse(rows[0].get("pruned"))
+            clock[0] = 20000.0 + 2 * 3600
+            _, rows = self._run_config_tick(config_path, apply=True)
+            self.assertTrue(rows[0].get("pruned"))
+            self.assertEqual(json.loads(config_path.read_text())["targets"], [])
+
+    def test_prune_preserves_concurrent_target_changes_made_during_tick(self):
+        self.config["owners"] = []
+        self.config["targets"] = [
+            {"repo": "base/project", "number": 12},
+            {"repo": "base/project", "number": 13},
+        ]
+        config_path = self.root / "config.json"
+        config_path.write_text(json.dumps(self.config))
+        config_path.chmod(0o600)
+
+        def read(_cwd, endpoint, **_kwargs):
+            num = int(endpoint.rsplit("/", 1)[1])
+            if num == 13:
+                # Simulate concurrent enrollment / addition during GitHub API wait.
+                updated = json.loads(config_path.read_text())
+                updated["targets"][1]["observe_only"] = True
+                updated["targets"].append({"repo": "base/project", "number": 16})
+                config_path.write_text(json.dumps(updated))
+            return dict(self.pr, number=num, state="closed" if num == 12 else "open")
+
+        with patch.object(nudger, "github", side_effect=read), \
+             patch.object(nudger, "legacy_tick", return_value=()):
+            code, _ = self._run_config_tick(config_path, apply=True)
+            self.assertEqual(code, 0)
+
+        saved_targets = json.loads(config_path.read_text())["targets"]
+        self.assertEqual([t["number"] for t in saved_targets], [13, 16])
+        self.assertTrue(saved_targets[0]["observe_only"])
+
+    def test_invalid_prune_ttl_configuration_fails_closed(self):
+        config_path = self.root / "config.json"
+        for field, bad_val in (("prune_after_hours", -1), ("prune_after_hours", True),
+                               ("prune_closed_after_hours", "bad")):
+            with self.subTest(field=field, bad_val=bad_val):
+                bad_config = dict(self.config, **{field: bad_val})
+                config_path.write_text(json.dumps(bad_config))
+                code, rows = self._run_config_tick(config_path, apply=True)
+                self.assertEqual(code, 1)
+                self.assertEqual(rows[-1]["status"], "blocked_configuration_or_state")

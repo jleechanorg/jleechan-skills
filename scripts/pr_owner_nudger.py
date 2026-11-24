@@ -4,6 +4,7 @@
 import argparse
 import fcntl
 import json
+import math
 import os
 import re
 import socket
@@ -44,6 +45,108 @@ from pr_nudger_routes import route
 REPO = r"[a-zA-Z0-9-]+/[a-zA-Z0-9_.-]+"
 ORIGIN = re.compile(rf"(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)({REPO})")
 CHECK_ERRORS = (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError)
+DEFAULT_PRUNE_AFTER_HOURS = 24
+DEFAULT_PRUNE_CLOSED_AFTER_HOURS = 0
+
+
+def prune_hours(config, key, default):
+    """Validate and return a non-negative prune TTL in hours."""
+    value = config.get(key, default)
+    if (isinstance(value, bool) or not isinstance(value, (int, float))
+            or not math.isfinite(value) or value < 0):
+        raise ValueError(f"{key} must be a non-negative finite number")
+    return float(value)
+
+
+def save_config(path, config):
+    """Atomically write JSON config while preserving 0600 permissions."""
+    path = Path(path).expanduser().resolve()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    tmp_path = Path(tmp_name)
+    fd_owned = False
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            fd_owned = True
+            os.fchmod(stream.fileno(), 0o600)
+            json.dump(config, stream, indent=2)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(tmp_path, path)
+    except BaseException:
+        if not fd_owned:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        tmp_path.unlink(missing_ok=True)
+        raise
+
+
+def delete_target_state(db, key):
+    """Remove persisted SQLite rows for a pruned target."""
+    if db is None:
+        return
+    existing = {
+        row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+    }
+    for table in ("target", "target_ci", "delivery", "binding"):
+        if table in existing:
+            db.execute(f"DELETE FROM {table} WHERE repo=? AND number=?", key)
+
+
+def _expired_since(db, key, store):
+    row = store.row(key)
+    expired_at = row.get("expired_at")
+    if expired_at is not None:
+        return expired_at
+    if db is not None:
+        delivered = db.execute(
+            "SELECT time FROM delivery WHERE repo=? AND number=? AND status='expired'", key
+        ).fetchone()
+        if delivered and delivered[0] is not None:
+            store.set(key, expired_at=delivered[0])
+            return delivered[0]
+    store.set(key, expired_at=store.now)
+    return store.now
+
+
+def _should_prune_target(key, outcome, store, receipts, config):
+    if receipts is None:
+        return False
+    status = outcome.get("status")
+    if status == "closed":
+        grace_seconds = prune_hours(config, "prune_closed_after_hours", DEFAULT_PRUNE_CLOSED_AFTER_HOURS) * 3600
+        closed_at = store.row(key).get("closed_at")
+        return closed_at is not None and store.now - closed_at >= grace_seconds
+    if status == "expired":
+        ttl_seconds = prune_hours(config, "prune_after_hours", DEFAULT_PRUNE_AFTER_HOURS) * 3600
+        expired_at = _expired_since(receipts, key, store)
+        return store.now - expired_at >= ttl_seconds
+    return False
+
+
+def prune_config_targets(config_path, pruned_snapshots, receipts=None):
+    """Atomically prune unchanged closed/expired targets from config_path and SQLite."""
+    if not config_path or not pruned_snapshots:
+        return set()
+    config_path = Path(config_path)
+    disk_config = json.loads(config_path.read_text())
+    kept = []
+    pruned = set()
+    for item in disk_config.get("targets", []):
+        key = (repo_slug(item["repo"]), item["number"])
+        if key in pruned_snapshots and item == pruned_snapshots[key]:
+            pruned.add(key)
+        else:
+            kept.append(item)
+    if pruned:
+        disk_config["targets"] = kept
+        save_config(config_path, disk_config)
+        for key in sorted(pruned):
+            delete_target_state(receipts, key)
+    return pruned
 
 
 def command(cwd, *args):
@@ -956,7 +1059,9 @@ def observe_ci(repo, number, head, budget):
     return "reported_success"
 
 
-def tick(config, receipts, state=None):
+def tick(config, receipts, state=None, *, config_path=None):
+    prune_hours(config, "prune_after_hours", DEFAULT_PRUNE_AFTER_HOURS)
+    prune_hours(config, "prune_closed_after_hours", DEFAULT_PRUNE_CLOSED_AFTER_HOURS)
     targets = configured_targets(config)
     store = Intake(receipts, state, time.time())
     if targets:
@@ -1022,6 +1127,8 @@ def tick(config, receipts, state=None):
     discovered = discover_owners(enrolled) if enrolled else {}
     yield from errors
     begin_tick_capacity()
+    pending_results = []
+    prune_snapshots = {}
     for key in sorted(observed, key=lambda key: (store.row(key)["next_due"], key)):
         pr, ci_status, wake_reason = observed[key]
         expected = identity(pr)
@@ -1035,7 +1142,15 @@ def tick(config, receipts, state=None):
         except CHECK_ERRORS:
             action = "reconcile_bootstrap" if store.row(key)["bootstrap"] else "verify_owner"
             outcome = store.schedule(key, "blocked_target_verification", action)
-        yield dict(repo=key[0], pr=key[1], sha=expected[-1], ci_status=ci_status, **outcome)
+        row_out = dict(repo=key[0], pr=key[1], sha=expected[-1], ci_status=ci_status, **outcome)
+        if _should_prune_target(key, outcome, store, receipts, config):
+            prune_snapshots[key] = targets[key]
+        pending_results.append((key, row_out))
+    actually_pruned = prune_config_targets(config_path, prune_snapshots, receipts) if receipts is not None else set()
+    for key, row_out in pending_results:
+        if key in actually_pruned:
+            row_out["pruned"] = True
+        yield row_out
     yield from legacy_tick(config, receipts, legacy_enrolled, discovered, targets, read if targets else None)
 
 
@@ -1056,6 +1171,8 @@ def main(argv=None):
         cooldown = config.get("cooldown_seconds", 1800)
         if type(cooldown) is not int or cooldown < 1:
             raise ValueError("Cooldown must be a positive integer")
+        prune_hours(config, "prune_after_hours", DEFAULT_PRUNE_AFTER_HOURS)
+        prune_hours(config, "prune_closed_after_hours", DEFAULT_PRUNE_CLOSED_AFTER_HOURS)
         with ExitStack() as stack:
             receipts = state = None
             if args.apply:
@@ -1078,7 +1195,7 @@ def main(argv=None):
                         cwd TEXT, repo TEXT, number INTEGER, branch TEXT, owner TEXT,
                         PRIMARY KEY (cwd, repo, number, branch));
                 """)
-            for result in tick(config, receipts, state):
+            for result in tick(config, receipts, state, config_path=args.config if args.apply else None):
                 emit(result)
     except (OSError, ValueError, TypeError, KeyError, AttributeError, sqlite3.Error):
         emit({"status": "blocked_configuration_or_state"})

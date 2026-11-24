@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Operator commands for one nudger round: enroll, retire, retry-now."""
+"""Operator commands for one nudger round: enroll, retire, retry-now, prune."""
 
 import argparse
 import json
 import os
+import re
 import shlex
 import shutil
 import socket
@@ -15,7 +16,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from pr_owner_nudger import checkout  # noqa: E402
+from pr_owner_nudger import (  # noqa: E402
+    CHECK_ERRORS,
+    DEFAULT_PRUNE_AFTER_HOURS,
+    DEFAULT_PRUNE_CLOSED_AFTER_HOURS,
+    checkout,
+    delete_target_state,
+    github,
+    pr_status,
+    prune_hours,
+    repo_slug,
+    save_config,
+)
 from render_pr_owner_nudger import DEFAULT_NAME, lane_targets  # noqa: E402
 
 HOME = Path.home()
@@ -154,9 +166,7 @@ def load(path):
 
 
 def save(path, config):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(config, indent=2) + "\n")
-    path.chmod(0o600)
+    save_config(path, config)
 
 
 def target(config, repo, number):
@@ -255,6 +265,115 @@ def retry_now(args):
     print(f"{args.repo}#{args.pr} is due now")
 
 
+def _table_columns(db, table):
+    if db is None:
+        return set()
+    return {row[1] for row in db.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
+def _prune_reason_for_target(item, repo, number, db, now, ttl_seconds, closed_grace_seconds):
+    pr = None
+    try:
+        pr = github(Path.cwd(), f"repos/{repo}/pulls/{number}", inspection=True)
+    except CHECK_ERRORS:
+        pr = None
+    if pr is not None and pr_status(pr) == "closed":
+        if closed_grace_seconds == 0:
+            return "closed"
+        cols = _table_columns(db, "target")
+        if "closed_at" in cols:
+            row = db.execute("SELECT closed_at FROM target WHERE repo=? AND number=?", (repo, number)).fetchone()
+            if row and row[0] is not None and now - row[0] >= closed_grace_seconds:
+                return "closed"
+        return None
+
+    target_cols = _table_columns(db, "target")
+    expired_at = None
+    is_expired = False
+    if {"reason", "expired_at"} <= target_cols:
+        row = db.execute("SELECT reason, expired_at FROM target WHERE repo=? AND number=?", (repo, number)).fetchone()
+        if row and row[0] == "expired":
+            is_expired = True
+            expired_at = row[1]
+    elif "reason" in target_cols:
+        row = db.execute("SELECT reason FROM target WHERE repo=? AND number=?", (repo, number)).fetchone()
+        is_expired = bool(row and row[0] == "expired")
+
+    if (is_expired and expired_at is None) or not is_expired:
+        delivery_cols = _table_columns(db, "delivery")
+        if {"status", "time"} <= delivery_cols:
+            row = db.execute(
+                "SELECT status, time FROM delivery WHERE repo=? AND number=?", (repo, number)
+            ).fetchone()
+            if row and row[0] == "expired":
+                is_expired = True
+                if expired_at is None:
+                    expired_at = row[1]
+
+    if is_expired and expired_at is not None and now - expired_at >= ttl_seconds:
+        return "expired"
+
+    if not item.get("observe_only"):
+        cli_bin = (item.get("enrollment") or {}).get("cli_bin", "")
+        match = re.search(r"-deadline-(\d+)$", str(cli_bin))
+        if match:
+            deadline = int(match.group(1))
+            if deadline >= 1_000_000_000 and now - deadline >= ttl_seconds:
+                return "expired_deadline"
+    return None
+
+
+def prune(args):
+    config = load(args.config)
+    overrides = {}
+    if args.prune_after_hours is not None:
+        overrides["prune_after_hours"] = args.prune_after_hours
+    if args.prune_closed_after_hours is not None:
+        overrides["prune_closed_after_hours"] = args.prune_closed_after_hours
+    merged_cfg = {**config, **overrides}
+    try:
+        ttl_seconds = prune_hours(merged_cfg, "prune_after_hours", DEFAULT_PRUNE_AFTER_HOURS) * 3600
+        closed_grace_seconds = prune_hours(
+            merged_cfg, "prune_closed_after_hours", DEFAULT_PRUNE_CLOSED_AFTER_HOURS
+        ) * 3600
+    except ValueError as exc:
+        sys.exit(f"prune: {exc}")
+
+    state_dir = config.get("state_dir")
+    db_path = Path(state_dir).expanduser() / "receipts.sqlite3" if state_dir else None
+    now = time.time()
+    kept = []
+    pruned = []
+    db = sqlite3.connect(db_path) if db_path and db_path.is_file() else None
+    try:
+        for item in config.get("targets", []):
+            repo, number = repo_slug(item["repo"]), item["number"]
+            reason = _prune_reason_for_target(
+                item, repo, number, db, now, ttl_seconds, closed_grace_seconds
+            )
+            if reason:
+                pruned.append((repo, number, reason))
+            else:
+                kept.append(item)
+        if pruned and not args.dry_run:
+            config["targets"] = kept
+            save(args.config, config)
+            if db is not None:
+                with db:
+                    for repo, number, _ in pruned:
+                        delete_target_state(db, (repo, number))
+    finally:
+        if db is not None:
+            db.close()
+
+    if not pruned:
+        print("no targets to prune")
+        return
+    verb = "would prune" if args.dry_run else "pruned"
+    for repo, number, reason in pruned:
+        print(f"{verb} {repo}#{number} ({reason})")
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=CONFIG)
@@ -285,13 +404,19 @@ def main(argv=None):
             cmd.add_argument("--kick", action="store_true", help="also start a tick now")
             cmd.add_argument("--name", default=DEFAULT_NAME,
                              help="unit/label name of the nudger lane to kick")
+    prune_cmd = sub.add_parser("prune", help="remove closed/merged and expired targets from config")
+    prune_cmd.add_argument("--dry-run", action="store_true", help="report targets without modifying files")
+    prune_cmd.add_argument("--prune-after-hours", type=float,
+                           help="hours after expiry before pruning (default: config or 24)")
+    prune_cmd.add_argument("--prune-closed-after-hours", type=float,
+                           help="hours after close/merge before pruning (default: config or 0)")
     args = parser.parse_args(argv)
     if args.command == "retry-now":
         try:
             lane_targets(args.name)
         except ValueError as exc:
             parser.error(str(exc))
-    {"enroll": enroll, "retire": retire, "retry-now": retry_now}[args.command](args)
+    {"enroll": enroll, "retire": retire, "retry-now": retry_now, "prune": prune}[args.command](args)
 
 
 if __name__ == "__main__":
