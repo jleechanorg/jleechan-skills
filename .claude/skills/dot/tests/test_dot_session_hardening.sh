@@ -72,7 +72,7 @@ run_login() {
 echo "== test 1: login password-store flag parity =="
 F=$(new_fixture); FIXTURE="$F" mk_chrome_stub "$F" chrome 0
 out=$(FIXTURE="$F" run_login "$F" DOT_CHROME_BIN="$F/chrome" DOT_ALLOW_FOREIGN_BINARY=1)
-login_rc_pipe=(${PIPESTATUS[0]:-0})
+login_rc_pipe=("${PIPESTATUS[0]:-0}")
 if [[ "${login_rc_pipe[0]}" != "0" ]]; then
   bad "login must exit 0 when Chrome exits 0 (got ${login_rc_pipe[0]})"
 fi
@@ -90,7 +90,7 @@ exit 7
 EOF
 chmod +x "$F/chrome"
 out=$(FIXTURE="$F" run_login "$F" DOT_CHROME_BIN="$F/chrome" DOT_ALLOW_FOREIGN_BINARY=1)
-login_rc_pipe=(${PIPESTATUS[0]:-0})
+login_rc_pipe=("${PIPESTATUS[0]:-0}")
 if [[ "${login_rc_pipe[0]}" == "7" ]]; then
   ok "login propagates Chrome's nonzero exit code"
 else
