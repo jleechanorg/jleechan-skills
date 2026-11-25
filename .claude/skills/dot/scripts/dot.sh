@@ -7,10 +7,11 @@ set -euo pipefail
 export PATH="$PATH${HOMEBREW_PREFIX:+:$HOMEBREW_PREFIX/bin}:/usr/local/bin:$HOME/.local/bin"
 
 NEW_ARGS=()
+CLI_ACCOUNT=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --account|-a) DOT_ACCOUNT="$2"; shift 2 ;;
-    --account=*) DOT_ACCOUNT="${1#*=}"; shift 1 ;;
+    --account|-a) DOT_ACCOUNT="$2"; CLI_ACCOUNT="$2"; shift 2 ;;
+    --account=*) DOT_ACCOUNT="${1#*=}"; CLI_ACCOUNT="${1#*=}"; shift 1 ;;
     --secondary) DOT_SECONDARY=1; shift 1 ;;
     --url|-u) DOT_URL="$2"; shift 2 ;;
     --url=*) DOT_URL="${1#*=}"; shift 1 ;;
@@ -33,16 +34,25 @@ fi
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 CONFIG_FILE="${DOT_CONFIG_FILE:-$HOME/.config/dot/config.json}"
-cfg() { "$NODE" -e 'try{const c=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(typeof c[process.argv[2]]==="string"?c[process.argv[2]]:"")}catch{}' "$CONFIG_FILE" "$1" 2>/dev/null || true; }
-KEY=default_account; [[ "${DOT_SECONDARY:-0}" == 1 ]] && KEY=secondary_account
-# Resolve only the variable belonging to the selected key. Reading
-# DOT_SECONDARY_ACCOUNT on a default call would silently hijack every invocation
-# that merely has it exported in the environment.
-ACCOUNT="${DOT_ACCOUNT:-}"
-if [[ -z "$ACCOUNT" ]]; then
-  if [[ "$KEY" == secondary_account ]]; then ACCOUNT="${DOT_SECONDARY_ACCOUNT:-$(cfg secondary_account)}"; else ACCOUNT="$(cfg default_account)"; fi
+# cfg <key>: a string value from the dot config; empty when absent or unreadable.
+cfg() {
+  [[ -f "$CONFIG_FILE" ]] || return 0
+  "$NODE" -e 'try{const c=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(typeof c[process.argv[2]]==="string"?c[process.argv[2]]:"")}catch{}' "$CONFIG_FILE" "$1" 2>/dev/null || true
+}
+# --secondary selects the configured secondary account. An explicit --account wins.
+# Ambient DOT_ACCOUNT is NOT consulted here: it is a default-call setting, and
+# letting it win would silently route a secondary request to the primary (the
+# caller cannot detect that swap from the transport output).
+if [[ "${DOT_SECONDARY:-0}" == 1 && -z "$CLI_ACCOUNT" ]]; then
+  ACCOUNT="${DOT_SECONDARY_ACCOUNT:-$(cfg secondary_account)}"
+  if [[ -z "$ACCOUNT" ]]; then
+    echo "dot.sh: --secondary needs DOT_SECONDARY_ACCOUNT or config secondary_account in $CONFIG_FILE" >&2
+    exit 2
+  fi
+else
+  ACCOUNT="${DOT_ACCOUNT:-$(cfg default_account)}"
+  ACCOUNT="${ACCOUNT:-default}"
 fi
-if [[ -z "$ACCOUNT" ]]; then if [[ "$KEY" == default_account ]]; then ACCOUNT=default; else echo "dot.sh: --secondary needs DOT_SECONDARY_ACCOUNT or config secondary_account in $CONFIG_FILE" >&2; exit 2; fi; fi
 
 PROFILE_DIR=""
 PROFILE_DIRECTORY=""
