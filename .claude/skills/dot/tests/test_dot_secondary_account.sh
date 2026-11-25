@@ -94,19 +94,14 @@ got="$(DOT_ACCOUNT= DOT_SECONDARY_ACCOUNT=secondary banner_account "$cfg")"
 [[ "$got" == "primary" ]] && ok "DOT_SECONDARY_ACCOUNT does not affect a call without --secondary" \
   || bad "DOT_SECONDARY_ACCOUNT must not affect a call without --secondary (got '$got', want 'primary')"
 
-# --- 7. --secondary still uses the env var when it IS passed -------------------
-got="$(DOT_ACCOUNT= DOT_SECONDARY_ACCOUNT=secondary banner_account "$cfg" --secondary)"
-[[ "$got" == "secondary" ]] && ok "--secondary honours DOT_SECONDARY_ACCOUNT" \
-  || bad "--secondary honours DOT_SECONDARY_ACCOUNT (got '$got', want 'secondary')"
-
-# --- 8. ambient DOT_ACCOUNT must not hijack a --secondary call -----------------
+# --- 7. ambient DOT_ACCOUNT must not hijack a --secondary call -----------------
 # Regression: --secondary once fell through to ${DOT_ACCOUNT}, so any shell with
 # DOT_ACCOUNT exported silently sent a secondary request to the primary account.
 got="$(DOT_ACCOUNT=primary DOT_SECONDARY_ACCOUNT= banner_account "$cfg" --secondary)"
 [[ "$got" == "secondary" ]] && ok "ambient DOT_ACCOUNT does not hijack --secondary" \
   || bad "ambient DOT_ACCOUNT must not hijack --secondary (got '$got', want 'secondary')"
 
-# --- 9. --secondary stays fail-closed even when DOT_ACCOUNT is exported -------
+# --- 8. --secondary stays fail-closed even when DOT_ACCOUNT is exported -------
 bare2="$(fixture bare2 '{"default_account":"primary","accounts":{"primary":{"url":"https://chatgpt.com/"}}}')"
 DOT_CONFIG_FILE="$bare2" DOT_ACCOUNT=primary DOT_SECONDARY_ACCOUNT= DOT_SKIP_DISPATCH=1 \
   timeout 30 bash "$DOT_SH" --secondary read 1 >/dev/null 2>&1
@@ -114,10 +109,24 @@ rc=$?
 [[ "$rc" -eq 2 ]] && ok "--secondary with ambient DOT_ACCOUNT still exits 2" \
   || bad "--secondary with ambient DOT_ACCOUNT still exits 2 (got exit $rc)"
 
-# --- 10. explicit --account beats both --secondary and the env ---------------
+# --- 9. explicit --account beats both --secondary and the env ---------------
 got="$(DOT_ACCOUNT= DOT_SECONDARY_ACCOUNT=envsec banner_account "$cfg" --account explicit --secondary)"
 [[ "$got" == "explicit" ]] && ok "explicit --account wins over --secondary and env" \
   || bad "explicit --account wins over --secondary and env (got '$got', want 'explicit')"
+
+# --- 10. ambient DOT_SECONDARY must not hijack a default call ------------------
+# Regression: the internal flag was once stored in DOT_SECONDARY, so an exported
+# DOT_SECONDARY=1 turned every plain call into a secondary request (and hard-
+# failed with exit 2 when no secondary was configured).
+got="$(DOT_SECONDARY=1 DOT_ACCOUNT= DOT_SECONDARY_ACCOUNT= banner_account "$cfg")"
+[[ "$got" == "primary" ]] && ok "ambient DOT_SECONDARY does not hijack a default call" \
+  || bad "ambient DOT_SECONDARY must not hijack a default call (got '$got', want 'primary')"
+
+DOT_CONFIG_FILE="$bare" DOT_SECONDARY=1 DOT_ACCOUNT= DOT_SECONDARY_ACCOUNT= DOT_SKIP_DISPATCH=1 \
+  timeout 30 bash "$DOT_SH" read 1 >/dev/null 2>&1
+rc=$?
+[[ "$rc" -eq 0 ]] && ok "ambient DOT_SECONDARY leaves a default call working" \
+  || bad "ambient DOT_SECONDARY leaves a default call working (got exit $rc, want 0)"
 
 echo
 if (( FAIL > 0 )); then

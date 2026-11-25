@@ -7,12 +7,14 @@ set -euo pipefail
 export PATH="$PATH${HOMEBREW_PREFIX:+:$HOMEBREW_PREFIX/bin}:/usr/local/bin:$HOME/.local/bin"
 
 NEW_ARGS=()
-CLI_ACCOUNT=""
+# CLI_SECONDARY is an internal flag, deliberately NOT in the public DOT_* env
+# namespace: an ambient DOT_SECONDARY would otherwise hijack every default call.
+CLI_ACCOUNT=""; CLI_SECONDARY=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --account|-a) DOT_ACCOUNT="$2"; CLI_ACCOUNT="$2"; shift 2 ;;
     --account=*) DOT_ACCOUNT="${1#*=}"; CLI_ACCOUNT="${1#*=}"; shift 1 ;;
-    --secondary) DOT_SECONDARY=1; shift 1 ;;
+    --secondary) CLI_SECONDARY=1; shift 1 ;;
     --url|-u) DOT_URL="$2"; shift 2 ;;
     --url=*) DOT_URL="${1#*=}"; shift 1 ;;
     *) NEW_ARGS+=("$1"); shift 1 ;;
@@ -43,7 +45,7 @@ cfg() {
 # Ambient DOT_ACCOUNT is NOT consulted here: it is a default-call setting, and
 # letting it win would silently route a secondary request to the primary (the
 # caller cannot detect that swap from the transport output).
-if [[ "${DOT_SECONDARY:-0}" == 1 && -z "$CLI_ACCOUNT" ]]; then
+if [[ "${CLI_SECONDARY:-0}" == 1 && -z "$CLI_ACCOUNT" ]]; then
   ACCOUNT="${DOT_SECONDARY_ACCOUNT:-$(cfg secondary_account)}"
   if [[ -z "$ACCOUNT" ]]; then
     echo "dot.sh: --secondary needs DOT_SECONDARY_ACCOUNT or config secondary_account in $CONFIG_FILE" >&2
