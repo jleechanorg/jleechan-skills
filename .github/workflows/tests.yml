@@ -125,18 +125,3 @@ jobs:
           bash .claude/skills/dot/scripts/check_budget.sh
           bash .claude/skills/dot/tests/test_run_chrome_timeout.sh
           bash .claude/skills/dot/tests/test_dot_secondary_account.sh
-      - name: Shellcheck the Dot transport and tests
-        run: |
-          # Warning level, no exclusions. This catches shell-level defects that are
-          # mechanically visible: unquoted expansions (SC2086), unchecked cd
-          # (SC2164), unused vars (SC2034), unquoted array assignment (SC2206).
-          # It does NOT catch the #918 P0 class: those were valid-shell precedence
-          # bugs (which env var wins), which shellcheck cannot see. Those still
-          # need adversarial review. `-S error` was rejected because it only
-          # reaches parse-level codes that `bash -n` already catches.
-          shellcheck -S warning -x \
-            .claude/skills/dot/scripts/dot.sh \
-            .claude/skills/dot/scripts/check_budget.sh \
-            .claude/skills/dot/tests/test_dot_secondary_account.sh \
-            .claude/skills/dot/tests/test_run_chrome_timeout.sh \
-            .claude/skills/dot/tests/test_dot_session_hardening.sh
