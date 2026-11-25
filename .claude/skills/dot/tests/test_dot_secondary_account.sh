@@ -38,11 +38,13 @@ fixture() {
 }
 
 # banner_account <config> [args...] -> prints the account= token from the banner.
-# DOT_SECONDARY_ACCOUNT is inherited from the caller so the env-override case is
-# testable; callers that need it unset set it empty themselves.
+# DOT_SKIP_DISPATCH=1 stops dot.sh after the resolver, so no Chrome is launched
+# and no real profile is touched; only the banner is asserted. DOT_SECONDARY_ACCOUNT
+# is inherited from the caller so the env-override case is testable; callers that
+# need it unset set it empty themselves.
 banner_account() {
   local cfg="$1"; shift
-  DOT_CONFIG_FILE="$cfg" DOT_ACCOUNT= \
+  DOT_CONFIG_FILE="$cfg" DOT_ACCOUNT= DOT_SKIP_DISPATCH=1 \
     timeout 60 bash "$DOT_SH" "$@" read 1 2>&1 \
     | sed -n 's/^dot\.sh: account=\([^ ]*\) .*/\1/p' | head -1
 }
@@ -82,6 +84,19 @@ grep -q 'account=primary' <<<"$out" \
 got="$(DOT_SECONDARY_ACCOUNT= banner_account "$cfg")"
 [[ "$got" == "primary" ]] && ok "no flag still selects default_account" \
   || bad "no flag still selects default_account (got '$got', want 'primary')"
+
+# --- 6. DOT_SECONDARY_ACCOUNT must not hijack a default call -------------------
+# Regression: a nested ${DOT_SECONDARY_ACCOUNT:-$(cfg ...)} expansion once read
+# the env var on default calls too, so merely having it exported routed every
+# invocation to the secondary account.
+got="$(DOT_SECONDARY_ACCOUNT=secondary banner_account "$cfg")"
+[[ "$got" == "primary" ]] && ok "DOT_SECONDARY_ACCOUNT does not affect a call without --secondary" \
+  || bad "DOT_SECONDARY_ACCOUNT must not affect a call without --secondary (got '$got', want 'primary')"
+
+# --- 7. --secondary still uses the env var when it IS passed -------------------
+got="$(DOT_SECONDARY_ACCOUNT=secondary banner_account "$cfg" --secondary)"
+[[ "$got" == "secondary" ]] && ok "--secondary honours DOT_SECONDARY_ACCOUNT" \
+  || bad "--secondary honours DOT_SECONDARY_ACCOUNT (got '$got', want 'secondary')"
 
 echo
 if (( FAIL > 0 )); then

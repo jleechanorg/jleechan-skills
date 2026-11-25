@@ -35,7 +35,13 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="${DOT_CONFIG_FILE:-$HOME/.config/dot/config.json}"
 cfg() { "$NODE" -e 'try{const c=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(typeof c[process.argv[2]]==="string"?c[process.argv[2]]:"")}catch{}' "$CONFIG_FILE" "$1" 2>/dev/null || true; }
 KEY=default_account; [[ "${DOT_SECONDARY:-0}" == 1 ]] && KEY=secondary_account
-ACCOUNT="${DOT_ACCOUNT:-${DOT_SECONDARY_ACCOUNT:-$(cfg "$KEY")}}"
+# Resolve only the variable belonging to the selected key. Reading
+# DOT_SECONDARY_ACCOUNT on a default call would silently hijack every invocation
+# that merely has it exported in the environment.
+ACCOUNT="${DOT_ACCOUNT:-}"
+if [[ -z "$ACCOUNT" ]]; then
+  if [[ "$KEY" == secondary_account ]]; then ACCOUNT="${DOT_SECONDARY_ACCOUNT:-$(cfg secondary_account)}"; else ACCOUNT="$(cfg default_account)"; fi
+fi
 if [[ -z "$ACCOUNT" ]]; then if [[ "$KEY" == default_account ]]; then ACCOUNT=default; else echo "dot.sh: --secondary needs DOT_SECONDARY_ACCOUNT or config secondary_account in $CONFIG_FILE" >&2; exit 2; fi; fi
 
 PROFILE_DIR=""
