@@ -9,13 +9,13 @@ how to coordinate) lives in `SKILL.md` and the calling agent, never in code.
 
 | Surface | Current | Budget (hard cap) |
 |---|---|---|
-| `dot-coordinator/scripts/ping-dots.py` + `dot-coordinator-wrapper.sh` + `pi-lunaroute-adapter.sh` (canonical launcher plus temporary legacy wrapper/adapter/launcher forwarding files, combined) | 150 LOC | **≤ 150** |
-| `dot-coordinator/SKILL.md` (coordinator prompts & policy) | candidate | **≤ 400** |
+| `dot-coordinator/scripts/ping-dots.py` + `dot-coordinator-wrapper.sh` + `pi-lunaroute-adapter.sh` (canonical launcher plus temporary legacy wrapper/adapter/launcher forwarding files, combined) | 149 LOC | **≤ 150** |
+| `dot-coordinator/SKILL.md` (coordinator prompts & policy) | 386 LOC | **≤ 400** |
 | `scripts/dot.sh` | 423 LOC | **≤ 520** |
-| `scripts/dot_chrome.mjs` and its transport modules (each) | 900 / 63 LOC | **≤ 900** |
-| Transport scripts combined (`dot.sh` + all `scripts/*.mjs`) | 1386 LOC | **≤ 1400** |
-| `SKILL.md` (policy layer — grows freely, this is where behavior belongs) | 174 LOC | **≤ 400** |
-| `tests/` (excluded — tests guard behavior, they are not transport) | 417 LOC | no cap |
+| `scripts/dot_chrome.mjs` and its transport modules (each) | 880 / 97 LOC | **≤ 900** |
+| Transport scripts combined (`dot.sh` + all `scripts/*.mjs`) | 1400 LOC | **≤ 1500** |
+| `SKILL.md` (policy layer — grows freely, this is where behavior belongs) | 84 LOC | **≤ 400** |
+| `tests/` (excluded — tests guard behavior, they are not transport) | 384 LOC | no cap |
 
 ## Rules
 
@@ -36,6 +36,16 @@ how to coordinate) lives in `SKILL.md` and the calling agent, never in code.
 
 ## History
 
+- 2026-11-25: transport-combined cap raised **1400 → 1500** by explicit operator
+  authorization ("3. can incrase headroom"). The transport had reached exactly
+  1400/1400 with zero headroom, so the `--secondary` addition was made by
+  reclaiming lines instead of raising the cap; that reclamation is kept.
+  The new ceiling gives ~100 lines of room so a future transport fix is not forced
+  into contortion or a last-minute cap negotiation. No per-file cap changed
+  (`dot.sh` ≤ 520, each `.mjs` ≤ 900). The `Current` column was also
+  corrected for `dot-coordinator/SKILL.md`, `dot_chrome.mjs`/`dot_reply.mjs`,
+  `SKILL.md` and `tests/`, which had gone stale, and `scripts/check_budget.sh`
+  is updated in the same change so the enforced number and this table agree.
 - 2026-10-14: canonical home is `jleechanorg/jleechan-skills` `.claude/skills/dot/`;
    the interim standalone repo was archived after consolidation.
    Budgets set at current size + headroom after the peer-draft contention incident

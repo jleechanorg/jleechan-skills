@@ -24,11 +24,11 @@ for module in "${transport_modules[@]}"; do
   check "${module##*/}" "$module" 900
   combined=$(( combined + $(wc -l < "$module") ))
 done
-if [[ "$combined" -gt 1400 ]]; then
-  echo "BUDGET BREACH: transport scripts combined = $combined LOC > cap 1400" >&2
+if [[ "$combined" -gt 1500 ]]; then
+  echo "BUDGET BREACH: transport scripts combined = $combined LOC > cap 1500" >&2
   fail=1
 else
-  echo "ok: transport scripts combined = $combined LOC (cap 1400)"
+  echo "ok: transport scripts combined = $combined LOC (cap 1500)"
 fi
 
 check "SKILL.md" "SKILL.md" 400
