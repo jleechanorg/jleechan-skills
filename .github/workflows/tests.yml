@@ -125,3 +125,17 @@ jobs:
           bash .claude/skills/dot/scripts/check_budget.sh
           bash .claude/skills/dot/tests/test_run_chrome_timeout.sh
           bash .claude/skills/dot/tests/test_dot_secondary_account.sh
+      - name: Shellcheck the Dot transport and tests
+        run: |
+          # Transport scripts must be clean at warning level: env-var precedence and
+          # quoting defects in dot.sh are exactly what the --secondary work got wrong.
+          shellcheck -S warning -x \
+            .claude/skills/dot/scripts/dot.sh \
+            .claude/skills/dot/scripts/check_budget.sh
+          # Tests: errors fail the build. SC1007 is excluded because the suite
+          # deliberately uses the `VAR= cmd` env-prefix form to clear ambient
+          # DOT_* variables per case, which shellcheck misreads as a bad assignment.
+          shellcheck -S error -e SC1007 \
+            .claude/skills/dot/tests/test_dot_secondary_account.sh \
+            .claude/skills/dot/tests/test_run_chrome_timeout.sh \
+            .claude/skills/dot/tests/test_dot_session_hardening.sh

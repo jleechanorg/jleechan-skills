@@ -31,9 +31,9 @@ trap 'rm -rf "$SCRATCH"' EXIT
 
 # fixture <name> <config-json> -> prints the config path
 fixture() {
-  local name="$1" body="$2" dir="$SCRATCH/$1"
+  local dir="$SCRATCH/$1"
   mkdir -p "$dir/profile/Default"
-  printf '%s\n' "$body" > "$dir/config.json"
+  printf '%s\n' "$2" > "$dir/config.json"
   printf '%s\n' "$dir/config.json"
 }
 
