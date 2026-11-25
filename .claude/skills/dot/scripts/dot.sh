@@ -11,6 +11,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --account|-a) DOT_ACCOUNT="$2"; shift 2 ;;
     --account=*) DOT_ACCOUNT="${1#*=}"; shift 1 ;;
+    --secondary) DOT_SECONDARY=1; shift 1 ;;
     --url|-u) DOT_URL="$2"; shift 2 ;;
     --url=*) DOT_URL="${1#*=}"; shift 1 ;;
     *) NEW_ARGS+=("$1"); shift 1 ;;
@@ -32,11 +33,10 @@ fi
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 CONFIG_FILE="${DOT_CONFIG_FILE:-$HOME/.config/dot/config.json}"
-ACCOUNT="${DOT_ACCOUNT:-}"
-if [[ -z "$ACCOUNT" && -f "$CONFIG_FILE" ]]; then
-  ACCOUNT=$("$NODE" -e 'try { process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).default_account || ""); } catch {}' "$CONFIG_FILE" 2>/dev/null || true)
-fi
-ACCOUNT="${ACCOUNT:-default}"
+cfg() { "$NODE" -e 'try{const c=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(typeof c[process.argv[2]]==="string"?c[process.argv[2]]:"")}catch{}' "$CONFIG_FILE" "$1" 2>/dev/null || true; }
+KEY=default_account; [[ "${DOT_SECONDARY:-0}" == 1 ]] && KEY=secondary_account
+ACCOUNT="${DOT_ACCOUNT:-${DOT_SECONDARY_ACCOUNT:-$(cfg "$KEY")}}"
+if [[ -z "$ACCOUNT" ]]; then if [[ "$KEY" == default_account ]]; then ACCOUNT=default; else echo "dot.sh: --secondary needs DOT_SECONDARY_ACCOUNT or config secondary_account in $CONFIG_FILE" >&2; exit 2; fi; fi
 
 PROFILE_DIR=""
 PROFILE_DIRECTORY=""
@@ -418,6 +418,6 @@ if [[ "${DOT_SKIP_DISPATCH:-0}" != "1" ]]; then
     existing-profile-only) shift; cmd_existing_profile_only "$@" ;;
     restore-session) shift; cmd_restore_session "$@" ;;
     login|auth) shift; cmd_login "$@" ;;
-    *) echo "usage: dot.sh [--account <name>] [--url <url>] read [chars] | submit-draft | clear-draft | probe <expected-email-sha256> | send|send-once|send-prepared <message-file> | existing-profile-only | restore-session | login" >&2; exit 2 ;;
+    *) echo "usage: dot.sh [--account <name>] [--secondary] [--url <url>] read [chars] | submit-draft | clear-draft | probe <expected-email-sha256> | send|send-once|send-prepared <message-file> | existing-profile-only | restore-session | login" >&2; exit 2 ;;
   esac
 fi
