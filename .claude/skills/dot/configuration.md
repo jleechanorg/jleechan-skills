@@ -10,6 +10,7 @@ the request to another host or reuse its signed-in session.
 ## Configuration & Environment Variables
 
 - `DOT_ACCOUNT`: Account identifier in `~/.config/dot/config.json`. Can also be passed via `--account <name>`.
+- `DOT_SECONDARY_ACCOUNT`: The account `--secondary` selects (see [secondary account](SKILL.md#secondary-account---secondary)). Resolution order: `--account` wins, then this variable, then the config's `secondary_account`, then failure.
 - `DOT_URL`: Target ChatGPT dot assistant URL. Can also be passed via `--url <url>`.
 - `DOT_BACKEND`: Force backend (`chrome` or `auto`). Both values select Chrome.
 - `DOT_CONFIG_FILE`: Custom path to dot JSON configuration (defaults to `~/.config/dot/config.json`).
@@ -45,6 +46,7 @@ coordinator rules and all existing authorization and capacity constraints.
 ```json
 {
   "default_account": "primary",
+  "secondary_account": "secondary",
   "rotation": ["primary", "secondary"],
   "accounts": {
     "primary": {

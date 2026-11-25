@@ -124,3 +124,4 @@ jobs:
         run: |
           bash .claude/skills/dot/scripts/check_budget.sh
           bash .claude/skills/dot/tests/test_run_chrome_timeout.sh
+          bash .claude/skills/dot/tests/test_dot_secondary_account.sh

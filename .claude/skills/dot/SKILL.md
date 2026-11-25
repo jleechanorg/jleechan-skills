@@ -22,6 +22,16 @@ Before declining an authorized task for capacity, inventory current work and pro
 Before delegating work, read [active-work and hold/receipt rules](delegation.md#never-stall-mandatory); keep the original assignment moving, respond to `[Agent ask]` without treating it as operator authority, and advance one safe authorized unit per turn. Holds pause only their named action; do not manufacture peripheral work or loop on unchanged blockers.
 For visual/document review, read [delivery rules](delegation.md#deliver-review-material-to-dot): upload actual material, verify every filename after upload and on the submitted message, and obtain recipient-side access/coverage evidence before claiming review.
 
+## Secondary account (`--secondary`)
+
+`/dot --secondary` targets the account the user designated as their **secondary** dot instead of the default one. Nothing about the secondary account is stored in this repository: `dot.sh` resolves it at run time from `DOT_SECONDARY_ACCOUNT`, else `secondary_account` in the machine-local `~/.config/dot/config.json`, else it exits `2`.
+
+- **Say which dot you are using.** Announce the resolved account (for example "using the secondary dot") before the first read or send, so a wrong-account route is visible in the transcript rather than inferred later. Never claim the default dot was used when `--secondary` was passed.
+- **Explicit selection wins.** `--account <name>` overrides `--secondary`; passing both is not an error, it means "use this exact account".
+- **Failure is closed, not a fallback.** If no secondary account is configured, `dot.sh` exits `2` and sends nothing. Do not retry without `--secondary`, and do not substitute the default account: a message delivered from the wrong identity is worse than an undelivered one, and the caller cannot detect the swap from the transport output.
+- **Tell the user how to configure it** when it is unset: set `DOT_SECONDARY_ACCOUNT=<account-name>`, or add `"secondary_account": "<account-name>"` beside `default_account` in their dot config. Use the key name the user configured; do not invent an account name.
+- Rotation, probe, peer-draft and destination rules are unchanged; `--secondary` changes the target selection only.
+
 ## Account Rotation on Limits (Mandatory)
 
 Before selection, inspect **every configured account**, account policy, in-flight ownership and identity/health receipts; read [configuration](configuration.md#machine-configuration-configdotconfigjson--reference) and [routing rules](transport.md#account-rotation-on-limits-mandatory).
