@@ -11,11 +11,11 @@ how to coordinate) lives in `SKILL.md` and the calling agent, never in code.
 |---|---|---|
 | `dot-coordinator/scripts/ping-dots.py` + `dot-coordinator-wrapper.sh` + `pi-lunaroute-adapter.sh` (canonical launcher plus temporary legacy wrapper/adapter/launcher forwarding files, combined) | 149 LOC | **≤ 150** |
 | `dot-coordinator/SKILL.md` (coordinator prompts & policy) | 386 LOC | **≤ 400** |
-| `scripts/dot.sh` | 423 LOC | **≤ 520** |
+| `scripts/dot.sh` | 429 LOC | **≤ 520** |
 | `scripts/dot_chrome.mjs` and its transport modules (each) | 880 / 97 LOC | **≤ 900** |
-| Transport scripts combined (`dot.sh` + all `scripts/*.mjs`) | 1400 LOC | **≤ 1500** |
+| Transport scripts combined (`dot.sh` + all `scripts/*.mjs`) | 1406 LOC | **≤ 1500** |
 | `SKILL.md` (policy layer — grows freely, this is where behavior belongs) | 84 LOC | **≤ 400** |
-| `tests/` (excluded — tests guard behavior, they are not transport) | 384 LOC | no cap |
+| `tests/` (excluded — tests guard behavior, they are not transport) | 399 LOC | no cap |
 
 ## Rules
 
