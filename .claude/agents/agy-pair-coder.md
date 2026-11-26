@@ -99,7 +99,7 @@ rm -f "$PROMPT_FILE"
 
 **Flag reference (agy 1.1.1):**
 - `--dangerously-skip-permissions` — auto-approve tools (full execution mode).
-- `--model gemini-4-hydrogen-high` — default Flash model (`gemini-4-hydrogen-high`, `gemini-4-hydrogen-medium`, `gemini-4-hydrogen`). Never use Gemini 3.1 Pro or older Pro models.
+- `--model gemini-4-hydrogen-high` — default Hydrogen model (`gemini-4-hydrogen-high`, `gemini-4-hydrogen-medium`, `gemini-4-hydrogen-low`, `gemini-4-hydrogen-xhigh`). Never use Gemini 3.1 Pro, older Pro models, or Gemini 3.8 Flash.
 - `--new-project` — fresh project isolation; never pass conversation resume or reuse flags across attempts.
 - `--print-timeout 20m` — long-running timeout for unattended tasks.
 - Never use `--sandbox` (terminal restrictions break build and test execution).

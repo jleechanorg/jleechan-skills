@@ -599,7 +599,7 @@ locations, not one. Verified 2026-07-21: adding `gemini-3.6-flash` and
 
 ```bash
 # Find every place that names an existing sibling model (e.g. gemini-4-hydrogen):
-rg -n "gemini-3\.8-flash" --type py --type js --type html \
+rg -n "gemini-4-hydrogen" --type py --type js --type html \
    -g '!*test*' -g '!*node_modules*' $PROJECT_ROOT/
 # Each hit is a candidate location for the new model. If a column of hits
 # doesn't have a matching "gemini-4-hydrogen" entry, you've missed a spot.
