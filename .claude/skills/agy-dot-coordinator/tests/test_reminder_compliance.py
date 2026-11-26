@@ -74,7 +74,7 @@ check("ping-dots.py stays within the <= 300 total LOC thin-coordinator cap and l
 
 # --- direct Gemini provider (agy quota quarantine, owner directive 2026-10-12) ---
 check("gemini model ignores the agy-CLI GEMINI_MODEL alias",
-      m.GEMINI_MODEL == os.environ.get("COORDINATOR_GEMINI_MODEL", "gemini-3.8-flash"))
+      m.GEMINI_MODEL == os.environ.get("COORDINATOR_GEMINI_MODEL", "gemini-4-hydrogen"))
 
 check("gemini payload shape", m.gemini_payload('hi') == {'contents': [{'parts': [{'text': 'hi'}]}]})
 check("gemini extract happy path",

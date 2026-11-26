@@ -96,7 +96,7 @@ def agy_json_call(
     prompt: str,
     json_schema: dict[str, Any],
     *,
-    model: str = "gemini-3.8-flash-high",
+    model: str = "gemini-4-hydrogen-high",
     timeout_seconds: int = 120,
     runner: SubprocessRunner = _default_runner,
 ) -> dict[str, Any]:
@@ -155,7 +155,7 @@ def agy_json_call(
 
 
 def make_llm_callable(
-    *, model: str = "gemini-3.8-flash-high", timeout_seconds: int = 120
+    *, model: str = "gemini-4-hydrogen-high", timeout_seconds: int = 120
 ) -> Callable[[str, dict[str, Any]], dict[str, Any]]:
     """Build a (prompt, json_schema) -> dict callable bound to a specific model/timeout.
 

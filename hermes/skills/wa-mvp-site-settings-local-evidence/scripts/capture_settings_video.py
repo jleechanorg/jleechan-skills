@@ -10,7 +10,7 @@ Usage:
   $HOME/worldarchitect-main-origin/venv/bin/playwright install chromium-headless-shell
   $HOME/worldarchitect-main-origin/venv/bin/python capture_settings_video.py \
       --base http://127.0.0.1:8081 \
-      --new-models gemini-3.8-flash \
+      --new-models gemini-4-hydrogen \
       --out /tmp/pr8512_proof
 
 Then run caption_and_stitch.py to produce the captioned MP4.

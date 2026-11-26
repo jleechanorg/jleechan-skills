@@ -86,16 +86,16 @@ Analyze the code across multiple dimensions with focus on correctness, architect
 # Execute gemini consultation with explicit error handling and Flash-tier defaults
 echo "🤖 Starting Gemini CLI consultation..."
 
-# Configuration variables for model management (Default: gemini-3.8-flash)
-# MANDATORY INVARIANT: Never use Gemini 3.1 Pro (or older Gemini Pro models); always use Gemini 3.8 Flash or later.
-GEMINI_MODEL="${GEMINI_MODEL:-gemini-3.8-flash}"
-GEMINI_FALLBACK_MODEL="${GEMINI_FALLBACK_MODEL:-gemini-3.8-flash-high}"
+# Configuration variables for model management (Default: gemini-4-hydrogen)
+# MANDATORY INVARIANT: Never use Gemini 3.1 Pro (or older Gemini Pro models); always use Gemini 4 Hydrogen or later.
+GEMINI_MODEL="${GEMINI_MODEL:-gemini-4-hydrogen}"
+GEMINI_FALLBACK_MODEL="${GEMINI_FALLBACK_MODEL:-gemini-4-hydrogen-high}"
 GEMINI_FALLBACK="${GEMINI_FALLBACK:-1}"  # Allow opt-out with GEMINI_FALLBACK=0
 
 # Disallow Gemini 3.1 Pro and older Pro models
 if [[ "$GEMINI_MODEL" =~ 3\.1[- ]?[Pp]ro || "$GEMINI_MODEL" =~ 3[- ]?[Pp]ro || "$GEMINI_MODEL" =~ [Gg]emini-.*[Pp]ro ]]; then
     echo "❌ POLICY VIOLATION: Gemini 3.1 Pro and older Gemini Pro models are strictly forbidden."
-    echo "   Always use Gemini 3.8 Flash (gemini-3.8-flash / gemini-3.8-flash-high) or later."
+    echo "   Always use Gemini 4 Hydrogen (gemini-4-hydrogen / gemini-4-hydrogen-high) or later."
     exit 1
 fi
 
@@ -185,7 +185,7 @@ fi
 - Always use `gemini -p` command to actually consult with Gemini rather than providing your own analysis
 - Make sure to tell Gemini that you don't want it to write any code and this is just for guidance and consultation
 - Your primary function is to execute `gemini -p` commands, not to provide your own analysis
-- **Mandatory Gemini Model Invariant**: Never use Gemini 3.1 Pro (or older Gemini Pro models); always use Gemini 3.8 Flash (`gemini-3.8-flash` / `gemini-3.8-flash-high`) or later. Defaults to `gemini-3.8-flash`. If quota or rate limits are reached, retry with `gemini-3.8-flash-high` or wait for quota reset.
+- **Mandatory Gemini Model Invariant**: Never use Gemini 3.1 Pro (or older Gemini Pro models); always use Gemini 4 Hydrogen (`gemini-4-hydrogen` / `gemini-4-hydrogen-high`) or later. Defaults to `gemini-4-hydrogen`. If quota or rate limits are reached, retry with `gemini-4-hydrogen-high` or wait for quota reset.
 
 ## Integration with Review Systems
 

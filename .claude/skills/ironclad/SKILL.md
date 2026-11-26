@@ -1,6 +1,6 @@
 ---
 name: ironclad
-description: Use when the user invokes /ironclad, asks for ironclad exit criteria, sets a sparse goal that needs hardening before autonomous work, or writes a bead contract that a weaker coding model (Haiku 4.5, Gemini 3.8 Flash, GPT Luna) must execute unaided.
+description: Use when the user invokes /ironclad, asks for ironclad exit criteria, sets a sparse goal that needs hardening before autonomous work, or writes a bead contract that a weaker coding model (Haiku 4.5, Gemini 4 Hydrogen, GPT Luna) must execute unaided.
 ---
 
 # Ironclad exit criteria — harden, set, execute
@@ -60,7 +60,7 @@ The single planning and verification passes do not waive mandatory plan review. 
 
 ## Executor-grade contracts (when a weaker model will execute)
 
-A goal-level contract tells a strong agent *what must be true*. A bead contract for a weaker model (Haiku 4.5, Gemini 3.8 Flash, GPT Luna, or any delegated lane) must also say *exactly what to do*, because that model cannot recover the planner's unstated decisions. Test: a brilliant colleague with no context reading the text would not be confused. `/plan-micro` requires this form for every bead; this section is the single normative template and `/plan-micro` does not restate it.
+A goal-level contract tells a strong agent *what must be true*. A bead contract for a weaker model (Haiku 4.5, Gemini 4 Hydrogen, GPT Luna, or any delegated lane) must also say *exactly what to do*, because that model cannot recover the planner's unstated decisions. Test: a brilliant colleague with no context reading the text would not be confused. `/plan-micro` requires this form for every bead; this section is the single normative template and `/plan-micro` does not restate it.
 
 Required blocks, in this order, before the criteria table:
 

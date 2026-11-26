@@ -386,17 +386,17 @@ there to a pointer 2026-09-06; this section is the full policy).
   choice under the precedence above.
 - Small/mechanical bounded coding:
   - AGY CLI (`agy`) and Antigravity native subagents (`invoke_subagent`): use
-    Gemini 3.8 Flash tiers per the Gemini Model Invariant below; exact flag and
+    Gemini 4 Hydrogen tiers per the Gemini Model Invariant below; exact flag and
     `Model:` values are in [`references/specialist-commands.md`](references/specialist-commands.md#gemini-flash-lane-flags).
   - Codex: spawn a `gpt-6-luna` subagent when available; escalation and
     fallback follow the Codex model routing section above (it is the single
     owner of that order). Never use 5.6 models.
   - Claude: `haiku` subagent.
-- Simple task-driving, polling, and mechanical sweeps: the available Gemini 3.8 Flash (`Model: "flash"` / `--model gemini-3.8-flash-medium`), Luna, or
+- Simple task-driving, polling, and mechanical sweeps: the available Gemini 4 Hydrogen (`Model: "flash"` / `--model gemini-4-hydrogen-medium`), Luna, or
   haiku/mini tier.
 - Judgment-bearing bounded lanes (driving a PR through `/prw`, capturing and
   adjudicating evidence, non-trivial fixes, first-pass code review): Claude
-  `sonnet` subagent; Codex `gpt-6.1-terra`; AGY `gemini-3.8-flash-high`. Use
+  `sonnet` subagent; Codex `gpt-6.1-terra`; AGY `gemini-4-hydrogen-high`. Use
   haiku only when the lane is mechanical, and escalate past sonnet only under
   the top-tier rule below.
 - Apply the same handoff discipline to bounded independent investigation,
@@ -431,7 +431,7 @@ there to a pointer 2026-09-06; this section is the full policy).
   the existing completion handle until a meaningful deadline instead of chaining
   short empty waits. Report progress at the runtime cadence. Never call a wait
   on a finished handle; inspect its delivered result or transcript first.
-- **Gemini Model Invariant**: Never use Gemini 3.1 Pro (or older Gemini Pro models), and never leave `Model: "inherit"` or `"pro"` on any subagent lane, bounded or not (AGY CLI `agy` and Antigravity native `invoke_subagent` alike). Always use Gemini 3.8 Flash or later (exact `agy --model` and `invoke_subagent` `Model:` values: [`references/specialist-commands.md`](references/specialist-commands.md#gemini-flash-lane-flags)).
+- **Gemini Model Invariant**: Never use Gemini 3.1 Pro (or older Gemini Pro models), and never leave `Model: "inherit"` or `"pro"` on any subagent lane, bounded or not (AGY CLI `agy` and Antigravity native `invoke_subagent` alike). Always use Gemini 4 Hydrogen or later (exact `agy --model` and `invoke_subagent` `Model:` values: [`references/specialist-commands.md`](references/specialist-commands.md#gemini-flash-lane-flags)).
 - Top tier (the session's own model): reserve for adversarial judgment, or
   only after a cheaper tier has already failed on that unit.
 - Before you repeat a delegated claim **or act on it**, read the artifact it

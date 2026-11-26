@@ -77,7 +77,7 @@ turns_default = 10
 # pattern_scenario_files = ["testing/example_scenarios/checkout_flow.py"]
 
 # Optional: model + timeout for the default agy adapter.
-agy_model = "gemini-3.8-flash-high"
+agy_model = "gemini-4-hydrogen-high"
 agy_timeout_seconds = 120
 
 # Optional: "module:function" hook to excuse a non-zero dispatch exit under

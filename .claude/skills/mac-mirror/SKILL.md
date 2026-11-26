@@ -233,7 +233,7 @@ case "$AGENT_CLI" in
             --dangerously-bypass-approvals-and-sandbox -C "$TARGET" -- "$CONTEXT
 
 Mirror shell contract: set login:false on every exec_command Bash call so BASH_ENV restores CLAUDE_CODE_TMPDIR and PYTEST_DEBUG_TEMPROOT to $OUTPUT_ROOT after host startup. Keep TMPDIR unchanged.") ;;
-  agy)    LAUNCH=("${LAUNCH_ENV[@]}" agy --dangerously-skip-permissions --model gemini-3.8-flash-high --prompt-interactive="$CONTEXT") ;;
+  agy)    LAUNCH=("${LAUNCH_ENV[@]}" agy --dangerously-skip-permissions --model gemini-4-hydrogen-high --prompt-interactive="$CONTEXT") ;;
   *) echo "FAILED:$TARGET - unsupported AGENT_CLI '$AGENT_CLI' (claude|pi|codex|agy)" >&2; exit 1 ;;
 
 esac

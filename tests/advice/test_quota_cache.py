@@ -160,7 +160,7 @@ class AdviceQuotaCacheTests(unittest.TestCase):
     def test_unknown_or_expired_reset_does_not_create_a_blocking_record(self):
         result = self.run_cache(
             "record", "--identity-sha256", AGY_PRIMARY, "--provider", "agy",
-            "--model", "gemini-3.8-flash-high", "--reset-at", "2029-12-30T00:00:00Z",
+            "--model", "gemini-4-hydrogen-high", "--reset-at", "2029-12-30T00:00:00Z",
             "--observed-at", "2029-12-29T00:00:00Z", "--now", "2029-12-31T00:00:00Z",
         )
         self.assertIn("RESET_ALREADY_PASSED", result.stdout)

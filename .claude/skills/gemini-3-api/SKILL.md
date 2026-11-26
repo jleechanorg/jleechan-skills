@@ -7,7 +7,7 @@ description: Use current google-genai parameters and thinking configuration for 
 
 Use this when wiring Gemini 3 models in the Python SDK to avoid outdated params.
 
-Model invariant: Never select Gemini 3.1 Pro or any Gemini Pro model. Use Gemini 3.8 Flash (`gemini-3.8-flash`, `gemini-3.8-flash-high`) or later.
+Model invariant: Never select Gemini 3.1 Pro or any Gemini Pro model. Use Gemini 4 Hydrogen (`gemini-4-hydrogen`, `gemini-4-hydrogen-high`) or later.
 
 ## ThinkingConfig (Gemini 3)
 
@@ -19,7 +19,7 @@ from google.genai import types
 
 client = genai.Client()
 response = client.models.generate_content(
-    model="gemini-3.8-flash",
+    model="gemini-4-hydrogen",
     contents="Explain how AI works.",
     config=types.GenerateContentConfig(
         thinking_config=types.ThinkingConfig(thinking_level="high"),
@@ -42,7 +42,7 @@ from google.genai import types
 
 client = genai.Client()
 response = client.models.generate_content(
-    model="gemini-3.8-flash",
+    model="gemini-4-hydrogen",
     contents="Compute the sum of the first 50 primes using code.",
     config=types.GenerateContentConfig(
         tools=[types.Tool(code_execution=types.ToolCodeExecution)],
@@ -71,7 +71,7 @@ class Result(BaseModel):
 
 client = genai.Client()
 response = client.models.generate_content(
-    model="gemini-3.8-flash",
+    model="gemini-4-hydrogen",
     contents="Summarize this text in one sentence.",
     config=types.GenerateContentConfig(
         response_mime_type="application/json",
@@ -82,11 +82,11 @@ response = client.models.generate_content(
 
 ## Model Selection Requirement (Gemini Invariant)
 
-**Mandatory Invariant**: Never use Gemini 3.1 Pro (or older Gemini Pro models). Always use Gemini 3.8 Flash (`gemini-3.8-flash` / `gemini-3.8-flash-high`) or later.
+**Mandatory Invariant**: Never use Gemini 3.1 Pro (or older Gemini Pro models). Always use Gemini 4 Hydrogen (`gemini-4-hydrogen` / `gemini-4-hydrogen-high`) or later.
 
 ## Checklist for Gemini 3 integrations
 
-- Model invariant: Never use Gemini 3.1 Pro (or older Gemini Pro models); always use Gemini 3.8 Flash (`gemini-3.8-flash` / `gemini-3.8-flash-high`) or later.
+- Model invariant: Never use Gemini 3.1 Pro (or older Gemini Pro models); always use Gemini 4 Hydrogen (`gemini-4-hydrogen` / `gemini-4-hydrogen-high`) or later.
 - Use thinking_config with thinking_level (Gemini 3).
 - Enable code execution via tools=[types.Tool(code_execution=types.ToolCodeExecution)].
 - Use response_mime_type="application/json" (and optional response_json_schema) for JSON mode.

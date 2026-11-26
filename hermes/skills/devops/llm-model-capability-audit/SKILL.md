@@ -11,7 +11,7 @@ description: Audit which LLM models actually support the capabilities claimed in
 
 ---
 
-For new Gemini selections or promotions, only consider Gemini 3.8 Flash or later; never promote Gemini Pro or an earlier Gemini model. Older model IDs below describe historical findings.
+For new Gemini selections or promotions, only consider Gemini 4 Hydrogen or later; never promote Gemini Pro or an earlier Gemini model. Older model IDs below describe historical findings.
 
 ## When to use this skill
 

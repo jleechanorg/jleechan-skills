@@ -7,9 +7,9 @@ description: Handle model-specific compatibility between Gemini code execution a
 
 ## CRITICAL: Model-Specific Behavior
 
-For all new model selections, use Gemini 3.8 Flash (`gemini-3.8-flash`) or a later Flash model. Never select Gemini Pro. Older rows below document compatibility only.
+For all new model selections, use Gemini 4 Hydrogen (`gemini-4-hydrogen`) or a later Flash model. Never select Gemini Pro. Older rows below document compatibility only.
 
-### Gemini 3 (gemini-3.8-flash)
+### Gemini 3 (gemini-4-hydrogen)
 **CAN combine code_execution with JSON mode/structured outputs.**
 
 From [Gemini 3 Developer Guide](https://ai.google.dev/gemini-api/docs/gemini-3):
@@ -28,7 +28,7 @@ is not supported with Code Execution tool.
 
 | Model | Code Execution | JSON Mode | Both Together |
 |-------|---------------|-----------|---------------|
-| gemini-3.8-flash | YES | YES | **YES** |
+| gemini-4-hydrogen | YES | YES | **YES** |
 | gemini-2.0-flash | YES | YES | **NO** |
 | gemini-2.5-flash | NO | YES | N/A |
 
