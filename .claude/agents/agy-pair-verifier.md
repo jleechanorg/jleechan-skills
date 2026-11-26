@@ -2,7 +2,7 @@
 name: agy-pair-verifier
 description: >-
   agy CLI-powered pair programming verifier. Adversarially reproduces test
-  results and verifies claims via the agy CLI with explicit gemini-3.8-flash-high,
+  results and verifies claims via the agy CLI with explicit gemini-4-hydrogen-high,
   full tool execution, and fresh project context.
 ---
 
@@ -13,7 +13,7 @@ description: >-
 
 # agy Pair Verifier Agent
 
-Delegates adversarial verification and test reproduction to the `agy` CLI binary using explicit Gemini 3.8 Flash, full tool permissions, and fresh project context. If already executing as the delegated AGY worker, performs verification directly without recursive delegation.
+Delegates adversarial verification and test reproduction to the `agy` CLI binary using explicit Gemini 4 Hydrogen, full tool permissions, and fresh project context. If already executing as the delegated AGY worker, performs verification directly without recursive delegation.
 
 ## Launch & Runtime Defaults
 
@@ -94,7 +94,7 @@ PROMPT_EOF
 # Run this Bash tool call with `run_in_background: true`; the shell launch must
 # also background AGY so the verifier's main thread remains available.
 agy --dangerously-skip-permissions \
-    --model gemini-3.8-flash-high \
+    --model gemini-4-hydrogen-high \
     --new-project \
     --print-timeout 20m \
     --print "$(cat "$PROMPT_FILE")" > "$AGY_OUT" 2>&1 &
@@ -107,13 +107,13 @@ cat "$AGY_OUT"
 rm -f "$PROMPT_FILE"
 ```
 
-- **Model invariant**: Always specify `--model gemini-3.8-flash-high` (or caller-requested 3.8 Flash family: `gemini-3.8-flash-high`, `gemini-3.8-flash-medium`, `gemini-3.8-flash`). Never use Gemini 3.1 Pro or older Pro models.
+- **Model invariant**: Always specify `--model gemini-4-hydrogen-high` (or caller-requested 4 Hydrogen family: `gemini-4-hydrogen-high`, `gemini-4-hydrogen-medium`, `gemini-4-hydrogen`). Never use Gemini 3.1 Pro or older Pro models.
 - **Permissions & sandbox**: Always pass `--dangerously-skip-permissions`. Never pass `--sandbox` (terminal restrictions break test execution).
 - **Project isolation**: Always pass `--new-project`. Never pass conversation resume or reuse flags across attempts.
 - **Execution mode**: Run long-running CLI runs asynchronously (background task with output redirection) so the agent thread remains responsive. Check admission via canonical `parallelize-to-ceiling` before heavy spawns.
 - **Host runtime independence**: Use active runtime APIs when available (`TaskGet`/`TaskUpdate`/`SendMessage` in Claude Code; standard prompt and turn messaging in Codex, Antigravity, or other harnesses). Claude-specific tool names must not be mandatory gates. Given task and owned workspace are sufficient; no artificial clean-Git or new-worktree gate for read-only analysis.
 - **Auth probes & quota**: Durable credentials reside in host keychain or stored auth. Never recommend re-login without probing first: (1) check existing credential store, (2) run a minimal modeled probe without sandbox:
-  `agy --model gemini-3.8-flash-high --dangerously-skip-permissions --new-project --print-timeout 2m --print "Reply with just the word pong"`.
+  `agy --model gemini-4-hydrogen-high --dangerously-skip-permissions --new-project --print-timeout 2m --print "Reply with just the word pong"`.
   Only advise login if both fail. On quota exhaustion, fail fast; do not model-hop within the same account.
 
 ## Verification Protocol

@@ -130,7 +130,7 @@ CURSOR_LOOP_STORM = {
 ANTIGRAVITY_FIXTURE = {
     "cwd": "/tmp/test-project",
     "session_id": "ag-session",
-    "model": "gemini-3.8-flash",
+    "model": "gemini-4-hydrogen",
     "decision": "allow",
 }
 
@@ -374,7 +374,7 @@ class CrossCliHookTestCase(unittest.TestCase):
         )
         rec = json.loads(proc.stdout)
         self.assertEqual(rec["cli"], "antigravity")
-        self.assertEqual(rec["model"], "gemini-3.8-flash")
+        self.assertEqual(rec["model"], "gemini-4-hydrogen")
         self.assertEqual(rec["decision"], "allow")
 
     def test_antigravity_detected_via_decision_shape(self) -> None:

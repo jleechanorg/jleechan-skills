@@ -156,8 +156,8 @@ class RoundTest(unittest.TestCase):
     def test_both_explicit_flags_are_used_as_is(self):
         e_agy = self.enroll_model("--cli", "agy", "--model", "custom-model")
         self.assertEqual((e_agy["cli"], e_agy["model"]), ("agy", "custom-model"))
-        e_codex = self.enroll_model("--cli", "codex", "--model", "gemini-3.8-flash-high")
-        self.assertEqual((e_codex["cli"], e_codex["model"]), ("codex", "gemini-3.8-flash-high"))
+        e_codex = self.enroll_model("--cli", "codex", "--model", "gemini-4-hydrogen-high")
+        self.assertEqual((e_codex["cli"], e_codex["model"]), ("codex", "gemini-4-hydrogen-high"))
 
     def test_explicit_claude_model_without_cli_is_refused(self):
         with self.assertRaises(SystemExit) as ctx:

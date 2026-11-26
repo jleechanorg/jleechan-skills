@@ -62,7 +62,7 @@ CALLER_MODEL_ENV = (
 
 # Used only when the caller advertises neither a CLI nor a model. agy is the documented
 # default, and the fallback names an agy-served model.
-AGY_FALLBACK_MODEL = "gemini-3.8-flash-high"
+AGY_FALLBACK_MODEL = "gemini-4-hydrogen-high"
 
 SCOPE = """
 

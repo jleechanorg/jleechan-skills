@@ -46,8 +46,8 @@ FALLBACK: if an AGY lane concretely fails, retry that same bounded lane with a C
 
 Values for the Gemini Model Invariant in the entry file:
 
-- AGY CLI (`agy`): pass `--model gemini-3.8-flash-high` (or
-  `gemini-3.8-flash-medium` / `gemini-3.8-flash-low` per `agy models`; alias
-  `gemini-3.8-flash`).
+- AGY CLI (`agy`): pass `--model gemini-4-hydrogen-high` (or
+  `gemini-4-hydrogen-medium` / `gemini-4-hydrogen-low` per `agy models`; alias
+  `gemini-4-hydrogen`).
 - Antigravity native subagents (`invoke_subagent`): pass `Model: "flash"` (or
   `Model: "flash_lite"` for simple lookups/reads).

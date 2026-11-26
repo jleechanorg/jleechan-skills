@@ -18,7 +18,7 @@ Location: `~/.local/bin/agy` (verify with `command -v agy`).
 
 **Available models** (verified 2026-07-21):
 - `Gemini 3.5 Flash (Medium)` / `Gemini 3.5 Flash (High)` / `Gemini 3.5 Flash (Low)`
-- `Gemini 3.8 Flash (Low)` / `Gemini 3.8 Flash (High)` (Gemini Model Invariant: never use Gemini 3.1 Pro or older Pro models; always use Gemini 3.8 Flash or later)
+- `Gemini 3.8 Flash (Low)` / `Gemini 3.8 Flash (High)` (historical 2026-07-21 observation; current Gemini Model Invariant: never use Gemini 3.1 Pro, older Pro models, or 3.8 Flash — use `gemini-4-hydrogen-high` / `gemini-4-hydrogen-medium` / `gemini-4-hydrogen-low`)
 - `Claude Sonnet 4.6 (Thinking)` (RECOMMENDED for god-mechanics testing — handles long context with structured math)
 - `Claude Opus 4.6 (Thinking)`
 - `GPT-OSS 120B (Medium)`

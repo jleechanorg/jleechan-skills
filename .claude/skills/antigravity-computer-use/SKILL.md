@@ -684,9 +684,9 @@ Toggle via the dropdown in the conversation input area (shows as `Planning` or `
 | Priority | Model | Notes |
 |----------|-------|-------|
 | 1 | **Claude Opus 4.6 (Thinking)** | Best code quality |
-| 2 | **Gemini 3.8 Flash (High)** | Strong general purpose |
-| 3 | **Gemini 3.8 Flash (Low)** | Same model, lower priority tier |
-| 4 | **Gemini 3.8 Flash** | Fast but lower quality |
+| 2 | **Gemini 4 Hydrogen (High)** | Strong general purpose |
+| 3 | **Gemini 4 Hydrogen (Low)** | Same model, lower priority tier |
+| 4 | **Gemini 4 Hydrogen** | Fast but lower quality |
 | 5 | **Claude Sonnet 4.6 (Thinking)** | Good quality, use when Opus exhausted |
 | 6 | **GPT-OSS 120B (Medium)** | Last resort |
 
@@ -740,8 +740,8 @@ screencapture -x -R${BOUNDS} /tmp/antig_models.png
 1. Click "New Conversation" button (A11y: `add New Conversation`)
 2. After view loads, find model selector: `elem_66` or search for `'Select model' in label`
 3. Click it — dropdown opens immediately with all models as A11y buttons
-4. Click desired model (e.g., `Gemini 3.8 Flash (High) New`)
-5. Verify: re-snapshot and check `'Select model, current: Gemini 3.8 Flash (High)'`
+4. Click desired model (e.g., `Gemini 4 Hydrogen (High) New`)
+5. Verify: re-snapshot and check `'Select model, current: Gemini 4 Hydrogen (High)'`
 
 ```bash
 MANAGER_ID=<MANAGER_ID>
@@ -771,12 +771,12 @@ sleep 1.5
 # Step 3: Dropdown is now open — pick model from A11y buttons
 SNAP_JSON3=$(timeout 12 peekaboo see --app Antigravity --window-id "$MANAGER_ID" --json 2>/dev/null)
 SNAP3=$(echo "$SNAP_JSON3" | python3 -c "import json,sys; print(json.load(sys.stdin)['data']['snapshot_id'])")
-# Available: "Gemini 3.8 Flash (High) New", "Gemini 3.8 Flash (Low) New", "Gemini 3.8 Flash",
+# Available: "Gemini 4 Hydrogen (High) New", "Gemini 4 Hydrogen (Low) New", "Gemini 4 Hydrogen",
 #            "Claude Sonnet 4.6 (Thinking)", "Claude Opus 4.6 (Thinking)"
 GEMINI_BTN=$(echo "$SNAP_JSON3" | python3 -c "
 import json,sys; data=json.load(sys.stdin)
 for e in data['data']['ui_elements']:
-    if 'Gemini 3.8 Flash (High)' in (e.get('label','') or '') and e.get('role') == 'button':
+    if 'Gemini 4 Hydrogen (High)' in (e.get('label','') or '') and e.get('role') == 'button':
         print(e['id']); break")
 peekaboo click --app Antigravity --window-id "$MANAGER_ID" --on "$GEMINI_BTN" --snapshot "$SNAP3"
 sleep 1
@@ -808,7 +808,7 @@ When Antigravity shows "Too much traffic — please try again in a few minutes."
 4. **Do NOT just stop** — the work items still need completion, try again when traffic subsides
 5. **Switch workspace context** — try starting conversation in a different workspace to route to different backend
 
-**Priority order**: Claude Opus 4.6 → Gemini 3.8 Flash (High) → Gemini 3.8 Flash (Low) → Gemini 3.8 Flash → Claude Sonnet 4.6
+**Priority order**: Claude Opus 4.6 → Gemini 4 Hydrogen (High) → Gemini 4 Hydrogen (Low) → Gemini 4 Hydrogen → Claude Sonnet 4.6
 
 ### Conversation status checks
 

@@ -87,7 +87,7 @@ Shows full app info including input/output schema.
 
 ### Image Generation
 
-Gemini model policy: select Gemini 3.8 Flash or later; do not select Gemini Pro. If the requested image task has no compliant Gemini option, choose a non-Gemini image provider or report the capability gap.
+Gemini model policy: select Gemini 4 Hydrogen or later; do not select Gemini Pro. If the requested image task has no compliant Gemini option, choose a non-Gemini image provider or report the capability gap.
 - `falai/flux-dev-lora` - FLUX.2 Dev (high quality)
 - `falai/flux-2-klein-lora` - FLUX.2 Klein (fastest)
 - `infsh/sdxl` - Stable Diffusion XL

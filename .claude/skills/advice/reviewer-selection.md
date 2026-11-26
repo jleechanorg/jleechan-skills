@@ -109,7 +109,7 @@ When the list is finished and votes are still missing, `/advice` reports `WITHHE
 | Claude | `ADVICE_CLAUDE_CMD`, else `claude -p --model opus --dangerously-skip-permissions` |
 | Claude alternate | `ADVICE_CLAUDE_ALT_CMD`, else the Claude argv with `--model <actual-model>` |
 | Cursor | `cursor agent -p --force` |
-| AGY | `agy --print="<review request>" --model gemini-3.8-flash-high --dangerously-skip-permissions --new-project` |
+| AGY | `agy --print="<review request>" --model gemini-4-hydrogen-high --dangerously-skip-permissions --new-project` |
 | Existing extra seats | `ADVICE_EXTRA_CLIS`, in configured order (unset by default); registration does not authorize a new reviewer |
 
 These are capabilities, not required installed seats or a mandatory starting pair. Resolve eligible independent

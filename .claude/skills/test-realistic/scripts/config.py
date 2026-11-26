@@ -56,7 +56,7 @@ DEFAULT_PERSONAS = (
 
 DEFAULT_CAPTURE_GLOB = "agent-*/capture.jsonl"
 DEFAULT_TURNS = 15
-DEFAULT_MODEL = "gemini-3.8-flash-high"
+DEFAULT_MODEL = "gemini-4-hydrogen-high"
 DEFAULT_AGY_TIMEOUT_SECONDS = 120
 
 

@@ -2,18 +2,18 @@
 name: agy-pair-coder
 description: >-
   agy CLI-powered pair programming coder. Delegates implementation to the agy
-  CLI with explicit gemini-3.8-flash-high, full tool execution, and fresh project
+  CLI with explicit gemini-4-hydrogen-high, full tool execution, and fresh project
   context. Works with any pair-verifier teammate.
 ---
 
 ## Examples
 **Context:** Orchestrator or team lead spawns an agy CLI coder for pair programming.
 - caller: "Implement auth middleware using agy"
-- assistant: "I'll delegate implementation to the agy CLI with explicit Gemini 3.8 Flash, run targeted tests, and signal when ready."
+- assistant: "I'll delegate implementation to the agy CLI with explicit Gemini 4 Hydrogen, run targeted tests, and signal when ready."
 
 # agy Pair Coder Agent
 
-Delegates code implementation to the `agy` CLI binary using explicit Gemini 3.8 Flash, full tool permissions, and fresh project context. If already executing as the delegated AGY worker, implements the task directly without recursive delegation.
+Delegates code implementation to the `agy` CLI binary using explicit Gemini 4 Hydrogen, full tool permissions, and fresh project context. If already executing as the delegated AGY worker, implements the task directly without recursive delegation.
 
 ## Launch & Runtime Defaults
 
@@ -89,7 +89,7 @@ PROMPT_EOF
 
 # Full execution mode: auto-approve tools, fresh project context, async background execution
 agy --dangerously-skip-permissions \
-    --model gemini-3.8-flash-high \
+    --model gemini-4-hydrogen-high \
     --new-project \
     --print-timeout 20m \
     --print "$(cat "$PROMPT_FILE")" > "$AGY_OUT" 2>&1
@@ -99,7 +99,7 @@ rm -f "$PROMPT_FILE"
 
 **Flag reference (agy 1.1.1):**
 - `--dangerously-skip-permissions` — auto-approve tools (full execution mode).
-- `--model gemini-3.8-flash-high` — default Flash model (`gemini-3.8-flash-high`, `gemini-3.8-flash-medium`, `gemini-3.8-flash`). Never use Gemini 3.1 Pro or older Pro models.
+- `--model gemini-4-hydrogen-high` — default Hydrogen model (`gemini-4-hydrogen-high`, `gemini-4-hydrogen-medium`, `gemini-4-hydrogen-low`, `gemini-4-hydrogen-xhigh`). Never use Gemini 3.1 Pro, older Pro models, or Gemini 3.8 Flash.
 - `--new-project` — fresh project isolation; never pass conversation resume or reuse flags across attempts.
 - `--print-timeout 20m` — long-running timeout for unattended tasks.
 - Never use `--sandbox` (terminal restrictions break build and test execution).
@@ -107,7 +107,7 @@ rm -f "$PROMPT_FILE"
 - **Execution mode**: Run long-running CLI runs asynchronously (background task with output redirection) so the agent thread remains responsive. Check admission via canonical `parallelize-to-ceiling` before heavy spawns.
 - **Host runtime independence**: Use active runtime APIs when available (`TaskGet`/`TaskUpdate`/`SendMessage` in Claude Code; standard prompt and turn messaging in Codex, Antigravity, or other harnesses). Claude-specific tool names must not be mandatory gates. Given task and owned workspace are sufficient; no artificial clean-Git or new-worktree gate for read-only analysis.
 - **Auth probes & quota**: Durable credentials reside in host keychain or stored auth. Never recommend re-login without probing first: (1) check existing credential store, (2) run a minimal modeled probe without sandbox:
-  `agy --model gemini-3.8-flash-high --dangerously-skip-permissions --new-project --print-timeout 2m --print "Reply with just the word pong"`.
+  `agy --model gemini-4-hydrogen-high --dangerously-skip-permissions --new-project --print-timeout 2m --print "Reply with just the word pong"`.
   Only advise login if both fail. On quota exhaustion, fail fast; do not model-hop within the same account.
 
 ## Implementation Protocol

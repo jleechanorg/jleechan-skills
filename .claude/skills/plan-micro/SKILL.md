@@ -79,7 +79,7 @@ A shared parent contract or one-line acceptance summary does not satisfy this ru
 
 ### Weak-executor standard (mandatory for every bead)
 
-Write every bead as if Haiku 4.5, Gemini 3.8 Flash, or GPT Luna will execute it with only the bead text and a repo checkout, no access to this planning session, and no ability to make a judgment call; the planner makes every decision in the text. Each bead body embeds the executor-grade block set verbatim and in order (Environment, Goal, Reuse, Steps, RED, GREEN, Do not, Stop when, Report), follows its rules, and ends with the criteria table. Plan-micro adds:
+Write every bead as if Haiku 4.5, Gemini 4 Hydrogen, or GPT Luna will execute it with only the bead text and a repo checkout, no access to this planning session, and no ability to make a judgment call; the planner makes every decision in the text. Each bead body embeds the executor-grade block set verbatim and in order (Environment, Goal, Reuse, Steps, RED, GREEN, Do not, Stop when, Report), follows its rules, and ends with the criteria table. Plan-micro adds:
 
 - **Self-contained across beads.** When a value comes from another bead's artifact (a runbook table, a branch SHA created later), the bead carries an explicit `read <path> § <heading>` step and states what to do if the artifact is absent.
 - **Readback before saving.** Run ironclad's GUESS-mark self-check on each bead and record the GUESS count in the plan document; a bead may not be created while any GUESS remains.
