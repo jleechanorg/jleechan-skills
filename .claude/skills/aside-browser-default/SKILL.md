@@ -1,6 +1,6 @@
 ---
 name: aside-browser-default
-description: Run Aside in background (no-focus-steal) mode, reusing the already-signed-in profile, for live and authenticated sites; use isolated headless Chromium for CI, Linux, deterministic tests, or when background mode cannot be verified. See browser-control for the personal-browser isolation contract.
+description: Run Aside in background without stealing focus for authenticated sites, or continue its visible agent-owned session with current-thread permission; use isolated headless Chromium for CI and deterministic tests. See browser-control for isolation.
 when_to_use: Browser automation, scraping, screenshots, localhost UI checks, cookie injection flows, /browser command, public-data lookups
 allowed-tools: mcp__aside-mcp, aside, mcp__playwright-mcp (fallback), mcp__plugin-superpowers-chrome__chrome_use_browser (fallback)
 context: hermes
@@ -10,23 +10,23 @@ context: hermes
 
 ## Contract
 
-Aside is a real GUI browser, not headless (it has no headless flag). Run it in background mode by default (§ Background mode): any Aside profile, started and driven without taking focus, frontmost app verified unchanged. If background mode cannot be verified, use isolated headless Chromium.
+Aside's current CLI does not document a headless mode; background operation of its GUI browser is not headless. Run Aside without taking focus by default (§ Background mode), verifying the frontmost app is unchanged. When headless execution is required, use isolated headless Chromium; do not claim an Aside session is headless merely because its window is in the background.
 
-Apply [browser-control's browser-context isolation contract](../browser-control/SKILL.md#browser-context-isolation--required-for-every-route) first. Aside is primary whenever it can operate in the background; otherwise use isolated headless Playwright Chromium. Never attach to, focus, or import cookies from the personal **desktop Chrome** browser.
+Apply [browser-control's browser-context isolation contract](../browser-control/SKILL.md#browser-context-isolation--required-for-every-route) first. Aside is primary when it can operate in the background or the user explicitly permits its visible session in the current thread; otherwise use isolated headless Playwright Chromium. Never attach to, focus, or import cookies from the personal **desktop Chrome** browser.
 
-**Default: Aside in background mode** for live websites and authenticated sessions, reusing whichever Aside profile is already signed in. Isolated headless Chromium is the default for CI, Linux, deterministic local-app tests, and whenever background mode is unavailable or unverified. No user request to show or use a browser authorizes use of a personal **desktop Chrome** window/profile.
+**Default: Aside in background mode** for live websites and authenticated sessions, reusing whichever Aside profile is already signed in. Isolated headless Chromium is the default for CI, Linux, deterministic local-app tests, and whenever background mode is unavailable or unverified unless the user explicitly permits the visible Aside session in the current thread. No user request to show or use a browser authorizes use of a personal **desktop Chrome** window/profile.
 
 | Tool | Role | When to use |
 |------|------|-------------|
-| **`aside` CLI / `aside-mcp`** | Default (background mode) | Agent-owned profile in background mode per § Background mode; never foreground it or use personal tabs/profile |
-| `mcp__playwright-mcp` | Default (headless) | Headless isolated browser for CI, Linux, deterministic tests, and when Aside background mode is not verified |
+| **`aside` CLI / `aside-mcp`** | Default (background mode) | Agent-owned profile per § Background mode; continue after a focus change only with current-thread explicit user permission |
+| `mcp__playwright-mcp` | Default (headless) | Headless isolated browser for CI, Linux, deterministic tests, and when Aside background mode is not verified and visible use is not authorized |
 | `mcp__plugin-superpowers-chrome__chrome_use_browser` | Fallback | Only when Chrome-specific behavior is required (e.g., you need Chrome's exact `--user-data-dir` semantics for a particular test) |
 
-Keep Chromium headless by default. A current-thread explicit request for visible automation permits a headed window only in a separate task-owned browser process/profile/context. Never use a personal **desktop Chrome** profile or bring a desktop app to the foreground; an Aside profile is agent-owned (see § Background mode). Verify background operation (frontmost app unchanged) for the current task, or use isolated headless Chromium.
+Keep Chromium headless by default. A current-thread explicit request or permission to continue in a visible Aside session permits its existing agent-owned profile for that task; do not steal focus or activate unrelated apps. Never use a personal **desktop Chrome** profile. Otherwise, verify background operation (frontmost app unchanged) or use isolated headless Chromium.
 
 ## Background mode
 
-Aside has no headless flag; background mode is the supported no-focus-steal equivalent (macOS only).
+The installed Aside CLI currently documents no headless flag. Background mode is a no-focus-steal GUI workflow on macOS, not headless execution.
 
 1. **Every Aside profile is agent-owned — reuse the signed-in ones directly.** Aside is the agent
    automation browser, deliberately separate from the user's desktop Chrome, so its connected profiles
@@ -44,9 +44,11 @@ Aside has no headless flag; background mode is the supported no-focus-steal equi
 3. **Verify no focus was stolen:** record the frontmost app
    (`osascript -e 'tell application "System Events" to get name of first process whose frontmost is true'`)
    before starting Aside and again after the first action. Unchanged → background mode is proven;
-   continue. Changed → background mode is unverified: stop driving Aside for the task and use isolated
-   headless Chromium (or browser-control's one-line blocker on a fingerprint-sensitive site), reporting
-   both app names. A transport failure is the same availability fallback, not a permission denial —
+   continue. Changed → background mode is unverified: unless the user explicitly permits continuing
+   visibly in the current thread, use isolated headless Chromium (or browser-control's one-line
+   blocker on a fingerprint-sensitive site), reporting both app names. With that permission, continue
+   in the agent-owned Aside profile without claiming it is headless; do not move focus again. A transport
+   failure is the same availability fallback, not a permission denial —
    report the layer per § Phase 1.5.
 
 ## Why Aside
@@ -135,11 +137,11 @@ Do not assume a failing standalone CLI means the browser tool is dead, or that a
 ### Phase 3 — After session
 
 - Close only the exact tabs opened by this task when they are no longer useful. Never call `closeAllTabs()` on a shared browser.
-- Keep Chromium headless by default. If the current thread explicitly requests visible automation, use only a separate task-owned browser process/profile/context; never a personal **desktop Chrome** profile.
+- Keep Chromium headless by default. If the current thread explicitly permits the visible Aside session, the existing agent-owned Aside profile may be used. A visible Chromium fallback still requires a separate task-owned browser process/profile/context; never use a personal **desktop Chrome** profile.
 
 ## Aside is not running
 
-Start it in background mode (§ Background mode). If the app is not installed, background start fails, or the frontmost app changes, use isolated headless Chromium. Never use plain `open -a Aside`, `open <url>`, or anything that activates the app.
+Start it in background mode (§ Background mode). If the app is not installed, background start fails, or the frontmost app changes without the user's explicit current-thread permission to continue visibly, use isolated headless Chromium. Never use plain `open -a Aside`, `open <url>`, or anything that activates the app.
 
 If the Aside CLI or app is not installed, use isolated headless Chromium; installing or repairing Aside is outside this skill's browser-task path.
 
@@ -157,7 +159,7 @@ If the Aside CLI or app is not installed, use isolated headless Chromium; instal
 - ❌ Declaring a platform "staged" from a screenshot of an empty compose box or login wall
 - ❌ Treating a broken `openTab()` path as proof that all existing Aside tabs are unusable
 - ❌ Reporting generic "Aside broken" status without separating transport, browser-bridge, and auth-state failures
-- ❌ Calling `show_browser` by default or launching headed mode as an ordinary fallback; the headless-only default applies to Playwright/browserclaw fallback routes. An explicit current-thread visible-mode request may use a separate verified task-owned profile.
+- ❌ Calling `show_browser` by default or launching headed mode as an ordinary fallback; the headless-only default applies to Playwright/browserclaw fallback routes. Current-thread explicit permission may allow the existing agent-owned Aside session; a visible Chromium fallback requires a separate verified task-owned profile.
 - ❌ Using `mcp__claude-in-chrome__*` for any browser work (requires extension, fails headless/CI)
 - ❌ Copying cookies between browsers. The only permitted exception is the explicitly authorized, one-agent-owned-source transfer in browser-control; it must use the guarded private-temp lifecycle and must not bypass an access control.
 - ❌ Assuming Aside CLI can read Chrome/Comet/Arc history (separate cookie stores)
