@@ -216,7 +216,7 @@ A claim mixing Layer 2 (real BQ) with Layer 1 (synthetic LLM) is **not** Layer 2
 
 ## Evidence access and publication
 
-For deployed-behavior claims, before publishing a preview or readiness statement,
+For deployed browser claims, before publishing a preview or readiness statement,
 assemble its receipt from the active deployment output: deployment timestamp,
 exact outward URL, served frontend/build revision, backend revision and actual
 datastore target (mark absent components N/A with a reason). Use that
@@ -240,10 +240,10 @@ rerun affected cases. Report qualifying passes, failures and open cases separate
 from footage inventory. Bind qualifying media to its scenario, original URL,
 build pair, datastore, observed result and applicable revision; distinguish
 continuous playback from sampled-frame inspection. Reuse follows the existing
-staleness rule, never file count or a historical pass alone. For deployed copy or
-spacing claims, verify the rendered copy and measure control gaps at applicable
-mobile and desktop widths, preserving touch targets and comparable before/after
-evidence. A local source edit earns no deployed proof.
+staleness rule, never file count or a historical pass alone. For deployed copy
+claims, verify the rendered text; for spacing claims, measure the affected gaps
+and preserve touch targets. Use applicable mobile and desktop widths and
+comparable before/after evidence. A local source edit earns no deployed proof.
 
 Keep the original evidence and its provenance intact. Give the intended reviewer accessible reproduction directions and artifact links in the PR, a checked-in document, an access-controlled receipt/store, or an authorized gist, including the reviewed/tested SHA, dependencies, exact commands and expected results the evidence class requires. Underlying artifacts may stay in authorized private hosting. The separate sanitized review receipt follows `pr-lifecycle` § Review records in the PR description, including its gist URL (or, for a one-liner fast-path `/es` record, the PR-body section), exact reviewed SHA, and `PUBLICATION BLOCKED` state when publication cannot complete. Artifact hosting is not review-record completion.
 

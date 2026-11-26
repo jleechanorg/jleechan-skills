@@ -67,9 +67,11 @@ total additions and deletions. Mark unavailable metadata explicitly rather than
 inventing it. For each requested deliverable, show its direct visible URL when
 hosted and its expanded absolute path on a separate line when a local file exists.
 Missing hosting is a stated limit, never an invented URL. Do not expose
-credentials or token-bearing links. Take preview URLs and readiness wording from
+credentials or token-bearing links. Take preview URLs and observed outcomes from
 the matching [evidence receipt](../evidence-standards/SKILL.md#evidence-access-and-publication);
-retain its partial/failed outcomes. Apply this check in Codex and other runtimes,
+retain its partial/failed outcomes. Derive PR readiness separately from the
+current candidate's lifecycle record and all applicable gates. Apply this check
+in Codex and other runtimes,
 including after compaction or a handoff; a descriptive link label alone is not a
 copyable address. Follow applicable shared instructions for delivery formatting.
 
