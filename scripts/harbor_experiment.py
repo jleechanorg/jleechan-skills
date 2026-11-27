@@ -2,6 +2,8 @@
 """Validate, run and collect control-first Harbor skill experiments."""
 
 import argparse
+from collections import Counter, defaultdict
+from datetime import datetime
 import hashlib
 import json
 import math
@@ -9,9 +11,12 @@ import os
 from pathlib import Path
 import re
 import shutil
+import signal
 import subprocess
 import sys
+import time
 import tomllib
+from uuid import UUID
 
 
 def canonical(value):
@@ -28,18 +33,23 @@ def file_digest(path):
         return hashlib.file_digest(stream, 'sha256').hexdigest()
 
 
-def inventory(root):
+def inventory(root, *, allow_empty_dirs=True):
     records = []
-    for path in sorted(root.rglob('*'), key=lambda path: path.relative_to(root).as_posix()):
-        if path.is_symlink():
-            raise ValueError('symlinks are unsupported')
+    directories = set()
+    file_parents = set()
+    for path in root.rglob('*'):
+        require(not path.is_symlink(), 'symlinks are unsupported')
+        relative = path.relative_to(root)
+        relative_parts(relative.as_posix())
         if path.is_dir():
+            directories.add(relative)
             continue
-        if not path.is_file():
-            raise ValueError('non-regular files are unsupported')
-        records.append({'path': path.relative_to(root).as_posix(), 'sha256': file_digest(path),
+        require(path.is_file(), 'non-regular files are unsupported')
+        records.append({'path': relative.as_posix(), 'sha256': file_digest(path),
                         'executable': bool(path.stat().st_mode & 0o111)})
-    return records
+        file_parents.update(relative.parents)
+    require(allow_empty_dirs or directories <= file_parents, 'task tree has an empty directory')
+    return sorted(records, key=lambda record: record['path'])
 
 
 def git(repo, *args):
@@ -106,7 +116,6 @@ PROVENANCE_INPUTS = ('original_request', 'source_state', 'instructions', 'runtim
 QUALIFICATION_CHECKS = ('immutable_inputs', 'hidden_verifier', 'restricted_network',
                         'credential_isolation', 'arm_isolation', 'cleanup_supported')
 IMAGE_FIELDS = ('agent_image_digest', 'verifier_image_digest')
-NATIVE_INSTRUCTIONS = {'AGENTS.md', 'AGENTS.override.md', 'CLAUDE.md', 'SKILL.md'}
 
 
 def require(condition, message):
@@ -168,7 +177,7 @@ def relative_parts(value):
     require(
         not any(part in ('', '.', '..') for part in parts)
         and not any(char in path for char in ('\\', '\0'))
-        and not re.match(r'^[A-Za-z]:', path),
+        and not any(re.match(r'^[A-Za-z]:', part) for part in parts),
         f'unsafe relative path {path!r}',
     )
     return parts
@@ -208,11 +217,11 @@ def record(root, ref, label, schema, keys):
     return data
 
 
-def verify_tree(root, ref, label):
+def verify_tree(root, ref, label, *, allow_empty_dirs=True):
     fields(ref, ('path', 'sha256'), label)
     matches(ref['sha256'], r'[0-9a-f]{64}', f'{label} sha256')
     tree = safe_path(root, ref['path'], directory=True)
-    files = inventory(tree)
+    files = inventory(tree, allow_empty_dirs=allow_empty_dirs)
     require(digest(canonical(files)) == ref['sha256'], f'{label} tree hash mismatch')
     return tree, {entry['path']: entry for entry in files}
 
@@ -220,11 +229,6 @@ def verify_tree(root, ref, label):
 def validate_task(tree, files, label):
     required = {'instruction.md', 'task.toml', 'environment/Dockerfile', 'tests/test.sh'}
     require(required <= files.keys(), f'{label} missing required task files')
-    # Directory-only changes affect build contexts but have no inventory entry.
-    parents = {parent.as_posix() for name in files for parent in Path(name).parents}
-    for path in tree.rglob('*'):
-        if path.is_dir():
-            require(path.relative_to(tree).as_posix() in parents, f'{label} has an empty directory')
     require(all(Path(name).name != '.harborignore' for name in files),
             f'{label} cannot use .harborignore: it changes the Harbor task checksum')
     task = tomllib.loads((tree / 'task.toml').read_text(encoding='utf-8'))
@@ -262,7 +266,9 @@ class Experiment:
         self.inventories = {}
         self.task_names = {}
         for arm in ARMS:
-            self.tasks[arm], self.inventories[arm] = verify_tree(self.root, m[f'{arm}_task'], arm)
+            self.tasks[arm], self.inventories[arm] = verify_tree(
+                self.root, m[f'{arm}_task'], arm, allow_empty_dirs=False,
+            )
             self.task_names[arm] = validate_task(self.tasks[arm], self.inventories[arm], arm)
         self.check_intervention(m['intervention_paths'])
         fields(m['runtime'], RUNTIME_FIELDS, 'runtime')
@@ -294,8 +300,8 @@ class Experiment:
         declared = set(self.intervention_paths)
         require(len(declared) == len(paths), 'duplicate intervention path')
         for path in declared:
-            require(path.startswith('environment/') and Path(path).name in NATIVE_INSTRUCTIONS,
-                    f'intervention must name a native instruction file: {path!r}')
+            require(path.startswith('environment/') and Path(path).suffix == '.md',
+                    f'intervention must name a Markdown instruction file: {path!r}')
             require(path in before and path in after, f'instruction must exist in both arms: {path!r}')
             require(before[path]['executable'] == after[path]['executable'],
                     f'instruction executable mode changed: {path!r}')
@@ -397,11 +403,562 @@ def plan(experiment):
     }
 
 
+LAUNCH_SCHEMA = 'experiment-launch.v1'
+COLLECTION_SCHEMA = 'experiment-collection.v1'
+REWARDS = ('valid', 'incident_failure', 'exposure_verified', 'task_completed', 'regression_failed')
+PROVIDER_ENV = ('OPENAI_API_KEY', 'CODEX_API_KEY')
+PROCESS_ENV = ('PATH', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TZ', 'DOCKER_HOST')
+
+
+def write_json(path, data, *, replace=False):
+    target = path.with_name(path.name + '.tmp') if replace else path
+    with target.open('xb') as stream:
+        stream.write(canonical(data) + b'\n')
+    if replace:
+        target.replace(path)
+
+
+def read_object(path, label):
+    data = parse_json(path.read_bytes(), label)
+    require(isinstance(data, dict), f'{label} must be an object')
+    return data
+
+
+def resolve_input(path, *, directory=False):
+    path = Path(path)
+    require(not path.is_symlink(), f'input must not be a symlink: {path}')
+    valid = path.is_dir() if directory else path.is_file()
+    require(valid, f'missing input: {path}')
+    return path.resolve()
+
+
+def new_output(experiment, path, *, outside=()):
+    path = Path(path)
+    require(not path.exists() and not path.is_symlink(), f'output already exists: {path}')
+    path = path.resolve()
+    frozen = (experiment.snapshot, *experiment.tasks.values(), *outside)
+    require(not any(path.is_relative_to(tree) for tree in frozen),
+            'output must be outside frozen task, snapshot and run directories')
+    return path
+
+
+def harbor_checksum(records):
+    # Harbor 0.25.0 uses dirhash 0.5's default name/data protocol. Task validation
+    # excludes symlinks, empty directories and .harborignore filtering.
+    entries = defaultdict(list)
+    for item in records:
+        path = Path(item['path'])
+        entries[path.parent].append(f'data:{item["sha256"]}\0name:{path.name}')
+        for parent in path.parents:
+            entries.setdefault(parent, [])
+    for directory in sorted(entries, key=lambda path: len(path.parts), reverse=True):
+        checksum = digest('\0\0'.join(sorted(entries[directory])).encode('utf-8'))
+        if directory == Path('.'):
+            return checksum
+        entries[directory.parent].append(f'dirhash:{checksum}\0name:{directory.name}')
+    raise ValueError('Harbor task inventory is empty')
+
+
+def process_group_alive(pid):
+    try:
+        os.killpg(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+def stop_process_group(process):
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+        # Reap the leader even if children keep its process group alive.
+        deadline = time.monotonic() + 0.75
+        while time.monotonic() < deadline:
+            process.poll()
+            if not process_group_alive(process.pid):
+                return
+            time.sleep(0.05)
+    except ProcessLookupError:
+        pass
+    finally:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        try:
+            process.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            pass
+
+
+def invoke(argv, *, cwd, env, stdout, stderr, timeout):
+    try:
+        process = subprocess.Popen(
+            argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr,
+            start_new_session=True, shell=False,
+        )
+    except OSError:
+        return 'START_FAILED', None
+    try:
+        code = process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        stop_process_group(process)
+        return 'TIMED_OUT', process.returncode
+    except KeyboardInterrupt:
+        stop_process_group(process)
+        return 'INTERRUPTED', process.returncode
+    if process_group_alive(process.pid):
+        stop_process_group(process)
+        return 'ORPHANED', code
+    return ('SUCCEEDED' if code == 0 else 'FAILED'), code
+
+
+def tree_hash_if_available(root):
+    if not root.is_dir() or root.is_symlink():
+        return None
+    try:
+        return digest(canonical(inventory(root)))
+    except (OSError, ValueError):
+        return None
+
+
+def staged_inventory(directory):
+    staged = directory / 'staged'
+    if staged.is_symlink() or (staged / 'task').is_symlink():
+        return None
+    try:
+        return inventory(safe_path(directory, 'staged/task', directory=True), allow_empty_dirs=False)
+    except (OSError, ValueError):
+        return None
+
+
+def run(experiment, arm, output, baseline):
+    require(os.name == 'posix', 'run requires POSIX process groups')
+    require((baseline is not None) == (arm == 'treatment'),
+            'only treatment requires --baseline RECEIPT')
+    baseline_ref = None
+    if arm == 'treatment':
+        baseline_path = resolve_input(baseline)
+        raw_baseline = baseline_path.read_bytes()
+        validate_baseline(experiment, raw_baseline)
+        baseline_ref = {'path': str(baseline_path), 'sha256': digest(raw_baseline)}
+
+    directory = new_output(experiment, output)
+    executable = shutil.which('harbor')
+    require(executable is not None, 'Harbor 0.25.0 executable is required on PATH')
+    argv = experiment.argv(arm, directory, str(Path(executable).absolute()))
+    directory.mkdir(mode=0o700)
+    receipt = {
+        'schema': LAUNCH_SCHEMA,
+        'manifest_sha256': experiment.manifest_sha256,
+        'case_sha256': experiment.case_sha256,
+        'run_dir': str(directory),
+        'arm': arm,
+        'runtime': experiment.runtime,
+        'task_sha256': digest(canonical(list(experiment.inventories[arm].values()))),
+        'argv': argv,
+        'baseline_receipt': baseline_ref,
+        'status': 'RUNNING',
+        'cleanup': 'unverified',
+        'exit_code': None,
+        'harbor_version': None,
+        'staged_before': None,
+        'staged_after': None,
+        'job_sha256': None,
+    }
+    receipt_path = directory / 'launch.json'
+    write_json(receipt_path, receipt)
+    status, code = 'START_FAILED', None
+    try:
+        (directory / 'staged').mkdir()
+        (directory / 'home').mkdir()
+        (directory / 'work').mkdir()
+        staged = directory / 'staged' / 'task'
+        shutil.copytree(experiment.tasks[arm], staged, symlinks=True)
+        receipt['staged_before'] = staged_inventory(directory)
+        require(receipt['staged_before'] is not None
+                and digest(canonical(receipt['staged_before'])) == receipt['task_sha256'],
+                'staged task inputs do not match the manifest')
+        write_json(receipt_path, receipt, replace=True)
+
+        env = {key: os.environ[key] for key in PROCESS_ENV if key in os.environ}
+        env['HOME'] = str(directory / 'home')
+        common = {'cwd': directory / 'work', 'env': env}
+        timeout = experiment.runtime['timeout_sec']
+        with (
+            (directory / 'version.stdout.log').open('xb') as version_stdout,
+            (directory / 'version.stderr.log').open('xb') as version_stderr,
+            (directory / 'stdout.log').open('xb') as stdout,
+            (directory / 'stderr.log').open('xb') as stderr,
+        ):
+            status, code = invoke(
+                [argv[0], '--version'], **common, stdout=version_stdout, stderr=version_stderr,
+                timeout=min(10, timeout),
+            )
+            if status == 'SUCCEEDED':
+                actual = (directory / 'version.stdout.log').read_bytes().strip()
+                desired = experiment.runtime['harbor_version']
+                if actual == desired.encode():
+                    receipt['harbor_version'] = desired
+                    env.update({key: os.environ[key] for key in PROVIDER_ENV if key in os.environ})
+                    status, code = invoke(
+                        argv, **common, stdout=stdout, stderr=stderr, timeout=timeout,
+                    )
+                else:
+                    status = 'VERSION_MISMATCH'
+    except KeyboardInterrupt:
+        status = 'INTERRUPTED'
+    finally:
+        receipt['staged_after'] = staged_inventory(directory)
+        jobs = directory / 'jobs'
+        if not jobs.is_symlink():
+            receipt['job_sha256'] = tree_hash_if_available(jobs / arm)
+        if status == 'SUCCEEDED':
+            if receipt['staged_after'] == receipt['staged_before']:
+                try:
+                    current = Experiment(experiment.path)
+                    require(current.manifest_sha256 == experiment.manifest_sha256,
+                            'manifest changed during execution')
+                except (OSError, ValueError):
+                    status = 'INPUTS_CHANGED'
+            else:
+                status = 'INPUTS_CHANGED'
+        receipt['status'] = status
+        receipt['exit_code'] = code
+        if status == 'SUCCEEDED':
+            receipt['cleanup'] = 'harbor_completed'
+        write_json(receipt_path, receipt, replace=True)
+    return receipt
+
+
+def check_job(experiment, arm, job, staged):
+    config = read_object(safe_path(job, 'config.json'), 'Harbor job config')
+    result = read_object(safe_path(job, 'result.json'), 'Harbor job result')
+    expected = experiment.trials[arm]
+    require(config.get('job_name') == arm and config.get('jobs_dir') == str(job.parent)
+            and type(config.get('n_attempts')) is int and config['n_attempts'] == expected
+            and config.get('n_concurrent_trials', 4) == experiment.runtime['concurrency'],
+            'job config does not match the invocation')
+    tasks = array(config.get('tasks'), 'Harbor job tasks')
+    agents = array(config.get('agents'), 'Harbor job agents')
+    require(len(tasks) == len(agents) == 1, 'job does not contain one task and one agent')
+    check_local_task(tasks[0], staged)
+    check_agent_config(agents[0], experiment.runtime)
+    check_fresh_config(config)
+    job_id = uuid_string(result.get('id'), 'job id')
+    require(type(result.get('n_total_trials')) is int and result['n_total_trials'] == expected,
+            'job result has the wrong scheduled trial count')
+    require(result.get('finished_at') is not None, 'Harbor job did not finish')
+    stats = result.get('stats')
+    require(isinstance(stats, dict) and stats.get('n_completed_trials') == expected
+            and all(stats.get(key, 0) == 0 for key in ('n_retries', 'n_pending_trials',
+                                                      'n_running_trials', 'n_cancelled_trials')),
+            'Harbor job reports incomplete, cancelled or retried trials')
+    return job_id
+
+
+def check_local_task(config, staged):
+    require(isinstance(config, dict) and config.get('path') == str(staged)
+            and not any(config.get(key) is not None
+                        for key in ('git_url', 'git_commit_id', 'name', 'ref', 'download_dir', 'source')),
+            'job or trial does not bind the staged local task')
+
+
+def check_agent_config(config, runtime):
+    require(isinstance(config, dict) and config.get('name') == runtime['agent']
+            and config.get('model_name') == runtime['model']
+            and config.get('kwargs') == {'version': runtime['agent_version'],
+                                         'reasoning_effort': runtime['effort']}
+            and not any(config.get(key) for key in ('import_path', 'load_trajectory', 'skills',
+                                                    'resume_trajectory', 'skip_model_parsing',
+                                                    'mcp_servers', 'env')),
+            'job or trial has a mismatched agent configuration')
+
+
+def check_fresh_config(config):
+    require(not any(config.get(key) for key in ('install_only', 'user_agent', 'source_trial',
+                                                'source_jobs', 'datasets', 'extra_instruction_paths',
+                                                'extra_instructions')),
+            'job or trial is not a fresh single-task invocation')
+
+
+def uuid_string(value, label):
+    value = text(value, label)
+    require(str(UUID(value)) == value, f'invalid {label}')
+    return value
+
+
+def timestamps(start, finish):
+    started = datetime.fromisoformat(text(start, 'trial start time'))
+    finished = datetime.fromisoformat(text(finish, 'trial finish time'))
+    require(started.tzinfo is not None and finished.tzinfo is not None and started <= finished,
+            'invalid trial timestamps')
+
+
+def check_exposure(experiment, arm, trial, trial_id):
+    path = safe_path(trial, 'verifier/exposure.json')
+    exposure = read_object(path, 'exposure')
+    fields(exposure, ('schema', 'trial_id', 'arm', 'case_sha256', 'instructions',
+                      'trajectory', 'evidence', *IMAGE_FIELDS), 'exposure')
+    require(exposure['schema'] == 'experiment-exposure.v1' and exposure['trial_id'] == trial_id
+            and exposure['arm'] == arm and exposure['case_sha256'] == experiment.case_sha256,
+            'exposure receipt does not bind this trial, arm and case')
+    expected = [
+        {'path': name, 'sha256': experiment.inventories[arm][name]['sha256']}
+        for name in experiment.intervention_paths
+    ]
+    instructions = array(exposure['instructions'], 'exposure instructions')
+    require(all(isinstance(item, dict) and isinstance(item.get('path'), str) for item in instructions)
+            and sorted(instructions, key=lambda item: item['path']) == expected,
+            'exposure receipt does not bind all intervention files')
+    for key, image in experiment.images[arm].items():
+        require(exposure[key] == image, f'exposure receipt has wrong {key}')
+    trace = verify_ref(trial, exposure['trajectory'], 'raw trajectory')
+    require(trace != path and trace.stat().st_size > 0, 'raw trajectory is empty or is the exposure receipt')
+    verify_refs(trial, exposure['evidence'], 'exposure evidence')
+    return file_digest(path)
+
+
+def check_trial(experiment, arm, trial, staged, expected_checksum, job_id, result):
+    trial_id = uuid_string(result.get('id'), 'trial id')
+    require(result.get('trial_name') == trial.name and result.get('trial_uri') == trial.as_uri(),
+            'trial result does not bind its direct trial location')
+    require(result.get('task_name') == experiment.task_names[arm]
+            and result.get('task_id') == {'path': str(staged)}
+            and result.get('task_checksum') == expected_checksum,
+            'trial task identity or checksum mismatch')
+    config = result.get('config')
+    require(isinstance(config, dict) and config.get('trial_name') == trial.name
+            and config.get('trials_dir') == str(trial.parent)
+            and config.get('job_id') == job_id,
+            'trial config does not bind this job and trial')
+    persisted = read_object(safe_path(trial, 'config.json'), 'Harbor trial config')
+    # Harbor writes config.json with defaults omitted, and result.config with defaults.
+    for key in ('trial_name', 'trials_dir', 'job_id'):
+        require(persisted.get(key) == config.get(key), 'retained trial config identity mismatch')
+    for source in (config, persisted):
+        check_local_task(source.get('task'), staged)
+        check_agent_config(source.get('agent'), experiment.runtime)
+        check_fresh_config(source)
+
+    require('exception_info' in result and result['exception_info'] is None,
+            'trial contains a Harbor exception or lacks exception metadata')
+    require(result.get('verifier_environment_mode') == 'separate' and not result.get('step_results'),
+            'trial did not use the single-step separate verifier')
+    agent = result.get('agent_info')
+    require(isinstance(agent, dict) and agent.get('name') == experiment.runtime['agent']
+            and agent.get('version') == experiment.runtime['agent_version'],
+            'trial reported a mismatched agent or agent version')
+    model = agent.get('model_info')
+    require(isinstance(model, dict), 'trial lacks model identity')
+    name = text(model.get('name'), 'trial model')
+    configured = experiment.runtime['model']
+    provider, separator, model_name = configured.partition('/')
+    if separator:
+        require(model.get('provider') == provider and name in (model_name, configured),
+                'trial reported a mismatched model or provider')
+    else:
+        require(name == configured, 'trial reported a mismatched model')
+    timestamps(result.get('started_at'), result.get('finished_at'))
+    execution = result.get('agent_execution')
+    require(isinstance(execution, dict), 'trial lacks agent execution timing')
+    timestamps(execution.get('started_at'), execution.get('finished_at'))
+
+    verifier = result.get('verifier_result')
+    require(isinstance(verifier, dict), 'trial lacks a verifier result')
+    rewards = verifier.get('rewards')
+    fields(rewards, REWARDS, 'verifier rewards')
+    for key, value in rewards.items():
+        require(type(value) in (int, float) and value in (0, 1), f'invalid binary reward {key}')
+    require(rewards['valid'] == rewards['exposure_verified'] == 1,
+            'verifier did not validate trial setup and exposure')
+    exposure_sha = check_exposure(experiment, arm, trial, trial_id)
+    return {
+        'trial_id': trial_id,
+        'exposure_sha256': exposure_sha,
+        'rewards': {key: int(value) for key, value in rewards.items()},
+        'started_at': result['started_at'],
+        'finished_at': result['finished_at'],
+        'agent_execution': {key: execution[key] for key in ('started_at', 'finished_at')},
+    }
+
+
+def trial_reports(experiment, arm, directory, job_sha, errors):
+    staged = directory / 'staged' / 'task'
+    try:
+        job = safe_path(directory, f'jobs/{arm}', directory=True)
+    except (OSError, ValueError):
+        errors.append('Harbor job directory is missing or unsafe')
+        return [], []
+    if job_sha is None or tree_hash_if_available(job) != job_sha:
+        errors.append('Harbor job output inventory is missing or changed')
+    try:
+        job_id = check_job(experiment, arm, job, staged)
+    except (OSError, ValueError) as exc:
+        errors.append(str(exc))
+        job_id = None
+
+    # The v0.25.0 job-level result intentionally omits trial_results, including
+    # at finish. Each direct trial config instead binds the completed job UUID.
+    unexpected = sorted(
+        path.relative_to(job).as_posix()
+        for path in job.rglob('result.json')
+        if len(path.relative_to(job).parts) > 2
+    )
+    if unexpected:
+        errors.append('unexpected nested Harbor result files')
+    trials = sorted(path for path in job.iterdir() if not path.is_symlink() and path.is_dir())
+    if len(trials) > experiment.trials[arm]:
+        errors.append('more direct trial directories than scheduled')
+    checksum = harbor_checksum(experiment.inventories[arm].values())
+    reports = []
+    for trial in trials:
+        row = {'trial_name': trial.name, 'result_path': None, 'result_sha256': None,
+               'trial_id': None, 'valid': False, 'errors': []}
+        reports.append(row)
+        try:
+            relative = f'{trial.name}/result.json'
+            candidate = job / relative
+            if candidate.exists() or candidate.is_symlink():
+                row['result_path'] = relative
+            path = safe_path(job, relative)
+            data = path.read_bytes()
+            row['result_sha256'] = digest(data)
+            result = parse_json(data, 'Harbor trial result')
+            require(isinstance(result, dict), 'Harbor trial result must be an object')
+            if isinstance(result.get('id'), str):
+                row['trial_id'] = result['id']
+            exception = result.get('exception_info')
+            if isinstance(exception, dict):
+                kind = exception.get('exception_type')
+                if isinstance(kind, str) and re.fullmatch(r'[A-Za-z][A-Za-z0-9_.]{0,127}', kind):
+                    row['exception_type'] = kind
+            require(job_id is not None, 'trial cannot be attributed to a complete Harbor job')
+            row.update(check_trial(experiment, arm, trial, staged, checksum, job_id, result))
+            row['valid'] = True
+        except (OSError, ValueError) as exc:
+            row['errors'].append(str(exc))
+    ids = Counter(row['trial_id'] for row in reports if row['trial_id'] is not None)
+    for row in reports:
+        if row['trial_id'] is not None and ids[row['trial_id']] > 1:
+            row['valid'] = False
+            row['errors'].append('duplicate trial id')
+    return reports, unexpected
+
+
+def assess(experiment, arm, directory):
+    directory = resolve_input(directory, directory=True)
+    raw = safe_path(directory, 'launch.json').read_bytes()
+    launch = parse_json(raw, 'launch')
+    require(isinstance(launch, dict) and launch.get('schema') == LAUNCH_SCHEMA
+            and launch.get('run_dir') == str(directory)
+            and launch.get('arm') == arm and launch.get('runtime') == experiment.runtime
+            and launch.get('manifest_sha256') == experiment.manifest_sha256
+            and launch.get('case_sha256') == experiment.case_sha256,
+            'launch record does not bind this run, manifest, arm and runtime')
+    records = list(experiment.inventories[arm].values())
+    task_sha = digest(canonical(records))
+    argv = array(launch.get('argv'), 'launch argv')
+    executable = text(argv[0], 'recorded Harbor executable')
+    require(Path(executable).is_absolute() and argv == experiment.argv(arm, directory, executable)
+            and launch.get('task_sha256') == task_sha,
+            'launch record does not bind the staged task and exact argv')
+    baseline = launch.get('baseline_receipt')
+    errors = []
+    if arm == 'baseline':
+        require(baseline is None, 'baseline launch must not use a baseline receipt')
+    else:
+        try:
+            fields(baseline, ('path', 'sha256'), 'baseline receipt reference')
+            path = resolve_input(text(baseline['path'], 'baseline receipt path'))
+            require(str(path) == baseline['path'], 'baseline receipt path changed')
+            data = path.read_bytes()
+            require(digest(data) == baseline['sha256'], 'baseline receipt hash changed')
+            validate_baseline(experiment, data)
+        except (OSError, ValueError) as exc:
+            errors.append(str(exc))
+    if (launch.get('status') != 'SUCCEEDED' or launch.get('exit_code') != 0
+            or type(launch.get('exit_code')) is not int
+            or launch.get('cleanup') != 'harbor_completed'
+            or launch.get('harbor_version') != experiment.runtime['harbor_version']):
+        errors.append('launch failed, did not finish or has unverified cleanup')
+    if (launch.get('staged_before') != records or launch.get('staged_after') != records
+            or staged_inventory(directory) != records):
+        errors.append('staged task inputs were missing or changed')
+    reports, unexpected = trial_reports(experiment, arm, directory, launch.get('job_sha256'), errors)
+    expected = experiment.trials[arm]
+    if errors:
+        for row in reports:
+            row['valid'] = False
+            row['errors'].append('run evidence is incomplete')
+    valid = [row for row in reports if row['valid']]
+    observed = sum(row['result_path'] is not None for row in reports)
+    counts = {key: sum(row['rewards'][key] for row in valid)
+              for key in ('incident_failure', 'task_completed', 'regression_failed')}
+    if len(valid) != expected:
+        status = 'INCOMPLETE'
+    elif arm == 'baseline':
+        status = 'REPRODUCED' if counts['incident_failure'] else 'NOT_REPRODUCED'
+    else:
+        fixed = (counts['task_completed'] == expected and not counts['incident_failure']
+                 and not counts['regression_failed'])
+        status = 'OBSERVED_FIXED' if fixed else 'NOT_OBSERVED_FIXED'
+    return {
+        'schema': COLLECTION_SCHEMA,
+        'status': status,
+        'run_dir': str(directory),
+        'launch_sha256': digest(raw),
+        'manifest_sha256': experiment.manifest_sha256,
+        'case_sha256': experiment.case_sha256,
+        'incident_id': experiment.incident_id,
+        'incident_kind': experiment.incident_kind,
+        'arm': arm,
+        'runtime': experiment.runtime,
+        'task_sha256': task_sha,
+        'provider_revision': 'unavailable',
+        'expected_trials': expected,
+        'observed_trials': observed,
+        'missing_trials': max(0, expected - observed),
+        'valid_trials': len(valid),
+        'invalid_trials': expected - len(valid),
+        'incident_failures': counts['incident_failure'],
+        'task_completions': counts['task_completed'],
+        'regression_failures': counts['regression_failed'],
+        'trials': reports,
+        'unexpected_results': unexpected,
+        'run_errors': errors,
+    }
+
+
+def validate_baseline(experiment, raw):
+    receipt = parse_json(raw, 'baseline receipt')
+    require(isinstance(receipt, dict) and receipt.get('schema') == COLLECTION_SCHEMA
+            and receipt.get('arm') == 'baseline' and receipt.get('status') == 'REPRODUCED'
+            and receipt.get('manifest_sha256') == experiment.manifest_sha256,
+            'treatment requires a REPRODUCED baseline receipt for the same manifest')
+    directory = text(receipt.get('run_dir'), 'baseline run directory')
+    require(Path(directory).is_absolute(), 'baseline run directory must be absolute')
+    actual = assess(experiment, 'baseline', directory)
+    require(actual['status'] == 'REPRODUCED' and canonical(actual) == canonical(receipt),
+            'baseline receipt no longer matches reproduced trial evidence')
+
+
+def interrupt(_signum, _frame):
+    raise KeyboardInterrupt
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest='command', required=True)
     planning = sub.add_parser('plan')
     planning.add_argument('manifest', type=Path)
+    runner = sub.add_parser('run')
+    collector = sub.add_parser('collect')
+    for command in (runner, collector):
+        command.add_argument('manifest', type=Path)
+        command.add_argument('--arm', choices=ARMS, required=True)
+        command.add_argument('--output', required=True, type=Path)
+    runner.add_argument('--baseline', type=Path)
+    collector.add_argument('--run', required=True, type=Path)
     snap = sub.add_parser('snapshot')
     snap.add_argument('--repo', required=True)
     snap.add_argument('--commit', required=True)
@@ -411,7 +968,26 @@ def main(argv=None):
         if args.command == 'snapshot':
             print(json.dumps(snapshot(args.repo, args.commit, args.output), sort_keys=True))
         else:
-            print(json.dumps(plan(Experiment(args.manifest)), sort_keys=True, indent=2))
+            experiment = Experiment(args.manifest)
+            if args.command == 'plan':
+                print(json.dumps(plan(experiment), sort_keys=True, indent=2))
+            elif args.command == 'run':
+                prior = signal.signal(signal.SIGTERM, interrupt)
+                try:
+                    launch = run(experiment, args.arm, args.output, args.baseline)
+                finally:
+                    signal.signal(signal.SIGTERM, prior)
+                print(json.dumps({'status': launch['status'], 'run_dir': launch['run_dir']}))
+                return int(launch['status'] != 'SUCCEEDED')
+            else:
+                result = assess(experiment, args.arm, args.run)
+                output = new_output(experiment, args.output, outside=(Path(result['run_dir']),))
+                write_json(output, result)
+                print(json.dumps(result, sort_keys=True, indent=2))
+                return int(result['status'] == 'INCOMPLETE')
+    except KeyboardInterrupt:
+        print('error: interrupted', file=sys.stderr)
+        return 1
     except (ValueError, OSError, subprocess.CalledProcessError) as exc:
         print(f'error: {exc}', file=sys.stderr)
         return 1

@@ -1,8 +1,10 @@
 import hashlib
 import importlib.util
 import json
+import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -316,3 +318,395 @@ def test_hash_known_answer_and_modes(tmp_path):
     assert actual == 'be988123909426a596481ad090976dac10107fc5afd6cef6b794db4cb5a5df96'
     (tmp_path / 'a.txt').chmod(0o644)
     assert adapter.digest(adapter.canonical(adapter.inventory(tmp_path))) != actual
+
+
+FAKE_HARBOR = r'''
+import hashlib
+import json
+import os
+from pathlib import Path
+import signal
+import subprocess
+import sys
+import time
+from uuid import uuid4
+
+
+def write(path, value):
+    path.write_text(json.dumps(value))
+
+
+def sha(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def checksum(path):
+    rows = []
+    for entry in path.iterdir():
+        kind, value = ('dirhash', checksum(entry)) if entry.is_dir() else ('data', sha(entry))
+        rows.append(f'{kind}:{value}\0name:{entry.name}')
+    return hashlib.sha256('\0\0'.join(sorted(rows)).encode()).hexdigest()
+
+
+control = Path(__file__).with_suffix('.json')
+settings = json.loads(control.read_text())
+if sys.argv[1:] == ['--version']:
+    assert 'OPENAI_API_KEY' not in os.environ
+    assert 'CODEX_API_KEY' not in os.environ
+    print(settings.get('version', '0.25.0'))
+    sys.exit(0)
+mode = settings.get('mode')
+with control.with_suffix('.calls').open('a') as calls:
+    calls.write(json.dumps(sys.argv[1:]) + '\n')
+print('fake stdout', flush=True)
+print('fake stderr', file=sys.stderr, flush=True)
+assert 'CODEX_HOME' not in os.environ
+assert 'CODEX_SQLITE_HOME' not in os.environ
+assert 'GH_TOKEN' not in os.environ
+assert os.environ.get('OPENAI_API_KEY') == 'fake-provider-key'
+assert 'CODEX_API_KEY' not in os.environ
+assert not (Path(os.environ['HOME']) / '.codex').exists()
+if mode in ('timeout', 'interrupt'):
+    child = subprocess.Popen([sys.executable, '-c',
+                              'import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)'])
+    control.with_suffix('.pid').write_text(str(child.pid))
+    if mode == 'interrupt':
+        os.kill(os.getppid(), signal.SIGTERM)
+    time.sleep(60)
+if mode == 'failed':
+    sys.exit(23)
+
+args = dict(zip(sys.argv[2::2], sys.argv[3::2]))
+task = Path(args['-p'])
+jobs = Path(args['--jobs-dir'])
+arm = args['--job-name']
+job = jobs / arm
+job.mkdir(parents=True)
+agent = {'name': args['-a'], 'model_name': args['-m'],
+         'kwargs': {'version': args['--agent-kwarg'].split('=')[1],
+                    'reasoning_effort': args['--effort']}}
+n = int(args['--n-attempts'])
+job_id = str(uuid4())
+job_config = {
+    'job_name': arm, 'jobs_dir': str(jobs), 'n_attempts': n,
+    'n_concurrent_trials': int(args['--n-concurrent']), 'agents': [agent],
+    'tasks': [{'path': str(task)}],
+}
+write(job / 'config.json', job_config)
+results = []
+stamp = '2026-11-26T12:00:00Z'
+for i in range(n):
+    name = f'task__{i}'
+    path = job / name
+    path.mkdir()
+    identifier = str(uuid4()) if mode != 'duplicate' or i == 0 else results[0]['id']
+    config = {'task': {'path': str(task)}, 'agent': agent, 'trial_name': name,
+              'trials_dir': str(job), 'job_id': job_id}
+    write(path / 'config.json', config)
+    observed = i == 0 and arm == 'baseline' and mode != 'no_reproduction'
+    rewards = {'valid': 1.0, 'exposure_verified': 1, 'incident_failure': int(observed),
+               'task_completed': int(not observed and (mode != 'regression' or i != 0)),
+               'regression_failed': int(mode == 'regression' and i == 0)}
+    if mode == 'invalid' and i == 0:
+        rewards['valid'] = 0
+    if mode == 'boolean_reward' and i == 0:
+        rewards['incident_failure'] = True
+    provider, model = args['-m'].split('/', 1)
+    result = {
+        'id': identifier, 'trial_name': name, 'trial_uri': path.as_uri(),
+        'task_name': task.name, 'task_id': {'path': str(task)}, 'task_checksum': checksum(task),
+        'config': config, 'verifier_environment_mode': 'separate',
+        'agent_info': {'name': 'codex', 'version': agent['kwargs']['version'],
+                       'model_info': {'name': model, 'provider': provider}},
+        'verifier_result': {'rewards': rewards},
+        'exception_info': None, 'started_at': stamp, 'finished_at': stamp,
+        'agent_execution': {'started_at': stamp, 'finished_at': stamp}, 'step_results': None,
+    }
+    verifier = path / 'verifier'
+    verifier.mkdir()
+    trace = path / 'agent' / 'raw.jsonl'
+    trace.parent.mkdir()
+    trace.write_text('recorded trajectory')
+    evidence = verifier / 'native-read.txt'
+    evidence.write_text('verified instruction read')
+    exposure = {
+        'schema': 'experiment-exposure.v1', 'trial_id': identifier, 'arm': arm,
+        'case_sha256': settings['case_sha256'],
+        'instructions': [{'path': item, 'sha256': sha(task / item)}
+                         for item in settings['intervention_paths']],
+        'trajectory': {'path': 'agent/raw.jsonl', 'sha256': sha(trace)},
+        'evidence': [{'path': 'verifier/native-read.txt', 'sha256': sha(evidence)}],
+        **settings['images'][arm],
+    }
+    if i == 0:
+        changes = {
+            'trial': ('trial_id', str(uuid4())),
+            'arm': ('arm', 'treatment'),
+            'case': ('case_sha256', 'f' * 64),
+            'instruction': ('instructions', [{'path': 'environment/AGENTS.md', 'sha256': 'f' * 64}]),
+            'image': ('agent_image_digest', settings['images']['treatment']['agent_image_digest']),
+            'trajectory': ('trajectory', {'path': 'agent/raw.jsonl', 'sha256': 'f' * 64}),
+            'evidence': ('evidence', []),
+            'missing_instruction': ('instructions', exposure['instructions'][:-1]),
+        }
+        if mode in changes:
+            k, v = changes[mode]
+            exposure[k] = v
+        if mode == 'wrong_runtime':
+            result['agent_info']['model_info']['name'] = 'unrelated'
+        if mode == 'wrong_checksum':
+            result['task_checksum'] = 'f' * 64
+        if mode == 'wrong_job':
+            result['config'] = {**config, 'job_id': str(uuid4())}
+        if mode == 'exception':
+            result['exception_info'] = {'exception_type': 'SetupError'}
+        if mode == 'nested':
+            write(verifier / 'result.json', result)
+    if mode != 'no_exposure' or i != 0:
+        write(verifier / 'exposure.json', exposure)
+    if mode != 'missing' or i != 0:
+        write(path / 'result.json', result)
+    results.append(result)
+write(job / 'result.json', {
+    'id': job_id, 'finished_at': stamp, 'n_total_trials': n,
+    'stats': {'n_retries': 0, 'n_completed_trials': n, 'n_pending_trials': 0,
+              'n_running_trials': 0, 'n_cancelled_trials': 0},
+})
+if mode == 'mutate':
+    (task / 'instruction.md').write_text('mutated during invocation')
+if mode == 'empty_dir':
+    (task / 'unexpected-empty').mkdir()
+'''
+
+
+class FakeHarbor:
+    def __init__(self, case, monkeypatch):
+        self.case = case
+        self.binary = case.root / 'bin' / 'harbor'
+        self.binary.parent.mkdir()
+        self.binary.write_text(f'#!{sys.executable}\n' + FAKE_HARBOR)
+        self.binary.chmod(0o755)
+        monkeypatch.setenv('PATH', str(self.binary.parent) + os.pathsep + os.environ['PATH'])
+        monkeypatch.setenv('CODEX_HOME', 'private')
+        monkeypatch.setenv('CODEX_SQLITE_HOME', 'private')
+        monkeypatch.setenv('GH_TOKEN', 'private')
+        monkeypatch.setenv('OPENAI_API_KEY', 'fake-provider-key')
+        monkeypatch.delenv('CODEX_API_KEY', raising=False)
+        monkeypatch.delenv('DOCKER_HOST', raising=False)
+
+    def set_mode(self, mode=None, **kwargs):
+        self.binary.with_suffix('.json').write_bytes(canonical_bytes({
+            'mode': mode, 'case_sha256': self.case.case_sha256,
+            'intervention_paths': self.case.manifest['intervention_paths'], 'images': self.case.images,
+            **kwargs,
+        }))
+
+    @property
+    def calls(self):
+        path = self.binary.with_suffix('.calls')
+        return path.read_text().splitlines() if path.exists() else []
+
+    def run(self, arm='baseline', name=None, *args):
+        out = self.case.root / (name or f'{arm}-run')
+        return cli('run', self.case.path, '--arm', arm, '--output', out, *args), out
+
+    def collect(self, run, arm='baseline'):
+        out = self.case.root / f'{run.name}-receipt.json'
+        result = cli('collect', self.case.path, '--arm', arm, '--run', run, '--output', out)
+        assert out.is_file(), result.stderr
+        return result, out, json.loads(out.read_bytes())
+
+
+@pytest.fixture
+def harbor(case, monkeypatch):
+    fake = FakeHarbor(case, monkeypatch)
+    fake.set_mode()
+    return fake
+
+
+def test_baseline_launch_uses_pinned_harbor_argv(harbor, monkeypatch):
+    launched, directory = harbor.run()
+    assert launched.returncode == 0, launched.stderr
+    launch = json.loads((directory / 'launch.json').read_bytes())
+    assert launch['argv'] == [
+        str(harbor.binary.resolve()), 'run', '-p', str(directory / 'staged' / 'task'),
+        '-a', 'codex', '-m', 'openai/gpt-example', '--agent-kwarg', 'version=1.2.3',
+        '--effort', 'high', '--jobs-dir', str(directory / 'jobs'), '--job-name', 'baseline',
+        '--n-attempts', '5', '--n-concurrent', '2',
+    ]
+    assert len(harbor.calls) == 1
+    assert (directory / 'stdout.log').read_text() == 'fake stdout\n'
+    assert (directory / 'stderr.log').read_text() == 'fake stderr\n'
+    assert harbor.run()[0].returncode != 0
+
+    # An isolated interpreter and subprocess guard test the same collection entry point.
+    def unexpected(*args, **kwargs):
+        pytest.fail('collect called a subprocess')
+
+    monkeypatch.setattr(subprocess, 'Popen', unexpected)
+    assert adapter.main(['collect', str(harbor.case.path), '--arm', 'baseline',
+                         '--run', str(directory), '--output', str(directory.parent / 'collected.json')]) == 0
+    receipt = json.loads((directory.parent / 'collected.json').read_bytes())
+    assert receipt['status'] == 'REPRODUCED'
+    assert receipt['incident_failures'] == 1
+    assert receipt['valid_trials'] == receipt['expected_trials'] == 5
+
+
+def test_treatment_requires_reproduced_matching_baseline(harbor):
+    assert harbor.run('treatment')[0].returncode != 0
+    assert not harbor.calls
+    harbor.set_mode('no_reproduction')
+    launched, nonreproduced = harbor.run('baseline', 'nonreproduced')
+    assert launched.returncode == 0, launched.stderr
+    _, denied, receipt = harbor.collect(nonreproduced)
+    assert receipt['status'] == 'NOT_REPRODUCED'
+    assert harbor.run('treatment', 'denied', '--baseline', denied)[0].returncode != 0
+    receipt['status'] = 'REPRODUCED'
+    denied.write_bytes(canonical_bytes(receipt))
+    assert harbor.run('treatment', 'forged', '--baseline', denied)[0].returncode != 0
+    assert len(harbor.calls) == 1
+
+    harbor.set_mode()
+    launched, directory = harbor.run()
+    assert launched.returncode == 0, launched.stderr
+    _, approved, _ = harbor.collect(directory)
+    trace = directory / 'jobs/baseline/task__0/agent/raw.jsonl'
+    previous = trace.read_bytes()
+    trace.write_bytes(previous + b' altered')
+    assert harbor.run('treatment', 'altered', '--baseline', approved)[0].returncode != 0
+    trace.write_bytes(previous)
+    case = harbor.case
+    case.path.write_bytes(case.path.read_bytes() + b'\n')
+    assert harbor.run('treatment', 'different-manifest', '--baseline', approved)[0].returncode != 0
+    case.save()
+    launched, treated = harbor.run('treatment', None, '--baseline', approved)
+    assert launched.returncode == 0, launched.stderr
+    _, _, result = harbor.collect(treated, 'treatment')
+    assert result['status'] == 'OBSERVED_FIXED'
+    assert len(harbor.calls) == 3
+
+
+@pytest.mark.parametrize('mode', ['missing', 'duplicate', 'wrong_runtime', 'wrong_checksum',
+                                  'wrong_job', 'invalid', 'exception', 'nested', 'boolean_reward'])
+def test_invalid_trials_do_not_reproduce(harbor, mode):
+    harbor.set_mode(mode)
+    launched, directory = harbor.run()
+    assert launched.returncode == 0, launched.stderr
+    _, _, report = harbor.collect(directory)
+    assert report['status'] == 'INCOMPLETE'
+    assert report['expected_trials'] == 5
+    assert report['invalid_trials'] >= 1
+
+
+@pytest.mark.parametrize('mode', ['no_exposure', 'trial', 'arm', 'case', 'instruction',
+                                  'image', 'trajectory', 'evidence'])
+def test_exposure_requires_trial_arm_instruction_image_and_trajectory_bindings(harbor, mode):
+    harbor.set_mode(mode)
+    launched, directory = harbor.run()
+    assert launched.returncode == 0, launched.stderr
+    _, _, report = harbor.collect(directory)
+    assert report['status'] == 'INCOMPLETE'
+    assert report['invalid_trials'] == 1
+    assert report['incident_failures'] == 0
+
+
+def test_collect_reports_completion_and_regressions(harbor):
+    launched, directory = harbor.run()
+    assert launched.returncode == 0, launched.stderr
+    _, baseline, _ = harbor.collect(directory)
+    harbor.set_mode('regression')
+    launched, treated = harbor.run('treatment', None, '--baseline', baseline)
+    assert launched.returncode == 0, launched.stderr
+    _, _, report = harbor.collect(treated, 'treatment')
+    assert report['status'] == 'NOT_OBSERVED_FIXED'
+    assert report['valid_trials'] == 5
+    assert report['task_completions'] == 4
+    assert report['regression_failures'] == 1
+
+
+@pytest.mark.parametrize('mode,status', [('timeout', 'TIMED_OUT'), ('interrupt', 'INTERRUPTED')])
+def test_timeout_or_interrupt_preserves_failure_and_cleans_child(harbor, mode, status):
+    harbor.case.manifest['runtime']['timeout_sec'] = 2
+    harbor.case.bind_case()
+    harbor.set_mode(mode)
+    result, directory = harbor.run()
+    assert result.returncode != 0
+    launch = json.loads((directory / 'launch.json').read_bytes())
+    assert launch['status'] == status
+    assert launch['cleanup'] == 'unverified'
+    pid = harbor.binary.with_suffix('.pid').read_text()
+    for _ in range(30):
+        state = subprocess.run(['ps', '-o', 'stat=', '-p', pid],
+                               capture_output=True, text=True).stdout.strip()
+        if not state or 'Z' in state:
+            break
+        time.sleep(0.05)
+    assert not state or 'Z' in state
+    assert (directory / 'stdout.log').read_text() == 'fake stdout\n'
+    _, baseline, report = harbor.collect(directory)
+    assert report['status'] == 'INCOMPLETE'
+    assert report['missing_trials'] == 5
+    assert harbor.run('treatment', None, '--baseline', baseline)[0].returncode != 0
+    assert len(harbor.calls) == 1
+
+
+def test_changed_inputs_and_unsupported_version_invalidate_run(harbor):
+    harbor.set_mode(version='0.25.1')
+    result, directory = harbor.run('baseline', 'bad-version')
+    assert result.returncode != 0
+    assert not harbor.calls
+    assert json.loads((directory / 'launch.json').read_bytes())['status'] == 'VERSION_MISMATCH'
+    harbor.set_mode('mutate')
+    result, directory = harbor.run()
+    assert result.returncode != 0
+    launch = json.loads((directory / 'launch.json').read_bytes())
+    assert launch['status'] == 'INPUTS_CHANGED'
+    assert launch['staged_before'] != launch['staged_after']
+    assert (harbor.case.root / 'baseline' / 'instruction.md').read_text() == 'Work on the fixture.'
+    _, _, report = harbor.collect(directory)
+    assert report['status'] == 'INCOMPLETE'
+
+
+def test_harbor_checksum_matches_dirhash_0_5_0(tmp_path):
+    # Obtained from the actual dirhash 0.5.0 package with its default SHA-256 protocol.
+    (tmp_path / 'environment').mkdir()
+    (tmp_path / 'instruction.md').write_bytes(b'fixture\n')
+    (tmp_path / 'environment/Dockerfile').write_bytes(b'FROM scratch\n')
+    (tmp_path / 'environment/AGENTS.md').write_bytes(b'rule\n')
+    assert adapter.harbor_checksum(adapter.inventory(tmp_path)) == (
+        '63dd4cda9159e45b275d2e7ef498e5595ad65681f4102a6bb5083fa1fcd57125'
+    )
+
+
+def test_all_declared_markdown_instructions_must_have_exposure(harbor):
+    case = harbor.case
+    extra = 'environment/pr-lifecycle/review-routing.md'
+    case.manifest['intervention_paths'].append(extra)
+    case.file(f'baseline/{extra}', 'before routing')
+    case.file(f'treatment/{extra}', 'after routing')
+    case.refresh_tasks()
+    case.bind_case()
+    harbor.set_mode('missing_instruction')
+    launched, directory = harbor.run()
+    assert launched.returncode == 0, launched.stderr
+    _, _, report = harbor.collect(directory)
+    assert report['status'] == 'INCOMPLETE'
+    assert report['valid_trials'] == 4
+
+
+def test_collect_rejects_post_launch_trial_edit(harbor):
+    launched, directory = harbor.run()
+    assert launched.returncode == 0, launched.stderr
+    trial = directory / 'jobs/baseline/task__0/result.json'
+    trial.write_bytes(trial.read_bytes() + b'\n')
+    _, _, report = harbor.collect(directory)
+    assert report['status'] == 'INCOMPLETE'
+    assert report['observed_trials'] == 5
+    assert any('output inventory' in reason for reason in report['run_errors'])
+
+
+def test_added_empty_staging_directory_invalidates_launch(harbor):
+    harbor.set_mode('empty_dir')
+    launched, directory = harbor.run()
+    assert launched.returncode != 0
+    assert json.loads((directory / 'launch.json').read_bytes())['status'] == 'INPUTS_CHANGED'
