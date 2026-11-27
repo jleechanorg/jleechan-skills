@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Focused regression checks for runner host probing and missing org config.
 set -uo pipefail
+export BASH_ENV=/dev/null
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TESTDIR="$(mktemp -d)"
@@ -35,7 +36,7 @@ export PATH="$FAKEBIN:$PATH"
 export FAKE_SSH_ARGS="$TESTDIR/ssh-args" FAKE_PWNED="$TESTDIR/pwned"
 
 FAIL=0
-OUT="$(RUNNER_HOST='host$(touch /tmp/never)' bash "$SCRIPT_DIR/check_runner_host.sh" 2>&1)"
+OUT="$(RUNNER_HOST="host\$(touch $TESTDIR/host-pwned)" bash "$SCRIPT_DIR/check_runner_host.sh" 2>&1)"
 if python3 -c 'import json,sys; d=json.loads(sys.argv[1]); assert d["reachable"] is False; assert "$(touch" in d["host"]; assert "quoted" in d["raw"]' "$OUT"; then
   echo "PASS: SSH failure values are encoded as JSON data"
 else
@@ -48,7 +49,7 @@ if grep -q 'StrictHostKeyChecking=no' "$FAKE_SSH_ARGS"; then
 else
   echo "PASS: SSH host-key checking uses the configured default"
 fi
-if [[ -e "$FAKE_PWNED" ]]; then
+if [[ -e "$FAKE_PWNED" || -e "$TESTDIR/host-pwned" ]]; then
   echo "FAIL: SSH failure text executed as shell code"
   FAIL=1
 else

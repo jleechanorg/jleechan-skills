@@ -46,8 +46,7 @@ for your AI Universe instance. Replace the placeholder with that endpoint; this
 skill does not assume a host or URL.
 
 ```bash
-# Replace the example with your configured AI Universe MCP endpoint.
-export AI_UNIVERSE_MCP_URL="https://<ai-universe-host>/mcp"
+# Configure AI_UNIVERSE_MCP_URL first, e.g. "https://<ai-universe-host>/mcp".
 MCP_URL="${AI_UNIVERSE_MCP_URL:?AI_UNIVERSE_MCP_URL not configured: AI Universe MCP endpoint, e.g. https://<ai-universe-host>/mcp}"
 ```
 

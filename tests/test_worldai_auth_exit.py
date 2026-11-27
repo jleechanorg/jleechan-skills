@@ -1,11 +1,12 @@
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import unittest
 
 
-NODE = "/home/jleechan/.nvm/versions/node/v22.23.1/bin/node"
+NODE = shutil.which("node") or "node"
 WRAPPER = (
     Path(__file__).resolve().parents[1]
     / "plugins/worldarchitect/skills/worldai-auth/scripts/auth-worldai.mjs"
