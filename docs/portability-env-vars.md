@@ -80,6 +80,23 @@ The retired dark-factory and auto-factory tooling is gone from the catalog
 (`docs/specs/2026-11-06-factory-tool-retirement.md`); its variables are not part of this
 registry.
 
+## Harbor experiment execution
+
+| Variable | Meaning | Default |
+|---|---|---|
+| `DOCKER_HOST` | Explicit Docker daemon endpoint forwarded in API-key mode only; access-only mode ignores ambient Docker settings and uses the qualified local Unix socket | unset: Docker's normal endpoint discovery within the isolated process |
+| `OPENAI_API_KEY` / `CODEX_API_KEY` | Explicit provider credentials forwarded only to an authorized Harbor trial, never to its version probe; values are not written to the launch receipt | unset: no live user credential/profile fallback supplied by the adapter |
+| `CODEX_AUTH_JSON_PATH` | Harbor 0.25.0 input for Codex auth-file delivery; in access-only execution the adapter sets it to the isolated, short-lived derivative, never to the host profile | unset except for an explicitly authorized access-only invocation; never inherited from the caller |
+| `PATH` | Discovers Harbor from the caller; API-key children inherit it, while access-only children use the system default executable path | access-only Docker and its Compose plugin must resolve from the qualified system paths |
+| `LANG` / `LC_ALL` / `LC_CTYPE` / `TZ` | Locale and timezone settings forwarded to Harbor | inherited when set |
+| `HARBOR_EXPERIMENT_CASE_SHA256` / `HARBOR_EXPERIMENT_ARM` / `HARBOR_EXPERIMENT_RUN_SHA256` | Internal case, arm and invocation identity supplied by the adapter through Harbor's verifier-only environment overrides; read by the reviewed task verifier | generated from the frozen manifest and new run location; never inherited from the caller |
+
+The adapter creates a task-owned child home and working directory. It does not
+inherit `CODEX_HOME`, `CODEX_SQLITE_HOME` or other user profile/configuration
+overrides. Forwarding provider credentials does not itself prove container
+credential isolation; the case's qualification evidence must establish that
+boundary before execution.
+
 ## Messaging and accounts
 
 | Variable | Meaning | Default |
