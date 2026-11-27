@@ -80,6 +80,22 @@ The retired dark-factory and auto-factory tooling is gone from the catalog
 (`docs/specs/2026-11-06-factory-tool-retirement.md`); its variables are not part of this
 registry.
 
+## Harbor experiment execution
+
+| Variable | Meaning | Default |
+|---|---|---|
+| `DOCKER_HOST` | Explicit Docker daemon endpoint forwarded to the isolated Harbor process | unset: Docker's normal endpoint discovery within the isolated process |
+| `OPENAI_API_KEY` / `CODEX_API_KEY` | Explicit provider credentials forwarded only to an authorized Harbor trial, never to its version probe; values are not written to the launch receipt | unset: no live user credential/profile fallback supplied by the adapter |
+| `PATH` | Executable discovery for Harbor and its subprocesses | inherited when set |
+| `LANG` / `LC_ALL` / `LC_CTYPE` / `TZ` | Locale and timezone settings forwarded to Harbor | inherited when set |
+| `HARBOR_EXPERIMENT_CASE_SHA256` / `HARBOR_EXPERIMENT_ARM` / `HARBOR_EXPERIMENT_RUN_SHA256` | Internal case, arm and invocation identity supplied by the adapter through Harbor's verifier-only environment overrides; read by the reviewed task verifier | generated from the frozen manifest and new run location; never inherited from the caller |
+
+The adapter creates a task-owned child home and working directory. It does not
+inherit `CODEX_HOME`, `CODEX_SQLITE_HOME` or other user profile/configuration
+overrides. Forwarding provider credentials does not itself prove container
+credential isolation; the case's qualification evidence must establish that
+boundary before execution.
+
 ## Messaging and accounts
 
 | Variable | Meaning | Default |

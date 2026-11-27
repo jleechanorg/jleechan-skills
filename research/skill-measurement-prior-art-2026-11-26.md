@@ -18,6 +18,9 @@ collectors rather than treating every design section as a working interface.
 
 ## Use in an experiment
 
+The [Harbor adapter guide](../docs/harbor-skill-experiments.md) connects these
+measurement sources to incident replay and the baseline reproduction gate.
+
 1. Assign each subject run and descendant session to an arm in a private manifest.
    Record explicit start/end timestamps, task identity and actual model/profile.
 2. Collect usage for that window with `scripts/prw_local_usage.py`. Its CLI supports

@@ -4,6 +4,8 @@ Research date: 2026-11-26. Scope: reusable foundations for a generic `/experimen
 
 ## Recommendation
 
+Implementation usage: [Harbor skill experiments](../docs/harbor-skill-experiments.md).
+
 **Pilot Harbor as an execution substrate with a thin experiment adapter/manifest.** Harbor's task directory and trial model are a close match for repeatable agent work in a container: task prompt, task configuration, environment, verifier, optional reference solution, selectable agent/model, parallel trials, trajectories, reward, token/cost and duration reporting. It supports arbitrary agent integrations, so the skill experiment need not be represented as a code patch if its test task can package the actual prompt/config variation.
 
 Keep the adapter responsible for experiment semantics Harbor does not promise: discover and pin the incident-era repository commit; capture the before/treatment instruction files and hashes; pin runtime, model identifier/settings and dependencies; require a successful control replay before treatment; run the same paired task set; retain run metadata and results; and optionally blind output review. Do not build a new general-purpose runner unless Harbor proves unable to invoke the target agent or preserve the necessary historical config.
