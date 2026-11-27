@@ -883,8 +883,8 @@ def capture_drained(argv, cwd, env, stdout, stderr, timeout):
         stop_process_group(process)
         try:
             cleanup_deadline = time.monotonic() + 1
-            if (process.poll() is not None and not process_group_alive(process.pid)
-                    and descendants_drained(cleanup_deadline, terminate=True) and registered
+            if (process.poll() is not None and descendants_drained(cleanup_deadline, terminate=True)
+                    and not process_group_alive(process.pid) and registered
                     and drain(cleanup_deadline)):
                 return failure, process.returncode
         except (KeyboardInterrupt, OSError, ValueError):

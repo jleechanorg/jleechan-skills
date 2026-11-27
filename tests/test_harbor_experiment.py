@@ -3,6 +3,7 @@ import importlib.util
 import json
 import asyncio
 import os
+import signal
 import subprocess
 import sys
 import threading
@@ -169,6 +170,31 @@ def test_reviewed_helper_executes_approved_bytes_not_preloaded_module(tmp_path, 
     source.write_text('raise RuntimeError("changed after inspection")\n')
     adapter.load_reviewed_helpers(checked)
     assert importlib.import_module(name).marker == 'approved'
+
+
+def test_sealed_interruption_reaps_the_adopted_process_group_before_reporting(tmp_path):
+    marker = tmp_path / 'child.pid'
+    command = ('import os, signal, subprocess, sys, time\n'
+               'from pathlib import Path\n'
+               'child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])\n'
+               'Path(sys.argv[1]).write_text(str(child.pid))\n'
+               'os.kill(os.getppid(), signal.SIGTERM)\n'
+               'time.sleep(30)\n')
+    previous = signal.signal(signal.SIGTERM, adapter.interrupt)
+    try:
+        with (tmp_path / 'out').open('w+b') as stdout, (tmp_path / 'err').open('w+b') as stderr:
+            status, _ = adapter.invoke([sys.executable, '-c', command, str(marker)], cwd=tmp_path,
+                                       env=os.environ, stdout=stdout, stderr=stderr, timeout=5, sealed=True)
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+    child = int(marker.read_text())
+    try:
+        os.waitpid(child, os.WNOHANG)
+    except ChildProcessError:
+        pass
+    else:
+        pytest.fail('sealed cancellation left its adopted child unreaped')
+    assert status == 'INTERRUPTED'
 
 
 @pytest.mark.parametrize('status', ['SUCCEEDED', 'INTERRUPTED', 'TIMED_OUT'])
