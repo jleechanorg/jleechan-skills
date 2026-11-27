@@ -234,6 +234,7 @@ def patch_signature(item, native=False):
 
 
 PATCH_RESPONSE_HEADER = re.compile(r'Wall time: (?P<wall>\d+\.\d{4}) seconds\nOutput:\n')
+PATCH_TOOL_SUMMARY = re.compile(r'Exit code: (?P<code>[01])\nWall time: [0-9]+(?:\.[0-9]+)? seconds\nOutput:\n')
 
 
 def bound_patch_responses(records):
@@ -286,6 +287,10 @@ def bound_patch_responses(records):
             header = PATCH_RESPONSE_HEADER.match(text)
             body = text[header.end():] if header else text
             patch = patches[call][1]
+            summary = PATCH_TOOL_SUMMARY.match(body)
+            if summary:
+                require((summary['code'] == '0') == (patch['status'] == 'completed'))
+                body = body[summary.end():]
             # Exact observed stdout, or a source-emitted failure message in stderr.
             require(body == patch['stdout'] if not patch['stderr'] else
                     not patch['stdout'] and body == patch['stderr'])

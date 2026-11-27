@@ -404,12 +404,14 @@ def _check_fragments(fragments, pattern):
     return joined
 
 
-def _content(kind, value, pattern):
+def _content(kind, value, pattern, *, native_annotations=False):
     _require(isinstance(value, list), 'unsupported native content')
     fragments = []
     for part in value:
-        _require(isinstance(part, dict) and part.keys() == {'type', 'text'} and _field(part, 'type') in kind,
-                 'unsupported native content fragment')
+        _require(isinstance(part, dict) and _field(part, 'type') in kind, 'unsupported native content fragment')
+        annotated_output = (native_annotations and part['type'] == 'output_text'
+                            and part.keys() == {'type', 'text', 'annotations'} and part['annotations'] == [])
+        _require(part.keys() == {'type', 'text'} or annotated_output, 'unsupported native content fragment')
         fragments.append(_field(part, 'text'))
     return _check_fragments(fragments, pattern)
 
@@ -568,7 +570,7 @@ def _response_item(payload, pattern, *, partial_output=False):
     kind = _field(payload, 'type')
     _require(not (payload.keys() & FRAGMENT_FIELDS), 'unsupported native response fragment')
     if kind in {'message', 'agent_message'}:
-        _content({'input_text', 'output_text'}, payload.get('content'), pattern)
+        _content({'input_text', 'output_text'}, payload.get('content'), pattern, native_annotations=True)
     elif kind == 'reasoning':
         _require({'type', 'summary'} <= payload.keys() <= {
             'type', 'id', 'summary', 'content', 'encrypted_content', 'internal_chat_message_metadata_passthrough',
@@ -588,6 +590,29 @@ def _response_item(payload, pattern, *, partial_output=False):
         _tool_output(payload.get('output'), pattern, partial=partial_output)
     else:
         _require(kind in RESPONSE_ITEMS, 'unsupported native response item')
+
+
+def _response_metadata(metadata):
+    integers = {'history_sequence', 'sampled_through_sequence', 'user_input_order', 'fallback_token_limit_override'}
+    _require(metadata.keys() <= integers | {'retained_source', 'client_authored', 'model_search_state',
+                                            'mcp_attribution'}, 'unsupported native response metadata')
+    for field in metadata.keys() & integers:
+        _require(type(metadata[field]) is int and metadata[field] >= 0, 'invalid native sequence or limit')
+    _require(type(metadata.get('client_authored', False)) is bool
+             and metadata.get('model_search_state', 'unused') == 'unused'
+             and metadata.get('mcp_attribution', {'status': 'none'}) == {'status': 'none'},
+             'unsupported native response metadata')
+    source = metadata.get('retained_source')
+    if source is None or (isinstance(source, dict) and source.keys() == {'source_id'}
+                          and _string(source['source_id'])):
+        return
+    _require(isinstance(source, dict) and source.keys() == {'id', 'revision', 'complete'}
+             and _string(source['revision']) and type(source['complete']) is bool,
+             'unsupported native retained source metadata')
+    identity = _object(source, 'id')
+    _require(identity.keys() == {'message_id', 'turn_id', 'role'}
+             and _string(identity['message_id']) and _string(identity['turn_id'])
+             and identity['role'] in ('user', 'assistant'), 'unsupported native retained source identity')
 
 
 def _rollout_records(records, pattern):
@@ -610,14 +635,7 @@ def _rollout_records(records, pattern):
             ordinal = record.get('ordinal')
             _require(type(ordinal) is int and ordinal == index, 'invalid native rollout ordinal')
         if 'metadata' in record:
-            metadata = _object(record, 'metadata')
-            _require(metadata.keys() <= {'history_sequence', 'sampled_through_sequence', 'retained_source'},
-                     'unsupported native response metadata')
-            for field in metadata.keys() - {'retained_source'}:
-                _require(type(metadata[field]) is int and metadata[field] >= 0, 'invalid native sequence')
-            source = metadata.get('retained_source')
-            _require(source is None or (isinstance(source, dict) and source.keys() == {'source_id'}
-                     and _string(source['source_id'])), 'unsupported native retained source metadata')
+            _response_metadata(_object(record, 'metadata'))
         payload = _object(record, 'payload')
         if record_kind == 'response_item':
             kind = _field(payload, 'type')
@@ -660,6 +678,8 @@ def _rollout_records(records, pattern):
             if record_kind == 'session_meta':
                 _require(thread is None, 'ambiguous native thread')
                 thread = _identifier(payload, 'id')
+                _require(payload.get('creator_account_id') is None or _string(payload['creator_account_id']),
+                         'unsupported native account metadata')
             continue
         _require(record_kind == 'event_msg', 'unsupported native rollout record')
         kind = _field(payload, 'type')
@@ -831,6 +851,9 @@ def sanitize_bytes(data, private_values, artifact_format):
             elif artifact_format == 'native_rollout':
                 _rollout_records(records, pattern)
                 records = [record for record in records if not rollout_reasoning(record)]
+                for record in records:
+                    if record['type'] == 'session_meta':
+                        record['payload'].pop('creator_account_id', None)
             else:
                 _check_fragments(list(_json_leaf_values(records)), pattern)
                 for record in records:

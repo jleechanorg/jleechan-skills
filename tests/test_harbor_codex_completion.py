@@ -507,6 +507,23 @@ def verify_patch_fixture(tmp_path, records, stdout):
     return native['jsonl'](native['scoring_projection'](session.read_bytes()))
 
 
+@pytest.mark.parametrize('route', ['shell', 'text'])
+def test_pinned_patch_wire_summary_binds_status_and_preserves_exact_response(tmp_path, route):
+    records, stdout = patch_capture_fixture(route)
+    body = records[4]['payload']['item']['stdout']
+    outer = 'Wall time: 0.0000 seconds\nOutput:\n' if route == 'shell' else ''
+    output = outer + 'Exit code: 0\nWall time: 0 seconds\nOutput:\n' + body
+    records[5]['payload']['output'] = output
+    projected = verify_patch_fixture(tmp_path, records, stdout)
+    visible = next(row for row in projected if row['event'] == 'model_visible_result')
+    assert visible['output'] == output
+    assert 'exit_code' not in visible
+    for corrupted in (output.replace('Exit code: 0', 'Exit code: 1'), output + 'unbound'):
+        records[5]['payload']['output'] = corrupted
+        with pytest.raises(ValueError):
+            verify_patch_fixture(tmp_path, records, stdout)
+
+
 @pytest.mark.parametrize('route', ['shell', 'text', 'content'])
 @pytest.mark.parametrize('status', ['completed', 'failed', 'declined'])
 def test_native_patch_capture_preserves_typed_inputs_outputs_and_status(tmp_path, route, status):

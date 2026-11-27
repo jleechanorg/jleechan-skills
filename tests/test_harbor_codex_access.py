@@ -355,6 +355,33 @@ def test_rollout_accepts_pinned_paginated_envelopes_and_scans_response_metadata(
             access.sanitize_bytes(jsonl(records[0], invalid, *records[2:]), (ACCOUNT,), 'native_rollout')
 
 
+def test_rollout_accepts_pinned_native_metadata_without_releasing_private_identifiers():
+    header, turn, first, second, finish, end = assistant_fragments('clean ', 'evidence')
+    header['payload']['creator_account_id'] = ACCOUNT
+    response = rollout('response_item', type='message', role='assistant',
+                       content=[{'type': 'output_text', 'text': 'evidence', 'annotations': []}])
+    identity = {'message_id': 'msg_fixture', 'turn_id': 'fake-turn', 'role': 'assistant'}
+    response['metadata'] = {'history_sequence': 2, 'sampled_through_sequence': 1,
+                            'retained_source': {'id': identity, 'revision': 'retained_fixture', 'complete': True},
+                            'user_input_order': 1, 'client_authored': False, 'model_search_state': 'unused'}
+    records = (header, turn, response, first, second, finish, end)
+    sanitized = access.sanitize_bytes(jsonl(*records), (ACCOUNT,), 'native_rollout')
+    assert json.loads(sanitized.splitlines()[0])['payload'] == {'id': 'fake-thread'}
+    assert ACCOUNT.encode() not in sanitized
+    assert json.loads(sanitized.splitlines()[2])['metadata'] == response['metadata']
+    identity['message_id'] = ACCOUNT
+    with pytest.raises(access.AccessError, match='required native evidence'):
+        access.sanitize_bytes(jsonl(*records), (ACCOUNT,), 'native_rollout')
+    identity['message_id'] = 'msg_fixture'
+    response['payload']['content'][0]['annotations'] = [{'type': 'unsupported'}]
+    with pytest.raises(access.AccessError, match='unsupported native content fragment'):
+        access.sanitize_bytes(jsonl(*records), (ACCOUNT,), 'native_rollout')
+    response['payload']['content'][0]['annotations'] = []
+    response['metadata']['unknown'] = 'value'
+    with pytest.raises(access.AccessError, match='unsupported native response metadata'):
+        access.sanitize_bytes(jsonl(*records), (ACCOUNT,), 'native_rollout')
+
+
 def test_rollout_split_secret_in_separate_escaped_records_is_withheld():
     records = assistant_fragments('fake-grant-"', '/\\-é', complete='no full literal in any record')
     raw = jsonl(*records)
