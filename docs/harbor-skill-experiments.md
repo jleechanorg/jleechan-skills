@@ -20,6 +20,17 @@ task fixture.
    dirty and untracked incident inputs as separate, hashed evidence; do not copy
    today's live checkout and call it the historical state. The export command
    rejects unsupported symlinks, submodules and LFS pointers.
+   For a constructed diagnostic, `snapshot --selection /path/to/selection.json`
+   can export only the relevant files. The selection object has `tree` (the
+   committed tree SHA), `include` (path
+   strings) and `exclude` (objects with `path` and `reason`). Use a trailing `/`
+   for directory prefixes. Every tracked path must match exactly one entry;
+   selecting a symlink, submodule or LFS pointer still fails. The exporter writes
+   a sibling `.receipt.json` with the original commit object and complete
+   tree catalog, plus selected paths and exclusions. The manifest validator
+   reconstructs the Git object hashes without the live checkout. Keep this
+   provenance receipt coordinator-side; it may contain private commit
+   metadata and paths. This is not a full snapshot.
 3. Build paired Harbor tasks with the same prompt, runtime settings, fixtures,
    verifier and regression criteria. Declare the instruction files that change.
    The adapter's initial scope is instruction-only comparisons; use the general
@@ -50,8 +61,8 @@ container environment. The adapter uses Harbor's installed Codex agent and
 passes the pinned model, agent version, effort, attempts and concurrency.
 Installing the CLI alone does not establish container or provider readiness.
 The launcher uses an isolated child home and working directory. Its supported
-provider authentication inputs are `OPENAI_API_KEY` and `CODEX_API_KEY`; it does
-not reuse the caller's Codex profile. See the
+key-mode inputs are `OPENAI_API_KEY` and `CODEX_API_KEY`; it does not reuse the
+caller's Codex profile. See the
 [environment registry](portability-env-vars.md#harbor-experiment-execution).
 The initial adapter supports single-step tasks with separate verification. It
 rejects `.harborignore` and empty task directories so its local inventory and
@@ -59,7 +70,136 @@ Harbor checksum validation have an explicit, reproducible scope.
 Its checksum compatibility check uses `dirhash==0.5.0`, Harbor's documented
 name/data hashing protocol; pin that dependency when preparing the runtime.
 
-The command sequence is:
+### Access-only baseline
+
+For a constructed baseline on Linux, opt in with runtime `auth_mode` set to
+`codex_access_only` and agent version `0.172.0`. Provide `--codex-auth-file`
+with the selected normal managed ChatGPT file and `--expected-account-fd` with
+an inherited mode `0600`, write/grow/shrink/seal-sealed Linux memfd at offset zero
+holding the account and a digest of the explicitly selected profile path, frozen
+after review and dummy qualification. Mutable file descriptors are not accepted. This establishes
+local account continuity, not external identity attestation. If the original
+reference is lost, do not select a different account or infer continuity.
+Neither an API key nor another account is a fallback. This mode relies on pinned Codex
+implementation behavior, not a public bearer-import contract. It requires
+enough access-token lifetime for the entire job plus safety margin. Harbor
+receives a private temporary derivative with an empty refresh field, never the host
+refresh grant or a mounted profile. Do not use logout to clean up the copy.
+For access-only jobs, `runtime.timeout_sec` is per attempt; the whole-job
+budget is 60 seconds plus the number of concurrency waves times the attempt
+timeout plus 180 seconds for per-wave setup, verification and drain.
+
+Before any live run, qualify the immutable image, the native Codex shim and
+the restricted inference route (including blocked refresh and revoke routes)
+with dummy credentials. Record the Harbor virtualenv identity as
+`harbor_install_sha256` in the qualification record. It binds the resolved
+launcher and interpreter, virtualenv configuration, and installed package
+bytes and modes. Access-only runs invoke the launcher with the verified
+virtualenv interpreter in isolated mode with the normal bytecode cache disabled,
+not through its shebang. The adapter checks the installation before delivering
+the derivative. Keep the qualified virtualenv stable.
+Acquire raw logs in a private `0700` holder under `/dev/shm`. The trusted host
+may have active swap; there is no swap-free or forensic-erasure guarantee.
+Only publish a separate sanitized release after writers and scoped Docker resources
+are gone and the private acquisition is removed. The access-only seal requires
+paired lifecycle events for each observed writer, using container IDs captured
+by a per-job live Docker event listener started before Harbor. It checks
+remaining container bind mounts, including mounts from outside the run's naming
+prefix, and checks the identities of volumes mounted by scoped containers even
+when the volumes have no Compose labels. An incomplete event pair, a failed listener, or a live mount withholds
+the acquisition rather than treating an empty name search as cleanup. The adapter
+unlinks the derivative when Harbor returns control, before waiting for the Docker
+seal. Once its process group and descendants are drained, a failed seal triggers
+a bounded reconciliation of Docker resources whose Compose project labels prove
+ownership in the qualified daemon. It verifies namespace and bind-mount absence
+again. A single deadline starts when Harbor returns and covers the event fence,
+Docker checks and reconciliation, staging, and private removal; no scoring
+release is published after it expires. Reconciliation never upgrades an unsealed
+acquisition to a scoring release. An unsealed
+acquisition or failed removal identifies only the local private recovery
+basename if a private holder remains. The supervisor records the exact resolved output and the actual
+launcher/process scope before launch. If the launcher dies without a receipt,
+`access_holder(experiment.case_sha256)` locates the same holder. Resolve its actual
+`acquisition-<UUID>` child before calling `staged_name(experiment, acquisition)`
+to identify the corresponding Docker scope. A retained holder
+prevents a new acquisition of the same case even with a different output directory.
+Record that attempt as unsealed, never recover
+it as a scored release, and confirm exact process and Docker quiescence before
+removing the named derivative and private holder. Leave unknown scope isolated.
+Unexpected acquisition files, nonempty private home or work directories,
+and unrecognized output roles cause withholding regardless of the file suffix.
+Unframed JSON records are not accepted as plain diagnostic logs. Native MCP
+results are checked for split values in structured content as well as text.
+The release checks known
+token values and supported serializations, not arbitrary encodings by a
+hostile subject. Check the native session's provider tag independently of the
+configured model label. Account matching before launch is not a provider
+attestation: qualification must prove that the isolated process can use only
+the matched derivative, including when it receives a provider 401. A native
+execution error invalidates the attempt even if later output claims success;
+a 401 reported by the controlled permission fixture is ordinary tool evidence.
+Post-run inventory limits do not cap the growth of the live job tree. Bound private storage during actual
+qualification; a healthy disk before launch is not a live storage quota.
+Invalid attempts are excluded
+from observed matches; retain and report the incomplete fixed cohort instead
+of miscounting infrastructure failures or substituting extra attempts. A
+successful Harbor process with missing or quarantined released results is an
+incomplete release and the `run` command exits nonzero.
+Any treatment field used only to satisfy the comparison schema is reserved
+and unrun; access-only manifests cannot launch treatment.
+Bind the qualification to the approved code bundle (`code_bundle_sha256`),
+the local Docker server ID and the exact local image
+IDs used in both `environment.docker_image` and
+`verifier.environment.docker_image`. Access-only runs use the default local
+Docker socket and Harbor's standard Compose definitions without rebuilds.
+The access-only manifest also includes `launch_policy`, a `{path, sha256}`
+reference to a reviewed `experiment-launch-policy.v1` record. Its `cases`
+map keys each case by `incident_id`; each entry binds `arm: "baseline"`, the
+exact manifest `runtime` object and the baseline `trials` count. Include this
+same reference in `code_files` before review. The generic adapter does not
+choose campaign settings.
+The qualification also records `docker_client_sha256` (the resolved Docker
+and Compose paths and bytes), `egress_image_id` (the Harbor-computed sidecar
+tag's qualified target), and `codex_binary_sha256`. Before delivery, verify
+the client chain, sidecar target and executable hashes inside the immutable
+agent image. Before upload, the Harbor job hook checks the actual running main
+and sidecar image IDs, shared network namespace and sidecar health. The recorded
+container IDs must also match the sealed Docker lifecycle. The host observes
+the actual verifier start and checks its immutable image, isolated network,
+scoped verifier-log mount and lack of auth environment variables. The sidecar tag must
+still resolve to the same image after drain.
+The local Docker event subscription remains open through descendant drain. Two
+disposable, uniquely named local volume lifecycle events bound the event stream;
+a missing end boundary withholds the run's private acquisition.
+Install the reviewed `scripts/harbor_codex_egress.py` into the task-owned
+Harbor virtual environment, not on `PYTHONPATH` (the job uses isolated mode):
+
+```bash
+site_dir=$("$HARBOR_VENV/bin/python" -I -B -c 'import sysconfig; print(sysconfig.get_path("purelib"))')
+install -m 0644 scripts/harbor_codex_egress.py "$site_dir/harbor_codex_egress.py"
+cmp scripts/harbor_codex_egress.py "$site_dir/harbor_codex_egress.py"
+```
+Pin `network_mode = "no-network"` for environment setup and both verifier
+settings, and the agent-phase allowlist to `chatgpt.com`. The immutable agent
+image must install the Codex shim at `/usr/local/bin/codex`. Set
+`environment.healthcheck.command` to `/usr/local/bin/codex --harbor-check-denied`
+with `retries = 1`: Harbor checks the setup network before agent setup and
+credential delivery. Before Harbor uploads auth, the launcher checks the live
+container namespace, confirms the initial deny policy, and reads back the
+effective allowlist for the single approved host. The shim checks the TLS route again after Harbor switches
+to the agent-phase policy and before starting Codex. Those probes are not a
+proof of all protocols or routes; the qualification must also check Harbor's
+egress implementation and test actual isolation independently, without secrets.
+The staged task name provides the Docker cleanup namespace even if Harbor
+does not write trial metadata. The trusted supervisor uses
+`freeze_account_descriptor` on the selected managed file and passes the frozen
+descriptor to the runner without putting its contents on the command line:
+
+```sh
+python3 scripts/harbor_experiment.py run /path/to/case/manifest.json --arm baseline --output /path/to/new-baseline-run --codex-auth-file /path/to/authorized/auth.json --expected-account-fd 3
+```
+
+The standard paired command sequence is:
 
 ```sh
 python3 scripts/harbor_experiment.py snapshot --repo /path/to/incident-repo --commit FULL_COMMIT_SHA --output /path/to/new-snapshot
@@ -86,10 +226,10 @@ fixtures. It records five binary metrics:
 | `task_completed` | Shared task acceptance criteria were met. |
 | `regression_failed` | A frozen regression criterion failed. |
 
-An exposure reward alone is insufficient. Retain the verifier-owned observation,
-case/arm/run identity, expected instruction hashes, raw trajectory digest and
-supporting evidence. A file merely existing in the
-container or a subject claiming to have read it does not prove exposure.
+An exposure reward alone is insufficient. Bind the verifier-owned observation
+to the case, arm, run, expected instruction hashes, native trajectory and
+supporting evidence. A file merely existing in the container or a subject
+claiming to have read it does not prove exposure.
 
 The adapter supplies `HARBOR_EXPERIMENT_CASE_SHA256`, `HARBOR_EXPERIMENT_ARM` and
 `HARBOR_EXPERIMENT_RUN_SHA256` through Harbor's verifier-only `--verifier-env`
@@ -98,12 +238,62 @@ options. The reviewed verifier reads these values and writes
 hash, arm and resolved new run directory. The case hash covers frozen experimental
 inputs. `plan` prints placeholders for the run directory and its hash.
 
-Collection checks the exact persisted verifier overrides, validates the raw
-observation and its referenced bytes, then adds a host-side record containing
-Harbor's job/trial UUIDs, the result hash and the raw observation hash. It leaves
-the job's raw files unchanged. The verifier needs no access to Harbor's internal
-UUID. Duplicate raw observations or native trajectory hashes cannot count as
-independent trials; identical final-answer text alone is not a duplicate trace.
+Collection checks the exact persisted verifier overrides. Standard runs retain
+the unmodified observation and trajectory and bind their hashes and the result
+hash to Harbor's job/trial UUIDs. Access-only runs check the raw observation
+and its references against the sealed raw bytes in private storage. The
+separate verifier receives only the credential-free native witness and fixture
+events; the host independently checks the complete workspace instruction body
+and task prompt in the native first root turn, not just their file hashes.
+Catalog entries do not prove that any selected skill body was shown to the model.
+The release includes projected
+Harbor records without raw diagnostics, validated trajectories, and evidence
+with hashes of the released bytes. Fixture events are withheld if sanitizing
+them would change their bytes. The released completion record indicates
+whether raw observation-to-rollout validation passed. The first-turn witness
+binds that observation to a rollout digest; it does not release raw acquisition
+bytes or let a later reader reconstruct or revalidate them.
+An unsafe trial is withheld with a nonsecret marker and cannot count as valid;
+other trials whose sanitized artifacts pass validation remain available.
+Container cleanup is checked for every writer that started. A trial without a
+complete agent/verifier lifecycle and a matching live egress receipt cannot
+publish a result, but does not invalidate quiescent, qualified siblings.
+An ordered, typed projection of the verified native rollout is the scoring
+trace. Native ordinals refer to positions in the private source, not rows in
+the projection. It includes observed tool calls, process outcomes, the output
+actually shown to the model, assistant messages, and the terminal answer. A
+truncated model-visible response does not establish that the model saw the
+omitted part of the full process output. A command poll is bound to its
+originating native process; it does not create a second execution result.
+Continuation chunks are released only when their order and untruncated
+contents match the execution result. Unqualified tool event forms withhold
+the trial rather than representing an incomplete trace as a behavioral result.
+Raw instruction bodies and native reasoning records are not released. If masking
+would change a retained observation, that trial is withheld instead of treating
+altered evidence as scoreable. Raw stdout/stderr, the
+native CLI stream, optional Harbor logs and its derived ATIF copy stay on the
+acquisition side; use the native CLI stream to validate lifecycle before release.
+The staged task stays private too. The launch binds its pre/post inventories;
+staged file bytes, including verifier-only inputs, do not enter the scoring release.
+Incomplete native streams cannot prove tool actions.
+The verifier receives the credential-free run, Harbor trial UUID, and native
+thread binding through the private witness. Duplicate observations
+or native trajectories cannot count as independent trials; identical
+final-answer text alone is not a duplicate trace.
+
+An access-only case must stage a private `tests/detector.md`, which must
+remain out of the agent image, prompt, and mounts. Its separate verifier returns
+only `exposure_verified`. After safe release, an independent grader reads the
+frozen detector and sanitized native trace; `collect --adjudications PATH`
+binds the result without changing Harbor output. The `harbor-semantic-cohort.v1`
+object has `case_sha256`, `arm`, `launch_sha256`, `adjudicator`, and `trials`.
+Each trial record carries `trial_id`, `result_sha256`, `trajectory_sha256`,
+`detector_sha256`, a `VALID` verdict, evidence line numbers in the sanitized
+JSONL, and binary `incident_failure`, `task_completed`, and `regression_failed`
+under `metrics`. When citing fixture events, include `fixture_evidence` with
+the released TSV's `sha256` and 1-based `lines`. Missing, invalid or mismatched judgments never enter the
+denominator. The collector checks evidence identity and line bounds, not the
+grader's semantic judgment or independence; retain the grader's output separately.
 The record's `qualified_images` comes from qualification evidence for the frozen
 configuration and is not a claim of per-trial image inspection.
 
@@ -201,7 +391,9 @@ session token counters with `--since`, `--until`, explicit `--codex-root` or
 `--claude-root`, and `--output`. Select only session IDs assigned to the run,
 including its descendants. A shared time window can include unrelated work.
 `active_sec` estimates activity from event gaps; measure elapsed wall time
-separately. Preserve raw traces alongside privacy-preserving usage summaries.
+separately. For the standard paired mode, preserve raw traces alongside
+privacy-preserving usage summaries. In access-only mode, preserve only the
+validated sanitized release; unsealed acquisition has an unknown trial census.
 
 Read the [measurement inventory](../research/skill-measurement-prior-art-2026-11-26.md)
 for existing collectors and the [OSS comparison](../research/agent-evaluation-tools-2026-11-26.md)

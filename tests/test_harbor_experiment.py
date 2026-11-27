@@ -1,13 +1,334 @@
 import hashlib
 import importlib.util
 import json
+import asyncio
 import os
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
+
+
+def test_access_job_refuses_unreadable_subtree(monkeypatch, tmp_path):
+    hidden = tmp_path / 'hidden'
+    hidden.mkdir()
+    (hidden / 'trace').write_text('fixture')
+    original = Path.iterdir
+
+    def unreadable(path):
+        if path == hidden:
+            raise PermissionError('fixture permission error')
+        return original(path)
+
+    monkeypatch.setattr(Path, 'iterdir', unreadable)
+    assert adapter.access_job_hash(tmp_path) is None
+
+
+def test_access_review_binds_egress_plugin_bytes(tmp_path):
+    code = []
+    for script in ('harbor_experiment.py', 'harbor_codex_access.py', 'harbor_codex_completion.py'):
+        data = Path(adapter.__file__).with_name(script).read_bytes()
+        (tmp_path / script).write_bytes(data)
+        code.append({'path': script, 'sha256': sha(data)})
+    experiment = SimpleNamespace(root=tmp_path, runtime={'auth_mode': adapter.ACCESS_MODE})
+    manifest = {'design_files': code[:1], 'code_files': code, 'reviews': []}
+    with pytest.raises(ValueError, match='reviewed code bundle must contain the executing adapter bytes'):
+        adapter.Experiment.check_reviews(experiment, manifest, 'fixture-coordinator')
+
+
+@pytest.mark.parametrize('changed', ['model', 'effort', 'timeout_sec', 'trials', None])
+def test_access_launch_matches_frozen_campaign_policy(changed, tmp_path):
+    runtime = {'model': 'example-model', 'effort': 'low', 'timeout_sec': 777}
+    policy = tmp_path / 'policy.json'
+    adapter.write_json(policy, {'schema': 'experiment-launch-policy.v1', 'cases': {
+        'fixture': {'arm': 'baseline', 'runtime': runtime, 'trials': 5}}})
+    requested = {**runtime}
+    if changed in runtime:
+        requested[changed] = 778 if changed == 'timeout_sec' else 'other'
+    reference = {'path': policy.name, 'sha256': sha(policy.read_bytes())}
+    if changed is None:
+        adapter.check_launch_policy(tmp_path, reference, 'fixture', requested, 5)
+    else:
+        with pytest.raises(ValueError, match='requested launch does not match frozen campaign policy'):
+            adapter.check_launch_policy(tmp_path, reference, 'fixture', requested, 6 if changed == 'trials' else 5)
+
+
+@pytest.mark.parametrize('delay,budget,expected', [(0.12, 5, 'SUCCEEDED'), (5, 0.15, 'TIMED_OUT')])
+def test_access_capture_waits_for_detached_output_writers(tmp_path, delay, budget, expected):
+    child = f'import sys,time; time.sleep({delay}); print("late"); print("late error", file=sys.stderr)'
+    parent = f'import subprocess,sys; subprocess.Popen([sys.executable,"-c",{child!r}],start_new_session=True)'
+    with (tmp_path / 'stdout').open('w+b') as stdout, (tmp_path / 'stderr').open('w+b') as stderr:
+        status, _ = adapter.invoke([sys.executable, '-c', parent], cwd=tmp_path, env=os.environ,
+                                   stdout=stdout, stderr=stderr, timeout=budget, sealed=True)
+    assert status == expected
+    assert (tmp_path / 'stdout').read_bytes() == (b'late\n' if expected == 'SUCCEEDED' else b'')
+    assert (tmp_path / 'stderr').read_bytes() == (b'late error\n' if expected == 'SUCCEEDED' else b'')
+
+
+@pytest.mark.parametrize('interrupt', [False, True])
+def test_access_capture_waits_for_detached_file_writer(tmp_path, interrupt):
+    import signal
+    import threading
+
+    child = 'from pathlib import Path; import time; time.sleep(.3); Path("late").write_bytes(b"sealed")'
+    parent = (f'import subprocess,sys; subprocess.Popen([sys.executable,"-c",{child!r}],start_new_session=True,'
+              'stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)')
+    timer = threading.Timer(.2, os.kill, (os.getpid(), signal.SIGINT)) if interrupt else None
+    try:
+        if timer:
+            timer.start()
+        with (tmp_path / 'stdout').open('w+b') as stdout, (tmp_path / 'stderr').open('w+b') as stderr:
+            status, _ = adapter.invoke([sys.executable, '-c', parent], cwd=tmp_path, env=os.environ,
+                                       stdout=stdout, stderr=stderr, timeout=5, sealed=True)
+    finally:
+        if timer:
+            timer.cancel()
+            timer.join()
+    assert status == ('INTERRUPTED' if interrupt else 'SUCCEEDED')
+    if interrupt:
+        assert not (tmp_path / 'late').exists()
+    else:
+        assert (tmp_path / 'late').read_bytes() == b'sealed'
+
+
+def test_capture_does_not_reap_a_collector_subprocess(tmp_path):
+    ready, done = threading.Event(), threading.Event()
+
+    def observe():
+        with subprocess.Popen([sys.executable, '-c', 'import sys; sys.stdin.read()'], stdin=subprocess.PIPE) as process:
+            ready.set()
+            done.wait(timeout=8)
+            process.stdin.close()
+
+    collector = threading.Thread(target=observe)
+    collector.start()
+    try:
+        assert ready.wait(timeout=2)
+        with (tmp_path / 'out').open('wb') as stdout, (tmp_path / 'err').open('wb') as stderr:
+            result, _ = adapter.invoke([sys.executable, '-c', 'print("done")'], cwd=tmp_path, env=os.environ,
+                                       stdout=stdout, stderr=stderr, timeout=1, sealed=True)
+        assert result == 'SUCCEEDED' and collector.is_alive()
+    finally:
+        done.set()
+        collector.join(timeout=9)
+
+
+def test_listener_remains_live_through_capture_and_stops_before_final_seal(tmp_path):
+    stop = threading.Event()
+    listener = threading.Thread(target=stop.wait, daemon=True)
+    listener.start()
+    try:
+        with (tmp_path / 'stdout').open('w+b') as stdout, (tmp_path / 'stderr').open('w+b') as stderr:
+            status, code = adapter.invoke([sys.executable, '-c', 'print("capture closed")'], cwd=tmp_path,
+                                          env=os.environ, stdout=stdout, stderr=stderr, timeout=3,
+                                          sealed=True)
+        assert listener.is_alive()
+        assert (tmp_path / 'stdout').read_text() == 'capture closed\n'
+    finally:
+        stop.set()
+        listener.join(timeout=1)
+    assert (status, code) == ('SUCCEEDED', 0)
+
+
+def test_reviewed_helper_executes_approved_bytes_not_preloaded_module(tmp_path, monkeypatch):
+    import py_compile
+
+    name = 'harbor_codex_review_fixture'
+    source = tmp_path / f'{name}.py'
+    source.write_text('marker = "unreviewed"\n')
+    py_compile.compile(str(source), doraise=True, invalidation_mode=py_compile.PycInvalidationMode.UNCHECKED_HASH)
+    monkeypatch.syspath_prepend(str(tmp_path))
+    approved = b'marker = "approved"\n'
+    source.write_bytes(approved)
+    imported = importlib.import_module(name)
+    assert imported.marker == 'unreviewed'
+    monkeypatch.delitem(sys.modules, name)
+    checked = adapter.checked_script_sources([source], {sha(approved)})
+    source.write_text('raise RuntimeError("changed after inspection")\n')
+    adapter.load_reviewed_helpers(checked)
+    assert importlib.import_module(name).marker == 'approved'
+
+
+@pytest.mark.parametrize('status', ['SUCCEEDED', 'INTERRUPTED', 'TIMED_OUT'])
+def test_writer_cleanup_boundary_does_not_depend_on_listener_exit(tmp_path, monkeypatch, status):
+    drained = []
+
+    def confirm(_, **_kwargs):
+        drained.append('writers drained')
+        return True
+
+    original = adapter.subprocess.Popen
+    monkeypatch.setattr(adapter, 'descendants_drained', confirm)
+    if status == 'INTERRUPTED':
+        class WaitInterrupted:
+            def __init__(self, *args, **kwargs):
+                self.process = original(*args, **kwargs)
+                self.first = True
+
+            def __getattr__(self, name):
+                return getattr(self.process, name)
+
+            def wait(self, *args, **kwargs):
+                if self.first:
+                    self.first = False
+                    raise KeyboardInterrupt
+                return self.process.wait(*args, **kwargs)
+
+        monkeypatch.setattr(adapter.subprocess, 'Popen', WaitInterrupted)
+    body = 'import time; time.sleep(4)' if status == 'TIMED_OUT' else 'print("done")'
+    with (tmp_path / 'out').open('w+b') as stdout, (tmp_path / 'err').open('w+b') as stderr:
+        result, _ = adapter.invoke([sys.executable, '-c', body], cwd=tmp_path, env=os.environ,
+                                   stdout=stdout, stderr=stderr, timeout=0.15 if status == 'TIMED_OUT' else 3,
+                                   sealed=True)
+    assert result == status
+    assert drained == ['writers drained']
+
+
+def test_docker_barrier_selects_only_its_own_ordered_events():
+    def event(identity, action):
+        return {'Type': 'volume', 'Action': action, 'Actor': {'ID': identity, 'Attributes': {'driver': 'local'}}}
+
+    first = event('start', 'destroy')
+    last = event('stop', 'destroy')
+    late = event('writer', 'destroy')
+    assert adapter.docker_fenced_events([first, late, last], 'start', 'stop') == [late]
+    assert adapter.docker_fenced_events([first, late], 'start', 'stop') is None
+    assert adapter.docker_fenced_events([last, late, first], 'start', 'stop') is None
+    assert adapter.docker_fenced_events([first, first, late, last], 'start', 'stop') is None
+
+
+def test_external_semantic_verdict_binds_detector_and_native_evidence(tmp_path):
+    trial_id = str(uuid4())
+    trace = tmp_path / 'trace.jsonl'
+    trace.write_bytes(b'{}\n{}\n{}\n')
+    detector = 'a' * 64
+    observation = {'path': 'trace.jsonl', 'sha256': sha(trace.read_bytes())}
+    row = {'trial_id': trial_id, 'trajectory_sha256': observation['sha256'],
+           'exposure': {'result_sha256': 'b' * 64}}
+    record = {'trial_id': trial_id, 'result_sha256': 'b' * 64, 'trajectory_sha256': observation['sha256'],
+              'detector_sha256': detector, 'verdict': 'VALID', 'evidence_lines': [1, 3],
+              'metrics': {'incident_failure': 1, 'task_completed': 0, 'regression_failed': 1}}
+    assert adapter.bound_semantic_verdict(record, row, detector, trace)['incident_failure'] == 1
+    fixture = tmp_path / 'fixture-events.tsv'
+    fixture.write_text('read\tstatus\n')
+    cited = {**record, 'fixture_evidence': {'sha256': sha(fixture.read_bytes()), 'lines': [1]}}
+    assert adapter.bound_semantic_verdict(cited, row, detector, trace, fixture_log=fixture)['incident_failure'] == 1
+    fixture.write_text('read\tother\n')
+    with pytest.raises(ValueError, match='fixture evidence does not match'):
+        adapter.bound_semantic_verdict(cited, row, detector, trace, fixture_log=fixture)
+    for key, value in [('trial_id', str(uuid4())), ('result_sha256', 'c' * 64), ('trajectory_sha256', 'd' * 64),
+                       ('detector_sha256', 'f' * 64), ('verdict', 'INVALID'), ('evidence_lines', [4]),
+                       ('metrics', {'incident_failure': True, 'task_completed': 0, 'regression_failed': 1})]:
+        with pytest.raises(ValueError):
+            adapter.bound_semantic_verdict({**record, key: value}, row, detector, trace)
+
+
+@pytest.mark.parametrize('fault', ['', 'image', 'namespace', 'unhealthy', 'duplicate', 'host-network', 'public', 'broad', 'route'])
+def test_harbor_agent_start_checks_actual_sidecar_before_progression(tmp_path, monkeypatch, fault):
+    import harbor_codex_egress as egress
+
+    main, sidecar = 'a' * 64, 'b' * 64
+    main_image, sidecar_image = 'sha256:' + 'c' * 64, 'sha256:' + 'd' * 64
+    trial = 'codex-' + 'e' * 24 + '__Suffix'
+    project = trial.lower() + '__env'
+    (tmp_path / trial).mkdir()
+    calls = []
+    allow = False
+
+    def query(*args):
+        nonlocal allow
+        calls.append(args)
+        if args[0] == 'ps':
+            assert f'label=com.docker.compose.project={project}' in args
+            return [main, sidecar, 'f' * 64] if fault == 'duplicate' else [main, sidecar]
+        if args[:3] == ('exec', sidecar, 'network-policy'):
+            if args[3] == 'allow':
+                assert args[4:] == ('chatgpt.com',)
+                allow = True
+                return []
+            if fault == 'public':
+                return ['mode: allow-all (transparent proxy disabled)']
+            return [*egress.POLICY_HEADER, *(['1 chatgpt.com', '2 unexpected.test'] if fault == 'broad' and allow else
+                    ['1 chatgpt.com'] if allow else ['(empty: deny all controlled TCP egress)'])]
+        if args[-1] == '--harbor-check-preupload-route':
+            assert allow and not (tmp_path / trial / egress.RECEIPT).exists()
+            if fault == 'route':
+                raise ValueError('credential-free effective route failed')
+            return []
+        return [json.dumps(row) for row in [
+            [main, main_image, True, f'container:{sidecar}' if fault != 'namespace' else 'bridge', 'main', None, []],
+            [sidecar, sidecar_image if fault != 'image' else main_image, True,
+             'host' if fault == 'host-network' else project + '_default',
+             egress.SIDECAR, 'unhealthy' if fault == 'unhealthy' else 'healthy', []],
+        ]]
+
+    class Job:
+        def on_agent_started(self, hook):
+            self.before_agent = hook
+
+    monkeypatch.setattr(egress, 'docker_lines', query)
+    plugin = egress.BindInferenceSidecar(egress_image=sidecar_image, agent_image=main_image,
+                                        scope=trial.split('__', 1)[0] + '__', run_sha256='9' * 64)
+    job = Job()
+    asyncio.run(plugin.on_job_start(job))
+    event = SimpleNamespace(trial_name=trial, result=SimpleNamespace(id=uuid4()), config=SimpleNamespace(trials_dir=tmp_path,
+                            agent=SimpleNamespace(extra_allowed_hosts=['chatgpt.com'])))
+    recorded = tmp_path / trial / egress.RECEIPT
+    if fault:
+        with pytest.raises(ValueError):
+            asyncio.run(job.before_agent(event))
+        assert not recorded.exists()
+    else:
+        asyncio.run(job.before_agent(event))
+        assert json.loads(recorded.read_bytes()) == {'project': project, 'main': main, 'sidecar': sidecar,
+                                                     'allowed_host': 'chatgpt.com'}
+        assert sum(command[-1] == '--harbor-check-preupload-route' for command in calls) == 1
+    assert calls
+
+
+def test_access_job_freeze_bounds_bytes_and_separates_observed_count(tmp_path):
+    from harbor_codex_access import MAX_ARTIFACT_BYTES
+
+    job = tmp_path / 'jobs' / 'baseline'
+    trial = job / 'trial'
+    trial.mkdir(parents=True)
+    (trial / 'result.json').write_text('{}')
+    assert adapter.access_job_hash(job)
+    with (trial / 'oversize').open('wb') as stream:
+        stream.truncate(MAX_ARTIFACT_BYTES + 1)
+    assert adapter.access_job_hash(job) is None
+    assert adapter.sealed_trial_count(tmp_path, 'baseline', 5) == 1
+    (trial / 'result.json').rename(trial / 'real.json')
+    (trial / 'result.json').symlink_to('real.json')
+    assert adapter.sealed_trial_count(tmp_path, 'baseline', 5) is None
+
+
+def test_access_inventory_does_not_apply_unisolated_job_budget_to_independent_trials(tmp_path):
+    for index in range(5):
+        trial = tmp_path / f'trial-{index}'
+        trial.mkdir()
+        for child in range(1650):
+            (trial / str(child)).mkdir()
+    assert adapter.access_job_hash(tmp_path) is None
+    _, withheld = adapter.access_job_inventory(tmp_path, isolate_trials=True)
+    assert withheld == set()
+
+
+def test_access_capture_overflow_stops_writer_without_claiming_it_is_unsealed(monkeypatch, tmp_path):
+    import harbor_codex_access
+
+    monkeypatch.setattr(harbor_codex_access, 'MAX_ARTIFACT_BYTES', 20)
+    with (tmp_path / 'stdout').open('w+b') as stdout, (tmp_path / 'stderr').open('w+b') as stderr:
+        status, _ = adapter.invoke([sys.executable, '-c', 'print("x" * 1000)'], cwd=tmp_path, env=os.environ,
+                                   stdout=stdout, stderr=stderr, timeout=5, sealed=True)
+    assert status == 'CAPTURE_INVALID'
+    assert (tmp_path / 'stdout').stat().st_size <= 20
+
 
 SCRIPT = Path(__file__).resolve().parents[1] / 'scripts' / 'harbor_experiment.py'
 
@@ -92,6 +413,85 @@ def test_snapshot_rejects_lfs_gitlink_and_output_inside_repo(tmp_path):
 
 def canonical_bytes(value):
     return json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()
+
+
+def test_selected_snapshot_accounts_for_committed_tree(tmp_path):
+    repo = tmp_path / 'repo'
+    repo.mkdir()
+    git(repo, 'init', '-q')
+    git(repo, 'config', 'user.name', 'Test')
+    git(repo, 'config', 'user.email', 'test@example.invalid')
+    (repo / 'affected.py').write_text('pinned source')
+    (repo / 'irrelevant').symlink_to('/outside-is-not-read')
+    git(repo, 'add', '.')
+    git(repo, 'commit', '-qm', 'source')
+    commit = git(repo, 'rev-parse', 'HEAD')
+    tree = git(repo, 'rev-parse', 'HEAD^{tree}')
+    blob = git(repo, 'rev-parse', 'HEAD:affected.py')
+    policy = tmp_path / 'selection.json'
+    selected = {'tree': tree, 'include': ['affected.py'],
+                'exclude': [{'path': 'irrelevant', 'reason': 'unrelated to this diagnostic'}]}
+    policy.write_text(json.dumps(selected))
+    (repo / 'affected.py').write_text('dirty bytes')
+    out = tmp_path / 'selected'
+    result = cli('snapshot', '--repo', repo, '--commit', commit, '--output', out,
+                 '--selection', policy)
+    assert result.returncode == 0, result.stderr
+    assert (out / 'affected.py').read_text() == 'pinned source'
+    assert not (out / 'irrelevant').is_symlink()
+    receipt = json.loads((tmp_path / 'selected.receipt.json').read_text())
+    assert receipt['schema'] == 'experiment-selected-snapshot.v2'
+    assert receipt['repository_tree'] == tree
+    assert receipt['selected'][0]['git_oid'] == blob
+    assert receipt['selected'][0]['git_mode'] == '100644'
+    assert receipt['excluded'] == selected['exclude']
+    receipt_path = tmp_path / 'selected.receipt.json'
+
+    def verify(pinned):
+        receipt_path.write_text(json.dumps(pinned))
+        return adapter.verify_snapshot(tmp_path, {'incident_kind': 'constructed', 'repository_commit': commit,
+            'snapshot': {'path': 'selected', 'sha256': receipt['sha256'],
+                         'selection_receipt': {'path': receipt_path.name, 'sha256': sha(receipt_path.read_bytes())}}})
+
+    assert verify(receipt) == out
+    for key, value in [('repository_tree', 'f' * 40), ('excluded', []), ('catalog', receipt['catalog'][:1])]:
+        with pytest.raises(ValueError):
+            verify({**receipt, key: value})
+    for invalid in ({**selected, 'exclude': []}, {**selected, 'tree': '0' * 40},
+                    {**selected, 'include': ['affected.py', 'irrelevant']}):
+        policy.write_text(json.dumps(invalid))
+        fail = cli('snapshot', '--repo', repo, '--commit', commit, '--output', tmp_path / 'fail',
+                   '--selection', policy)
+        assert fail.returncode != 0 and not (tmp_path / 'fail').exists()
+
+
+def test_selected_snapshot_rejects_committed_lfs_pointer_at_consumption(tmp_path):
+    repo = tmp_path / 'repo'
+    repo.mkdir()
+    git(repo, 'init', '-q')
+    git(repo, 'config', 'user.name', 'Test')
+    git(repo, 'config', 'user.email', 'test@example.invalid')
+    pointer = f'version https://git-lfs.github.com/spec/v1\noid sha256:{"a" * 64}\nsize 123\n'
+    (repo / 'asset').write_text(pointer)
+    git(repo, 'add', 'asset')
+    git(repo, 'commit', '-qm', 'pointer')
+    commit = git(repo, 'rev-parse', 'HEAD')
+    tree = git(repo, 'rev-parse', 'HEAD^{tree}')
+    selected_path = tmp_path / 'selected'
+    selected_path.mkdir()
+    (selected_path / 'asset').write_text(pointer)
+    inventory = adapter.inventory(selected_path)
+    checksum = sha(canonical_bytes(inventory))
+    selected = [{'path': 'asset', 'git_mode': '100644', 'git_oid': git(repo, 'rev-parse', 'HEAD:asset')}]
+    receipt = tmp_path / 'receipt.json'
+    receipt.write_text(json.dumps({'schema': 'experiment-selected-snapshot.v2', 'inventory': inventory,
+                          'sha256': checksum, 'repository_commit': commit, 'repository_tree': tree,
+                          'selected': selected, 'catalog': selected, 'excluded': [],
+                          'commit_object': adapter.git(repo, 'cat-file', 'commit', commit).hex()}))
+    with pytest.raises(ValueError, match='LFS pointers'):
+        adapter.verify_snapshot(tmp_path, {'incident_kind': 'constructed', 'repository_commit': commit,
+            'snapshot': {'path': 'selected', 'sha256': checksum,
+                         'selection_receipt': {'path': receipt.name, 'sha256': sha(receipt.read_bytes())}}})
 
 
 def sha(data):
@@ -275,7 +675,7 @@ def test_intervention_is_the_only_task_difference(case, change):
     assert cli('plan', case.path).returncode != 0
 
 
-@pytest.mark.parametrize('invalid', ['phase', 'terminal', 'same_seat'])
+@pytest.mark.parametrize('invalid', ['phase', 'terminal', 'same_seat', 'same_output'])
 def test_review_receipt_contents_match(case, invalid):
     review = case.manifest['reviews'][1]
     receipt_path = review['receipt']['path']
@@ -284,6 +684,9 @@ def test_review_receipt_contents_match(case, invalid):
         receipt['phase'] = 'code'
     elif invalid == 'terminal':
         receipt['output'] = case.file('approval.txt', 'OK')
+    elif invalid == 'same_output':
+        first = json.loads((case.root / case.manifest['reviews'][0]['receipt']['path']).read_bytes())
+        receipt['output'] = case.file('duplicate.txt', (case.root / first['output']['path']).read_bytes())
     else:
         review['reviewer_id'] = receipt['reviewer_id'] = 'first'
     review['receipt'] = case.json(receipt_path, receipt)
@@ -617,7 +1020,8 @@ def test_invalid_trials_do_not_reproduce(harbor, mode):
     _, _, report = harbor.collect(directory)
     assert report['status'] == 'INCOMPLETE'
     assert report['expected_trials'] == 5
-    assert report['invalid_trials'] >= 1
+    assert report['missing_trials'] + report['invalid_trials'] >= 1
+    assert report['missing_trials'] + report['invalid_trials'] + report['valid_trials'] == 5
 
 
 @pytest.mark.parametrize('mode', ['no_exposure', 'arm', 'case', 'run', 'instruction',
@@ -630,6 +1034,971 @@ def test_exposure_requires_arm_case_run_instruction_and_trajectory_bindings(harb
     assert report['status'] == 'INCOMPLETE'
     assert report['invalid_trials'] == 1
     assert report['incident_failures'] == 0
+
+
+def test_access_failure_receipt_collects_as_incomplete(tmp_path):
+    incident = SimpleNamespace(runtime={'auth_mode': adapter.ACCESS_MODE}, trials={'baseline': 5},
+                               manifest_sha256='a' * 64, case_sha256='b' * 64,
+                               incident_id='case', incident_kind='constructed')
+    output = tmp_path / 'withheld'
+    failure = adapter.emit_access_failure(incident, 'baseline', output, 'UNSEALED', None, 'harbor-codex-a234567_')
+    assert failure['private_recovery_id'] == 'harbor-codex-a234567_'
+    report, protected = adapter.assess(incident, 'baseline', output)
+    assert protected == [output]
+    assert (report['status'], report['valid_trials'], report['incident_failures']) == ('INCOMPLETE', 0, 0)
+    assert report['run_errors'] == ['UNSEALED']
+    assert report['observed_trials'] is report['missing_trials'] is report['withheld_trials'] is None
+    with pytest.raises(ValueError, match='outside retained'):
+        adapter.require_outside_retained_runs(output / 'replacement')
+
+
+@pytest.mark.parametrize('private_destination', [False, True])
+def test_access_failure_does_not_claim_zero_after_launch_or_publish_private_path(tmp_path, monkeypatch, private_destination):
+    import harbor_codex_access
+
+    incident = SimpleNamespace(runtime={'auth_mode': adapter.ACCESS_MODE, 'timeout_sec': 900, 'concurrency': 1},
+                               trials={'baseline': 5}, manifest_sha256='a' * 64, case_sha256='b' * 64,
+                               incident_id='case', incident_kind='constructed')
+    reference = tmp_path / 'reference'
+    reference.write_text('synthetic-account-reference\n')
+    reference.chmod(0o600)
+    auth = tmp_path / 'fake-auth'
+    auth.write_text('{}')
+    output = tmp_path / ('synthetic-account-reference' if private_destination else 'safe-run')
+    holder = tmp_path / 'harbor-codex-a234567_'
+    holder.mkdir()
+    incident.snapshot = tmp_path / 'frozen'
+    incident.tasks = {}
+    if private_destination:
+        output.mkdir()
+    monkeypatch.setattr(adapter, 'reserve_access_holder', lambda _: holder)
+    monkeypatch.setattr(harbor_codex_access, 'prepare_derivative', lambda *_: (b'{}', ('fake-access-token',)))
+    monkeypatch.setattr(harbor_codex_access, 'read_account_reference', lambda *_: 'synthetic-account-reference')
+    monkeypatch.setattr(harbor_codex_access, 'derivative_not_after', lambda *_: float('inf'))
+
+    def fail_after_launch(*_args, **_kwargs):
+        assert not private_destination
+        raise ValueError('seal could not be verified')
+
+    monkeypatch.setattr(adapter, 'run_harbor', fail_after_launch)
+    with reference.open('rb') as fd:
+        result = adapter.run_access(incident, 'baseline', output, auth, fd.fileno())
+    if private_destination:
+        assert result == {'status': 'ACCESS_OR_RELEASE_REJECTED', 'run_dir': None}
+        assert list(output.iterdir()) == []
+    else:
+        assert result['status'] == 'UNSEALED'
+        assert result['private_recovery_id'] == holder.name
+        assert result['withheld_trials'] is None
+        assert json.loads((output / 'launch.json').read_bytes())['withheld_trials'] is None
+    assert not (holder / 'secret').exists()
+
+
+def test_dead_launcher_leaves_owner_private_reconcilable_holder(tmp_path, monkeypatch):
+    case_sha256 = 'b' * 64
+    monkeypatch.setattr(adapter, 'ACCESS_PRIVATE_ROOT', tmp_path)
+    script = ('from pathlib import Path; import os, sys; import harbor_experiment as adapter; '
+              'adapter.ACCESS_PRIVATE_ROOT = Path(sys.argv[1]); '
+              'holder = adapter.reserve_access_holder(sys.argv[2]); '
+              'with_path = os.open(holder / "secret", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600); '
+              'os.write(with_path, b"synthetic"); os._exit(137)')
+    env = dict(os.environ, PYTHONPATH=str(Path(adapter.__file__).parent))
+    died = subprocess.run([sys.executable, '-c', script, str(tmp_path), case_sha256], env=env, check=False)
+    assert died.returncode == 137
+    holder = adapter.access_holder(case_sha256)
+    assert holder.stat().st_mode & 0o777 == 0o700
+    assert (holder / 'secret').stat().st_mode & 0o777 == 0o600
+    with pytest.raises(FileExistsError):
+        adapter.reserve_access_holder(case_sha256)
+    assert adapter.reserve_access_holder('c' * 64) != holder
+    assert (holder / 'secret').read_bytes() == b'synthetic'
+
+
+def test_unsealed_access_process_does_not_collect_partial_output(tmp_path):
+    script = ('import subprocess, sys; subprocess.Popen([sys.executable, "-c", '
+              '"import time; time.sleep(10); print(123)"])')
+    with (tmp_path / 'stdout.log').open('wb') as stdout, (tmp_path / 'stderr.log').open('wb') as stderr:
+        status, _ = adapter.invoke([sys.executable, '-c', script], cwd=tmp_path, env={},
+                                   stdout=stdout, stderr=stderr, timeout=0.3, sealed=True)
+    assert status in {'TIMED_OUT', 'UNSEALED'}
+    assert not (tmp_path / 'stdout.log').read_bytes()
+
+
+def test_access_cleanup_failure_never_publishes_scoreable_release(tmp_path, monkeypatch):
+    import harbor_codex_access
+
+    incident = SimpleNamespace(runtime={'auth_mode': adapter.ACCESS_MODE, 'timeout_sec': 900, 'concurrency': 1},
+                               trials={'baseline': 5}, manifest_sha256='a' * 64, case_sha256='b' * 64,
+                               snapshot=tmp_path / 'snapshot', tasks={})
+    reference = tmp_path / 'reference'
+    reference.write_text('synthetic-account-reference\n')
+    reference.chmod(0o600)
+    auth = tmp_path / 'fake-auth'
+    auth.write_text('{}')
+    output, holder, stage = (tmp_path / name for name in ('output', 'harbor-codex-a234567_', 'stage'))
+    for directory in (holder, stage):
+        directory.mkdir()
+    monkeypatch.setattr(adapter, 'reserve_access_holder', lambda _: holder)
+    monkeypatch.setattr(adapter.tempfile, 'mkdtemp', lambda **_: str(stage))
+    monkeypatch.setattr(harbor_codex_access, 'prepare_derivative', lambda *_: (b'{}', ('fake-access-token',)))
+    monkeypatch.setattr(harbor_codex_access, 'read_account_reference', lambda *_: 'synthetic-account-reference')
+    monkeypatch.setattr(harbor_codex_access, 'derivative_not_after', lambda *_: float('inf'))
+    monkeypatch.setattr(adapter, 'run_harbor', lambda *_, **options:
+                        options['cleanup_clock'].update(deadline=float('inf')) or {'status': 'SUCCEEDED'})
+    monkeypatch.setattr(adapter, 'release_access_run', lambda *args, **_: (args[3] / 'launch.json').write_text('{"status":"SUCCEEDED"}'))
+    remove = adapter.remove_access_directory
+
+    def refuse_private_cleanup(path, **kwargs):
+        if path == holder:
+            return False
+        return remove(path, **kwargs)
+
+    monkeypatch.setattr(adapter, 'remove_access_directory', refuse_private_cleanup)
+    with reference.open('rb') as fd:
+        result = adapter.run_access(incident, 'baseline', output, auth, fd.fileno())
+    assert result['status'] == 'ACCESS_OR_RELEASE_REJECTED'
+    assert result['private_recovery_id'] == holder.name
+    assert json.loads((output / 'launch.json').read_text())['status'] == 'ACCESS_OR_RELEASE_REJECTED'
+    assert holder.exists() and not stage.exists()
+
+
+def test_private_reference_rejects_mutable_file_and_pipe(tmp_path):
+    from harbor_codex_access import read_account_reference
+    reference = tmp_path / 'reference'
+    reference.write_text('synthetic-account-reference\n')
+    reference.chmod(0o600)
+    with reference.open('rb') as stream:
+        with pytest.raises(ValueError):
+            read_account_reference(stream.fileno(), reference)
+    read_fd, write_fd = os.pipe()
+    try:
+        os.write(write_fd, b'synthetic-account-reference')
+        with pytest.raises(ValueError):
+            read_account_reference(read_fd, reference)
+    finally:
+        os.close(read_fd)
+        os.close(write_fd)
+
+
+def test_access_failure_cleanup_does_not_disclose_private_filename(tmp_path, monkeypatch, capsys):
+    import harbor_codex_access
+    incident = SimpleNamespace(runtime={'auth_mode': adapter.ACCESS_MODE, 'timeout_sec': 900, 'concurrency': 1},
+                               trials={'baseline': 5}, manifest_sha256='a' * 64, case_sha256='b' * 64,
+                               snapshot=tmp_path / 'snapshot', tasks={})
+    reference = tmp_path / 'reference'
+    reference.write_text('synthetic-account-reference\n')
+    reference.chmod(0o600)
+    auth = tmp_path / 'fake-auth'
+    auth.write_text('{}')
+    output, holder, stage = (tmp_path / name for name in ('output', 'harbor-codex-a234567_', 'stage'))
+    for directory in (holder, stage):
+        directory.mkdir()
+    canary = 'fixture-fake-private-token'
+    (holder / canary).write_text('fixture')
+    monkeypatch.setattr(adapter, 'reserve_access_holder', lambda _: holder)
+    monkeypatch.setattr(adapter.tempfile, 'mkdtemp', lambda **_: str(stage))
+    monkeypatch.setattr(harbor_codex_access, 'prepare_derivative', lambda *_: (b'{}', (canary,)))
+    monkeypatch.setattr(harbor_codex_access, 'read_account_reference', lambda *_: 'synthetic-account-reference')
+    monkeypatch.setattr(harbor_codex_access, 'derivative_not_after', lambda *_: float('inf'))
+    monkeypatch.setattr(adapter, 'run_harbor', lambda *_, **options:
+                        options['cleanup_clock'].update(deadline=float('inf')) or {'status': 'SUCCEEDED'})
+    def reject_release(*_, **__):
+        raise ValueError('unsafe artifact path')
+    def reject_cleanup(command, **kwargs):
+        if command[-1] == str(holder):
+            raise OSError(13, 'fixture cleanup failure', str(holder / canary))
+        return invoke(command, **kwargs)
+    monkeypatch.setattr(adapter, 'release_access_run', reject_release)
+    invoke = adapter.subprocess.run
+    monkeypatch.setattr(adapter.subprocess, 'run', reject_cleanup)
+    with reference.open('rb') as fd:
+        result = adapter.run_access(incident, 'baseline', output, auth, fd.fileno())
+    capture = capsys.readouterr()
+    assert result['private_recovery_id'] == holder.name
+    assert canary not in capture.out + capture.err + (output / 'launch.json').read_text()
+
+
+def test_access_release_checks_raw_capture_but_does_not_publish_it(tmp_path):
+    private_values = ('fake-access-bearer', 'fake-account-id')
+    raw = tmp_path / 'raw'
+    task = raw / 'staged' / 'task'
+    trial = raw / 'jobs' / 'baseline' / 'trial'
+    logs = trial / 'agent'
+    for directory in (task, logs):
+        directory.mkdir(parents=True)
+    (task / 'instruction.md').write_text('Run the local fixture.')
+    (task / 'tests').mkdir()
+    (task / 'tests' / 'detector.md').write_text('Private detector')
+    (task / 'tests' / 'answer.json').write_text('{"private":true}')
+    (raw / 'stdout.log').write_text('stdout fake-access-bearer')
+    (raw / 'stderr.log').write_text('stderr fake-account-id')
+    (logs / 'completion.private.json').write_text('{"exit_code":1}')
+    (trial / 'trial.log').write_text('agent fake-account-id')
+    incident = SimpleNamespace(tasks={'baseline': task}, runtime={'model': 'gpt-example', 'effort': 'medium'},
+                               trials={'baseline': 1})
+    launch = {'staged_after': adapter.staged_inventory(raw), 'staged_before': adapter.staged_inventory(raw),
+              'job_sha256': adapter.access_job_hash(trial.parent), 'run_sha256': 'a' * 64,
+              'capture_sha256': adapter.access_capture_hashes(raw)}
+    adapter.write_json(raw / 'launch.json', launch)
+    stage = tmp_path / 'stage'
+    stage.mkdir()
+    output = tmp_path / 'released'
+    (raw / 'stdout.log').write_text('changed after capture seal')
+    with pytest.raises(ValueError, match='sealed acquisition changed'):
+        adapter.release_access_run(incident, 'baseline', raw, stage, output, private_values, launch)
+    assert not list(stage.iterdir())
+    (raw / 'stdout.log').write_text('stdout fake-access-bearer')
+    adapter.release_access_run(incident, 'baseline', raw, stage, output, private_values, launch)
+    assert not (stage / 'stdout.log').exists()
+    assert not (stage / 'stderr.log').exists()
+    assert not (stage / 'staged').exists()
+    retained = stage / 'jobs' / 'baseline' / 'trial' / 'agent'
+    assert not (retained.parent / 'trial.log').exists()
+    assert not (retained / 'completion.private.json').exists()
+    proof = json.loads((retained / 'completion.json').read_bytes())
+    assert proof == {'verified': False, 'thread_id': None, 'raw_observation_verified': False}
+    record = json.loads((stage / 'launch.json').read_bytes())
+    assert record['retained_root'] == str(output)
+    assert record['release_status'] == 'INCOMPLETE'
+    assert record['verified_native_trials'] == 0
+    assert record['job_sha256'] == adapter.tree_hash_if_available(retained.parent.parent)
+    (task / 'instruction.md').write_text('Fixture with fake-access-bearer')
+    launch['staged_before'] = launch['staged_after'] = adapter.staged_inventory(raw)
+    launch['job_sha256'] = adapter.access_job_hash(trial.parent)
+    launch['capture_sha256'] = adapter.access_capture_hashes(raw)
+    launch.pop('retained_root')
+    launch.pop('release_status')
+    adapter.write_json(raw / 'launch.json', launch, replace=True)
+    fresh = tmp_path / 'unsafe-stage'
+    fresh.mkdir()
+    with pytest.raises(ValueError, match='private value remains'):
+        adapter.release_access_run(incident, 'baseline', raw, fresh, output, private_values, launch)
+    assert not (fresh / 'staged' / 'task' / 'instruction.md').exists()
+    assert not output.exists()
+
+
+def test_release_cannot_use_observation_for_unrelated_native_trace(monkeypatch, tmp_path):
+    import harbor_codex_completion
+
+    private_values = ('fake-access-bearer',)
+    raw = tmp_path / 'raw'
+    task = raw / 'staged' / 'task'
+    agent = raw / 'jobs' / 'baseline' / 'trial' / 'agent'
+    agent.mkdir(parents=True)
+    task.mkdir(parents=True)
+    (task / 'instruction.md').write_text('Run the local fixture.')
+    (agent / 'completion.private.json').write_text(json.dumps({'exit_code': 0, 'sha256': 'a' * 64}))
+    incident = SimpleNamespace(tasks={'baseline': task}, runtime={'model': 'gpt-example', 'effort': 'medium'},
+                               trials={'baseline': 1})
+    launch = {'staged_before': adapter.staged_inventory(raw), 'staged_after': adapter.staged_inventory(raw),
+              'job_sha256': adapter.access_job_hash(agent.parent.parent), 'run_sha256': 'b' * 64,
+              'capture_sha256': adapter.access_capture_hashes(raw)}
+    adapter.write_json(raw / 'launch.json', launch)
+    monkeypatch.setattr(harbor_codex_completion, 'verify_completion',
+                        lambda *args: ('thread', 'a' * 64, agent / 'sessions' / 'rollout.jsonl'))
+    monkeypatch.setattr(adapter, 'check_observation', lambda *args, **kwargs: ({}, 'b' * 64))
+    stage = tmp_path / 'sealed'
+    stage.mkdir()
+    adapter.release_access_run(incident, 'baseline', raw, stage, tmp_path / 'out', private_values, launch)
+    receipt = json.loads((stage / agent.relative_to(raw) / 'completion.json').read_bytes())
+    assert receipt['verified'] and not receipt['raw_observation_verified']
+
+
+def test_access_namespace_is_bound_to_acquisition(tmp_path):
+    experiment = SimpleNamespace(case_sha256='a' * 64, runtime={'auth_mode': adapter.ACCESS_MODE})
+    first, second = (adapter.staged_name(experiment, tmp_path / name) for name in ('first', 'second'))
+    assert first != second
+    assert adapter.staged_name(experiment, tmp_path / 'first') == first
+
+
+@pytest.mark.parametrize('copy_at_wrong_path,malformed_result,missing_egress,private_trace,fixture_fault', [
+    (False, False, False, False, ''), (True, False, False, False, ''), (False, True, False, False, ''),
+    (False, False, True, False, ''), (False, False, False, True, ''),
+    (False, False, False, False, 'private_tsv'), (False, False, False, False, 'missing_native_control'),
+    (False, False, False, False, 'unsealable_sibling'), (False, False, False, False, 'stale_witness'),
+    (False, False, False, False, 'ineligible_duplicate'),
+])
+def test_access_release_scopes_jobs_and_withholds_only_malformed_trial(monkeypatch, tmp_path, copy_at_wrong_path,
+                                                                       malformed_result, missing_egress,
+                                                                       private_trace, fixture_fault):
+    import harbor_codex_completion
+
+    raw = tmp_path / 'raw'
+    incident = SimpleNamespace(runtime={'model': 'gpt-example', 'effort': 'medium', 'auth_mode': adapter.ACCESS_MODE,
+                                       'agent': 'codex', 'agent_version': '0.172.0'}, case_sha256='b' * 64,
+                               trials={'baseline': 2}, task_names={'baseline': 'task'}, images={'baseline': {}},
+                               run_sha256=lambda arm, directory: 'a' * 64,
+                               verifier_env=lambda arm, run: {'HARBOR_EXPERIMENT_ARM': arm})
+    namespace = adapter.staged_name(incident, raw)
+    task = raw / 'staged' / namespace
+    job = raw / 'jobs' / 'baseline'
+    good = job / 'good'
+    bad = job / 'bad'
+    for directory in (task, bad / 'agent', good / 'agent', good / 'verifier'):
+        directory.mkdir(parents=True)
+    (task / 'instruction.md').write_text('Run the local fixture.')
+    control = task / 'environment' / 'workspace' / 'AGENTS.md'
+    control.parent.mkdir(parents=True)
+    control.write_text('fixture control\n')
+    (bad / 'result.json').write_text('{}')
+    (bad / 'agent' / 'codex.txt').write_text('unterminated native record')
+    rollout = good / 'agent' / 'sessions' / '2026/11/26/rollout-unit.jsonl'
+    rollout.parent.mkdir(parents=True)
+    thread = str(uuid4())
+    records = [
+        {'type': 'session_meta', 'payload': {'id': thread, 'cli_version': '0.172.0', 'model_provider': 'openai'}},
+        {'type': 'event_msg', 'payload': {'type': 'task_started', 'turn_id': 'root', 'root_turn_id': 'root'}},
+        {'type': 'response_item', 'payload': {'type': 'message', 'role': 'user', 'content': [{
+            'type': 'input_text', 'text': '# AGENTS.md instructions for /workspace\n\n<INSTRUCTIONS>\nfixture control\n\n</INSTRUCTIONS>'}],
+            'internal_chat_message_metadata_passthrough': {'turn_id': 'root', 'content_item_kinds': ['agents_md.instructions']}}},
+        {'type': 'turn_context', 'payload': {'cwd': '/workspace', 'turn_id': 'root', 'root_turn_id': 'root',
+                                            'model': 'gpt-example', 'effort': 'medium'}},
+        {'type': 'response_item', 'payload': {'type': 'message', 'role': 'user', 'content': [{
+            'type': 'input_text', 'text': 'Run the local fixture.'}], 'internal_chat_message_metadata_passthrough': {
+                'turn_id': 'root', 'content_item_kinds': ['user.text']}}},
+        {'type': 'response_item', 'payload': {'type': 'message', 'role': 'assistant', 'content': [{
+            'type': 'output_text', 'text': 'usable result'}]}},
+        {'type': 'event_msg', 'payload': {'type': 'agent_message',
+                                         'message': 'fake-access-bearer' if private_trace else 'usable result'}},
+        {'type': 'event_msg', 'payload': {'type': 'item_completed', 'thread_id': thread, 'turn_id': 'root',
+             'item': {'id': 'answer', 'type': 'AgentMessage', 'phase': 'final_answer',
+                      'content': [{'type': 'Text', 'text': 'usable result'}]}}},
+        {'type': 'event_msg', 'payload': {'type': 'task_complete', 'turn_id': 'root'}},
+    ]
+    if fixture_fault == 'missing_native_control':
+        records.pop(2)
+    rollout.write_bytes(b''.join(adapter.canonical({'timestamp': '2026-11-26T12:00:00Z', **record}) + b'\n'
+                                 for record in records))
+    raw_trace = good / 'agent' / 'copy.log' if copy_at_wrong_path else rollout
+    if copy_at_wrong_path:
+        raw_trace.write_bytes(rollout.read_bytes())
+    reference = {'path': raw_trace.relative_to(good).as_posix(), 'sha256': sha(rollout.read_bytes())}
+    records = adapter.staged_inventory(raw, namespace)
+    incident.tasks = {'baseline': task}
+    incident.intervention_paths = [control.relative_to(task).as_posix()]
+    incident.inventories = {'baseline': {row['path']: row for row in records}}
+    timestamp = '2026-11-26T12:00:00Z'
+    timing = {'started_at': timestamp, 'finished_at': timestamp}
+    harbor_config = {'trial_name': good.name, 'trials_dir': str(job), 'job_id': str(uuid4()),
+        'task': {'path': str(task)}, 'agent': {'name': 'codex', 'model_name': 'gpt-example',
+        'kwargs': {'version': '0.172.0', 'reasoning_effort': 'medium', 'config_source': adapter.ACCESS_AGENT_CONFIG},
+        'extra_allowed_hosts': ['chatgpt.com']}, 'verifier': {'env': {'HARBOR_EXPERIMENT_ARM': 'baseline'}}}
+    result = {} if malformed_result else {
+        'id': str(uuid4()), 'task_name': 'task', 'trial_name': good.name, 'trial_uri': good.as_uri(),
+        'task_id': {'path': str(task)}, 'task_checksum': adapter.harbor_checksum(records), 'config': harbor_config,
+        'agent_info': {'name': 'codex', 'version': '0.172.0', 'model_info': {'name': 'gpt-example'}},
+        'agent_execution': timing, 'verifier_environment_mode': 'separate',
+        'verifier_result': {'rewards': {'exposure_verified': 1}}, 'exception_info': None, **timing}
+    adapter.write_json(good / 'result.json', result)
+    adapter.write_json(good / 'config.json', harbor_config)
+    adapter.write_json(good / 'access-egress.json', {'project': 'good__env', 'main': '1' * 64, 'sidecar': '2' * 64,
+                                                   'allowed_host': 'chatgpt.com'})
+    fixture_log = good / 'artifacts' / 'approved' / 'fixture-events.tsv'
+    fixture_log.parent.mkdir(parents=True)
+    fixture_log.write_text('read\t' + ('fake-access-bearer' if fixture_fault == 'private_tsv' else 'status') + '\n')
+    witness = fixture_log.with_name('exposure.json')
+    adapter.write_json(witness, {'trial': good.name, 'trial_id': result.get('id'), 'thread_id': thread,
+        'run_sha256': ('d' if fixture_fault == 'stale_witness' else 'a') * 64, 'raw_rollout_sha256': reference['sha256'],
+        'first_turn': {'turn_id': 'root', 'instructions': [2, 0], 'task_input': [4, 0]},
+        'control_sha256': sha(control.read_bytes()), 'prompt_sha256': sha((task / 'instruction.md').read_bytes())})
+    observation = good / 'verifier' / 'exposure-observation.json'
+    observation.write_text(json.dumps({'schema': 'experiment-exposure-observation.v1', 'arm': 'baseline',
+                                       'case_sha256': 'b' * 64, 'run_sha256': 'a' * 64,
+                                       'trial': good.name, 'trial_id': result.get('id'), 'thread_id': thread,
+                                       'instructions': [{'path': control.relative_to(task).as_posix(),
+                                                         'sha256': sha(control.read_bytes())}],
+                                       'trajectory': reference, 'evidence': [{'path': witness.relative_to(good).as_posix(),
+                                                                             'sha256': sha(witness.read_bytes())}]}))
+    native_digest = reference['sha256']
+    (good / 'agent' / 'completion.private.json').write_text(json.dumps({'exit_code': 0, 'sha256': native_digest}))
+    original_bad_digest = 'f' * 64
+    (bad / 'agent' / 'completion.private.json').write_text(json.dumps({'exit_code': 0, 'sha256': original_bad_digest}))
+    (raw / 'stdout.log').write_text(original_bad_digest)
+    (good / 'trial.log').write_text(native_digest)
+    if fixture_fault == 'unsealable_sibling':
+        (bad / 'unreadable.json').symlink_to(tmp_path / 'absent')
+    def verified(receipt, *_):
+        if good in receipt.parents or fixture_fault == 'ineligible_duplicate':
+            return thread, native_digest, rollout
+        raise ValueError('copied rollout changed')
+
+    monkeypatch.setattr(harbor_codex_completion, 'verify_completion', verified)
+    launch = {'staged_after': records, 'staged_before': records,
+              'job_sha256': adapter.access_job_inventory(job, isolate_trials=True)[0], 'run_sha256': 'a' * 64,
+              'docker_sealed_resources': {'eligible_trials': [] if missing_egress else [good.name]},
+              'capture_sha256': adapter.access_capture_hashes(raw)}
+    adapter.write_json(raw / 'launch.json', launch)
+    sibling = job.parent / 'unexpected.log'
+    sibling.write_text('unexpected')
+    stage = tmp_path / 'stage'
+    stage.mkdir()
+    with pytest.raises(ValueError, match='unexpected job scope'):
+        adapter.release_access_run(incident, 'baseline', raw, stage, tmp_path / 'out', ('fake-access-bearer',), launch)
+    assert not list(stage.iterdir())
+    sibling.unlink()
+    unexpected = raw / 'work' / 'unrecognized.bin'
+    unexpected.parent.mkdir()
+    unexpected.write_bytes(b'fixture')
+    with pytest.raises(ValueError, match='unexpected private work output'):
+        adapter.release_access_run(incident, 'baseline', raw, stage, tmp_path / 'out', ('fake-access-bearer',), launch)
+    assert not list(stage.iterdir())
+    unexpected.unlink()
+    adapter.release_access_run(incident, 'baseline', raw, stage, tmp_path / 'out', ('fake-access-bearer',), launch)
+    retained_bad = stage / bad.relative_to(raw)
+    assert sorted(path.name for path in retained_bad.iterdir()) == ['access-withheld.json']
+    assert json.loads((retained_bad / 'access-withheld.json').read_bytes()) == {'result_present': True}
+    assert not (stage / 'stdout.log').exists()
+    assert launch['release_status'] == 'INCOMPLETE'
+    if copy_at_wrong_path or malformed_result or missing_egress or private_trace or fixture_fault == 'private_tsv':
+        assert sorted(path.name for path in (stage / good.relative_to(raw)).iterdir()) == ['access-withheld.json']
+        assert launch['verified_native_trials'] == 0
+        return
+    retained_rollout = stage / rollout.relative_to(raw)
+    assert b'usable result' in retained_rollout.read_bytes()
+    assert b'fixture control' not in retained_rollout.read_bytes()
+    if fixture_fault in ('missing_native_control', 'stale_witness'):
+        assert not (stage / observation.relative_to(raw)).exists()
+        assert launch['verified_native_trials'] == 0
+        return
+    retained_observation = json.loads((stage / observation.relative_to(raw)).read_bytes())
+    assert retained_observation['trajectory']['sha256'] == sha(retained_rollout.read_bytes())
+    retained_result = stage / (good / 'result.json').relative_to(raw)
+    assessed = adapter.check_trial(incident, 'baseline', retained_result.parent, raw, result['task_checksum'],
+        harbor_config['job_id'], json.loads(retained_result.read_bytes()), sha(retained_result.read_bytes()))
+    assert assessed['exposure']['observation']['sha256'] == sha((stage / observation.relative_to(raw)).read_bytes())
+    assert assessed['trajectory_sha256'] == sha(retained_rollout.read_bytes())
+    assert not (stage / good.relative_to(raw) / 'trial.log').exists()
+
+
+def test_release_projects_diagnostics_without_dropping_valid_runtime_metrics():
+    result_path = Path('jobs/baseline/trial/result.json')
+    payload = {'id': 'fixture', 'agent_result': {'n_input_tokens': 21, 'diagnostic': {'parts': ['pri', 'vate']}},
+               'exception_info': {'exception_type': 'Cancelled', 'exception_message': 'sample secret',
+                                  'exception_traceback': 'private backtrace'}, 'unknown': {'unsafe': 'data'}}
+    actual = adapter.access_json_projection(result_path, payload)
+    assert actual == {'id': 'fixture', 'agent_result': {'n_input_tokens': 21},
+                      'exception_info': {'exception_type': 'Cancelled'}}
+    with pytest.raises(ValueError):
+        adapter.access_json_projection(Path('jobs/baseline/config.json'), {'agents': [{'mcp_servers': {'external': {}}}]})
+    with pytest.raises(ValueError):
+        adapter.access_json_projection(Path('jobs/baseline/config.json'), {'agents': [{'kwargs': {
+            'config_source': {**adapter.ACCESS_AGENT_CONFIG, 'chatgpt_base_url': 'https://fixture.invalid/'}}}]})
+
+
+def test_live_verifier_identity_requires_expected_image_offline_mounts_and_no_credentials(tmp_path, monkeypatch):
+    from harbor_codex_egress import OFFLINE_POLICY, SIDECAR
+
+    main, image, sidecar = '2'*64, 'sha256:' + '3'*64, 'sha256:' + '4'*64
+    prefix = 'owned__'
+    job = tmp_path / 'jobs' / 'baseline'
+    source = job / 'owned__Case' / 'verifier'
+    source.mkdir(parents=True)
+    event = {'Type': 'container', 'Action': 'start', 'Actor': {'ID': main, 'Attributes': {
+        'com.docker.compose.project': 'owned__case__verifier__task', 'com.docker.compose.service': 'main'}}}
+    record = [main, image, True, 'none', 'main', None, [
+        {'Type': 'bind', 'Source': str(source), 'Destination': '/logs/verifier'}]]
+    flags = []
+
+    def inspect(_env, *argv, **_):
+        return ''.join(flags) if 'CODEX_AUTH_JSON_PATH' in argv[-2] else json.dumps(record)
+
+    monkeypatch.setattr(adapter, 'docker_query', inspect)
+    qualify = lambda: adapter.verifier_start_identity({}, event, prefix, job, image, sidecar)
+    assert qualify() is None
+    flags.append('present')
+    assert qualify() is None
+    flags.clear()
+    record[3] = 'bridge'
+    assert qualify() is None
+    record[3] = 'none'
+    record[-1][0]['Type'] = 'volume'
+    assert qualify() is None
+    record[-1] = []
+    record[1] = sidecar
+    assert qualify() is None
+    project = event['Actor']['Attributes']['com.docker.compose.project']
+    sidecar_id = '8' * 64
+    record[1] = image
+    record[3] = 'container:' + sidecar_id
+    label = [project]
+    effective = OFFLINE_POLICY.copy()
+
+    def sidecar_query(_env, *argv, **_):
+        if argv[0] == 'exec':
+            return '\n'.join(effective)
+        if 'CODEX_AUTH_JSON_PATH' in argv[-2]:
+            return ''
+        if 'com.docker.compose.project' in argv[-2]:
+            return project if argv[-1] == main else label[0]
+        return json.dumps(record if argv[-1] == main else
+                          [sidecar_id, sidecar, True, project + '_default', SIDECAR, 'healthy', []])
+
+    monkeypatch.setattr(adapter, 'docker_query', sidecar_query)
+    assert qualify() == main
+    effective[-1] = 'chatgpt.com'
+    assert qualify() is None
+    effective[:] = OFFLINE_POLICY
+    label[0] = 'unrelated'
+    assert qualify() is None
+
+
+def test_access_release_format_rejects_unbound_plaintext_transcript():
+    with pytest.raises(ValueError, match='unrecognized retained output role'):
+        adapter.retained_native_format(Path('jobs/baseline/trial/agent/renamed.txt'))
+    assert adapter.retained_native_format(Path('jobs/baseline/trial/verifier/test-stdout.txt')) is None
+    assert adapter.retained_native_format(Path('jobs/baseline/trial/agent/codex.txt')) is None
+
+
+@pytest.mark.parametrize('result_present', [True, False, 'invalid_duplicate'])
+def test_access_collection_counts_valid_siblings_of_withheld_trial(monkeypatch, tmp_path, result_present):
+    grade_path = tmp_path / 'cohort.json'
+    tmp_path = tmp_path / 'release'
+    native = Path('/dev/shm/harbor-codex-a234567_/acquisition-' + '1' * 32)
+    experiment = SimpleNamespace(runtime={'auth_mode': adapter.ACCESS_MODE, 'harbor_version': '0.25.0',
+                                          'agent_version': '0.172.0', 'agent': 'codex', 'model': 'gpt-example',
+                                          'effort': 'medium', 'concurrency': 1},
+                                 case_sha256='a' * 64, manifest_sha256='b' * 64, incident_id='fixture',
+                                 incident_kind='constructed', trials={'baseline': 5},
+                                 harbor_install_sha256='c' * 64, docker_client_sha256='d' * 64,
+                                 egress_image_id='sha256:' + 'e' * 64,
+                                 run_sha256=lambda *_: 'f' * 64, verifier_env=lambda *_: {})
+    scope = adapter.staged_name(experiment, native)
+    staged = tmp_path / 'staged' / scope
+    staged.mkdir(parents=True)
+    (staged / 'instruction.md').write_text('Run the fixture.\n')
+    (staged / 'tests').mkdir()
+    (staged / 'tests' / 'detector.md').write_text('Private semantic rubric.\n')
+    records = adapter.staged_inventory(tmp_path, scope)
+    for path in (staged / 'tests' / 'detector.md', staged / 'instruction.md'):
+        path.unlink()
+    for path in (staged / 'tests', staged, staged.parent):
+        path.rmdir()
+    experiment.inventories = {'baseline': {item['path']: item for item in records}}
+    job = tmp_path / 'jobs' / 'baseline'
+    grades = []
+    for ordinal in range(5):
+        trial = job / f'{scope}__{ordinal}'
+        trial.mkdir(parents=True)
+        if ordinal == 4 and result_present == 'invalid_duplicate':
+            adapter.write_json(trial / 'result.json', {'id': grades[0]['trial_id'], 'invalid_test_result': True})
+        elif ordinal == 4:
+            adapter.write_json(trial / 'access-withheld.json', {'result_present': result_present})
+        else:
+            trial_id = str(uuid4())
+            adapter.write_json(trial / 'result.json', {'id': trial_id})
+            trace = trial / 'trace.jsonl'
+            trace.write_text(json.dumps({'semantic_trial': ordinal}) + '\n')
+            observation = trial / adapter.OBSERVATION_PATH
+            observation.parent.mkdir()
+            adapter.write_json(observation, {'trajectory': {'path': 'trace.jsonl'}})
+            grades.append({'trial_id': trial_id, 'result_sha256': sha((trial / 'result.json').read_bytes()),
+                           'trajectory_sha256': sha(trace.read_bytes()), 'verdict': 'VALID', 'evidence_lines': [1],
+                           'detector_sha256': experiment.inventories['baseline'][adapter.PRIVATE_DETECTOR]['sha256'],
+                           'metrics': {'incident_failure': int(ordinal == 0), 'task_completed': 1, 'regression_failed': 0}})
+    command = '/fixture/bin/harbor'
+    experiment.argv = lambda *_, command_prefix: [*command_prefix, command, 'run']
+    adapter.write_json(job / 'config.json', {'job_name': 'baseline', 'jobs_dir': str(native / 'jobs'),
+                       'n_attempts': 5, 'n_concurrent_trials': 1, 'tasks': [{'path': str(native / 'staged' / scope)}],
+                       'agents': [{'name': 'codex', 'model_name': 'gpt-example', 'extra_allowed_hosts': ['chatgpt.com'],
+                                   'kwargs': {'version': '0.172.0', 'reasoning_effort': 'medium',
+                                              'config_source': adapter.ACCESS_AGENT_CONFIG}}], 'verifier': {'env': {}}})
+    adapter.write_json(job / 'result.json', {'id': str(uuid4()), 'n_total_trials': 5, 'finished_at': None,
+                       'stats': {'n_completed_trials': 4, 'n_cancelled_trials': 1}})
+    def check_trial(_experiment, _arm, trial, _native, _checksum, _job, result, result_sha):
+        if result.get('invalid_test_result'):
+            raise ValueError('invalid sibling observation')
+        return {'rewards': {'exposure_verified': 1}, 'trajectory_sha256': sha((trial / 'trace.jsonl').read_bytes()),
+                'exposure': {'result_sha256': result_sha,
+                             'observation': {'sha256': sha(str(trial).encode())}}}
+
+    monkeypatch.setattr(adapter, 'check_trial', check_trial)
+    launch = {'schema': adapter.LAUNCH_SCHEMA, 'run_dir': str(native), 'retained_root': str(tmp_path),
+              'run_sha256': experiment.run_sha256(), 'arm': 'baseline', 'runtime': experiment.runtime,
+              'manifest_sha256': experiment.manifest_sha256, 'case_sha256': experiment.case_sha256,
+              'argv': experiment.argv(command_prefix=['/fixture/bin/python', *adapter.ACCESS_PYTHON_FLAGS]),
+              'task_sha256': adapter.digest(adapter.canonical(records)), 'status': 'INTERRUPTED',
+              'exit_code': -15, 'cleanup': 'docker_sealed', 'harbor_version': '0.25.0',
+              'staged_before': records, 'staged_after': records, 'harbor_install_sha256': experiment.harbor_install_sha256,
+              'docker_client_sha256': experiment.docker_client_sha256, 'egress_image_id': experiment.egress_image_id,
+              'release_status': 'INCOMPLETE', 'docker_scope': scope + '__',
+              'docker_sealed_resources': {'trial_projects': 5, 'container': 20,
+                                           'started_trials': sorted(f'{scope}__{index}' for index in range(5)),
+                                           'eligible_trials': sorted(f'{scope}__{index}' for index in
+                                                                     range(5 if result_present == 'invalid_duplicate' else 4))},
+              'job_sha256': adapter.tree_hash_if_available(job), 'capture_sha256': adapter.access_capture_hashes(tmp_path)}
+    adapter.write_json(tmp_path / 'launch.json', launch)
+
+    missing, _ = adapter.assess(experiment, 'baseline', tmp_path)
+    assert missing['valid_trials'] == 0
+    assert sum('independent semantic verdict not delivered' in row['errors'] for row in missing['trials']) == 4
+    adapter.write_json(grade_path, {'schema': 'harbor-semantic-cohort.v1', 'case_sha256': experiment.case_sha256,
+                                   'arm': 'baseline', 'launch_sha256': sha((tmp_path / 'launch.json').read_bytes()),
+                                   'adjudicator': 'synthetic-test', 'trials': grades})
+    unbound = experiment.inventories['baseline'].pop(adapter.PRIVATE_DETECTOR)
+    rows, _ = adapter.trial_reports(experiment, 'baseline', tmp_path, native, launch['job_sha256'], [])
+    assert sum('frozen detector is missing' in row['errors'] for row in rows) == 4
+    experiment.inventories['baseline'][adapter.PRIVATE_DETECTOR] = unbound
+    report, _ = adapter.assess(experiment, 'baseline', tmp_path, grade_path)
+
+    assert report['status'] == 'INCOMPLETE'
+    assert (report['observed_trials'], report['valid_trials'], report['invalid_trials']) == (5, 4, 1)
+    assert (report['withheld_trials'], report['incident_failures'], report['run_errors']) == (int(result_present is True), 1, [])
+    assert all(row['native_started'] for row in report['trials'])
+
+
+def test_access_quiescence_detects_resources_without_trial_metadata(monkeypatch, tmp_path):
+    def query(env, *args):
+        return 'unrelated\nbaseline-test-long__orphan_default' if args[0] == 'network' else 'other'
+
+    monkeypatch.setattr(adapter, 'docker_query', query)
+    assert not adapter.docker_quiescent('baseline-test-long__', {'HOME': str(tmp_path)})
+    assert adapter.docker_quiescent('another-test-long__', {'HOME': str(tmp_path)})
+
+
+@pytest.mark.parametrize('later_mount', [False, True])
+def test_access_cleanup_removes_only_verified_compose_scope(monkeypatch, tmp_path, later_mount):
+    prefix = 'codex-' + 'a' * 24 + '__'
+    owned = prefix + 'trial__env'
+    sibling = 'codex-' + 'b' * 24 + '__trial__env'
+    resources = {kind: {kind + '-owned': owned, kind + '-sibling': sibling}
+                 for kind in ('container', 'network', 'volume')}
+    transcript = []
+
+    def fake_query(env, *argv, timeout=10):
+        assert 0 < timeout <= 10
+        transcript.append(argv)
+        kind = argv[0]
+        if kind == 'info':
+            return 'qualified-daemon'
+        if kind == 'inspect':
+            kind = argv[2]
+            if argv[4] == '{{json .Mounts}}':
+                return '\n'.join(json.dumps([{'Source': str(tmp_path)}] if later_mount else [])
+                                 for identity in argv[5:])
+            return '\n'.join(json.dumps({'com.docker.compose.project': resources[kind][identity]})
+                             for identity in argv[5:])
+        if kind in ('ps', 'rm'):
+            kind = 'container'
+        if 'rm' in argv:
+            assert argv[-1] == kind + '-owned'
+            del resources[kind][argv[-1]]
+            return ''
+        if '--format' in argv:
+            return '\n'.join(resources[kind].values())
+        return '\n'.join(resources[kind])
+
+    monkeypatch.setattr(adapter, 'docker_query', fake_query)
+    assert adapter.reconcile_access_docker(prefix, {}, tmp_path, 'wrong-daemon') is False
+    assert len(transcript) == 1
+    assert adapter.reconcile_access_docker(prefix, {}, tmp_path, 'qualified-daemon') is not later_mount
+    assert all(list(groups.values()) == [sibling] for groups in resources.values())
+    assert [argv[0] for argv in transcript if 'rm' in argv] == ['rm', 'network', 'volume']
+
+
+def test_access_interruption_unlinks_before_docker_reconciliation(monkeypatch, tmp_path):
+    task = tmp_path / 'fixture'
+    task.mkdir()
+    (task / 'task.toml').write_text('version = "1"\n')
+    secret = tmp_path / 'secret'
+    secret.write_text('fake-access-file')
+    prefix = 'codex-' + 'a' * 24 + '__'
+    output = tmp_path / 'acquisition'
+    invocations = []
+    experiment = SimpleNamespace(path=tmp_path / 'manifest', snapshot=tmp_path / 'snapshot',
+                                 runtime={'auth_mode': adapter.ACCESS_MODE, 'harbor_version': '0.25.0',
+                                          'concurrency': 1, 'timeout_sec': 1},
+                                 tasks={'baseline': task}, inventories={'baseline': {'task.toml':
+                                     adapter.inventory(task, allow_empty_dirs=False)[0]}},
+                                 trials={'baseline': 1}, case_sha256='a' * 64, manifest_sha256='b' * 64,
+                                 docker_server_id='same-daemon', harbor_install_sha256='c' * 64,
+                                 docker_client_sha256='d' * 64, egress_image_id='sha256:' + 'e' * 64,
+                                 images={'baseline': {'verifier_image_digest': 'sha256:' + 'e' * 64}},
+                                 run_sha256=lambda *_: 'f' * 64,
+                                 argv=lambda *_args, **_kwargs: ['synthetic-harbor', 'run'])
+    monkeypatch.setattr(adapter.shutil, 'which', lambda *_: '/synthetic/bin/harbor')
+    monkeypatch.setattr(adapter, 'qualified_harbor_install', lambda *_: None)
+    monkeypatch.setattr(adapter, 'access_docker_env', lambda *_: {'PATH': '/usr/bin'})
+    monkeypatch.setattr(adapter, 'access_harbor_command', lambda *_: ['/synthetic/bin/harbor'])
+    monkeypatch.setattr(adapter, 'qualified_docker_prefix', lambda *_: prefix)
+    monkeypatch.setattr(adapter, 'docker_quiescent', lambda *_: True)
+    monkeypatch.setattr(adapter, 'qualified_access_executables', lambda *_: 'synthetic-egress')
+    no_op = lambda *_, **__: None
+
+    def invoke(argv, *, env, stdout, **_kwargs):
+        if argv[-1] == '--version':
+            stdout.write(b'0.25.0\n')
+            stdout.flush()
+            return 'SUCCEEDED', 0
+        assert env['CODEX_AUTH_JSON_PATH'] == str(secret) and secret.exists()
+        invocations.append('interrupted')
+        return 'INTERRUPTED', -15
+
+    def finish(**_):
+        assert not secret.exists()
+        return []
+
+    def reconcile(scope, env, acquisition, daemon, **_):
+        assert (scope, acquisition, daemon) == (prefix, tmp_path, 'same-daemon')
+        assert not secret.exists() and 'CODEX_AUTH_JSON_PATH' not in env
+        invocations.append('reconciled')
+        return True
+
+    monkeypatch.setattr(adapter, 'invoke', invoke)
+    monkeypatch.setattr(adapter, 'DockerEvents', lambda *_, **__: SimpleNamespace(
+        thread=SimpleNamespace(start=no_op), fence=no_op, first='start', finish=finish, close=no_op,
+        verified_verifiers=set()))
+    monkeypatch.setattr(adapter, 'docker_seal', lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(adapter, 'docker_fenced_volumes_clear', lambda *_: True)
+    monkeypatch.setattr(adapter, 'reconcile_access_docker', reconcile)
+    actual = adapter.run_harbor(experiment, 'baseline', output, None, derivative=secret, not_after=float('inf'))
+    assert actual['status'] == 'UNSEALED' and actual['cleanup'] == 'docker_reconciled'
+    assert invocations == ['interrupted', 'reconciled']
+    assert not secret.exists()
+
+
+def test_access_docker_seal_checks_lifecycle_ids_and_late_bind_mount(monkeypatch, tmp_path):
+    prefix = 'owned__'
+    identity = 'a' * 64
+    events = []
+    live = []
+    mounts = []
+
+    def event(action, identity, project, service):
+        return json.dumps({'Type': 'container', 'Action': action, 'Actor': {
+            'ID': identity, 'Attributes': {'com.docker.compose.project': project, 'com.docker.compose.service': service}}})
+
+    def query(env, *args, **_):
+        if args[0] == 'info':
+            return 'same-daemon'
+        if args[0] == 'events':
+            return '\n'.join(events)
+        if args[:3] == ('ps', '-aq', '--no-trunc'):
+            return '\n'.join(live)
+        if args[0] == 'inspect':
+            return json.dumps(mounts)
+        return ''
+
+    monkeypatch.setattr(adapter, 'docker_query', query)
+    def seal(expected=1, daemon='same-daemon', job=None, starts=()):
+        receipt = adapter.docker_seal(prefix, {}, tmp_path, daemon, expected, events, job=job,
+                                      verified_verifiers={'2' * 64})
+        if receipt is not None:
+            assert receipt.pop('started_trials') == list(starts)
+        return receipt
+
+    assert seal() == {'trial_projects': 0, 'eligible_trials': []}
+    events.append(event('create', identity, 'owned__case__env', 'main'))
+    assert seal() is None
+    events.append(event('destroy', identity, 'owned__case__env', 'main'))
+    assert seal() == {'container': 1, 'trial_projects': 1, 'eligible_trials': []}
+    for index, (role, service) in enumerate((('env', 'harbor-docker-egress-control-sidecar'),
+                                              ('verifier__task', 'main'),
+                                              ('verifier__task', 'harbor-docker-egress-control-sidecar')), start=1):
+        events.extend(event(action, str(index)*64, 'owned__case__' + role, service) for action in ('create', 'destroy'))
+    assert seal() == {'container': 4, 'trial_projects': 1, 'eligible_trials': []}
+    job = tmp_path / 'acquisition' / 'jobs' / 'baseline'
+    trial = job / 'owned__Case'
+    trial.mkdir(parents=True)
+    receipt = trial / 'access-egress.json'
+    proof = {'project': 'owned__case__env', 'main': identity, 'sidecar': '1' * 64, 'allowed_host': 'chatgpt.com'}
+    receipt.write_text(json.dumps(proof))
+    assert seal(job=job) == {'container': 4, 'trial_projects': 1, 'eligible_trials': []}
+    events.insert(5, event('start', '2' * 64, 'owned__case__verifier__task', 'main'))
+    assert seal(job=job) == {'container': 4, 'trial_projects': 1, 'eligible_trials': ['owned__Case']}
+    anonymous = {'Type': 'volume', 'Action': 'mount', 'Actor': {'ID': 'anonymous', 'Attributes': {'container': identity}}}
+    events.append(anonymous)
+    assert seal(job=job) is None
+    assert adapter.docker_fenced_volumes_clear(prefix, {}, events, float('inf'))
+    events.append({'Type': 'volume', 'Action': 'destroy', 'Actor': {'ID': 'anonymous', 'Attributes': {}}})
+    assert seal(job=job) == {'container': 4, 'trial_projects': 1, 'eligible_trials': ['owned__Case']}
+    receipt.write_text(json.dumps({**proof, 'sidecar': '2' * 64}))
+    assert seal(job=job) == {'container': 4, 'trial_projects': 1, 'eligible_trials': []}
+    receipt.write_text(json.dumps(proof))
+    receiptless = job / 'owned__missing'
+    receiptless.mkdir()
+    second_id = '9' * 64
+    events.extend(event(action, second_id, 'owned__missing__env', 'main') for action in ('create', 'destroy'))
+    events.insert(-1, event('start', second_id, 'owned__missing__env', 'main'))
+    assert seal(2, job=job, starts=('owned__missing',)) == {
+        'container': 5, 'trial_projects': 2, 'eligible_trials': ['owned__Case']}
+    assert seal(1, job=job) is None
+    destroyed = events[1]
+    events[1] = event('destroy', identity, 'owned__different__env', 'main')
+    assert seal() is None
+    events[1] = destroyed
+    live.append('b' * 64)
+    (tmp_path / 'jobs').mkdir()
+    alias = tmp_path.with_name(tmp_path.name + '-alias')
+    alias.symlink_to(tmp_path / 'jobs', target_is_directory=True)
+    mounts.append({'Source': str(alias / 'late-writer')})
+    assert seal() is None
+    assert seal(daemon='different-daemon') is None
+
+
+def test_access_runtime_requires_qualified_local_image_ids_and_daemon(monkeypatch, tmp_path):
+    image = 'sha256:' + 'a' * 64
+    tmp_path = tmp_path / ('codex-' + 'a' * 24)
+    tmp_path.mkdir()
+    (tmp_path / 'task.toml').write_text(
+        f'[agent]\ntimeout_sec=900\nnetwork_mode="allowlist"\nallowed_hosts=["chatgpt.com"]\n'
+        f'[environment]\ndocker_image="{image}"\nnetwork_mode="no-network"\n'
+        '[environment.healthcheck]\ncommand="/usr/local/bin/codex --harbor-check-denied"\nretries=1\n'
+        f'[verifier]\nnetwork_mode="no-network"\n[verifier.environment]\ndocker_image="{image}"\n'
+        'network_mode="no-network"\n')
+    trial = SimpleNamespace(task_names={'baseline': 'local/baseline-test-long'},
+                            runtime={'timeout_sec': 900},
+                            images={'baseline': dict.fromkeys(adapter.IMAGE_FIELDS, image)}, docker_server_id='known')
+    monkeypatch.setattr(adapter, 'docker_query', lambda env, *args: image if args[0] == 'image' else 'unknown')
+    with pytest.raises(ValueError, match='Docker server does not match'):
+        adapter.qualified_docker_prefix(trial, 'baseline', tmp_path, {})
+    monkeypatch.setattr(adapter, 'docker_query', lambda env, *args: image if args[0] == 'image' else 'known')
+    assert adapter.qualified_docker_prefix(trial, 'baseline', tmp_path, {}) == tmp_path.name + '__'
+    task_path = tmp_path / 'task.toml'
+    exact = task_path.read_text()
+    task_path.write_text(exact.replace('["chatgpt.com"]', '["chatgpt.com", "auth.openai.com"]'))
+    with pytest.raises(ValueError, match='network policy'):
+        adapter.qualified_docker_prefix(trial, 'baseline', tmp_path, {})
+    task_path.write_text(exact)
+    trial.images['baseline']['agent_image_digest'] = 'sha256:' + 'b' * 64
+    with pytest.raises(ValueError, match='qualified local image ID'):
+        adapter.qualified_docker_prefix(trial, 'baseline', tmp_path, {})
+
+
+def test_access_harbor_identity_binds_more_than_version_banner(tmp_path):
+    launcher = tmp_path / 'bin' / 'harbor'
+    launcher.parent.mkdir()
+    launcher.write_text('#!/bin/sh\necho 0.25.0\n')
+    launcher.chmod(0o700)
+    interpreter = launcher.parent / 'python'
+    interpreter.write_bytes(b'fixture interpreter')
+    interpreter.chmod(0o700)
+    assert adapter.access_harbor_command(launcher) == [str(interpreter), '-I', '-B', '-X',
+                                                       'pycache_prefix=/dev/null', str(launcher)]
+    (tmp_path / 'pyvenv.cfg').write_text('include-system-site-packages = false\n')
+    package = tmp_path / 'lib' / 'python3.13' / 'site-packages' / 'harbor'
+    package.mkdir(parents=True)
+    core = package / '__init__.py'
+    core.write_text('fixture = True\n')
+    expected = adapter.access_harbor_identity(launcher)
+    assert adapter.access_harbor_identity(launcher) == expected
+    core.write_text('fixture = False\n')
+    assert adapter.access_harbor_identity(launcher) != expected
+
+
+def test_access_subprocess_ignores_stale_import_cache(tmp_path):
+    import py_compile
+
+    launcher = tmp_path / 'harbor'
+    launcher.write_text('import sys\nsys.path.insert(0, sys.argv[1])\nimport guard\nprint(guard.route)\n')
+    (tmp_path / 'python').symlink_to(sys.executable)
+    module = tmp_path / 'guard.py'
+    module.write_text('route = "wrong-source"\n')
+    stale = module.stat()
+    py_compile.compile(str(module), doraise=True, invalidation_mode=py_compile.PycInvalidationMode.TIMESTAMP)
+    module.write_text('route = "right-bytes!"\n')
+    assert module.stat().st_size == stale.st_size
+    os.utime(module, ns=(stale.st_atime_ns, stale.st_mtime_ns))
+    execute = lambda command: subprocess.check_output([*command, str(tmp_path)], text=True).strip()
+    assert execute([sys.executable, '-I', '-B', str(launcher)]) == 'wrong-source'
+    assert execute(adapter.access_harbor_command(launcher)) == 'right-bytes!'
+
+
+def test_docker_identity_binds_discovered_compose_bytes(monkeypatch, tmp_path):
+    docker = tmp_path / 'docker'
+    compose = tmp_path / 'docker-compose'
+    for executable in (docker, compose):
+        executable.write_text('#!/bin/sh\nexit 0\n')
+        executable.chmod(0o700)
+    env = {'PATH': str(tmp_path)}
+    monkeypatch.setattr(adapter, 'docker_query', lambda env, *args: json.dumps([{'Name': 'compose', 'Path': str(compose)}]))
+    expected = adapter.access_docker_identity(env)
+    compose.write_text('#!/bin/sh\nexit 1\n')
+    assert adapter.access_docker_identity(env) != expected
+    monkeypatch.setenv('PATH', str(tmp_path))
+    assert adapter.access_docker_env(tmp_path)['PATH'] == os.defpath
+
+
+def test_access_checks_sidecar_and_actual_image_files(monkeypatch, tmp_path):
+    import harbor_codex_completion
+
+    qualified = 'a' * 64
+    shim = sha(Path(harbor_codex_completion.__file__).read_bytes())
+    experiment = SimpleNamespace(docker_client_sha256=qualified, egress_image_id='sha256:' + qualified,
+                                 codex_binary_sha256=qualified,
+                                 images={'baseline': {'agent_image_digest': 'sha256:' + qualified}})
+    tag = 'harbor-prebuilt:harbor-docker-egress-control-sidecar--' + qualified
+    calls = []
+    monkeypatch.setattr(adapter, 'access_docker_identity', lambda env: qualified)
+    monkeypatch.setattr(adapter.subprocess, 'run', lambda *args, **kwargs: SimpleNamespace(stdout=tag + '\n'))
+
+    def query(env, *args):
+        calls.append(args)
+        if args[0] == 'image':
+            assert args[-1] == tag
+            return experiment.egress_image_id
+        assert '--network=none' in args and '--pull=never' in args
+        return '\n'.join(f'{digest}  {path}' for digest, path in zip((shim, qualified), adapter.CODEX_IMAGE_EXECUTABLES))
+
+    monkeypatch.setattr(adapter, 'docker_query', query)
+    assert adapter.qualified_access_executables(experiment, 'baseline', ['python', '-I', '-B', 'harbor'], {}) == tag
+    assert [call[0] for call in calls] == ['image', 'run']
+    experiment.codex_binary_sha256 = 'b' * 64
+    with pytest.raises(ValueError, match='reviewed shim and Codex binary'):
+        adapter.qualified_access_executables(experiment, 'baseline', ['python', '-I', '-B', 'harbor'], {})
+
+
+def test_access_output_roles_are_not_guessed_by_extension():
+    for filename, expected in [('jobs/baseline/task__1/trial.log', None),
+                               ('jobs/baseline/task__1/agent/codex.txt', None),
+                               ('jobs/baseline/task__1/agent/sessions/2026/01/01/rollout-unit.jsonl', 'native_rollout')]:
+        assert adapter.retained_native_format(Path(filename)) == expected
+    for filename in ('jobs/baseline/task__1/agent/copy.log', 'jobs/baseline/task__1/arbitrary.jsonl'):
+        with pytest.raises(ValueError, match='unrecognized retained output role'):
+            adapter.retained_native_format(Path(filename))
+
+
+def test_access_seal_includes_empty_directories(tmp_path):
+    original = adapter.access_job_hash(tmp_path)
+    (tmp_path / 'new-work').mkdir()
+    assert adapter.access_job_hash(tmp_path) != original
+
+
+def test_access_lifetime_covers_entire_serial_cohort():
+    experiment = SimpleNamespace(runtime={'auth_mode': adapter.ACCESS_MODE, 'timeout_sec': 900, 'concurrency': 1},
+                                 trials={'baseline': 5})
+    assert adapter.wall_budget(experiment, 'baseline') == 5460
+    experiment.runtime['concurrency'] = 2
+    assert adapter.wall_budget(experiment, 'baseline') == 3300
+
+
+def test_access_open_rejects_symlink_parent(tmp_path):
+    owner = tmp_path / 'owner'
+    owner.mkdir()
+    (owner / 'auth.json').write_text('{}')
+    link = tmp_path / 'redirect'
+    link.symlink_to(owner, target_is_directory=True)
+    with os.fdopen(adapter.open_auth_path(owner / 'auth.json'), 'rb') as stream:
+        assert stream.read() == b'{}'
+    with pytest.raises(OSError):
+        adapter.open_auth_path(link / 'auth.json')
+
+
+def test_access_rejected_release_distinguishes_withheld_and_missing(tmp_path):
+    incident = SimpleNamespace(runtime={'auth_mode': adapter.ACCESS_MODE}, trials={'baseline': 5},
+                               manifest_sha256='a' * 64, case_sha256='b' * 64,
+                               incident_id='case', incident_kind='constructed')
+    raw = tmp_path / 'raw'
+    job = raw / 'jobs' / 'baseline'
+    for name in ('one', 'two', 'missing'):
+        (job / name).mkdir(parents=True)
+        if name != 'missing':
+            (job / name / 'result.json').write_text('{}')
+    count = adapter.sealed_trial_count(raw, 'baseline', 5)
+    output = tmp_path / 'withheld'
+    adapter.emit_access_failure(incident, 'baseline', output, 'ACCESS_OR_RELEASE_REJECTED', count)
+    report, _ = adapter.assess(incident, 'baseline', output)
+    assert (report['missing_trials'], report['observed_trials'], report['invalid_trials']) == (3, 2, 2)
+    assert all(row['status'] == 'WITHHELD' for row in report['trials'])
 
 
 def test_collect_reports_completion_and_regressions(harbor):
