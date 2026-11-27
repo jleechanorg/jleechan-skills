@@ -1484,6 +1484,8 @@ def emit_access_failure(experiment, arm, output, status, withheld=0, recovery=No
 
 
 def retained_native_format(path):
+    from harbor_codex_completion import PRIVATE_DIAGNOSTICS
+
     parts = path.parts
     if len(parts) == 1 and parts[0] in ACCESS_CAPTURES:
         return None
@@ -1493,7 +1495,7 @@ def retained_native_format(path):
         if parts[2] in {'config.json', 'result.json'}:
             return 'json'
     trial_path = parts[3:] if len(parts) >= 4 and parts[0] == 'jobs' else ()
-    if trial_path in {('agent', 'codex.txt'), ('agent', 'trajectory.json'), ('lock.json',),
+    if trial_path in {('agent', 'codex.txt'), ('agent', PRIVATE_DIAGNOSTICS), ('agent', 'trajectory.json'), ('lock.json',),
                       ('trial.log',), ('exception.txt',), ('verifier', 'reward.txt'),
                       ('verifier', 'test-stdout.txt'), ('verifier', 'test-stderr.txt'), ('artifacts', 'manifest.json')}:
         return None

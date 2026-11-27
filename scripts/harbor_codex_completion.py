@@ -19,6 +19,8 @@ from uuid import UUID
 MAX_BYTES = 16 * 1024 * 1024
 PRIVATE_RECEIPT = 'completion.private.json'
 PUBLIC_RECEIPT = 'completion.json'
+AGENT_LOGS = Path('/logs/agent')
+PRIVATE_DIAGNOSTICS = 'codex-diagnostics.log'
 
 
 def require(condition):
@@ -609,16 +611,18 @@ def main():
     if not supervise_engine_writers():
         print('Harbor Codex writer supervision unavailable', file=sys.stderr)
         return 78
-    process = subprocess.Popen(argv, start_new_session=True)
-    code = process.wait()
-    try:
-        require(engine_finished(process.pid))
-        receipt = make_completion(code, Path(os.environ['CODEX_HOME']) / 'sessions')
-        with (Path('/logs/agent') / PRIVATE_RECEIPT).open('x', encoding='utf-8') as file:
-            json.dump(receipt, file)
-            file.write('\n')
-    except (OSError, ValueError, KeyError):
-        print('Native Codex completion receipt unavailable', file=sys.stderr)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+    with os.fdopen(os.open(AGENT_LOGS / PRIVATE_DIAGNOSTICS, flags, 0o600), 'w') as diagnostics:
+        process = subprocess.Popen(argv, start_new_session=True, stderr=diagnostics)
+        code = process.wait()
+        try:
+            require(engine_finished(process.pid))
+            receipt = make_completion(code, Path(os.environ['CODEX_HOME']) / 'sessions')
+            with (AGENT_LOGS / PRIVATE_RECEIPT).open('x', encoding='utf-8') as file:
+                json.dump(receipt, file)
+                file.write('\n')
+        except (OSError, ValueError, KeyError):
+            print('Native Codex completion receipt unavailable', file=diagnostics)
     return code if code >= 0 else 128 - code
 
 

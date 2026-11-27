@@ -13,6 +13,27 @@ SCRIPT = Path(__file__).resolve().parents[1] / 'scripts' / 'harbor_codex_complet
 THREAD = '11111111-2222-4333-8444-555555555555'
 
 
+def test_native_process_diagnostics_are_private_not_merged_into_event_stream(tmp_path, monkeypatch, capfd):
+    diagnostics = tmp_path / 'codex-diagnostics.log'
+    launch = runpy.run_path(str(SCRIPT))['main']
+    popen = subprocess.Popen
+    command = [sys.executable, '-c', 'import sys; print("{}", flush=True); '
+               'print("native diagnostic", file=sys.stderr, flush=True)']
+    for name, value in {'AGENT_LOGS': tmp_path, 'check_network': lambda *_: True,
+                        'supervise_engine_writers': lambda: True, 'engine_finished': lambda *_: True,
+                        'make_completion': lambda *_: {}}.items():
+        monkeypatch.setitem(launch.__globals__, name, value)
+    monkeypatch.setattr(subprocess, 'Popen', lambda _argv, **options: popen(command, **options))
+    monkeypatch.setattr(sys, 'argv', [str(SCRIPT), 'exec'])
+    monkeypatch.setenv('CODEX_HOME', str(tmp_path))
+    assert launch() == 0
+    assert tuple(capfd.readouterr()) == ('{}\n', '')
+    assert diagnostics.read_bytes() == b'native diagnostic\n'
+    assert diagnostics.stat().st_mode & 0o777 == 0o600
+    with pytest.raises(FileExistsError):
+        launch()
+
+
 def jsonl(path, entries):
     path.write_text(''.join(json.dumps(entry) + '\n' for entry in entries), encoding='utf-8')
 
@@ -400,7 +421,7 @@ def native_stub(argv, **kwargs):
     return launch([sys.executable, '-c', 'print(\'{"type":"turn.completed"}\'); raise SystemExit(9)'], **kwargs)
 sys.argv = [sys.argv[1], 'exec']
 subprocess.Popen = native_stub
-shim.__globals__['Path'] = lambda value: Path(os.environ['CODEX_HOME'] if value == '/logs/agent' else value)
+shim.__globals__['AGENT_LOGS'] = Path(os.environ['CODEX_HOME'])
 shim.__globals__['check_network'] = lambda enabled: enabled
 raise SystemExit(shim())
 '''

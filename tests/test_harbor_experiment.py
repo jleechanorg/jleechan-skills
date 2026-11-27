@@ -1616,6 +1616,7 @@ def test_access_release_format_rejects_unbound_plaintext_transcript():
         adapter.retained_native_format(Path('jobs/baseline/trial/agent/renamed.txt'))
     assert adapter.retained_native_format(Path('jobs/baseline/trial/verifier/test-stdout.txt')) is None
     assert adapter.retained_native_format(Path('jobs/baseline/trial/agent/codex.txt')) is None
+    assert adapter.retained_native_format(Path('jobs/baseline/trial/agent/codex-diagnostics.log')) is None
 
 
 @pytest.mark.parametrize('result_present', [True, False, 'invalid_duplicate'])
