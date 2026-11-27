@@ -576,25 +576,9 @@ def test_unqualified_native_tool_output_is_rejected():
             access._response_item(payload, access._private_pattern((ACCOUNT,)))
 
 
-def test_harbor_atif_correlates_tool_results_across_steps():
-    def trace(second):
-        return json.dumps({'schema_version': 'ATIF-v1.7', 'steps': [
-            {'step_id': index, 'message': 'run', 'observation': {'results': [
-                {'source_call_id': 'same', 'content': fragment, 'extra': {'frame': 'metadata'}}]}}
-            for index, fragment in enumerate(('synthetic-', second), 1)]}).encode()
-
-    assert json.loads(access.sanitize_bytes(trace('safe'), (ACCOUNT,), 'atif')) == json.loads(trace('safe'))
-    with pytest.raises(access.AccessError, match='split across logical fragments'):
-        access.sanitize_bytes(trace('account-42'), (ACCOUNT,), 'atif')
-
-
-def test_harbor_withholds_unbound_atif_observation_fragments():
-    trajectory = {'schema_version': 'ATIF-v1.7', 'steps': [
-        {'step_id': index, 'message': 'run', 'observation': {'results': [
-            {'content': fragment, 'extra': {'frame': index}}]}}
-        for index, fragment in enumerate(('synthetic-', 'account-42'), 1)]}
-    with pytest.raises(access.AccessError, match='unqualified Harbor result identity'):
-        access.sanitize_bytes(json.dumps(trajectory).encode(), (ACCOUNT,), 'atif')
+def test_derived_harbor_trajectory_is_not_a_release_format():
+    with pytest.raises(access.AccessError, match='unsupported artifact format'):
+        access.sanitize_bytes(b'{"schema_version":"ATIF-v1.7","steps":[]}', (ACCOUNT,), 'atif')
 
 
 def test_terminal_input_requires_consistent_process_and_is_scanned():

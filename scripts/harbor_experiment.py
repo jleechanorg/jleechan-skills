@@ -1709,6 +1709,14 @@ def release_access_run(experiment, arm, raw, stage, output, private_values, laun
         with target.open('xb') as stream:
             stream.write(released)
 
+    def withhold_trial(trial, target):
+        if target.exists():
+            shutil.rmtree(target)
+        target.mkdir(parents=True)
+        result = trial / 'result.json'
+        write_json(target / 'access-withheld.json', {'result_present': result.is_file() and not result.is_symlink()})
+
+    unsafe_trial_names = set()
     if job.is_dir():
         for trial in sorted(job.iterdir()):
             check_deadline()
@@ -1717,7 +1725,16 @@ def release_access_run(experiment, arm, raw, stage, output, private_values, laun
             if not trial.is_dir():
                 release_file(trial, target, trial_relative)
                 continue
-            safe_artifact_format(trial_relative.as_posix(), private_values, directory=True)
+            try:
+                safe_artifact_format(trial_relative.as_posix(), private_values, directory=True)
+            except ValueError:
+                unsafe_trial_names.add(trial.name)
+                alias = f'withheld-{uuid4().hex}'
+                require(not (job / alias).exists() and not (job / alias).is_symlink(), 'withheld trial alias collision')
+                relative = job.relative_to(raw) / alias
+                safe_artifact_format(relative.as_posix(), private_values, directory=True)
+                withhold_trial(trial, stage / relative)
+                continue
             private = trial / 'agent' / PRIVATE_RECEIPT
             raw_observation = trial / OBSERVATION_PATH
             marker = 'access-withheld.json'
@@ -1750,11 +1767,7 @@ def release_access_run(experiment, arm, raw, stage, output, private_values, laun
                     observation_path.write_bytes(sanitize_bytes(canonical(observation) + b'\n', private_values, 'json'))
                 public.write_bytes(sanitize_bytes(canonical(proof) + b'\n', private_values, 'json'))
             except (OSError, ValueError, TypeError, KeyError):
-                if target.exists():
-                    shutil.rmtree(target)
-                target.mkdir(parents=True)
-                result = trial / 'result.json'
-                write_json(target / marker, {'result_present': result.is_file() and not result.is_symlink()})
+                withhold_trial(trial, target)
 
     raw_task = raw / 'staged' / name
     for entry in launch['staged_before']:
@@ -1770,6 +1783,12 @@ def release_access_run(experiment, arm, raw, stage, output, private_values, laun
             == (before[0], sealed_job, before[2]),
             'sealed acquisition changed')
     require(parse_json(access_bytes(raw / 'launch.json'), 'sealed launch') == launch, 'sealed launch changed')
+    if unsafe_trial_names:
+        resources = launch['docker_sealed_resources']
+        for field in ('eligible_trials', 'started_trials'):
+            if field in resources:
+                omitted = unsafe_trial_names if field == 'eligible_trials' else {name.lower() for name in unsafe_trial_names}
+                resources[field] = [name for name in resources[field] if name not in omitted]
     launch['job_sha256'] = tree_hash_if_available(stage / 'jobs' / arm)
     launch['capture_sha256'] = access_capture_hashes(stage)
     launch['retained_root'] = str(output)
@@ -1779,10 +1798,12 @@ def release_access_run(experiment, arm, raw, stage, output, private_values, laun
     for result in completed:
         completion = read_object(safe_path(result.parent, f'agent/{PUBLIC_RECEIPT}'), 'native completion proof')
         verified += completion.get('verified') is True and completion.get('raw_observation_verified') is True
-    launch['release_status'] = ('COMPLETE' if (launch.get('status'), launch.get('exit_code')) == ('SUCCEEDED', 0)
-                                and verified == len(completed) == experiment.trials[arm]
-                                and not quarantined and all(path.parent.name in eligible for path in completed)
-                                else 'INCOMPLETE')
+    complete = ((launch.get('status'), launch.get('exit_code')) == ('SUCCEEDED', 0)
+                and verified == len(completed) == experiment.trials[arm]
+                and not quarantined and all(path.parent.name in eligible for path in completed))
+    if complete and semantic_fixture_required(experiment, arm):
+        complete = all((path.parent / FIXTURE_EVIDENCE).is_file() for path in completed)
+    launch['release_status'] = 'COMPLETE' if complete else 'INCOMPLETE'
     launch['verified_native_trials'] = verified
     secure = canonical(launch) + b'\n'
     safe = sanitize_bytes(secure, private_values, 'json')
@@ -1816,6 +1837,14 @@ def reserve_access_holder(case_sha256):
     holder = access_holder(case_sha256)
     holder.mkdir(mode=0o700)
     return holder
+
+
+def finish_unsealed_access(experiment, arm, output, holder, launch, deadline):
+    require(launch['status'] == 'UNSEALED', 'unsealed terminal requires failed seal')
+    recovery = holder.name
+    if launch.get('cleanup') == 'docker_reconciled' and remove_access_directory(holder, deadline=deadline):
+        recovery = None
+    return emit_access_failure(experiment, arm, output, 'UNSEALED', None, recovery)
 
 
 def run_access(experiment, arm, output, auth_file, account_fd):
@@ -1867,9 +1896,7 @@ def run_access(experiment, arm, output, auth_file, account_fd):
                 raise
         acquisition_unsealed = launch['status'] == 'UNSEALED'
         if acquisition_unsealed:
-            if launch.get('cleanup') == 'docker_reconciled' and remove(holder):
-                recovery = None
-            return emit_access_failure(experiment, arm, directory, 'UNSEALED', None, recovery)
+            return finish_unsealed_access(experiment, arm, directory, holder, launch, cleanup_clock['deadline'])
         withheld = sealed_trial_count(raw, arm, experiment.trials[arm])
         if launch['status'] == 'CAPTURE_INVALID':
             return emit_access_failure(experiment, arm, directory, 'ACCESS_OR_RELEASE_REJECTED', withheld,
@@ -2412,12 +2439,16 @@ def check_trial(experiment, arm, trial, directory, expected_checksum, job_id, re
     }
 
 
+def collects_fixture_ledger(task_config):
+    return any(isinstance(entry, dict) and entry.get('destination') == FIXTURE_EVIDENCE.removeprefix('artifacts/')
+               for entry in task_config.get('artifacts', ()))
+
+
 def semantic_fixture_required(experiment, arm):
     if 'task.toml' not in experiment.inventories[arm]:
         return False
     config = tomllib.loads(safe_path(experiment.tasks[arm], 'task.toml').read_text(encoding='utf-8'))
-    return any(isinstance(entry, dict) and entry.get('destination') == FIXTURE_EVIDENCE.removeprefix('artifacts/')
-               for entry in config.get('artifacts', ()))
+    return collects_fixture_ledger(config)
 
 
 def bound_semantic_verdict(record, row, detector_sha, trace, *, fixture_log=None, fixture_required=False):
@@ -2457,15 +2488,20 @@ def semantic_cohort(path, experiment, arm, launch_sha):
     require(content['schema'] == 'harbor-semantic-cohort.v1' and content['case_sha256'] == experiment.case_sha256
             and content['arm'] == arm and content['launch_sha256'] == launch_sha, 'semantic cohort does not bind this run')
     matches(content['adjudicator'], r'[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}', 'independent adjudicator identity')
-    trials = array(content['trials'], 'independent semantic trials')
-    require(len(trials) <= experiment.trials[arm], 'unexpected semantic verdict count')
-    rows = {}
+    trials = array(content['trials'], 'independent semantic trials', nonempty=False)
+    rows, ambiguous = {}, set()
     for trial in trials:
-        require(isinstance(trial, dict), 'semantic verdict is not an object')
-        identity = uuid_string(trial.get('trial_id'), 'semantic trial identity')
-        require(identity not in rows, 'duplicate semantic trial verdict')
-        rows[identity] = trial
-    return rows, {'path': str(path), 'sha256': digest(data), 'adjudicator': content['adjudicator']}
+        try:
+            require(isinstance(trial, dict), 'semantic verdict is not an object')
+            identity = uuid_string(trial.get('trial_id'), 'semantic trial identity')
+        except ValueError:
+            continue
+        if identity in rows or identity in ambiguous:
+            rows.pop(identity, None)
+            ambiguous.add(identity)
+        else:
+            rows[identity] = trial
+    return rows, {'path': str(path), 'sha256': digest(data), 'adjudicator': content['adjudicator']}, len(trials) - len(rows)
 
 
 def trial_reports(experiment, arm, directory, native_dir, job_sha, errors, *, adjudications=None):
@@ -2644,7 +2680,7 @@ def assess(experiment, arm, directory, adjudication_path=None):
             or (not local and staged_inventory(directory, staged_name(experiment, native_dir)) != records)
             or (local and ((directory / 'staged').exists() or (directory / 'staged').is_symlink()))):
         errors.append('staged task inputs were missing or changed')
-    started_trials = set()
+    setup_trials = set()
     if experiment.runtime.get('auth_mode') == ACCESS_MODE:
         try:
             require(launch.get('harbor_install_sha256') == experiment.harbor_install_sha256,
@@ -2668,12 +2704,12 @@ def assess(experiment, arm, directory, adjudication_path=None):
                     and 4 * len(eligible) <= resources.get('container', 0)
                     and all(path.parent.name in eligible for path in job.glob('*/result.json')),
                     'Docker seal does not bind every released result')
-            native_starts = array(resources.get('started_trials'), 'started trial identities', nonempty=False)
+            setup_starts = array(resources.get('started_trials'), 'setup trial identities', nonempty=False)
             require(all(isinstance(item, str) and item.startswith(launch['docker_scope'])
-                        and len(relative_parts(item)) == 1 and item == item.lower() for item in native_starts)
-                    and native_starts == sorted(set(native_starts))
-                    and len(native_starts) <= resources['trial_projects'], 'invalid trial start receipts')
-            started_trials = set(native_starts)
+                        and len(relative_parts(item)) == 1 and item == item.lower() for item in setup_starts)
+                    and setup_starts == sorted(set(setup_starts))
+                    and len(setup_starts) <= resources['trial_projects'], 'invalid trial start receipts')
+            setup_trials = set(setup_starts)
             require(access_capture_hashes(directory) == launch.get('capture_sha256'), 'released captures changed')
             jobs = directory / 'jobs'
             require(not jobs.is_symlink() and (not jobs.exists() or all(path.name == arm for path in jobs.iterdir())),
@@ -2681,28 +2717,31 @@ def assess(experiment, arm, directory, adjudication_path=None):
         except (OSError, ValueError):
             errors.append('released Docker seal, captures or job scope could not be verified')
     adjudication_ref = None
+    ignored_grades = 0
     report_options = {}
     if adjudication_path is not None:
         require(local and PRIVATE_DETECTOR in experiment.inventories[arm],
                 'independent semantic grading requires a staged private detector')
         grade_path = resolve_input(adjudication_path)
         require(not grade_path.is_relative_to(directory), 'semantic cohort must be outside the sealed release')
-        grading, adjudication_ref = semantic_cohort(grade_path, experiment, arm, digest(raw))
+        grading, adjudication_ref, ignored_grades = semantic_cohort(grade_path, experiment, arm, digest(raw))
         protected.append(grade_path)
         report_options['adjudications'] = grading
     reports, unexpected = trial_reports(experiment, arm, directory, native_dir, launch.get('job_sha256'), errors,
                                         **report_options)
-    if report_options and set(grading) - {row['trial_id'] for row in reports}:
-        errors.append('semantic cohort includes an unknown trial')
+    if report_options:
+        ignored_grades += len(set(grading) - {row['trial_id'] for row in reports})
     expected = experiment.trials[arm]
     observed = sum(row['result_path'] is not None or row.get('result_withheld', False) for row in reports)
     if local:
         for row in reports:
-            row['native_started'] = row['trial_name'].lower() in started_trials
-            observed += row['native_started'] and row['result_path'] is None and not row.get('result_withheld', False)
-        for missing_result in sorted(started_trials - {row['trial_name'].lower() for row in reports}):
+            row['setup_started'] = row['trial_name'].lower() in setup_trials
+            row['native_start_verified'] = row.get('native_completion', {}).get('verified') is True
+            observed += row['setup_started'] and row['result_path'] is None and not row.get('result_withheld', False)
+        for missing_result in sorted(setup_trials - {row['trial_name'].lower() for row in reports}):
             reports.append({'trial_name': missing_result, 'trial_id': None, 'result_path': None, 'result_sha256': None,
-                            'native_started': True, 'valid': False, 'errors': ['started without released trial records']})
+                            'setup_started': True, 'native_start_verified': False, 'valid': False,
+                            'errors': ['setup started without released trial records']})
             observed += 1
     if observed > expected:
         errors.append('observed trial cohort exceeds scheduled size')
@@ -2753,8 +2792,11 @@ def assess(experiment, arm, directory, adjudication_path=None):
     }
     if experiment.runtime.get('auth_mode') == ACCESS_MODE:
         report['withheld_trials'] = sum(row.get('result_withheld', False) for row in reports)
+        report['setup_starts'] = len(setup_trials) if not errors else None
+        report['minimum_verified_subject_starts'] = sum(row['native_start_verified'] for row in reports) if not errors else 0
     if adjudication_ref is not None:
         report['adjudications'] = adjudication_ref
+        report['ignored_adjudication_rows'] = ignored_grades
     return report, protected
 
 

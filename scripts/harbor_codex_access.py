@@ -787,38 +787,6 @@ def _check_log(text, pattern):
                  'structured output in a plain diagnostic stream')
 
 
-def _atif_content(value, pattern):
-    if isinstance(value, str):
-        return value
-    return _content({'text'}, value, pattern)
-
-
-def _check_atif(trajectory, pattern):
-    _require(isinstance(trajectory, dict) and trajectory.get('schema_version') == 'ATIF-v1.7'
-             and not trajectory.get('subagent_trajectories') and not trajectory.get('continued_trajectory_ref'),
-             'unqualified Harbor trajectory shape')
-    steps = trajectory.get('steps')
-    _require(isinstance(steps, list) and 0 < len(steps) <= MAX_JSONL_RECORDS, 'invalid Harbor trajectory steps')
-    by_call = {}
-    for step_id, step in enumerate(steps, 1):
-        _require(isinstance(step, dict) and step.get('step_id') == step_id, 'invalid Harbor trajectory step order')
-        _atif_content(step.get('message'), pattern)
-        observation = step.get('observation')
-        if observation is None:
-            continue
-        results = observation.get('results') if isinstance(observation, dict) else None
-        _require(isinstance(results, list), 'unqualified Harbor observation')
-        for result in results:
-            _require(isinstance(result, dict) and not result.get('subagent_trajectory_ref'), 'unqualified Harbor result')
-            if result.get('content') is not None:
-                content = _atif_content(result['content'], pattern)
-                call = result.get('source_call_id')
-                _require(_string(call) and bool(call), 'unqualified Harbor result identity')
-                by_call.setdefault(call, []).append(content)
-    for fragments in by_call.values():
-        _check_fragments(fragments, pattern)
-
-
 def rollout_reasoning(record):
     kind, payload = record['type'], record['payload']
     if kind == 'response_item':
@@ -849,17 +817,12 @@ def sanitize_bytes(data, private_values, artifact_format):
         _require(len(output) <= MAX_ARTIFACT_BYTES, 'release exceeds size limit')
         return output
     try:
-        if artifact_format in ('json', 'atif'):
+        if artifact_format == 'json':
             record = _parse_json(text)
             _require(isinstance(record, (dict, list)), 'unsupported JSON root')
             _check_fragments(list(_json_strings(record)), pattern)
             _check_fragments(list(_json_leaf_values(record)), pattern)
-            if artifact_format == 'atif':
-                _check_atif(record, pattern)
-            masked = _mask_record(record, pattern)
-            if artifact_format == 'atif':
-                _check_atif(masked, pattern)
-            output = _json_bytes(masked)
+            output = _json_bytes(_mask_record(record, pattern))
         else:
             _require(artifact_format in {'jsonl', 'native_exec', 'native_rollout'}, 'unsupported artifact format')
             records = _json_lines(text, allow_empty=artifact_format == 'jsonl')

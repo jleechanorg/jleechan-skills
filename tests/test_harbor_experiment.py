@@ -1330,7 +1330,7 @@ def test_access_namespace_is_bound_to_acquisition(tmp_path):
     (False, False, True, False, ''), (False, False, False, True, ''),
     (False, False, False, False, 'private_tsv'), (False, False, False, False, 'missing_native_control'),
     (False, False, False, False, 'unsealable_sibling'), (False, False, False, False, 'stale_witness'),
-    (False, False, False, False, 'ineligible_duplicate'),
+    (False, False, False, False, 'ineligible_duplicate'), (False, False, False, False, 'unsafe_trial_name'),
 ])
 def test_access_release_scopes_jobs_and_withholds_only_malformed_trial(monkeypatch, tmp_path, copy_at_wrong_path,
                                                                        malformed_result, missing_egress,
@@ -1347,7 +1347,7 @@ def test_access_release_scopes_jobs_and_withholds_only_malformed_trial(monkeypat
     task = raw / 'staged' / namespace
     job = raw / 'jobs' / 'baseline'
     good = job / 'good'
-    bad = job / 'bad'
+    bad = job / ('fake-access-bearer' if fixture_fault == 'unsafe_trial_name' else 'bad')
     for directory in (task, bad / 'agent', good / 'agent', good / 'verifier'):
         directory.mkdir(parents=True)
     (task / 'instruction.md').write_text('Run the local fixture.')
@@ -1443,6 +1443,9 @@ def test_access_release_scopes_jobs_and_withholds_only_malformed_trial(monkeypat
               'job_sha256': adapter.access_job_inventory(job, isolate_trials=True)[0], 'run_sha256': 'a' * 64,
               'docker_sealed_resources': {'eligible_trials': [] if missing_egress else [good.name]},
               'capture_sha256': adapter.access_capture_hashes(raw)}
+    if fixture_fault == 'unsafe_trial_name':
+        launch['docker_sealed_resources'] = {'eligible_trials': sorted((bad.name, good.name)),
+                                            'started_trials': sorted((bad.name.lower(), good.name.lower()))}
     adapter.write_json(raw / 'launch.json', launch)
     sibling = job.parent / 'unexpected.log'
     sibling.write_text('unexpected')
@@ -1460,7 +1463,13 @@ def test_access_release_scopes_jobs_and_withholds_only_malformed_trial(monkeypat
     assert not list(stage.iterdir())
     unexpected.unlink()
     adapter.release_access_run(incident, 'baseline', raw, stage, tmp_path / 'out', ('fake-access-bearer',), launch)
-    retained_bad = stage / bad.relative_to(raw)
+    if fixture_fault == 'unsafe_trial_name':
+        assert not (stage / bad.relative_to(raw)).exists()
+        retained_bad, = (path.parent for path in (stage / job.relative_to(raw)).glob('*/access-withheld.json'))
+        assert launch['docker_sealed_resources'] == {'eligible_trials': [good.name],
+                                                      'started_trials': [good.name.lower()]}
+    else:
+        retained_bad = stage / bad.relative_to(raw)
     assert sorted(path.name for path in retained_bad.iterdir()) == ['access-withheld.json']
     assert json.loads((retained_bad / 'access-withheld.json').read_bytes()) == {'result_present': True}
     assert not (stage / 'stdout.log').exists()
@@ -1663,7 +1672,16 @@ def test_access_collection_counts_valid_siblings_of_withheld_trial(monkeypatch, 
     assert report['status'] == 'INCOMPLETE'
     assert (report['observed_trials'], report['valid_trials'], report['invalid_trials']) == (5, 4, 1)
     assert (report['withheld_trials'], report['incident_failures'], report['run_errors']) == (int(result_present is True), 1, [])
-    assert all(row['native_started'] for row in report['trials'])
+    assert report['setup_starts'] == 5
+    assert report['minimum_verified_subject_starts'] == 0
+    assert all(row['setup_started'] and not row['native_start_verified'] for row in report['trials'])
+
+    bound = json.loads(grade_path.read_bytes())
+    bound['trials'] = [*grades, ['malformed row'], {'trial_id': str(uuid4())}, grades[1]]
+    adapter.write_json(grade_path, bound, replace=True)
+    partial, _ = adapter.assess(experiment, 'baseline', tmp_path, grade_path)
+    assert (partial['valid_trials'], partial['incident_failures'], partial['ignored_adjudication_rows']) == (3, 1, 4)
+    assert partial['run_errors'] == []
 
 
 def test_access_quiescence_detects_resources_without_trial_metadata(monkeypatch, tmp_path):
