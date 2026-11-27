@@ -638,14 +638,13 @@ class Experiment:
             '--n-attempts', str(self.trials[arm]), '--n-concurrent', str(runtime['concurrency']),
         ]
         if runtime.get('auth_mode') == ACCESS_MODE:
-            from harbor_codex_egress import PLUGIN
+            from harbor_codex_egress import PLUGIN, plugin_cli_args
 
             argv.extend(('--env', 'docker', '--no-force-build', '--allow-agent-host', 'chatgpt.com', '--agent-kwarg',
-                         'config_source=' + canonical(ACCESS_AGENT_CONFIG).decode(), '--plugin', PLUGIN,
-                         '--plugin-kwarg', 'egress_image=' + self.egress_image_id,
-                         '--plugin-kwarg', 'agent_image=' + self.images[arm]['agent_image_digest'],
-                         '--plugin-kwarg', 'run_sha256=' + run_sha256,
-                         '--plugin-kwarg', 'scope=' + staged_name(self, root) + '__'))
+                         'config_source=' + canonical(ACCESS_AGENT_CONFIG).decode()))
+            argv.extend(plugin_cli_args(PLUGIN, egress_image=self.egress_image_id,
+                agent_image=self.images[arm]['agent_image_digest'], run_sha256=run_sha256,
+                scope=staged_name(self, root) + '__'))
         for key, value in self.verifier_env(arm, run_sha256).items():
             argv.extend(('--verifier-env', f'{key}={value}'))
         return argv

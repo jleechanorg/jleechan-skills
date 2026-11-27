@@ -14,6 +14,21 @@ from uuid import uuid4
 import pytest
 
 
+def test_access_argv_preserves_numeric_run_binding_as_string(tmp_path):
+    run_hash = '2' * 64
+    egress_image, agent_image = ('sha256:' + char * 64 for char in 'ab')
+    experiment = SimpleNamespace(runtime={'auth_mode': adapter.ACCESS_MODE, 'agent': 'codex',
+        'agent_version': '0.172.0', 'model': 'gpt-fixture', 'effort': 'medium', 'concurrency': 1},
+        case_sha256='3' * 64, trials={'baseline': 2}, egress_image_id=egress_image,
+        images={'baseline': {'agent_image_digest': agent_image}}, verifier_env=lambda *_: {})
+    argv = adapter.Experiment.argv(experiment, 'baseline', tmp_path, run_sha256=run_hash)
+    kwargs = dict(argv[index + 1].split('=', 1) for index, arg in enumerate(argv) if arg == '--plugin-kwarg')
+    assert {key: json.loads(value) for key, value in kwargs.items()} == {
+        'run_sha256': run_hash, 'egress_image': egress_image, 'agent_image': agent_image,
+        'scope': adapter.staged_name(experiment, tmp_path) + '__',
+    }
+
+
 def test_access_job_refuses_unreadable_subtree(monkeypatch, tmp_path):
     hidden = tmp_path / 'hidden'
     hidden.mkdir()

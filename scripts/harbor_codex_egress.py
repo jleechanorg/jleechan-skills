@@ -21,6 +21,13 @@ INSPECT = ('[{{json .Id}},{{json .Image}},{{json .State.Running}},{{json .HostCo
            '{{if .State.Health}}{{json .State.Health.Status}}{{else}}null{{end}},{{json .Mounts}}]')
 
 
+def plugin_cli_args(plugin, **kwargs):
+    argv = ['--plugin', plugin]
+    for name, value in kwargs.items():
+        argv.extend(('--plugin-kwarg', f'{name}={json.dumps(value)}'))
+    return argv
+
+
 def docker_lines(*args):
     if os.environ.get('DOCKER_HOST') != 'unix:///var/run/docker.sock' or os.environ['PATH'] != os.defpath:
         raise ValueError('unexpected Docker context in inference guard')
