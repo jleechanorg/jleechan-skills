@@ -18,7 +18,7 @@ POLICY_HEADER = ['mode: controlled egress', 'allowlist: /opt/egress-sidecar/allo
 OFFLINE_POLICY = [*POLICY_HEADER, '(empty: deny all controlled TCP egress)']
 INSPECT = ('[{{json .Id}},{{json .Image}},{{json .State.Running}},{{json .HostConfig.NetworkMode}},'
            '{{json (index .Config.Labels "com.docker.compose.service")}},'
-           '{{if .State.Health}}{{json .State.Health.Status}}{{else}}null{{end}},{{json .Mounts}}]')
+           '{{with index .State "Health"}}{{json .Status}}{{else}}null{{end}},{{json .Mounts}}]')
 
 
 def plugin_cli_args(plugin, **kwargs):
