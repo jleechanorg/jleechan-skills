@@ -561,13 +561,15 @@ def run(experiment, arm, output, baseline):
     require((baseline is not None) == (arm == 'treatment'),
             'only treatment requires --baseline RECEIPT')
     baseline_ref = None
+    protected = ()
     if arm == 'treatment':
         baseline_path = resolve_input(baseline)
         raw_baseline = baseline_path.read_bytes()
-        validate_baseline(experiment, raw_baseline)
+        baseline_report = validate_baseline(experiment, raw_baseline)
+        protected = (Path(baseline_report['run_dir']),)
         baseline_ref = {'path': str(baseline_path), 'sha256': digest(raw_baseline)}
 
-    directory = new_output(experiment, output)
+    directory = new_output(experiment, output, outside=protected)
     executable = shutil.which('harbor')
     require(executable is not None, 'Harbor 0.25.0 executable is required on PATH')
     argv = experiment.argv(arm, directory, str(Path(executable).absolute()))
@@ -937,6 +939,7 @@ def assess(experiment, arm, directory):
             and launch.get('task_sha256') == task_sha,
             'launch record does not bind the staged task and exact argv')
     baseline = launch.get('baseline_receipt')
+    baseline_trajectories = set()
     errors = []
     if arm == 'baseline':
         require(baseline is None, 'baseline launch must not use a baseline receipt')
@@ -947,7 +950,8 @@ def assess(experiment, arm, directory):
             require(str(path) == baseline['path'], 'baseline receipt path changed')
             data = path.read_bytes()
             require(digest(data) == baseline['sha256'], 'baseline receipt hash changed')
-            validate_baseline(experiment, data)
+            baseline_report = validate_baseline(experiment, data)
+            baseline_trajectories = {row['trajectory_sha256'] for row in baseline_report['trials']}
         except (OSError, ValueError) as exc:
             errors.append(str(exc))
     if (launch.get('status') != 'SUCCEEDED' or launch.get('exit_code') != 0
@@ -960,8 +964,11 @@ def assess(experiment, arm, directory):
         errors.append('staged task inputs were missing or changed')
     reports, unexpected = trial_reports(experiment, arm, directory, launch.get('job_sha256'), errors)
     expected = experiment.trials[arm]
-    if errors:
-        for row in reports:
+    for row in reports:
+        if row.get('trajectory_sha256') in baseline_trajectories:
+            row['valid'] = False
+            row['errors'].append('native trajectory was reused from the baseline')
+        if errors:
             row['valid'] = False
             row['errors'].append('run evidence is incomplete')
     valid = [row for row in reports if row['valid']]
@@ -1015,6 +1022,7 @@ def validate_baseline(experiment, raw):
     actual = assess(experiment, 'baseline', directory)
     require(actual['status'] == 'REPRODUCED' and canonical(actual) == canonical(receipt),
             'baseline receipt no longer matches reproduced trial evidence')
+    return actual
 
 
 def interrupt(_signum, _frame):

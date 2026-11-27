@@ -439,6 +439,8 @@ for i in range(n):
     trace = path / 'agent' / 'raw.jsonl'
     trace.parent.mkdir()
     trace.write_text(f'recorded native trajectory {identifier}')
+    if mode == 'cross_arm_trajectory' and i == 0:
+        trace.write_bytes(Path(settings['baseline_trajectory']).read_bytes())
     evidence = verifier / 'native-read.txt'
     evidence.write_text('verified instruction read')
     exposure = {
@@ -791,3 +793,41 @@ def test_harbor_shutdown_warning_invalidates_collection(harbor):
     assert report['status'] == 'INCOMPLETE'
     assert report['incident_failures'] == 0
     assert any('cleanup' in reason for reason in report['trials'][0]['errors'])
+
+
+def test_treatment_rejects_baseline_trajectory_with_a_fresh_observation(harbor):
+    launched, baseline_run = harbor.run()
+    assert launched.returncode == 0, launched.stderr
+    _, baseline, baseline_report = harbor.collect(baseline_run)
+    assert baseline_report['status'] == 'REPRODUCED'
+    trace = baseline_run / 'jobs/baseline/task__0/agent/raw.jsonl'
+    harbor.set_mode('cross_arm_trajectory', baseline_trajectory=str(trace))
+
+    launched, treatment_run = harbor.run('treatment', None, '--baseline', baseline)
+    assert launched.returncode == 0, launched.stderr
+    _, _, report = harbor.collect(treatment_run, 'treatment')
+    assert report['status'] == 'INCOMPLETE'
+    assert report['valid_trials'] == report['task_completions'] == 4
+    assert report['invalid_trials'] == 1
+    reused = report['trials'][0]
+    original = baseline_report['trials'][0]
+    assert reused['trajectory_sha256'] == original['trajectory_sha256']
+    assert reused['exposure']['observation']['sha256'] != original['exposure']['observation']['sha256']
+    assert 'native trajectory was reused from the baseline' in reused['errors']
+
+
+def test_treatment_output_cannot_modify_retained_baseline(harbor):
+    launched, baseline_run = harbor.run()
+    assert launched.returncode == 0, launched.stderr
+    _, baseline, baseline_report = harbor.collect(baseline_run)
+    assert baseline_report['status'] == 'REPRODUCED'
+    alias = harbor.case.root / 'baseline-alias'
+    alias.symlink_to(baseline_run, target_is_directory=True)
+    output = alias / 'staged/task/treatment-output'
+
+    launched = cli('run', harbor.case.path, '--arm', 'treatment',
+                   '--baseline', baseline, '--output', output)
+    assert launched.returncode != 0
+    assert 'outside frozen task, snapshot and run directories' in launched.stderr
+    assert not output.exists()
+    assert len(harbor.calls) == 1
