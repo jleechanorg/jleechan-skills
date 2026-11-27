@@ -14,7 +14,7 @@ from uuid import uuid4
 import pytest
 
 
-def test_access_argv_preserves_numeric_run_binding_as_string(tmp_path):
+def test_access_argv_preserves_typed_harbor_options(tmp_path):
     run_hash = '2' * 64
     egress_image, agent_image = ('sha256:' + char * 64 for char in 'ab')
     experiment = SimpleNamespace(runtime={'auth_mode': adapter.ACCESS_MODE, 'agent': 'codex',
@@ -22,6 +22,8 @@ def test_access_argv_preserves_numeric_run_binding_as_string(tmp_path):
         case_sha256='3' * 64, trials={'baseline': 2}, egress_image_id=egress_image,
         images={'baseline': {'agent_image_digest': agent_image}}, verifier_env=lambda *_: {})
     argv = adapter.Experiment.argv(experiment, 'baseline', tmp_path, run_sha256=run_hash)
+    agent_kwargs = dict(argv[index + 1].split('=', 1) for index, arg in enumerate(argv) if arg == '--agent-kwarg')
+    assert agent_kwargs == {'version': '0.172.0', 'config': '{"cli_auth_credentials_store":"file"}'}
     kwargs = dict(argv[index + 1].split('=', 1) for index, arg in enumerate(argv) if arg == '--plugin-kwarg')
     assert {key: json.loads(value) for key, value in kwargs.items()} == {
         'run_sha256': run_hash, 'egress_image': egress_image, 'agent_image': agent_image,
@@ -1410,7 +1412,7 @@ def test_access_release_scopes_jobs_and_withholds_only_malformed_trial(monkeypat
     timing = {'started_at': timestamp, 'finished_at': timestamp}
     harbor_config = {'trial_name': good.name, 'trials_dir': str(job), 'job_id': str(uuid4()),
         'task': {'path': str(task)}, 'agent': {'name': 'codex', 'model_name': 'gpt-example',
-        'kwargs': {'version': '0.172.0', 'reasoning_effort': 'medium', 'config_source': adapter.ACCESS_AGENT_CONFIG},
+        'kwargs': {'version': '0.172.0', 'reasoning_effort': 'medium', 'config': adapter.ACCESS_AGENT_CONFIG},
         'extra_allowed_hosts': ['chatgpt.com']}, 'verifier': {'env': {'HARBOR_EXPERIMENT_ARM': 'baseline'}}}
     result = {} if malformed_result else {
         'id': str(uuid4()), 'task_name': 'task', 'trial_name': good.name, 'trial_uri': good.as_uri(),
@@ -1523,7 +1525,7 @@ def test_release_projects_diagnostics_without_dropping_valid_runtime_metrics():
         adapter.access_json_projection(Path('jobs/baseline/config.json'), {'agents': [{'mcp_servers': {'external': {}}}]})
     with pytest.raises(ValueError):
         adapter.access_json_projection(Path('jobs/baseline/config.json'), {'agents': [{'kwargs': {
-            'config_source': {**adapter.ACCESS_AGENT_CONFIG, 'chatgpt_base_url': 'https://fixture.invalid/'}}}]})
+            'config': {**adapter.ACCESS_AGENT_CONFIG, 'chatgpt_base_url': 'https://fixture.invalid/'}}}]})
 
 
 def test_live_verifier_identity_requires_expected_image_offline_mounts_and_no_credentials(tmp_path, monkeypatch):
@@ -1645,7 +1647,7 @@ def test_access_collection_counts_valid_siblings_of_withheld_trial(monkeypatch, 
                        'n_attempts': 5, 'n_concurrent_trials': 1, 'tasks': [{'path': str(native / 'staged' / scope)}],
                        'agents': [{'name': 'codex', 'model_name': 'gpt-example', 'extra_allowed_hosts': ['chatgpt.com'],
                                    'kwargs': {'version': '0.172.0', 'reasoning_effort': 'medium',
-                                              'config_source': adapter.ACCESS_AGENT_CONFIG}}], 'verifier': {'env': {}}})
+                                              'config': adapter.ACCESS_AGENT_CONFIG}}], 'verifier': {'env': {}}})
     adapter.write_json(job / 'result.json', {'id': str(uuid4()), 'n_total_trials': 5, 'finished_at': None,
                        'stats': {'n_completed_trials': 4, 'n_cancelled_trials': 1}})
     def check_trial(_experiment, _arm, trial, _native, _checksum, _job, result, result_sha):

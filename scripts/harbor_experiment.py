@@ -640,14 +640,18 @@ class Experiment:
         if runtime.get('auth_mode') == ACCESS_MODE:
             from harbor_codex_egress import PLUGIN, plugin_cli_args
 
-            argv.extend(('--env', 'docker', '--no-force-build', '--allow-agent-host', 'chatgpt.com', '--agent-kwarg',
-                         'config_source=' + canonical(ACCESS_AGENT_CONFIG).decode()))
+            argv.extend(('--env', 'docker', '--no-force-build', '--allow-agent-host', 'chatgpt.com',
+                         *harbor_native_config_args(ACCESS_AGENT_CONFIG)))
             argv.extend(plugin_cli_args(PLUGIN, egress_image=self.egress_image_id,
                 agent_image=self.images[arm]['agent_image_digest'], run_sha256=run_sha256,
                 scope=staged_name(self, root) + '__'))
         for key, value in self.verifier_env(arm, run_sha256).items():
             argv.extend(('--verifier-env', f'{key}={value}'))
         return argv
+
+
+def harbor_native_config_args(config):
+    return ('--agent-kwarg', 'config=' + canonical(config).decode())
 
 
 def plan(experiment):
@@ -1556,7 +1560,7 @@ def project_fields(obj, schema):
     return {key: project_fields(obj[key], value) for key, value in schema.items() if key in obj}
 
 
-def access_json_projection(relative, record, *, expected_config_source=None):
+def access_json_projection(relative, record, *, expected_agent_config=None):
     require(isinstance(record, dict), 'invalid private Harbor record')
     def scalars(*names):
         return dict.fromkeys(names)
@@ -1564,7 +1568,7 @@ def access_json_projection(relative, record, *, expected_config_source=None):
     control_env = scalars('HARBOR_EXPERIMENT_CASE_SHA256', 'HARBOR_EXPERIMENT_ARM', 'HARBOR_EXPERIMENT_RUN_SHA256')
     task = scalars('path', 'git_url', 'git_commit_id', 'name', 'ref', 'download_dir', 'source')
     agent = {**scalars('name', 'model_name'), 'extra_allowed_hosts': [None],
-             'kwargs': {**scalars('version', 'reasoning_effort'), 'config_source': dict.fromkeys(ACCESS_AGENT_CONFIG)}}
+             'kwargs': {**scalars('version', 'reasoning_effort'), 'config': dict.fromkeys(ACCESS_AGENT_CONFIG)}}
     verifier = {**scalars('disable', 'import_path'), 'env': control_env}
     config = {**scalars('trial_name', 'trials_dir', 'job_id'), 'task': task, 'agent': agent, 'verifier': verifier}
     timing = scalars('started_at', 'finished_at')
@@ -1574,12 +1578,12 @@ def access_json_projection(relative, record, *, expected_config_source=None):
         require(isinstance(config_input, dict), 'invalid raw config')
         check_fresh_config(config_input)
         native_agents = config_input.get('agents', [config_input.get('agent', {})])
-        expected_source = ACCESS_AGENT_CONFIG if expected_config_source is None else expected_config_source
+        expected_config = ACCESS_AGENT_CONFIG if expected_agent_config is None else expected_agent_config
         require(all(isinstance(entry, dict) and not any(entry.get(key) for key in (
             'import_path', 'load_trajectory', 'skills', 'resume_trajectory', 'skip_model_parsing', 'mcp_servers', 'env'))
             and isinstance(entry.get('kwargs') or {}, dict)
-            and set(entry.get('kwargs') or {}) <= {'version', 'reasoning_effort', 'config_source'}
-            and (entry.get('kwargs') or {}).get('config_source') == expected_source
+            and set(entry.get('kwargs') or {}) <= {'version', 'reasoning_effort', 'config'}
+            and (entry.get('kwargs') or {}).get('config') == expected_config
             for entry in array(native_agents, 'raw agent configs', nonempty=False)), 'unexpected raw agent options')
         native_verifier = config_input.get('verifier') or {}
         require(isinstance(native_verifier, dict) and not native_verifier.get('kwargs')
@@ -1614,7 +1618,7 @@ def access_json_projection(relative, record, *, expected_config_source=None):
 
 
 def release_access_run(experiment, arm, raw, stage, output, private_values, launch, *, deadline=None,
-                       expected_config_source=None):
+                       expected_agent_config=None):
     from harbor_codex_access import (read_artifact, safe_artifact_format, sanitize_bytes, verify_frozen_release,
                                     verify_scoring_release)
     from harbor_codex_completion import (PRIVATE_RECEIPT, PUBLIC_RECEIPT, cli_usage, native_control_seen,
@@ -1690,7 +1694,7 @@ def release_access_run(experiment, arm, raw, stage, output, private_values, laun
             if len(relative.parts) == 4 and relative.name == 'result.json':
                 check_trial_result_envelope(raw_object, source.parent, raw / 'staged' / name)
             data = canonical(access_json_projection(relative, raw_object,
-                                                     expected_config_source=expected_config_source)) + b'\n'
+                                                     expected_agent_config=expected_agent_config)) + b'\n'
         released = sanitize_bytes(data, private_values, form)
         if form == 'native_rollout':
             released = scoring_projection(data)
@@ -2190,7 +2194,7 @@ def check_local_task(config, staged):
 def check_agent_config(config, runtime):
     expected = {'version': runtime['agent_version'], 'reasoning_effort': runtime['effort']}
     if runtime.get('auth_mode') == ACCESS_MODE:
-        expected['config_source'] = ACCESS_AGENT_CONFIG
+        expected['config'] = ACCESS_AGENT_CONFIG
     require(isinstance(config, dict) and config.get('name') == runtime['agent']
             and config.get('model_name') == runtime['model']
             and config.get('kwargs') == expected
