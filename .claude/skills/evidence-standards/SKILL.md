@@ -239,8 +239,14 @@ not repair that run. Preserve original verdicts when correcting a runner and
 rerun affected cases. Report qualifying passes, failures and open cases separately
 from footage inventory. Bind qualifying media to its scenario, original URL,
 build pair, datastore, observed result and applicable revision; distinguish
-continuous playback from sampled-frame inspection. Reuse follows the existing
-staleness rule, never file count or a historical pass alone. For deployed copy
+continuous playback from sampled-frame inspection. Before reuse, verify the
+capture's claim-relevant bindings against the active outward URL, served
+frontend and backend revisions, and datastore target. Apply the staleness rule
+across revision changes only when the claimed behavior and its evidence
+dependencies are verified unchanged. File count and historical passes alone
+establish no current applicability. A changed claim-relevant origin or datastore,
+or an applicable binding you cannot verify, requires fresh proof on the active
+deployment or a withheld claim. For deployed copy
 claims, verify the rendered text; for spacing claims, measure the affected gaps
 and preserve touch targets. Use applicable mobile and desktop widths and
 comparable before/after evidence. A local source edit earns no deployed proof.
