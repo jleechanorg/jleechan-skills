@@ -831,3 +831,51 @@ def test_treatment_output_cannot_modify_retained_baseline(harbor):
     assert 'outside frozen task, snapshot and run directories' in launched.stderr
     assert not output.exists()
     assert len(harbor.calls) == 1
+
+
+@pytest.mark.parametrize('corrupt_marker', [False, True])
+def test_treatment_collection_preserves_retained_run_directories(harbor, corrupt_marker):
+    launched, baseline_run = harbor.run()
+    assert launched.returncode == 0, launched.stderr
+    _, baseline, baseline_report = harbor.collect(baseline_run)
+    assert baseline_report['status'] == 'REPRODUCED'
+    launched, treatment_run = harbor.run('treatment', None, '--baseline', baseline)
+    assert launched.returncode == 0, launched.stderr
+    if corrupt_marker:
+        (baseline_run / 'launch.json').write_text('unreadable launch record')
+
+    for arm, retained in (('baseline', baseline_run), ('treatment', treatment_run)):
+        alias = harbor.case.root / f'{arm}-collection-alias'
+        alias.symlink_to(retained, target_is_directory=True)
+        output = alias / 'jobs' / arm / 'nested-collection.json'
+        collected = cli('collect', harbor.case.path, '--arm', 'treatment',
+                        '--run', treatment_run, '--output', output)
+        assert collected.returncode != 0
+        assert not output.exists()
+
+    _, _, report = harbor.collect(treatment_run, 'treatment')
+    assert report['status'] == ('INCOMPLETE' if corrupt_marker else 'OBSERVED_FIXED')
+
+
+@pytest.mark.parametrize('command', ['run', 'snapshot'])
+def test_other_outputs_cannot_nest_in_retained_evidence(harbor, command):
+    launched, retained = harbor.run()
+    assert launched.returncode == 0, launched.stderr
+    nested = retained / 'jobs/baseline/nested'
+    if command == 'run':
+        result, _ = harbor.run('baseline', nested)
+    else:
+        repo = harbor.case.root / 'repo'
+        repo.mkdir()
+        git(repo, 'init', '-q')
+        git(repo, 'config', 'user.name', 'Test')
+        git(repo, 'config', 'user.email', 'test@example.invalid')
+        (repo / 'source.txt').write_text('source')
+        git(repo, 'add', 'source.txt')
+        git(repo, 'commit', '-qm', 'source')
+        result = cli('snapshot', '--repo', repo, '--commit', git(repo, 'rev-parse', 'HEAD'),
+                     '--output', nested)
+    assert result.returncode != 0
+    assert len(harbor.calls) == 1
+    assert not nested.exists()
+    assert not nested.with_name('nested.receipt.json').exists()

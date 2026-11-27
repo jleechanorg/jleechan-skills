@@ -66,6 +66,7 @@ def snapshot(repo, commit, output):
     root = Path(git(repo, 'rev-parse', '--show-toplevel').decode().strip()).resolve()
     if output.resolve().is_relative_to(root):
         raise ValueError('snapshot destination must be outside the source worktree')
+    require_outside_retained_runs(output.resolve())
     receipt = output.with_name(output.name + '.receipt.json')
     if output.exists() or output.is_symlink() or receipt.exists() or receipt.is_symlink():
         raise ValueError('snapshot destination or receipt already exists')
@@ -459,7 +460,21 @@ def new_output(experiment, path, *, outside=()):
     frozen = (experiment.snapshot, *experiment.tasks.values(), *outside)
     require(not any(path.is_relative_to(tree) for tree in frozen),
             'output must be outside frozen task, snapshot and run directories')
+    require_outside_retained_runs(path)
     return path
+
+
+def require_outside_retained_runs(path):
+    for directory in path.parents:
+        marker = directory / 'launch.json'
+        if marker.is_symlink() or not marker.is_file():
+            continue
+        try:
+            launch = read_object(marker, 'Harbor launch marker')
+        except (OSError, ValueError):
+            continue
+        require(launch.get('schema') != LAUNCH_SCHEMA or launch.get('run_dir') != str(directory),
+                'output must be outside retained Harbor run directories')
 
 
 def harbor_checksum(records):
@@ -565,7 +580,7 @@ def run(experiment, arm, output, baseline):
     if arm == 'treatment':
         baseline_path = resolve_input(baseline)
         raw_baseline = baseline_path.read_bytes()
-        baseline_report = validate_baseline(experiment, raw_baseline)
+        baseline_report = validate_baseline(experiment, parse_baseline_receipt(experiment, raw_baseline))
         protected = (Path(baseline_report['run_dir']),)
         baseline_ref = {'path': str(baseline_path), 'sha256': digest(raw_baseline)}
 
@@ -922,6 +937,7 @@ def trial_reports(experiment, arm, directory, job_sha, errors):
 
 def assess(experiment, arm, directory):
     directory = resolve_input(directory, directory=True)
+    protected = [directory]
     raw = safe_path(directory, 'launch.json').read_bytes()
     launch = parse_json(raw, 'launch')
     run_sha256 = experiment.run_sha256(arm, directory)
@@ -950,7 +966,9 @@ def assess(experiment, arm, directory):
             require(str(path) == baseline['path'], 'baseline receipt path changed')
             data = path.read_bytes()
             require(digest(data) == baseline['sha256'], 'baseline receipt hash changed')
-            baseline_report = validate_baseline(experiment, data)
+            baseline_receipt = parse_baseline_receipt(experiment, data)
+            protected.append(Path(baseline_receipt['run_dir']).resolve())
+            baseline_report = validate_baseline(experiment, baseline_receipt)
             baseline_trajectories = {row['trajectory_sha256'] for row in baseline_report['trials']}
         except (OSError, ValueError) as exc:
             errors.append(str(exc))
@@ -983,7 +1001,7 @@ def assess(experiment, arm, directory):
         fixed = (counts['task_completed'] == expected and not counts['incident_failure']
                  and not counts['regression_failed'])
         status = 'OBSERVED_FIXED' if fixed else 'NOT_OBSERVED_FIXED'
-    return {
+    report = {
         'schema': COLLECTION_SCHEMA,
         'status': status,
         'run_dir': str(directory),
@@ -1009,9 +1027,10 @@ def assess(experiment, arm, directory):
         'unexpected_results': unexpected,
         'run_errors': errors,
     }
+    return report, protected
 
 
-def validate_baseline(experiment, raw):
+def parse_baseline_receipt(experiment, raw):
     receipt = parse_json(raw, 'baseline receipt')
     require(isinstance(receipt, dict) and receipt.get('schema') == COLLECTION_SCHEMA
             and receipt.get('arm') == 'baseline' and receipt.get('status') == 'REPRODUCED'
@@ -1019,7 +1038,11 @@ def validate_baseline(experiment, raw):
             'treatment requires a REPRODUCED baseline receipt for the same manifest')
     directory = text(receipt.get('run_dir'), 'baseline run directory')
     require(Path(directory).is_absolute(), 'baseline run directory must be absolute')
-    actual = assess(experiment, 'baseline', directory)
+    return receipt
+
+
+def validate_baseline(experiment, receipt):
+    actual, _ = assess(experiment, 'baseline', receipt['run_dir'])
     require(actual['status'] == 'REPRODUCED' and canonical(actual) == canonical(receipt),
             'baseline receipt no longer matches reproduced trial evidence')
     return actual
@@ -1063,8 +1086,8 @@ def main(argv=None):
                 print(json.dumps({'status': launch['status'], 'run_dir': launch['run_dir']}))
                 return int(launch['status'] != 'SUCCEEDED')
             else:
-                result = assess(experiment, args.arm, args.run)
-                output = new_output(experiment, args.output, outside=(Path(result['run_dir']),))
+                result, protected = assess(experiment, args.arm, args.run)
+                output = new_output(experiment, args.output, outside=protected)
                 write_json(output, result)
                 print(json.dumps(result, sort_keys=True, indent=2))
                 return int(result['status'] == 'INCOMPLETE')
