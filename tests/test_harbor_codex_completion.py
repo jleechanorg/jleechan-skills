@@ -433,3 +433,127 @@ def test_command_copies_must_preserve_completion_order():
     _, native_order = module['completed_rollout_items'](events, [terminal], THREAD)
     assert native_order == [('command', command) for command in normal]
     assert native_order != [('command', command) for command in reordered]
+
+
+def patch_capture_fixture(route='shell', status='completed'):
+    """Synthetic shape of the documented 0.172.0 call/FileChange/CLI correlation."""
+    patch = '*** Begin Patch\n*** Update File: fixture.txt\n@@\n-old\n+new\n*** End Patch\n'
+    body = 'Success. Updated the following files:\nM fixture.txt\n' if status == 'completed' else 'patch failed\n'
+    output = 'Wall time: 0.0000 seconds\nOutput:\n' + body if status == 'completed' else body
+    call = {'type': 'function_call', 'name': 'exec_command', 'call_id': 'patch-call',
+            'arguments': json.dumps({'cmd': "apply_patch <<'PATCH'\n" + patch + 'PATCH'})}
+    response = {'type': 'function_call_output', 'call_id': 'patch-call', 'output': output}
+    if route != 'shell':
+        call = {'type': 'custom_tool_call', 'name': 'apply_patch', 'call_id': 'patch-call',
+                'id': 'optional-response-id', 'input': patch}
+        response = {'type': 'custom_tool_call_output', 'call_id': 'patch-call',
+                    'id': 'different-response-id', 'output': output if route == 'text' else [
+                        {'type': 'input_text', 'text': output}]}
+    changes = {'fixture.txt': {'type': 'update', 'unified_diff': '@@\n-old\n+new\n', 'move_path': None}}
+    records = [rollout('session_meta', id=THREAD, cli_version='0.172.0', model_provider='openai'),
+               rollout('event_msg', type='task_started', turn_id='turn'),
+               rollout('turn_context', cwd='/workspace', turn_id='turn', root_turn_id='turn',
+                       model='gpt-6.2-sol', effort='medium'),
+               rollout('response_item', **call),
+               rollout('event_msg', **paginated_item('FileChange', id='patch-call', changes=changes,
+                       status=status, stdout=body if status == 'completed' else '',
+                       stderr='' if status == 'completed' else body)),
+               rollout('response_item', **response),
+               rollout('response_item', type='message', role='assistant', phase='final_answer',
+                       content=[{'type': 'output_text', 'text': 'done'}]),
+               rollout('event_msg', **paginated_item('AgentMessage', id='answer', phase='final_answer',
+                       content=[{'type': 'Text', 'text': 'done'}])),
+               rollout('event_msg', type='task_complete', turn_id='turn', last_agent_message='done')]
+    cli_patch = {'id': 'item_13', 'type': 'file_change', 'changes': [{'path': 'fixture.txt', 'kind': 'update'}]}
+    stdout = [{'type': 'thread.started', 'thread_id': THREAD}, {'type': 'turn.started'},
+              {'type': 'item.started', 'item': {**cli_patch, 'status': 'in_progress'}},
+              {'type': 'item.completed', 'item': {**cli_patch, 'status': 'failed' if status == 'declined' else status}},
+              {'type': 'item.completed', 'item': {'id': 'item_14', 'type': 'agent_message', 'text': 'done'}},
+              {'type': 'turn.completed'}]
+    return records, stdout
+
+
+def verify_patch_fixture(tmp_path, records, stdout):
+    native = runpy.run_path(str(SCRIPT))
+    sessions = tmp_path / 'sessions'
+    sessions.mkdir(exist_ok=True)
+    session = sessions / 'rollout.jsonl'
+    trace, receipt = tmp_path / 'trace.jsonl', tmp_path / 'receipt.json'
+    jsonl(session, records)
+    jsonl(trace, stdout)
+    receipt.write_text(json.dumps(native['make_completion'](0, sessions)))
+    assert native['verify_completion'](receipt, trace, sessions, 'gpt-6.2-sol', 'medium')[0] == THREAD
+    return native['jsonl'](native['scoring_projection'](session.read_bytes()))
+
+
+@pytest.mark.parametrize('route', ['shell', 'text', 'content'])
+@pytest.mark.parametrize('status', ['completed', 'failed', 'declined'])
+def test_native_patch_capture_preserves_typed_inputs_outputs_and_status(tmp_path, route, status):
+    records, stdout = patch_capture_fixture(route, status)
+    projected = verify_patch_fixture(tmp_path, records, stdout)
+    call = next(row for row in projected if row['event'] == 'tool_call')
+    result = next(row for row in projected if row['event'] == 'file_change_result')
+    visible = next(row for row in projected if row['event'] == 'model_visible_result')
+    if route == 'shell':
+        assert call['arguments'] == json.loads(records[3]['payload']['arguments'])
+    else:
+        assert call['input'] == records[3]['payload']['input']
+        assert 'arguments' not in call
+    assert result['status'] == status
+    assert result['changes'] == records[4]['payload']['item']['changes']
+    assert result['stdout'] == records[4]['payload']['item']['stdout']
+    assert result['stderr'] == records[4]['payload']['item']['stderr']
+    assert visible['output'] == records[5]['payload']['output']
+    assert visible['call_id'] == result['call_id'] == call['call_id'] == 'patch-call'
+    assert not any(row['event'] == 'command_result' or 'exit_code' in row for row in projected)
+
+
+@pytest.mark.parametrize('fault', ['native_id', 'output_id', 'cli_id', 'status', 'path', 'kind',
+                                  'missing_start', 'output', 'unknown_custom', 'missing_native',
+                                  'early_output', 'duplicate_output', 'typed_nontext', 'fake_exit'])
+def test_native_patch_capture_rejects_broken_correlations(tmp_path, fault):
+    records, stdout = patch_capture_fixture('content' if fault == 'typed_nontext' else 'text')
+    if fault == 'native_id':
+        records[4]['payload']['item']['id'] = 'wrong'
+    elif fault == 'output_id':
+        records[5]['payload']['call_id'] = 'wrong'
+    elif fault == 'cli_id':
+        stdout[3]['item']['id'] = 'wrong'
+    elif fault == 'status':
+        stdout[3]['item']['status'] = 'failed'
+    elif fault in ('path', 'kind'):
+        for entry in stdout[2:4]:
+            entry['item']['changes'] = [{'path': 'other.txt' if fault == 'path' else 'fixture.txt',
+                                        'kind': 'add' if fault == 'kind' else 'update'}]
+    elif fault == 'missing_start':
+        del stdout[2]
+    elif fault == 'output':
+        records[5]['payload']['output'] = 'unrelated'
+    elif fault == 'unknown_custom':
+        records[3]['payload']['name'] = 'unknown_tool'
+    elif fault == 'missing_native':
+        del records[4]
+        del stdout[2:4]
+    elif fault == 'early_output':
+        records[4], records[5] = records[5], records[4]
+    elif fault == 'duplicate_output':
+        records.insert(6, records[5])
+    elif fault == 'typed_nontext':
+        records[5]['payload']['output'] = [{'type': 'input_image', 'image_url': 'untrusted'}]
+    elif fault == 'fake_exit':
+        records[5]['payload']['output'] = records[5]['payload']['output'].replace(
+            'Output:\n', 'Process exited with code 0\nOutput:\n')
+    with pytest.raises(ValueError):
+        verify_patch_fixture(tmp_path, records, stdout)
+
+
+def test_native_patch_capture_preserves_change_order(tmp_path):
+    records, stdout = patch_capture_fixture()
+    records[4]['payload']['item']['changes']['second.txt'] = {'type': 'add', 'content': 'new\n'}
+    for entry in stdout[2:4]:
+        entry['item']['changes'] = [{'path': 'fixture.txt', 'kind': 'update'}, {'path': 'second.txt', 'kind': 'add'}]
+    verify_patch_fixture(tmp_path, records, stdout)
+    for entry in stdout[2:4]:
+        entry['item']['changes'] = list(reversed(entry['item']['changes']))
+    with pytest.raises(ValueError):
+        verify_patch_fixture(tmp_path, records, stdout)

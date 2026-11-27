@@ -538,8 +538,16 @@ def verify_scoring_release(data, private_values):
     pattern = _private_pattern(private_values)
     visible_by_origin, running_by_origin, stdin_by_origin = {}, {}, {}
     for row in _json_lines(_utf8(data), allow_empty=False):
-        if row.get('event') in {'command_result', 'model_visible_result'}:
-            output = _field(row, 'output')
+        if row.get('event') == 'file_change_result':
+            for stream in ('stdout', 'stderr'):
+                _tool_output(_field(row, stream), pattern)
+            _check_fragments(list(_json_leaf_values(_object(row, 'changes'))), pattern)
+        elif row.get('event') in {'command_result', 'model_visible_result'}:
+            output = row.get('output')
+            if not isinstance(output, str):
+                _require(row['event'] == 'model_visible_result' and 'session_id' not in row,
+                         'unsupported native scoring output')
+                output = _content({'input_text'}, output, pattern)
             _tool_output(output, pattern, partial='session_id' in row)
             if row['event'] == 'model_visible_result':
                 origin = row.get('origin_call_id', _identifier(row, 'call_id'))
@@ -698,6 +706,10 @@ def _rollout_records(records, pattern):
                     _require(command_items[item_id] == legacy_outputs[item_id], 'native tool copies disagree')
             elif item_kind == 'Plan':
                 _field(item, 'text')
+            elif item_kind == 'FileChange':
+                for stream in ('stdout', 'stderr'):
+                    _tool_output(_field(item, stream), pattern)
+                _check_fragments(list(_json_leaf_values(_object(item, 'changes'))), pattern)
             elif item_kind == 'FunctionCallOutput':
                 _tool_output(item.get('output'), pattern)
             elif item_kind == 'McpToolCall':

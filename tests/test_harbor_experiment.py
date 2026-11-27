@@ -222,6 +222,15 @@ def test_external_semantic_verdict_binds_detector_and_native_evidence(tmp_path):
     with pytest.raises(ValueError, match='no released fixture event log'):
         adapter.bound_semantic_verdict(cited, row, detector, trace, fixture_required=True)
     assert adapter.bound_semantic_verdict(cited, row, detector, trace, fixture_log=fixture)['incident_failure'] == 1
+    fixture.write_bytes(b'')
+    observed_empty = {**record, 'fixture_evidence': {'sha256': sha(b''), 'lines': []}}
+    assert adapter.bound_semantic_verdict(observed_empty, row, detector, trace,
+                                          fixture_log=fixture, fixture_required=True)['incident_failure'] == 1
+    with pytest.raises(ValueError, match='fixture evidence does not match'):
+        adapter.bound_semantic_verdict({**cited, 'fixture_evidence': {'sha256': sha(b''), 'lines': [1]}},
+                                       row, detector, trace, fixture_log=fixture, fixture_required=True)
+    with pytest.raises(ValueError, match='no released fixture event log'):
+        adapter.bound_semantic_verdict(observed_empty, row, detector, trace, fixture_required=True)
     fixture.write_text('read\tother\n')
     with pytest.raises(ValueError, match='fixture evidence does not match'):
         adapter.bound_semantic_verdict(cited, row, detector, trace, fixture_log=fixture)

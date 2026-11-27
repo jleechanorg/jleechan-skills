@@ -131,13 +131,13 @@ def completed_stdout_items(stdout):
         require(isinstance(item, dict))
         item_id, kind = item.get('id'), item.get('type')
         require(isinstance(item_id, str) and item_id and isinstance(kind, str) and item_id not in closed)
-        require(kind in {'agent_message', 'command_execution', 'reasoning', 'todo_list'})
+        require(kind in {'agent_message', 'command_execution', 'file_change', 'reasoning', 'todo_list'})
         if phase == 'item.started':
             require(item_id not in active)
             active[item_id] = item
         elif phase == 'item.updated':
             require(item_id in active and active[item_id]['type'] == kind
-                    and kind != 'command_execution')
+                    and kind not in {'command_execution', 'file_change'})
         else:
             opened = active.pop(item_id, None)
             require(opened is None or opened['type'] == kind)
@@ -146,6 +146,10 @@ def completed_stdout_items(stdout):
                         and opened.get('command') == item.get('command'))
                 commands.append(command_signature(item.get('command'), item.get('status'),
                                                   item.get('exit_code'), item.get('aggregated_output')))
+            if kind == 'file_change':
+                require(opened is not None and opened.get('status') == 'in_progress'
+                        and opened.get('changes') == item.get('changes'))
+                patch_signature(item)
             completed.append(item)
             closed.add(item_id)
     require(not active)
@@ -177,6 +181,8 @@ def completed_rollout_items(events, terminals, thread):
             command = command_signature(shlex.join(argv), item.get('status'), item.get('exit_code'),
                                         output)
             ordered.append(('command', command))
+        elif kind == 'FileChange':
+            ordered.append(('patch', patch_signature(item, native=True)))
         elif kind == 'AgentMessage':
             content = item.get('content')
             require(isinstance(content, list) and content and all(isinstance(part, dict)
@@ -202,14 +208,102 @@ UNSUPPORTED_ROLLOUT_ACTIONS = {'mcp_tool_call_end', 'patch_apply_end', 'web_sear
                               'sub_agent_activity'}
 
 
+def patch_signature(item, native=False):
+    status, changes = item.get('status'), item.get('changes')
+    require(status in (('completed', 'failed', 'declined') if native else ('completed', 'failed')))
+    if native:
+        require(isinstance(changes, dict) and all(isinstance(path, str) and path
+                and isinstance(change, dict) for path, change in changes.items()))
+        for change in changes.values():
+            kind = change.get('type')
+            require(kind in ('add', 'delete', 'update'))
+            if kind == 'update':
+                require(isinstance(change.get('unified_diff'), str)
+                        and (change.get('move_path') is None or isinstance(change['move_path'], str)))
+            else:
+                require(isinstance(change.get('content'), str))
+        require(isinstance(item.get('stdout'), str) and isinstance(item.get('stderr'), str))
+        changes = [{'path': path, 'kind': change['type']} for path, change in changes.items()]
+    require(isinstance(changes, list) and all(isinstance(change, dict)
+            and set(change) == {'path', 'kind'} and isinstance(change['path'], str) and change['path']
+            and change['kind'] in ('add', 'delete', 'update') for change in changes))
+    return (tuple((change['path'], change['kind']) for change in changes),
+            'failed' if status == 'declined' else status)
+
+
+PATCH_RESPONSE_HEADER = re.compile(r'Wall time: (?P<wall>\d+\.\d{4}) seconds\nOutput:\n')
+
+
+def bound_patch_responses(records):
+    patches = {}
+    for ordinal, row in enumerate(records):
+        payload = row['payload']
+        if row['type'] == 'event_msg' and payload.get('type') == 'item_completed':
+            item = payload['item']
+            if item.get('type') == 'FileChange':
+                call = item.get('id')
+                require(isinstance(call, str) and call and call not in patches)
+                patch_signature(item, native=True)
+                patches[call] = (ordinal, item)
+    openings, closed, projected = {}, set(), {}
+    for ordinal, row in enumerate(records):
+        if row['type'] != 'response_item':
+            continue
+        payload = row['payload']
+        kind, call = payload.get('type'), payload.get('call_id')
+        if kind == 'custom_tool_call' and payload.get('name') == 'apply_patch':
+            require(call in patches)
+        if kind in ('function_call', 'custom_tool_call') and call in patches:
+            require(call not in openings and call not in closed and ordinal < patches[call][0])
+            name = payload.get('name')
+            if kind == 'custom_tool_call':
+                require(name == 'apply_patch' and isinstance(payload.get('input'), str))
+                fields = {'input': payload['input']}
+            else:
+                require(name == 'exec_command' and isinstance(payload.get('arguments'), str))
+                arguments = json.loads(payload['arguments'])
+                require(isinstance(arguments, dict) and isinstance(arguments.get('cmd'), str))
+                # The native FileChange call ID binds intercepted shell patches; do not
+                # reimplement the shell/patch parser or pretend a process was executed.
+                fields = {'arguments': command_input(name, payload['arguments'],
+                                                     ['bash', '-lc', arguments['cmd']])}
+            openings[call] = kind
+            projected[ordinal] = ('tool_call', {'call_id': call, 'name': name, **fields})
+        elif kind in ('function_call_output', 'custom_tool_call_output') and call in patches:
+            require(openings.pop(call, None) == kind.removesuffix('_output') and call not in closed
+                    and patches[call][0] < ordinal)
+            output = payload.get('output')
+            if isinstance(output, str):
+                text = output
+            else:
+                require(kind == 'custom_tool_call_output' and isinstance(output, list) and output
+                        and all(isinstance(part, dict) and set(part) == {'type', 'text'}
+                                and part['type'] == 'input_text' and isinstance(part['text'], str)
+                                for part in output))
+                text = ''.join(part['text'] for part in output)
+            header = PATCH_RESPONSE_HEADER.match(text)
+            body = text[header.end():] if header else text
+            patch = patches[call][1]
+            # Exact observed stdout, or a source-emitted failure message in stderr.
+            require(body == patch['stdout'] if not patch['stderr'] else
+                    not patch['stdout'] and body == patch['stderr'])
+            closed.add(call)
+            projected[ordinal] = ('model_visible_result', {'call_id': call, 'output': output,
+                'truncated': False,
+                **({'command_wall_seconds': float(header['wall'])} if header else {})})
+    require(not openings and closed == patches.keys())
+    return projected
+
+
 def bound_command_responses(records):
     require(all(isinstance(row.get('type'), str) and isinstance(row.get('payload'), dict) for row in records))
     commands = {item['id']: (ordinal, item) for ordinal, row in enumerate(records)
                 if row['type'] == 'event_msg' and row['payload']['type'] == 'item_completed'
                 and (item := row['payload']['item'])['type'] == 'CommandExecution'}
-    openings, closed, sessions, seen_origins, projected = {}, set(), {}, set(), {}
+    projected = bound_patch_responses(records)
+    openings, closed, sessions, seen_origins = {}, set(), {}, set()
     for ordinal, row in enumerate(records):
-        if row['type'] != 'response_item':
+        if row['type'] != 'response_item' or ordinal in projected:
             continue
         payload = row['payload']
         kind = payload.get('type')
@@ -337,6 +431,8 @@ def verify_completion(receipt_file, trace, sessions, model, effort):
     for item in items:
         if item['type'] == 'command_execution':
             order.append(('command', next(command_items)))
+        elif item['type'] == 'file_change':
+            order.append(('patch', patch_signature(item)))
         elif item['type'] == 'agent_message':
             order.append(('message', item.get('text')))
     require(order == expected_order)
@@ -367,7 +463,9 @@ def verify_completion(receipt_file, trace, sessions, model, effort):
                 require(calls.get(call) == kind.removesuffix('_output') and call not in outputs)
                 outputs.add(call)
             else:
-                require(kind == 'function_call' and call not in calls and payload.get('name') in LOCAL_RESPONSE_TOOLS)
+                require(call not in calls and (
+                    kind == 'function_call' and payload.get('name') in LOCAL_RESPONSE_TOOLS
+                    or kind == 'custom_tool_call' and payload.get('name') == 'apply_patch'))
                 calls[call] = kind
     require(calls.keys() == outputs)
     require(final_responses == [messages[-1]])
@@ -439,10 +537,13 @@ def scoring_projection(data):
                 emit('command_result', call_id=item['id'], argv=item['command'], cwd=item.get('cwd'),
                      status=item['status'], exit_code=item['exit_code'], output=item['aggregated_output'],
                      **({'terminal_output_unobserved': True} if ordinal in command_events else {}))
+            if item['type'] == 'FileChange':
+                emit('file_change_result', call_id=item['id'], changes=item['changes'],
+                     status=item['status'], stdout=item['stdout'], stderr=item['stderr'])
             if item['type'] == 'AgentMessage':
                 emit('final_answer' if item['phase'] == 'final_answer' else 'assistant_message',
                      text=''.join(part['text'] for part in item['content']))
-            require(item['type'] in {'CommandExecution', 'AgentMessage', 'UserMessage', 'Reasoning', 'Plan',
+            require(item['type'] in {'CommandExecution', 'FileChange', 'AgentMessage', 'UserMessage', 'Reasoning', 'Plan',
                                      'FunctionCallOutput'})
         elif role == 'response_item':
             require(kind not in UNSUPPORTED_RESPONSE_ACTIONS | {'custom_tool_call', 'custom_tool_call_output'})

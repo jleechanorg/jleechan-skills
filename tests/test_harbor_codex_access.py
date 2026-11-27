@@ -639,3 +639,18 @@ def test_known_native_envelopes_do_not_accept_unrecognized_fragment_fields():
     terminal = {'type': 'turn.completed', 'usage': {}, 'delta': 'account-42'}
     with pytest.raises(access.AccessError):
         access.sanitize_bytes(jsonl(starter, terminal), (ACCOUNT,), 'native_exec')
+
+
+def test_patch_text_projection_preserves_typed_output_and_withholds_private_fragments():
+    call = 'dummy-patch'
+    change = {'event': 'file_change_result', 'call_id': call, 'stdout': '', 'stderr': '',
+              'changes': {'first.txt': {'type': 'add', 'content': 'first\n'}}, 'status': 'completed'}
+    result = {'event': 'model_visible_result', 'call_id': call,
+              'output': [{'type': 'input_text', 'text': 'patch '}, {'type': 'input_text', 'text': 'applied'}]}
+    access.verify_scoring_release(access._json_bytes(change) + access._json_bytes(result), (ACCOUNT,))
+    split = {**result, 'output': [{'type': 'input_text', 'text': 'synthetic-'},
+                                  {'type': 'input_text', 'text': 'account-42'}]}
+    with pytest.raises(access.AccessError, match='split'):
+        access.verify_scoring_release(jsonl(change, split), (ACCOUNT,))
+    with pytest.raises(access.AccessError, match='redaction'):
+        access.verify_scoring_release(jsonl({**change, 'stderr': ACCOUNT}, result), (ACCOUNT,))

@@ -2412,8 +2412,10 @@ def check_trial(experiment, arm, trial, directory, expected_checksum, job_id, re
     }
 
 
-def semantic_fixture_required(task):
-    config = tomllib.loads(safe_path(task, 'task.toml').read_text(encoding='utf-8'))
+def semantic_fixture_required(experiment, arm):
+    if 'task.toml' not in experiment.inventories[arm]:
+        return False
+    config = tomllib.loads(safe_path(experiment.tasks[arm], 'task.toml').read_text(encoding='utf-8'))
     return any(isinstance(entry, dict) and entry.get('destination') == FIXTURE_EVIDENCE.removeprefix('artifacts/')
                for entry in config.get('artifacts', ()))
 
@@ -2435,8 +2437,9 @@ def bound_semantic_verdict(record, row, detector_sha, trace, *, fixture_log=None
         fields(fixture, ('sha256', 'lines'), 'independent fixture evidence')
         require(fixture_log is not None, 'no released fixture event log for cited evidence')
         raw = access_bytes(fixture_log)
-        fixture_lines = array(fixture['lines'], 'semantic fixture evidence lines')
-        require(fixture['sha256'] == digest(raw) and 0 < len(fixture_lines) <= 32
+        fixture_lines = array(fixture['lines'], 'semantic fixture evidence lines', nonempty=False)
+        require(fixture['sha256'] == digest(raw) and len(fixture_lines) <= 32
+                and (bool(fixture_lines) if raw else not fixture_lines)
                 and all(type(line) is int and 0 < line <= raw.count(b'\n') for line in fixture_lines)
                 and fixture_lines == sorted(set(fixture_lines)), 'semantic fixture evidence does not match release')
     require(record['verdict'] == 'VALID', 'independent grading did not establish semantic validity')
@@ -2526,10 +2529,8 @@ def trial_reports(experiment, arm, directory, native_dir, job_sha, errors, *, ad
                                    row['result_sha256']))
             if experiment.runtime.get('auth_mode') == ACCESS_MODE:
                 require(PRIVATE_DETECTOR in experiment.inventories[arm], 'frozen detector is missing')
-                fixture_required = semantic_fixture_required(experiment.tasks[arm])
+                fixture_required = semantic_fixture_required(experiment, arm)
                 fixture_log = safe_path(trial, FIXTURE_EVIDENCE) if fixture_required else None
-                if fixture_log is not None:
-                    require(access_bytes(fixture_log).count(b'\n') > 0, 'required fixture evidence is empty')
                 require(adjudications is not None and row['trial_id'] in adjudications,
                         'independent semantic verdict not delivered')
                 grade = adjudications[row['trial_id']]
