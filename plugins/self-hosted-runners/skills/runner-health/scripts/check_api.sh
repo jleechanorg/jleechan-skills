@@ -6,7 +6,11 @@
 set -uo pipefail
 
 TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-ORG="${GH_ORG:-${GITHUB_ORG:-${GITHUB_REPOSITORY%%/*}}}"
+ORG="${GH_ORG:-${GITHUB_ORG:-}}"
+if [[ -z "$ORG" ]]; then
+  REPOSITORY="${GITHUB_REPOSITORY:-}"
+  ORG="${REPOSITORY%%/*}"
+fi
 if [[ -z "$ORG" ]]; then
   echo '{"timestamp":"'"$TS"'","host":"local","org":null,"error":"GH_ORG not configured: GitHub org that owns the runners. Example: export GH_ORG=<org>","runners":null,"rate_limit":null}' >&2
   exit 2

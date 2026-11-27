@@ -48,7 +48,7 @@ const projectId = process.env.FIREBASE_PROJECT_ID;
 if (!projectId) {
   fail(
     'FIREBASE_PROJECT_ID not configured: the WorldAI Firebase project id. ' +
-      'Example: export FIREBASE_PROJECT_ID=<firebase-project-id>'
+      'Example: export FIREBASE_PROJECT_ID="<firebase-project-id>"'
   );
 }
 
@@ -56,7 +56,7 @@ const firebaseApiKey = process.env.WORLDAI_FIREBASE_API_KEY || process.env.FIREB
 if (!firebaseApiKey) {
   fail(
     'FIREBASE_API_KEY not configured: the Web API key of the WorldAI Firebase project. ' +
-      'Example: export FIREBASE_API_KEY=<web-api-key>'
+      'Example: export FIREBASE_API_KEY="<web-api-key>"'
   );
 }
 
@@ -71,4 +71,4 @@ const child = spawn('node', [mainScript, '--project', projectId, ...args], {
 });
 
 child.on('error', (err) => fail(`Failed to start auth-cli: ${err.message}`));
-child.on('exit', (code) => process.exit(code || 0));
+child.on('exit', (code) => process.exit(code ?? 1));

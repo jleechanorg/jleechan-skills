@@ -31,7 +31,11 @@
 set -uo pipefail
 
 TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-ORG="${GH_ORG:-${GITHUB_ORG:-${GITHUB_REPOSITORY%%/*}}}"
+ORG="${GH_ORG:-${GITHUB_ORG:-}}"
+if [[ -z "$ORG" ]]; then
+  REPOSITORY="${GITHUB_REPOSITORY:-}"
+  ORG="${REPOSITORY%%/*}"
+fi
 HEALTH_TARGET="${RUNNER_HOST:-}"
 SSH_TIMEOUT="${RUNNER_HOST_TIMEOUT:-5}"
 DOCKER_SOCK_PATH="${RUNNER_HOST_DOCKER_SOCK:-unix:///var/run/docker.sock}"
