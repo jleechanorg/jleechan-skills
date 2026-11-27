@@ -330,6 +330,14 @@ const page = {
     }
     if (fn.toString().includes("usage limit")) {
       if (changeAt === "before_focus") state.routeChanged = true;
+      if (process.env.DOT_TEST_ALERT_NODES) {
+        const nodes = JSON.parse(process.env.DOT_TEST_ALERT_NODES).map((n) => ({
+          innerText: n.innerText,
+          querySelector: (s) => (n.matchSelector && s.includes(n.matchSelector) ? {} : null),
+        }));
+        globalThis.document = { querySelectorAll: () => nodes };
+        try { return fn(); } finally { delete globalThis.document; }
+      }
       return __USAGE_LIMIT_ALERT__;
     }
     return "Fixture conversation";
@@ -665,6 +673,35 @@ process.stdout.write = (chunk, ...args) => {
                     self.assertFalse(state["clicked"])
                     if reason == "composer_not_empty":
                         self.assertEqual(state["composer"], "Existing draft")
+
+    def test_usage_limit_guard_ignores_transcript_and_long_containers(self):
+        cases = (
+            ("article_transcript", [{"innerText": "Prior chat hit a rate limit", "matchSelector": "article"}], False),
+            ("author_role_transcript", [{"innerText": "Prior message said usage limit", "matchSelector": "data-message-author-role"}], False),
+            ("over_500_chars", [{"innerText": "usage limit " + "x" * 500}], False),
+            ("real_concise_banner", [{"innerText": "You have reached your usage limit. Try again later."}], True),
+        )
+        for label, nodes, expect_limit in cases:
+            with self.subTest(label=label):
+                self.env["DOT_TEST_ALERT_NODES"] = json.dumps(nodes)
+                try:
+                    proc, state = self._run_clocked_prepared()
+                    if expect_limit:
+                        self.assertIn('"reason":"usage_limit"', proc.stdout.replace(" ", ""))
+                        self.assertFalse(state["clicked"])
+                        msg = self.root / "alert-msg.txt"
+                        msg.write_text("Hello", encoding="utf-8")
+                        send_proc = subprocess.run(
+                            [str(NODE22), str(SCRIPT), "send", str(msg)],
+                            env=self.env, capture_output=True, text=True, timeout=30, check=False,
+                        )
+                        self.assertEqual(send_proc.returncode, 0, send_proc.stderr)
+                        self.assertIn("DOT_USAGE_LIMIT_REACHED:", send_proc.stdout)
+                    else:
+                        self.assertIn("DOT_SENT_VERIFIED", proc.stdout)
+                        self.assertTrue(state["clicked"])
+                finally:
+                    self.env.pop("DOT_TEST_ALERT_NODES", None)
 
     def _run_prepared_send(self, control):
         message_path = self.root / "prepared-message.txt"
