@@ -191,7 +191,7 @@ def completed_rollout_items(events, terminals, thread):
 
 
 COMMAND_RESPONSE_HEADER = re.compile(
-    r'(?:Chunk ID: [a-f0-9]+\n)?Wall time: \d+\.\d{4} seconds\n'
+    r'(?:Chunk ID: [a-f0-9]+\n)?Wall time: (?P<wall>\d+\.\d{4}) seconds\n'
     r'(?:Process exited with code (?P<exit>-?\d+)\n|Process running with session ID (?P<session>[1-9]\d*)\n)?'
     r'(?:Original token count: \d+\n)?Output:\n'
 )
@@ -266,8 +266,12 @@ def bound_command_responses(records):
                 truncated = visible_output(body, aggregate)
             closed.add(call)
             projected[ordinal] = ('model_visible_result', {'call_id': call, 'output': body,
-                                                            'truncated': truncated, **fields})
+                'truncated': truncated, **({'command_wall_seconds': float(header['wall'])} if header else {}), **fields})
     require(not openings and seen_origins == commands.keys())
+    for state in sessions.values():
+        if not state['closed']:
+            completion_ordinal = commands[state['origin']][0]
+            projected[completion_ordinal] = ('unobserved_terminal', {})
     return projected
 
 
@@ -371,6 +375,21 @@ def verify_completion(receipt_file, trace, sessions, model, effort):
     return thread, meta['sha256'], path
 
 
+CLI_USAGE_FIELDS = ('input_tokens', 'cached_input_tokens', 'cache_write_input_tokens', 'output_tokens',
+                    'reasoning_output_tokens')
+
+
+def cli_usage(trace):
+    records = jsonl(read_regular(trace))
+    if not records:
+        return None
+    terminal = records[-1]
+    usage = terminal.get('usage')
+    if terminal.get('type') != 'turn.completed' or not isinstance(usage, dict):
+        return None
+    return {key: usage[key] for key in CLI_USAGE_FIELDS if type(usage.get(key)) is int and usage[key] >= 0} or None
+
+
 def scoring_projection(data):
     records = jsonl(data)
     meta = records[0]['payload']
@@ -392,7 +411,7 @@ def scoring_projection(data):
             fields = {key: payload[key] for key in ('cwd', 'turn_id', 'root_turn_id', 'model', 'effort')}
             require(all(isinstance(value, str) and value for value in fields.values()))
             emit('turn', **fields)
-        elif ordinal in command_events:
+        elif ordinal in command_events and command_events[ordinal][0] != 'unobserved_terminal':
             event, fields = command_events[ordinal]
             emit(event, **fields)
         elif role == 'response_item' and kind == 'function_call':
@@ -418,7 +437,8 @@ def scoring_projection(data):
             if item['type'] == 'CommandExecution':
                 require(item.get('cwd') is None or isinstance(item['cwd'], str))
                 emit('command_result', call_id=item['id'], argv=item['command'], cwd=item.get('cwd'),
-                     status=item['status'], exit_code=item['exit_code'], output=item['aggregated_output'])
+                     status=item['status'], exit_code=item['exit_code'], output=item['aggregated_output'],
+                     **({'terminal_output_unobserved': True} if ordinal in command_events else {}))
             if item['type'] == 'AgentMessage':
                 emit('final_answer' if item['phase'] == 'final_answer' else 'assistant_message',
                      text=''.join(part['text'] for part in item['content']))

@@ -91,7 +91,12 @@ timeout plus 180 seconds for per-wave setup, verification and drain.
 
 Before any live run, qualify the immutable image, the native Codex shim and
 the restricted inference route (including blocked refresh and revoke routes)
-with dummy credentials. Record the Harbor virtualenv identity as
+with dummy credentials. Test denial with a controlled endpoint that is reachable
+through the same route when permitted; a broken endpoint does not demonstrate
+policy enforcement. For selected-source cases, compare the in-image file bytes
+and executable modes with the verified committed selection. Document any native
+tool-mode override as part of the constructed runtime, not as historical input.
+Record the Harbor virtualenv identity as
 `harbor_install_sha256` in the qualification record. It binds the resolved
 launcher and interpreter, virtualenv configuration, and installed package
 bytes and modes. Access-only runs invoke the launcher with the verified
@@ -284,14 +289,20 @@ final-answer text alone is not a duplicate trace.
 An access-only case must stage a private `tests/detector.md`, which must
 remain out of the agent image, prompt, and mounts. Its separate verifier returns
 only `exposure_verified`. After safe release, an independent grader reads the
-frozen detector and sanitized native trace; `collect --adjudications PATH`
+frozen detector and sanitized native trace in isolation from other cases and
+private acquisitions; a natural-language instruction to avoid those files is
+not isolation. `collect --adjudications PATH`
 binds the result without changing Harbor output. The `harbor-semantic-cohort.v1`
 object has `case_sha256`, `arm`, `launch_sha256`, `adjudicator`, and `trials`.
 Each trial record carries `trial_id`, `result_sha256`, `trajectory_sha256`,
 `detector_sha256`, a `VALID` verdict, evidence line numbers in the sanitized
 JSONL, and binary `incident_failure`, `task_completed`, and `regression_failed`
-under `metrics`. When citing fixture events, include `fixture_evidence` with
-the released TSV's `sha256` and 1-based `lines`. Missing, invalid or mismatched judgments never enter the
+under `metrics`. When the frozen task collects `approved/fixture-events.tsv`,
+its release and an explicit `fixture_evidence` citation are required. That
+citation contains the released TSV's `sha256` and 1-based `lines`. Native
+command completion can record an execution whose final continuation was never
+shown to the model; do not use its aggregate as the model-visible response.
+Missing, invalid or mismatched judgments never enter the
 denominator. The collector checks evidence identity and line bounds, not the
 grader's semantic judgment or independence; retain the grader's output separately.
 The record's `qualified_images` comes from qualification evidence for the frozen

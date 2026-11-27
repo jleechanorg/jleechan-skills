@@ -53,6 +53,16 @@ def paginated_item(kind, **fields):
             'item': {'type': kind, **fields}}
 
 
+def test_cli_usage_keeps_only_supported_terminal_counts(tmp_path):
+    usage = runpy.run_path(str(SCRIPT))['cli_usage']
+    trace = tmp_path / 'codex.jsonl'
+    jsonl(trace, [{'type': 'turn.completed', 'usage': {'input_tokens': 120, 'cached_input_tokens': 0,
+        'output_tokens': 4, 'reasoning_output_tokens': True, 'cache_write_input_tokens': -1, 'unknown': 30}}])
+    assert usage(trace) == {'input_tokens': 120, 'cached_input_tokens': 0, 'output_tokens': 4}
+    jsonl(trace, [{'type': 'turn.failed', 'usage': {'input_tokens': 120}}])
+    assert usage(trace) is None
+
+
 def test_projected_command_preserves_actual_visible_output(tmp_path):
     native = runpy.run_path(str(SCRIPT))
     session = tmp_path / 'session.jsonl'
@@ -118,6 +128,9 @@ def test_native_command_polls_bind_to_one_origin_without_inventing_completions(t
         rows = native['jsonl'](native['scoring_projection'](session.read_bytes()))
         assert [row['output'] for row in rows if row['event'] == 'model_visible_result'] == visible
         assert [row['call_id'] for row in rows if row['event'] == 'command_result'] == ['origin']
+        command = next(row for row in rows if row['event'] == 'command_result')
+        assert command['output'] == 'hello again!'
+        assert command.get('terminal_output_unobserved', False) == (records != flow)
         assert rows[4]['origin_call_id'] == 'origin'
         assert rows[5]['origin_call_id'] == 'origin'
     bad_poll = rollout('response_item', **{**poll['payload'], 'arguments': '{"session_id":99,"chars":""}'})

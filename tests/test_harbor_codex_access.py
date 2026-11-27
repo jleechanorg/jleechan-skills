@@ -401,7 +401,7 @@ def test_rollout_withholds_private_text_split_in_json_string_tool_output(header)
         access.sanitize_bytes(jsonl(call, output), (ACCOUNT,), 'native_rollout')
 
 
-@pytest.mark.parametrize('prefix,suffix', [('', ''), ('', '\n[INFO] diagnostic text'),
+@pytest.mark.parametrize('prefix,suffix', [('', ''), ('diagnostic: ', ''), ('', '\n[INFO] diagnostic text'),
     ('qualification-native-command\n', '\n[INFO] diagnostic text'),
     ('{"notice":"other output"}\n', '\n[INFO] diagnostic text')])
 def test_rollout_completed_function_output_scans_embedded_json_fragments(prefix, suffix):
@@ -413,6 +413,52 @@ def test_rollout_completed_function_output_scans_embedded_json_fragments(prefix,
                event('task_complete', turn_id='fake-turn'))
     with pytest.raises(access.AccessError, match='split'):
         access.sanitize_bytes(jsonl(*records), (ACCOUNT,), 'native_rollout')
+
+
+def test_scoring_withholds_malformed_recognized_embedded_tool_output():
+    value = {'event': 'command_result', 'call_id': 'origin', 'output': 'diagnostic: {"content": [{"type": "text"'}
+    with pytest.raises(access.AccessError, match='malformed embedded tool output'):
+        access.verify_scoring_release(access._json_bytes(value), (ACCOUNT,))
+
+
+def test_native_exec_withholds_same_line_structured_output_fragments():
+    output = 'diagnostic: ' + json.dumps({'content': [{'type': 'text', 'text': 'synthetic-'},
+                                                       {'type': 'text', 'text': 'account-42'}]})
+    row = {'type': 'item.completed', 'item': {'id': 'item_0', 'type': 'command_execution', 'command': 'fixture',
+           'aggregated_output': output, 'status': 'completed', 'exit_code': 0}}
+    with pytest.raises(access.AccessError, match='split'):
+        access.sanitize_bytes(jsonl(row), (ACCOUNT,), 'native_exec')
+
+
+def test_terminal_input_fragments_join_only_for_the_same_command():
+    envelope = 'Chunk ID: ab10\nWall time: 0.0000 seconds\nProcess running with session ID {}\nOutput:\n'
+
+    def rows(session_id):
+        trace, native = [], []
+        for name, ident, origin, session, text in (
+                ('exec_command', 'alpha', None, 42, ''), ('exec_command', 'beta', None, 43, ''),
+                ('write_stdin', 'send-alpha', 'alpha', 42, 'synthetic-'),
+                ('write_stdin', 'send-last', 'alpha' if session_id == 42 else 'beta', session_id, 'account-42')):
+            arguments = {'session_id': session, 'chars': text} if origin else {'cmd': 'fixture'}
+            native.extend((rollout('response_item', type='function_call', name=name, call_id=ident,
+                                   arguments=json.dumps(arguments)),
+                           rollout('response_item', type='function_call_output', call_id=ident,
+                                   output=envelope.format(session))))
+            if origin:
+                trace.append({'event': 'tool_call', 'name': name, 'call_id': ident, 'origin_call_id': origin,
+                              'arguments': arguments})
+        return b''.join(map(access._json_bytes, trace)), jsonl(*native)
+
+    for session_id in (42, 43):
+        scoring, raw = rows(session_id)
+        checks = ((access.verify_scoring_release, (scoring, (ACCOUNT,))),
+                  (access.sanitize_bytes, (raw, (ACCOUNT,), 'native_rollout')))
+        for check, args in checks:
+            if session_id == 42:
+                with pytest.raises(access.AccessError, match='split'):
+                    check(*args)
+            else:
+                check(*args)
 
 
 def test_scoring_scans_logical_command_continuations_without_parsing_each_as_json():

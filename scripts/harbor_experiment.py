@@ -672,6 +672,7 @@ CLEANUP_WARNINGS = (b'Docker compose down failed:', b'Docker compose stop failed
 REWARDS = ('valid', 'incident_failure', 'exposure_verified', 'task_completed', 'regression_failed')
 SEMANTIC_METRICS = ('incident_failure', 'task_completed', 'regression_failed')
 PRIVATE_DETECTOR = 'tests/detector.md'
+FIXTURE_EVIDENCE = 'artifacts/approved/fixture-events.tsv'
 PROVIDER_ENV = ('OPENAI_API_KEY', 'CODEX_API_KEY')
 PROCESS_ENV = ('PATH', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TZ', 'DOCKER_HOST')
 
@@ -1400,10 +1401,11 @@ def docker_seal(prefix, env, acquisition, daemon, expected_trials, events, *, jo
         if not docker_mounts_clear(query, acquisition,
                                    {identity for kind, identity in resources if kind == 'container'}):
             return None
+        started_trials = {prefix + trial for (trial, phase, service), identity in roles.items()
+                          if phase == 'env' and service == 'main' and identity[1] in started}
         return {**Counter(kind for kind, _ in resources), 'trial_projects': len(by_trial),
                 'eligible_trials': sorted(eligible),
-                'started_trials': sorted(prefix + trial for (trial, phase, service), identity in roles.items()
-                                         if phase == 'env' and service == 'main' and identity[1] in started)}
+                'started_trials': sorted(started_trials | {name.lower() for name in eligible})}
     except (OSError, ValueError, KeyError, TypeError, AttributeError, subprocess.SubprocessError):
         return None
 
@@ -1616,7 +1618,7 @@ def release_access_run(experiment, arm, raw, stage, output, private_values, laun
                        expected_config_source=None):
     from harbor_codex_access import (read_artifact, safe_artifact_format, sanitize_bytes, verify_frozen_release,
                                     verify_scoring_release)
-    from harbor_codex_completion import (PRIVATE_RECEIPT, PUBLIC_RECEIPT, native_control_seen,
+    from harbor_codex_completion import (PRIVATE_RECEIPT, PUBLIC_RECEIPT, cli_usage, native_control_seen,
                                          scoring_projection, verify_completion)
 
     def check_deadline():
@@ -1649,7 +1651,8 @@ def release_access_run(experiment, arm, raw, stage, output, private_values, laun
                     private, private.with_name('codex.txt'), private.with_name('sessions'),
                     experiment.runtime['model'], experiment.runtime['effort'],
                 )
-                proof = {'verified': True, 'thread_id': thread}
+                usage = cli_usage(private.with_name('codex.txt'))
+                proof = {'verified': True, 'thread_id': thread, **({'usage': usage} if usage else {})}
             except (OSError, TypeError, ValueError, KeyError):
                 rollout_hash = None
                 proof = {'verified': False, 'thread_id': None}
@@ -2338,7 +2341,7 @@ def check_trial(experiment, arm, trial, directory, expected_checksum, job_id, re
     timestamps(execution.get('started_at'), execution.get('finished_at'))
     completion = None
     if experiment.runtime.get('auth_mode') == ACCESS_MODE:
-        from harbor_codex_completion import PUBLIC_RECEIPT
+        from harbor_codex_completion import CLI_USAGE_FIELDS, PUBLIC_RECEIPT
         from harbor_codex_egress import INFERENCE_HOST, RECEIPT
 
         network = read_object(safe_path(trial, RECEIPT), 'live inference Docker proof')
@@ -2350,8 +2353,13 @@ def check_trial(experiment, arm, trial, directory, expected_checksum, job_id, re
             matches(network[identity], r'[a-f0-9]{64}', 'live inference Docker identity')
 
         completion = read_object(safe_path(trial, f'agent/{PUBLIC_RECEIPT}'), 'native completion proof')
-        fields(completion, ('verified', 'thread_id', 'raw_observation_verified', 'first_turn'),
+        fields({key: value for key, value in completion.items() if key != 'usage'},
+               ('verified', 'thread_id', 'raw_observation_verified', 'first_turn'),
                'native completion proof')
+        if 'usage' in completion:
+            usage = completion['usage']
+            require(isinstance(usage, dict) and usage and usage.keys() <= set(CLI_USAGE_FIELDS)
+                    and all(type(count) is int and count >= 0 for count in usage.values()), 'invalid native usage')
         require(completion['verified'] is True, 'native Codex completion was not verified')
         require(completion['raw_observation_verified'] is True, 'raw exposure observation was not verified')
         uuid_string(completion['thread_id'], 'native Codex thread')
@@ -2404,7 +2412,13 @@ def check_trial(experiment, arm, trial, directory, expected_checksum, job_id, re
     }
 
 
-def bound_semantic_verdict(record, row, detector_sha, trace, *, fixture_log=None):
+def semantic_fixture_required(task):
+    config = tomllib.loads(safe_path(task, 'task.toml').read_text(encoding='utf-8'))
+    return any(isinstance(entry, dict) and entry.get('destination') == FIXTURE_EVIDENCE.removeprefix('artifacts/')
+               for entry in config.get('artifacts', ()))
+
+
+def bound_semantic_verdict(record, row, detector_sha, trace, *, fixture_log=None, fixture_required=False):
     base = ('trial_id', 'result_sha256', 'trajectory_sha256', 'detector_sha256', 'verdict', 'evidence_lines', 'metrics')
     fields(record, (*base, 'fixture_evidence') if 'fixture_evidence' in record else base, 'independent semantic verdict')
     require(record['trial_id'] == row['trial_id'] and record['result_sha256'] == row['exposure']['result_sha256']
@@ -2415,6 +2429,7 @@ def bound_semantic_verdict(record, row, detector_sha, trace, *, fixture_log=None
     lines = array(record['evidence_lines'], 'semantic evidence lines')
     require(0 < len(lines) <= 32 and all(type(line) is int and 0 < line <= data.count(b'\n') for line in lines)
             and lines == sorted(set(lines)), 'semantic evidence lines are invalid')
+    require(not fixture_required or 'fixture_evidence' in record, 'required fixture evidence was not cited')
     if 'fixture_evidence' in record:
         fixture = record['fixture_evidence']
         fields(fixture, ('sha256', 'lines'), 'independent fixture evidence')
@@ -2511,15 +2526,19 @@ def trial_reports(experiment, arm, directory, native_dir, job_sha, errors, *, ad
                                    row['result_sha256']))
             if experiment.runtime.get('auth_mode') == ACCESS_MODE:
                 require(PRIVATE_DETECTOR in experiment.inventories[arm], 'frozen detector is missing')
+                fixture_required = semantic_fixture_required(experiment.tasks[arm])
+                fixture_log = safe_path(trial, FIXTURE_EVIDENCE) if fixture_required else None
+                if fixture_log is not None:
+                    require(access_bytes(fixture_log).count(b'\n') > 0, 'required fixture evidence is empty')
                 require(adjudications is not None and row['trial_id'] in adjudications,
                         'independent semantic verdict not delivered')
                 grade = adjudications[row['trial_id']]
                 evidence = read_object(safe_path(trial, OBSERVATION_PATH), 'released exposure observation')
                 trace = safe_path(trial, evidence['trajectory']['path'])
-                fixture_log = (safe_path(trial, 'artifacts/approved/fixture-events.tsv')
-                               if 'fixture_evidence' in grade else None)
+                if fixture_log is None and 'fixture_evidence' in grade:
+                    fixture_log = safe_path(trial, FIXTURE_EVIDENCE)
                 metrics = bound_semantic_verdict(grade, row, experiment.inventories[arm][PRIVATE_DETECTOR]['sha256'], trace,
-                                                 fixture_log=fixture_log)
+                                                 fixture_log=fixture_log, fixture_required=fixture_required)
                 row['rewards'].update({'valid': 1, **metrics})
                 row['semantic_evidence_lines'] = grade['evidence_lines']
                 if 'fixture_evidence' in grade:

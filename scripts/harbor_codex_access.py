@@ -452,7 +452,7 @@ def _exec_records(records, pattern):
         elif item_kind == 'command_execution':
             _require(kind != 'item.updated' and item.keys() == {
                 'id', 'type', 'command', 'aggregated_output', 'status', 'exit_code'}, 'unsupported exec tool fragment')
-            _field(item, 'aggregated_output')
+            _tool_output(_field(item, 'aggregated_output'), pattern)
         elif item_kind == 'mcp_tool_call':
             _require(kind == 'item.completed' or (kind == 'item.started' and item.get('result') is None
                                                   and item.get('error') is None), 'unsupported native MCP fragment')
@@ -497,7 +497,7 @@ def _close_command(event, streamed, pattern):
         _require(_field(event, 'interaction_input') == joined, 'native terminal copies disagree')
 
 
-def _tool_output(output, pattern):
+def _tool_output(output, pattern, *, partial=False):
     if isinstance(output, str):
         from harbor_codex_completion import COMMAND_RESPONSE_HEADER
 
@@ -507,40 +507,56 @@ def _tool_output(output, pattern):
         decoder = json.JSONDecoder(object_pairs_hook=_unique_object, parse_float=_finite_float,
                                    parse_constant=_finite_float)
         consumed = 0
-        for candidate in re.finditer(r'(?m)^[ \t\r]*([\[{])', output):
-            start = candidate.start(1)
+        for candidate in re.finditer(r'\{(?=\s*(?:"|\}))|\[(?=\s*(?:[\[{"\]]|-?\d|true\b|false\b|null\b))', output):
+            start = candidate.start()
             if start < consumed:
                 continue
             try:
                 encoded, consumed = decoder.raw_decode(output, start)
             except json.JSONDecodeError:
+                _require(partial or not re.compile(r'(?:\{\s*"content"\s*:\s*\[|\[\s*\{\s*"type"\s*:\s*"(?:input_text|output_text|text)")').match(output, start),
+                         'malformed embedded tool output')
                 continue
             except RecursionError:
                 raise AccessError('native tool output exceeds JSON nesting limit') from None
             _check_fragments(list(_json_leaf_values(encoded)), pattern)
-            content = encoded.get('content') if isinstance(encoded, dict) else None
-            if isinstance(content, list) and all(isinstance(node, dict) and 'type' in node for node in content):
+            content = encoded.get('content') if isinstance(encoded, dict) else encoded
+            if isinstance(content, list) and all(isinstance(node, dict) and node.get('type') in
+                                              {'text', 'input_text', 'output_text'} for node in content):
                 _content({'text', 'input_text', 'output_text'}, content, pattern)
     else:
         _content({'input_text', 'output_text'}, output, pattern)
 
 
+def _terminal_input(arguments):
+    _require(isinstance(arguments, dict) and type(arguments.get('session_id')) is int
+             and arguments['session_id'] > 0, 'invalid terminal session input')
+    return arguments['session_id'], _field(arguments, 'chars')
+
+
 def verify_scoring_release(data, private_values):
     pattern = _private_pattern(private_values)
-    visible_by_origin = {}
+    visible_by_origin, running_by_origin, stdin_by_origin = {}, {}, {}
     for row in _json_lines(_utf8(data), allow_empty=False):
         if row.get('event') in {'command_result', 'model_visible_result'}:
             output = _field(row, 'output')
-            _tool_output(output, pattern)
+            _tool_output(output, pattern, partial='session_id' in row)
             if row['event'] == 'model_visible_result':
                 origin = row.get('origin_call_id', _identifier(row, 'call_id'))
                 visible_by_origin.setdefault(origin, []).append(output)
-    for chunks in visible_by_origin.values():
-        _tool_output(_check_fragments(chunks, pattern), pattern)
+                running_by_origin[origin] = row.get('process_running') is True
+        elif row.get('event') == 'tool_call' and row.get('name') == 'write_stdin':
+            origin = _identifier(row, 'origin_call_id')
+            session, text = _terminal_input(_object(row, 'arguments'))
+            stdin_by_origin.setdefault((origin, session), []).append(text)
+    for origin, chunks in visible_by_origin.items():
+        _tool_output(_check_fragments(chunks, pattern), pattern, partial=running_by_origin[origin])
+    for chunks in stdin_by_origin.values():
+        _check_fragments(chunks, pattern)
     _require(sanitize_bytes(data, private_values, 'jsonl') == data, 'native scoring projection required redaction')
 
 
-def _response_item(payload, pattern):
+def _response_item(payload, pattern, *, partial_output=False):
     kind = _field(payload, 'type')
     _require(not (payload.keys() & FRAGMENT_FIELDS), 'unsupported native response fragment')
     if kind in {'message', 'agent_message'}:
@@ -561,16 +577,18 @@ def _response_item(payload, pattern):
         opaque = payload.get('encrypted_content')
         _require(opaque is None or isinstance(opaque, str), 'unsupported native encrypted reasoning')
     elif kind in {'function_call_output', 'custom_tool_call_output'}:
-        _tool_output(payload.get('output'), pattern)
+        _tool_output(payload.get('output'), pattern, partial=partial_output)
     else:
         _require(kind in RESPONSE_ITEMS, 'unsupported native response item')
 
 
 def _rollout_records(records, pattern):
+    from harbor_codex_completion import COMMAND_RESPONSE_HEADER
+
     thread = turn = None
     messages, commands, completed_messages, completed_commands = {}, {}, set(), set()
     command_items, legacy_outputs = {}, {}
-    response_calls = set()
+    response_calls, response_sessions, response_stdin, response_stdout = {}, {}, {}, {}
     base_fields = {'timestamp', 'type', 'payload'}
     paginated = 'ordinal' in records[0]
     for index, record in enumerate(records):
@@ -594,16 +612,40 @@ def _rollout_records(records, pattern):
                      and _string(source['source_id'])), 'unsupported native retained source metadata')
         payload = _object(record, 'payload')
         if record_kind == 'response_item':
-            _response_item(payload, pattern)
             kind = _field(payload, 'type')
+            partial_output = False
             if kind in {'function_call', 'custom_tool_call'}:
-                identity = (kind, _identifier(payload, 'call_id'))
+                call_id = _identifier(payload, 'call_id')
+                identity = (kind, call_id)
                 _require(identity not in response_calls, 'duplicate native tool call')
-                response_calls.add(identity)
+                name = payload.get('name') if kind == 'function_call' else None
+                origin, session = call_id, None
+                if name == 'write_stdin':
+                    session, text = _terminal_input(_parse_json(_field(payload, 'arguments')))
+                    origin = response_sessions.get(session)
+                    _require(origin is not None, 'uncorrelated native terminal input')
+                    response_stdin.setdefault(origin, []).append(text)
+                response_calls[identity] = (name, origin, session)
             elif kind in {'function_call_output', 'custom_tool_call_output'}:
                 identity = (kind.removesuffix('_output'), _identifier(payload, 'call_id'))
                 _require(identity in response_calls, 'uncorrelated or duplicate native tool output')
-                response_calls.remove(identity)
+                name, origin, session = response_calls.pop(identity)
+                output = payload.get('output')
+                header = COMMAND_RESPONSE_HEADER.match(output) if isinstance(output, str) else None
+                if name in {'exec_command', 'write_stdin'} and header:
+                    running = int(header['session']) if header['session'] else None
+                    if name == 'exec_command' and running is not None:
+                        _require(running not in response_sessions, 'ambiguous native terminal session')
+                        response_sessions[running] = origin
+                        session = running
+                    if session is not None:
+                        _require(running == session or header['exit'] is not None,
+                                 'uncorrelated native terminal output')
+                        response_stdout.setdefault(origin, []).append(output[header.end():])
+                        partial_output = True
+                        if header['exit'] is not None:
+                            del response_sessions[session]
+            _response_item(payload, pattern, partial_output=partial_output)
             continue
         if record_kind in ROLLOUT_METADATA:
             _require(not (payload.keys() & FRAGMENT_FIELDS), 'unsupported native rollout metadata fragment')
@@ -651,6 +693,7 @@ def _rollout_records(records, pattern):
                 _require(item_id not in command_items, 'duplicate native command completion')
                 output = item.get('aggregated_output')
                 command_items[item_id] = '' if output is None else _field(item, 'aggregated_output')
+                _tool_output(command_items[item_id], pattern)
                 if item_id in legacy_outputs:
                     _require(command_items[item_id] == legacy_outputs[item_id], 'native tool copies disagree')
             elif item_kind == 'Plan':
@@ -706,6 +749,11 @@ def _rollout_records(records, pattern):
         else:
             _require(kind in ROLLOUT_EVENTS, 'unsupported native rollout event')
     _require(not messages and not commands and not response_calls, 'unclosed native logical fragments')
+    for chunks in response_stdin.values():
+        _check_fragments(chunks, pattern)
+    unfinished = set(response_sessions.values())
+    for origin, chunks in response_stdout.items():
+        _tool_output(_check_fragments(chunks, pattern), pattern, partial=origin in unfinished)
 
 
 def _json_lines(text, *, allow_empty):

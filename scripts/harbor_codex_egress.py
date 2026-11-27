@@ -33,7 +33,7 @@ def docker_lines(*args):
         raise ValueError('could not inspect live inference containers') from None
 
 
-def bound_inference_containers(project, agent_image, egress_image, trial):
+def bound_inference_containers(project, agent_image, egress_image, trial, *, qualify_route=None):
     listed = docker_lines('ps', '-aq', '--no-trunc', '--filter', f'label=com.docker.compose.project={project}')
     if len(set(listed)) != 2 or len(listed) != 2 or not all(re.fullmatch('[a-f0-9]{64}', item) for item in listed):
         raise ValueError('expected exactly two live inference container identities')
@@ -54,6 +54,8 @@ def bound_inference_containers(project, agent_image, egress_image, trial):
     command = ('exec', sidecar[0], 'network-policy')
     if docker_lines(*command, 'show') != OFFLINE_POLICY:
         raise ValueError('inference sidecar did not start in the qualified offline policy')
+    if qualify_route is not None:
+        qualify_route(project, main[0], sidecar[0])
     docker_lines(*command, 'allow', INFERENCE_HOST)
     observed = docker_lines(*command, 'show')
     if observed[:2] != POLICY_HEADER or len(observed) != 3 or observed[2].split() != ['1', INFERENCE_HOST]:
@@ -79,6 +81,9 @@ class BindInferenceSidecar:
     async def on_job_end(self, job_result):
         pass
 
+    def bind_live(self, project, trial_dir):
+        return bound_inference_containers(project, self.agent_image, self.egress_image, trial_dir)
+
     async def before_agent(self, event):
         trial = event.trial_name
         if not trial.startswith(self.scope) or not re.fullmatch(r'[A-Za-z0-9_-]+', trial):
@@ -87,8 +92,7 @@ class BindInferenceSidecar:
         if event.config.agent.extra_allowed_hosts != [INFERENCE_HOST]:
             raise ValueError('unexpected native inference network plan')
         trial_dir = Path(event.config.trials_dir) / trial
-        proof = await asyncio.to_thread(bound_inference_containers, project, self.agent_image, self.egress_image,
-                                        trial_dir)
+        proof = await asyncio.to_thread(self.bind_live, project, trial_dir)
         trial_id = str(UUID(str(event.result.id)))
         binding = json.dumps({'run_sha256': self.run_sha256, 'trial': trial, 'trial_id': trial_id}, sort_keys=True)
         await asyncio.to_thread(docker_lines, 'exec', '--user', '0:0', proof['main'], '/bin/sh', '-c',

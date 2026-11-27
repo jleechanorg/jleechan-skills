@@ -214,9 +214,13 @@ def test_external_semantic_verdict_binds_detector_and_native_evidence(tmp_path):
               'detector_sha256': detector, 'verdict': 'VALID', 'evidence_lines': [1, 3],
               'metrics': {'incident_failure': 1, 'task_completed': 0, 'regression_failed': 1}}
     assert adapter.bound_semantic_verdict(record, row, detector, trace)['incident_failure'] == 1
+    with pytest.raises(ValueError, match='required fixture evidence was not cited'):
+        adapter.bound_semantic_verdict(record, row, detector, trace, fixture_required=True)
     fixture = tmp_path / 'fixture-events.tsv'
     fixture.write_text('read\tstatus\n')
     cited = {**record, 'fixture_evidence': {'sha256': sha(fixture.read_bytes()), 'lines': [1]}}
+    with pytest.raises(ValueError, match='no released fixture event log'):
+        adapter.bound_semantic_verdict(cited, row, detector, trace, fixture_required=True)
     assert adapter.bound_semantic_verdict(cited, row, detector, trace, fixture_log=fixture)['incident_failure'] == 1
     fixture.write_text('read\tother\n')
     with pytest.raises(ValueError, match='fixture evidence does not match'):
@@ -1288,6 +1292,7 @@ def test_release_cannot_use_observation_for_unrelated_native_trace(monkeypatch, 
     task.mkdir(parents=True)
     (task / 'instruction.md').write_text('Run the local fixture.')
     (agent / 'completion.private.json').write_text(json.dumps({'exit_code': 0, 'sha256': 'a' * 64}))
+    (agent / 'codex.txt').write_text('{"type":"turn.completed"}\n')
     incident = SimpleNamespace(tasks={'baseline': task}, runtime={'model': 'gpt-example', 'effort': 'medium'},
                                trials={'baseline': 1})
     launch = {'staged_before': adapter.staged_inventory(raw), 'staged_after': adapter.staged_inventory(raw),
@@ -1411,6 +1416,8 @@ def test_access_release_scopes_jobs_and_withholds_only_malformed_trial(monkeypat
                                                                              'sha256': sha(witness.read_bytes())}]}))
     native_digest = reference['sha256']
     (good / 'agent' / 'completion.private.json').write_text(json.dumps({'exit_code': 0, 'sha256': native_digest}))
+    (good / 'agent' / 'codex.txt').write_text(
+        '{"type":"turn.completed","usage":{"input_tokens":31,"output_tokens":4}}\n')
     original_bad_digest = 'f' * 64
     (bad / 'agent' / 'completion.private.json').write_text(json.dumps({'exit_code': 0, 'sha256': original_bad_digest}))
     (raw / 'stdout.log').write_text(original_bad_digest)
@@ -1467,6 +1474,7 @@ def test_access_release_scopes_jobs_and_withholds_only_malformed_trial(monkeypat
         harbor_config['job_id'], json.loads(retained_result.read_bytes()), sha(retained_result.read_bytes()))
     assert assessed['exposure']['observation']['sha256'] == sha((stage / observation.relative_to(raw)).read_bytes())
     assert assessed['trajectory_sha256'] == sha(retained_rollout.read_bytes())
+    assert assessed['native_completion']['usage'] == {'input_tokens': 31, 'output_tokens': 4}
     assert not (stage / good.relative_to(raw) / 'trial.log').exists()
 
 
@@ -1551,6 +1559,9 @@ def test_access_release_format_rejects_unbound_plaintext_transcript():
 
 @pytest.mark.parametrize('result_present', [True, False, 'invalid_duplicate'])
 def test_access_collection_counts_valid_siblings_of_withheld_trial(monkeypatch, tmp_path, result_present):
+    task = tmp_path / 'fixture'
+    task.mkdir()
+    (task / 'task.toml').write_text('version = "1"\n')
     grade_path = tmp_path / 'cohort.json'
     tmp_path = tmp_path / 'release'
     native = Path('/dev/shm/harbor-codex-a234567_/acquisition-' + '1' * 32)
@@ -1558,7 +1569,7 @@ def test_access_collection_counts_valid_siblings_of_withheld_trial(monkeypatch, 
                                           'agent_version': '0.172.0', 'agent': 'codex', 'model': 'gpt-example',
                                           'effort': 'medium', 'concurrency': 1},
                                  case_sha256='a' * 64, manifest_sha256='b' * 64, incident_id='fixture',
-                                 incident_kind='constructed', trials={'baseline': 5},
+                                 incident_kind='constructed', trials={'baseline': 5}, tasks={'baseline': task},
                                  harbor_install_sha256='c' * 64, docker_client_sha256='d' * 64,
                                  egress_image_id='sha256:' + 'e' * 64,
                                  run_sha256=lambda *_: 'f' * 64, verifier_env=lambda *_: {})
@@ -1804,13 +1815,15 @@ def test_access_docker_seal_checks_lifecycle_ids_and_late_bind_mount(monkeypatch
     receipt.write_text(json.dumps(proof))
     assert seal(job=job) == {'container': 4, 'trial_projects': 1, 'eligible_trials': []}
     events.insert(5, event('start', '2' * 64, 'owned__case__verifier__task', 'main'))
-    assert seal(job=job) == {'container': 4, 'trial_projects': 1, 'eligible_trials': ['owned__Case']}
+    assert seal(job=job, starts=('owned__case',)) == {
+        'container': 4, 'trial_projects': 1, 'eligible_trials': ['owned__Case']}
     anonymous = {'Type': 'volume', 'Action': 'mount', 'Actor': {'ID': 'anonymous', 'Attributes': {'container': identity}}}
     events.append(anonymous)
     assert seal(job=job) is None
     assert adapter.docker_fenced_volumes_clear(prefix, {}, events, float('inf'))
     events.append({'Type': 'volume', 'Action': 'destroy', 'Actor': {'ID': 'anonymous', 'Attributes': {}}})
-    assert seal(job=job) == {'container': 4, 'trial_projects': 1, 'eligible_trials': ['owned__Case']}
+    assert seal(job=job, starts=('owned__case',)) == {
+        'container': 4, 'trial_projects': 1, 'eligible_trials': ['owned__Case']}
     receipt.write_text(json.dumps({**proof, 'sidecar': '2' * 64}))
     assert seal(job=job) == {'container': 4, 'trial_projects': 1, 'eligible_trials': []}
     receipt.write_text(json.dumps(proof))
@@ -1819,7 +1832,7 @@ def test_access_docker_seal_checks_lifecycle_ids_and_late_bind_mount(monkeypatch
     second_id = '9' * 64
     events.extend(event(action, second_id, 'owned__missing__env', 'main') for action in ('create', 'destroy'))
     events.insert(-1, event('start', second_id, 'owned__missing__env', 'main'))
-    assert seal(2, job=job, starts=('owned__missing',)) == {
+    assert seal(2, job=job, starts=('owned__case', 'owned__missing')) == {
         'container': 5, 'trial_projects': 2, 'eligible_trials': ['owned__Case']}
     assert seal(1, job=job) is None
     destroyed = events[1]
