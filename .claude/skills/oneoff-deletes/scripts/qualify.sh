@@ -16,7 +16,7 @@ trap 'rm -f "$ALL" "$OLD" "$CAND"' EXIT
 for r in "${RS[@]}"; do
   case "$r" in /?*) ;; *) echo "bad root: $r" >&2; exit 2;; esac
   [ -d "$r" ] || { echo "missing root: $r" >&2; exit 2; }
-  find "$r" -mindepth 1 -maxdepth "$DEPTH" -user "$(id -un)" \( -type f -o -type d -o -type l \) ! -name '.*' -print0
+  find "$r" -mindepth 1 -maxdepth "$DEPTH" -user "$(id -un)" \( -type f -o -type d -o -type l \) ! -name '.*' ! -path "$r/.*" ! -path "$r/*/.*" -print0
 done > "$ALL"
 
 # 1. age: nothing modified or status-changed beneath the entry within MIN minutes
@@ -33,7 +33,8 @@ grep -vE '/(com\.apple\.|launchd[^/]*$|powerlog|claude-501(/|$))|socket|\.sock$|
 # 3. open handles: lsof <dir> does NOT list files beneath it, so take the full list and prefix-filter
 PAT=$(printf '%s|' "${RS[@]}" | sed 's/|$//')
 lsof -F n +c0 2>/dev/null | awk '/^n\//{print substr($0,2)}' | grep -E "^($PAT)/" | sed 's#^/tmp/#/private/tmp/#' | sort -u > "$OPEN_LIST"
-awk 'FILENAME==ARGV[1]{o[$0]=1;next}{p=$0;hit=0;for(f in o){if(index(f,p"/")==1||f==p){hit=1;break}}if(!hit)print p}' "$OPEN_LIST" "$CAND" > "$OLD"
+# hash every open file and all of its ancestor paths, so a candidate is open iff it is in the set (O(1) per candidate)
+awk 'FILENAME==ARGV[1]{n=split($0,a,"/");s="";for(i=2;i<=n;i++){s=s"/"a[i];o[s]=1};next}!($0 in o)' "$OPEN_LIST" "$CAND" > "$OLD"
 
 # 4. drop children whose parent is also a candidate
 awk 'NR==FNR{c[$0]=1;next}{p=$0;sub("/[^/]*$","",p);if(!(p in c))print $0}' "$OLD" "$OLD"

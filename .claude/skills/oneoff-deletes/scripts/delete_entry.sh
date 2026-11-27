@@ -7,9 +7,13 @@ set -u
 D="${1:?unset}"; : "${ROOTS:?}"; : "${OPEN_LIST:?}"; MIN="${MIN:-360}"; EXCLUDE="${EXCLUDE:-}"
 
 ok=0; IFS=: read -r -a RS <<< "$ROOTS"
-for r in "${RS[@]}"; do case "$D" in "$r"/?*) ok=1;; esac; done
+hidden=0
+for r in "${RS[@]}"; do
+  case "$D" in "$r"/?*) ok=1; case "/${D#"$r"/}" in */.*) hidden=1;; esac;; esac
+done
 case "$D" in *..*) ok=0;; esac
 [ "$ok" = 1 ] || { printf 'SKIP-bad\t%s\n' "$D"; exit 0; }
+[ "$hidden" = 0 ] || { printf 'SKIP-excluded\t%s\n' "$D"; exit 0; }   # never delete under or at a hidden path component
 
 if [ -n "$EXCLUDE" ]; then
   IFS=: read -r -a EX <<< "$EXCLUDE"

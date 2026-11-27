@@ -59,6 +59,13 @@ Mode: --full (beads + ~/roadmap + Claude memory + mem0 + GH Issues)
 
 ## Fail-closed rule
 
+Before carrying forward a hold, pause, or restriction, verify it comes from an
+applicable user instruction or governing policy and record the source and date.
+Authorization for the same action, target, and outcome persists unless changed
+or withdrawn. A summary or reviewer preference alone is not authority. State
+technical blockers separately with evidence, and preserve applicable safety and
+approval gates even when no latest-message quote is available.
+
 ## Continue authorized work before handoff
 
 Before writing a handoff or ending the run, reconcile the live request and
