@@ -39,6 +39,14 @@ Use this same verified `AUTH_NODE` executable for every command below.
 | `${CLAUDE_HOME:-$HOME/.claude}/scripts/auth-cli.mjs` | User-global fallback | Yes (if installed) |
 | `$AI_UNIVERSE_ROOT/scripts/auth-cli.mjs` | Source of truth (set `AI_UNIVERSE_ROOT` to your AI Universe checkout) | Yes |
 
+When using the source checkout, set `AI_UNIVERSE_ROOT` to its path before
+running these commands. Replace the example with the checkout path on your
+machine; this skill does not assume a location.
+
+```bash
+export AI_UNIVERSE_ROOT="/path/to/your/ai-universe"
+```
+
 **To run the script**, use a directory that has `node_modules` with `express` installed:
 
 ```bash
@@ -46,7 +54,7 @@ Use this same verified `AUTH_NODE` executable for every command below.
 cd "${AI_UNIVERSE_ROOT:?AI_UNIVERSE_ROOT not configured: path to the AI Universe checkout}" && "$AUTH_NODE" scripts/auth-cli.mjs status
 
 # Or from ${CLAUDE_HOME:-$HOME/.claude} if deps installed
-"$AUTH_NODE" ${CLAUDE_HOME:-$HOME/.claude}/scripts/auth-cli.mjs status
+"$AUTH_NODE" "${CLAUDE_HOME:-$HOME/.claude}/scripts/auth-cli.mjs" status
 ```
 
 ## Multi-Project Support
@@ -56,7 +64,7 @@ The script supports **two Firebase projects**. Use the correct one for your use 
 | Project | Firebase ID | Use Case | Command |
 |---------|-------------|----------|---------|
 | **AI Universe** | auth-cli.mjs default project | `/secondo`, multi-model synthesis | `"$AUTH_NODE" scripts/auth-cli.mjs token` (default) |
-| **Another Firebase app** | `<firebase-project-id>` | That app's auth | `"$AUTH_NODE" scripts/auth-cli.mjs token --project <firebase-project-id>` |
+| **Another Firebase app** | `<firebase-project-id>` | That app's auth | `"$AUTH_NODE" scripts/auth-cli.mjs token --project '<firebase-project-id>'` |
 
 ### When to Use Each Project
 
@@ -77,7 +85,7 @@ TOKEN=$("$AUTH_NODE" scripts/auth-cli.mjs token)
 
 ```bash
 # Use an existing verified token or supported silent refresh immediately.
-TOKEN=$("$AUTH_NODE" scripts/auth-cli.mjs token --project <firebase-project-id>)
+TOKEN=$("$AUTH_NODE" scripts/auth-cli.mjs token --project '<firebase-project-id>')
 ```
 
 ## Prerequisites
@@ -101,7 +109,7 @@ starting login.
 "$AUTH_NODE" scripts/auth-cli.mjs login
 
 # Another Firebase app
-"$AUTH_NODE" scripts/auth-cli.mjs login --project <firebase-project-id>
+"$AUTH_NODE" scripts/auth-cli.mjs login --project '<firebase-project-id>'
 ```
 
 **What happens:**
@@ -133,7 +141,7 @@ TOKEN=$("$AUTH_NODE" scripts/auth-cli.mjs token)
 test -n "$TOKEN" && printf 'Token available\n'
 
 # For another Firebase app
-TOKEN=$("$AUTH_NODE" scripts/auth-cli.mjs token --project <firebase-project-id>)
+TOKEN=$("$AUTH_NODE" scripts/auth-cli.mjs token --project '<firebase-project-id>')
 ```
 
 **Token Behavior:**
@@ -173,7 +181,7 @@ cd "$AI_UNIVERSE_ROOT" && "$AUTH_NODE" scripts/auth-cli.mjs status
 cd "${CLAUDE_HOME:-$HOME/.claude}" && npm install express
 
 # Option 3: Copy working script
-cp "$AI_UNIVERSE_ROOT/scripts/auth-cli.mjs" ${CLAUDE_HOME:-$HOME/.claude}/scripts/
+cp "$AI_UNIVERSE_ROOT/scripts/auth-cli.mjs" "${CLAUDE_HOME:-$HOME/.claude}/scripts/"
 ```
 
 ### PROJECT_NUMBER_MISMATCH Error
@@ -192,7 +200,7 @@ This means the token was created for a different Firebase project than you're tr
 # and a verified task-owned isolated browser, never personal Chrome.
 # Then, if authorized, log in for the correct project:
 "$AUTH_NODE" scripts/auth-cli.mjs login                              # AI Universe
-"$AUTH_NODE" scripts/auth-cli.mjs login --project <firebase-project-id>  # Another Firebase app
+"$AUTH_NODE" scripts/auth-cli.mjs login --project '<firebase-project-id>'  # Another Firebase app
 ```
 
 ### Port 9005 Already in Use
@@ -232,11 +240,11 @@ TOKEN=$("$AUTH_NODE" scripts/auth-cli.mjs token)
 | Command | Project | Authentication |
 |---------|---------|----------------|
 | `/secondo` | AI Universe | `"$AUTH_NODE" scripts/auth-cli.mjs token` (default) |
-| Another app's API | `<firebase-project-id>` | `"$AUTH_NODE" scripts/auth-cli.mjs token --project <firebase-project-id>` |
+| Another app's API | `<firebase-project-id>` | `"$AUTH_NODE" scripts/auth-cli.mjs token --project '<firebase-project-id>'` |
 
 ## Keeping Scripts in Sync
 
-The source of truth for `auth-cli.mjs` is `$AI_UNIVERSE_ROOT/scripts/auth-cli.mjs`.
+The source of truth for `auth-cli.mjs` is `"$AI_UNIVERSE_ROOT/scripts/auth-cli.mjs"`.
 
 To sync to other locations:
 ```bash
@@ -244,7 +252,7 @@ To sync to other locations:
 cp "$AI_UNIVERSE_ROOT/scripts/auth-cli.mjs" .claude/scripts/
 
 # Sync to user ${CLAUDE_HOME:-$HOME/.claude}/scripts/
-cp "$AI_UNIVERSE_ROOT/scripts/auth-cli.mjs" ${CLAUDE_HOME:-$HOME/.claude}/scripts/
+cp "$AI_UNIVERSE_ROOT/scripts/auth-cli.mjs" "${CLAUDE_HOME:-$HOME/.claude}/scripts/"
 ```
 
 ## Related Skills

@@ -41,7 +41,12 @@ export TOKEN=$(node scripts/auth-cli.mjs token)
 
 ### MCP Server Configuration
 
+Set the existing `AI_UNIVERSE_MCP_URL` variable to the MCP endpoint configured
+for your AI Universe instance. Replace the placeholder with that endpoint; this
+skill does not assume a host or URL.
+
 ```bash
+# Configure AI_UNIVERSE_MCP_URL first, e.g. "https://<ai-universe-host>/mcp".
 MCP_URL="${AI_UNIVERSE_MCP_URL:?AI_UNIVERSE_MCP_URL not configured: AI Universe MCP endpoint, e.g. https://<ai-universe-host>/mcp}"
 ```
 

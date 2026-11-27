@@ -18,28 +18,46 @@ if [[ -z "$HOST" ]]; then
 fi
 
 if ! command -v ssh >/dev/null 2>&1; then
-  cat <<EOF
-{"timestamp":"$TS","host":"$HOST","reachable":false,"error":"ssh not installed","uptime":null,"load1":null,"disk_free_gb":null,"memory_avail_gb":null,"docker_containers":null,"note":"install ssh or use a different probe"}
-EOF
+  python3 -c '
+import json, sys
+print(json.dumps({
+    "timestamp": sys.argv[1],
+    "host": sys.argv[2],
+    "reachable": False,
+    "error": "ssh not installed",
+    "uptime": None,
+    "load1": None,
+    "disk_free_gb": None,
+    "memory_avail_gb": None,
+    "docker_containers": None,
+    "note": "install ssh or use a different probe",
+}))
+' "$TS" "$HOST"
   exit 127
 fi
 
+# Preserve SSH's normal known-host verification. Build the remote command with
+# shell quoting for the configured Docker socket path.
+REMOTE_PROBE='echo "===HOST_OK==="
+uptime
+echo "===LOAD==="
+cat /proc/loadavg
+echo "===DISK==="
+df -h /home /tmp 2>/dev/null
+echo "===MEM==="
+free -h
+echo "===DOCKER==="
+DOCKER_HOST='
+REMOTE_PROBE+="$(printf '%q' "$DOCKER_SOCK_PATH")"
+REMOTE_PROBE+=' docker ps --format "{{.Names}}\t{{.Status}}" 2>/dev/null | wc -l
+echo "===DOCKER_RESTARTING==="
+DOCKER_HOST='
+REMOTE_PROBE+="$(printf '%q' "$DOCKER_SOCK_PATH")"
+REMOTE_PROBE+=' docker ps -a --format "{{.Status}}" 2>/dev/null | grep -c "Restarting" || true'
+
 # Try ssh with short timeout. Capture both stdout and exit code.
 # If ssh fails (timeout, refused, etc.), parse the failure mode.
-PROBE_OUTPUT=$(ssh -o ConnectTimeout="$SSH_TIMEOUT" -o StrictHostKeyChecking=no "$HOST" '
-  echo "===HOST_OK==="
-  uptime
-  echo "===LOAD==="
-  cat /proc/loadavg
-  echo "===DISK==="
-  df -h /home /tmp 2>/dev/null
-  echo "===MEM==="
-  free -h
-  echo "===DOCKER==="
-  DOCKER_HOST='"$DOCKER_SOCK_PATH"' docker ps --format "{{.Names}}\t{{.Status}}" 2>/dev/null | wc -l
-  echo "===DOCKER_RESTARTING==="
-  DOCKER_HOST='"$DOCKER_SOCK_PATH"' docker ps -a --format "{{.Status}}" 2>/dev/null | grep -c "Restarting" || true
-' 2>&1)
+PROBE_OUTPUT=$(ssh -o ConnectTimeout="$SSH_TIMEOUT" "$HOST" "$REMOTE_PROBE" 2>&1)
 SSH_RC=$?
 
 if [[ $SSH_RC -ne 0 ]]; then
@@ -55,7 +73,7 @@ if [[ $SSH_RC -ne 0 ]]; then
 
   # Try IP fallback if hostname failed
   if [[ -n "$IP_FALLBACK" && ( "$SSH_ERROR" == "timeout" || "$SSH_ERROR" == "dns_unresolvable" ) ]]; then
-    IP_OUTPUT=$(ssh -o ConnectTimeout="$SSH_TIMEOUT" -o StrictHostKeyChecking=no "$IP_FALLBACK" 'echo OK; uptime' 2>&1)
+    IP_OUTPUT=$(ssh -o ConnectTimeout="$SSH_TIMEOUT" "$IP_FALLBACK" 'echo OK; uptime' 2>&1)
     IP_RC=$?
     if [[ $IP_RC -eq 0 ]]; then
       SSH_ERROR="$SSH_ERROR (but IP $IP_FALLBACK reachable — host is up, this network can't route)"
@@ -64,23 +82,24 @@ if [[ $SSH_RC -ne 0 ]]; then
 
   # Build JSON via Python so all control chars are properly escaped
   RAW_PREVIEW=$(echo "$PROBE_OUTPUT" | head -c 200)
-  python3 -c "
+  python3 -c '
 import json, sys
+timestamp, host, ssh_error, raw_preview = sys.argv[1:]
 d = {
-    'timestamp': '$TS',
-    'host': '$HOST',
-    'reachable': False,
-    'ssh_error': '''$SSH_ERROR''',
-    'raw': '''$RAW_PREVIEW''',
-    'uptime': None,
-    'load1': None,
-    'disk_free_gb': None,
-    'memory_avail_gb': None,
-    'docker_containers': None,
-    'note': 'Host may be up but on a different wifi/subnet. Check busy=true on Linux runners via gh api as ground truth.'
+    "timestamp": timestamp,
+    "host": host,
+    "reachable": False,
+    "ssh_error": ssh_error,
+    "raw": raw_preview,
+    "uptime": None,
+    "load1": None,
+    "disk_free_gb": None,
+    "memory_avail_gb": None,
+    "docker_containers": None,
+    "note": "Host may be up but on a different wifi/subnet. Check busy=true on Linux runners via gh api as ground truth."
 }
 print(json.dumps(d, indent=None))
-"
+' "$TS" "$HOST" "$SSH_ERROR" "$RAW_PREVIEW"
   exit 0
 fi
 
@@ -93,21 +112,22 @@ DOCKER_TOTAL=$(echo "$PROBE_OUTPUT" | sed -n '/===DOCKER===/,$ p' | sed '1d' | h
 DOCKER_RESTARTING=$(echo "$PROBE_OUTPUT" | sed -n '/===DOCKER_RESTARTING===/,$ p' | sed '1d' | head -1)
 
 # Build JSON via Python for proper escaping
-python3 -c "
-import json
+python3 -c '
+import json, sys
+timestamp, host, uptime, load1, disk_free_gb, memory_avail_gb, docker_total, docker_restarting = sys.argv[1:]
 d = {
-    'timestamp': '$TS',
-    'host': '$HOST',
-    'reachable': True,
-    'ssh_error': None,
-    'uptime': '''$UPTIME''',
-    'load1': '''$LOAD1''',
-    'disk_free_gb': '$DISK_FREE_GB' if '$DISK_FREE_GB' else None,
-    'memory_avail_gb': '$MEM_AVAIL_GB' if '$MEM_AVAIL_GB' else None,
-    'docker_containers': $DOCKER_TOTAL if '$DOCKER_TOTAL' else None,
-    'docker_restarting': $DOCKER_RESTARTING if '$DOCKER_RESTARTING' else 0,
-    'note': None
+    "timestamp": timestamp,
+    "host": host,
+    "reachable": True,
+    "ssh_error": None,
+    "uptime": uptime,
+    "load1": load1,
+    "disk_free_gb": disk_free_gb or None,
+    "memory_avail_gb": memory_avail_gb or None,
+    "docker_containers": int(docker_total) if docker_total else None,
+    "docker_restarting": int(docker_restarting) if docker_restarting else 0,
+    "note": None
 }
 print(json.dumps(d))
-"
+' "$TS" "$HOST" "$UPTIME" "$LOAD1" "$DISK_FREE_GB" "$MEM_AVAIL_GB" "$DOCKER_TOTAL" "$DOCKER_RESTARTING"
 exit 0
