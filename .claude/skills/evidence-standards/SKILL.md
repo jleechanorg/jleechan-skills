@@ -216,6 +216,41 @@ A claim mixing Layer 2 (real BQ) with Layer 1 (synthetic LLM) is **not** Layer 2
 
 ## Evidence access and publication
 
+For deployed browser claims, before publishing a preview or readiness statement,
+assemble its receipt from the active deployment output: deployment timestamp,
+exact outward URL, served frontend/build revision, backend revision and actual
+datastore target (mark absent components N/A with a reason). Use that
+same URL for the browser run and delivery text. An alias serving identical bytes
+does not inherit origin-dependent auth or return-route proof. Deployment history,
+artifact checksums and health responses do not establish the active user flow.
+A diagnostic preview may be shared with its observed limits stated.
+
+For each in-scope authentication claim, distinguish provider handoff, authenticated
+return, email submission, actual inbox receipt, redemption and settled outcome.
+Picker opening or send acceptance alone cannot pass a completion claim. For saved
+state, correlate the run with independent datastore readback and reload; name the
+actual project/database and whether it is hosted or emulated. Emulator or fixture
+proof cannot qualify a hosted-service claim.
+
+Derive each scenario verdict from its authoritative acceptance criteria, including
+the first settled destination and required record identities/content. A wrong
+landing is FAIL even when records transfer successfully; later navigation does
+not repair that run. Preserve original verdicts when correcting a runner and
+rerun affected cases. Report qualifying passes, failures and open cases separately
+from footage inventory. Bind qualifying media to its scenario, original URL,
+build pair, datastore, observed result and applicable revision; distinguish
+continuous playback from sampled-frame inspection. Before reuse, verify the
+capture's claim-relevant bindings against the active outward URL, served
+frontend and backend revisions, and datastore target. Apply the staleness rule
+across revision changes only when the claimed behavior and its evidence
+dependencies are verified unchanged. File count and historical passes alone
+establish no current applicability. A changed claim-relevant origin or datastore,
+or an applicable binding you cannot verify, requires fresh proof on the active
+deployment or a withheld claim. For deployed copy
+claims, verify the rendered text; for spacing claims, measure the affected gaps
+and preserve touch targets. Use applicable mobile and desktop widths and
+comparable before/after evidence. A local source edit earns no deployed proof.
+
 Keep the original evidence and its provenance intact. Give the intended reviewer accessible reproduction directions and artifact links in the PR, a checked-in document, an access-controlled receipt/store, or an authorized gist, including the reviewed/tested SHA, dependencies, exact commands and expected results the evidence class requires. Underlying artifacts may stay in authorized private hosting. The separate sanitized review receipt follows `pr-lifecycle` § Review records in the PR description, including its gist URL (or, for a one-liner fast-path `/es` record, the PR-body section), exact reviewed SHA, and `PUBLICATION BLOCKED` state when publication cannot complete. Artifact hosting is not review-record completion.
 
 Publish or send artifacts only to the current task's authorized audience and destination. Sanitize any shareable copy, keep private originals, and identify the relationship between them. A viewer without sign-in is a public destination even when linked from a private PR. An unlisted gist is accessible to anyone with its URL; it is not an access-controlled secret store.

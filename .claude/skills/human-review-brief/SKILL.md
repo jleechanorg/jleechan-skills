@@ -41,7 +41,7 @@ Before placing ANY bullet into `## What to Review as a Human`, ask:
 ## Section 1: `## What Was Done` (Objective Facts & Autonomous Verification Proof)
 
 Provide a scannable 4-bullet summary of verified facts (including all checks the LLM ran itself instead of offloading to the human):
-1. **Outcome & Full Links**: 1–2 sentences stating what actually changed, with full clickable GitHub PR (`https://github.com/<owner>/<repo>/pull/<N>`) and 40-char commit URLs (`https://github.com/<owner>/<repo>/commit/<40-char-sha>`).
+1. **Outcome & Full Links**: 1–2 sentences stating what actually changed, with full visible, clickable GitHub PR (`https://github.com/<owner>/<repo>/pull/<N>`) and 40-char commit URLs (`https://github.com/<owner>/<repo>/commit/<40-char-sha>`).
 2. **Production vs. Non-Production LOC Delta (`/ponytail` Check)**:
    - Format: `Production: +X / -Y (M files) | Non-production: +A / -B (N files) | Total: +(X+A) / -(Y+B)`
    - Explicitly flag if net production lines grew (`+X > -Y`) on a fix where simplification or deletion (`/ponytail`) was expected.
@@ -57,6 +57,23 @@ Provide a scannable 4-bullet summary of verified facts (including all checks the
    - State the exact status and attested SHA for CI / local equivalents (`/green`), `/es`, `/er`, independent review (`advice`), `/cs`, `/wa`, and cross-host `SHA-256` sync verification. Never claim a prior-SHA receipt covers a new head without explicit delta-based applicability analysis.
 
 ---
+
+### Final delivery check
+
+Immediately before sending, inspect the assembled reply's visible text, not only
+its Markdown destinations. Every cited PR needs its full visible URL, freshly
+observed state/stage (stage only when applicable), and production/non-production/
+total additions and deletions. Mark unavailable metadata explicitly rather than
+inventing it. For each requested deliverable, show its direct visible URL when
+hosted and its expanded absolute path on a separate line when a local file exists.
+Missing hosting is a stated limit, never an invented URL. Do not expose
+credentials or token-bearing links. Take preview URLs and observed outcomes from
+the matching [evidence receipt](../evidence-standards/SKILL.md#evidence-access-and-publication);
+retain its partial/failed outcomes. Derive PR readiness separately from the
+current candidate's lifecycle record and all applicable gates. Apply this check
+in Codex and other runtimes,
+including after compaction or a handoff; a descriptive link label alone is not a
+copyable address. Follow applicable shared instructions for delivery formatting.
 
 ## Section 2: `## What to Review as a Human` (Human-Only Judgment & Blind-Spot Checklist)
 
