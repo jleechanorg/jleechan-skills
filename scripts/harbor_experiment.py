@@ -382,29 +382,49 @@ class Experiment:
         for phase in phases:
             require(len(seats[phase]) >= 2, f'{phase} requires two independent reviewers')
 
-    def argv(self, arm, directory, executable='harbor'):
+    def run_sha256(self, arm, directory):
+        return digest(canonical({
+            'manifest_sha256': self.manifest_sha256, 'arm': arm, 'run_dir': str(directory),
+        }))
+
+    def verifier_env(self, arm, run_sha256):
+        return {
+            'HARBOR_EXPERIMENT_CASE_SHA256': self.case_sha256,
+            'HARBOR_EXPERIMENT_ARM': arm,
+            'HARBOR_EXPERIMENT_RUN_SHA256': run_sha256,
+        }
+
+    def argv(self, arm, directory, executable='harbor', *, run_sha256=None):
         root = Path(directory)
         runtime = self.runtime
-        return [
+        argv = [
             executable, 'run', '-p', str(root / 'staged' / 'task'), '-a', runtime['agent'],
             '-m', runtime['model'], '--agent-kwarg', 'version=' + runtime['agent_version'],
             '--effort', runtime['effort'], '--jobs-dir', str(root / 'jobs'), '--job-name', arm,
             '--n-attempts', str(self.trials[arm]), '--n-concurrent', str(runtime['concurrency']),
         ]
+        if run_sha256 is None:
+            run_sha256 = self.run_sha256(arm, root)
+        for key, value in self.verifier_env(arm, run_sha256).items():
+            argv.extend(('--verifier-env', f'{key}={value}'))
+        return argv
 
 
 def plan(experiment):
     return {
         'case_sha256': experiment.case_sha256,
         'manifest_sha256': experiment.manifest_sha256,
-        'baseline_argv': experiment.argv('baseline', '<NEW_RUN_DIR>'),
-        'treatment_argv': experiment.argv('treatment', '<NEW_RUN_DIR>'),
+        'baseline_argv': experiment.argv('baseline', '<NEW_RUN_DIR>', run_sha256='<RUN_SHA256>'),
+        'treatment_argv': experiment.argv('treatment', '<NEW_RUN_DIR>', run_sha256='<RUN_SHA256>'),
         'treatment_gate': 'requires a matching REPRODUCED baseline receipt',
     }
 
 
 LAUNCH_SCHEMA = 'experiment-launch.v1'
 COLLECTION_SCHEMA = 'experiment-collection.v1'
+OBSERVATION_PATH = 'verifier/exposure-observation.json'
+CLEANUP_WARNINGS = (b'Docker compose down failed:', b'Docker compose stop failed:',
+                    b'Cleanup interrupted for ', b'Warning: Agent environment cleanup failed for ')
 REWARDS = ('valid', 'incident_failure', 'exposure_verified', 'task_completed', 'regression_failed')
 PROVIDER_ENV = ('OPENAI_API_KEY', 'CODEX_API_KEY')
 PROCESS_ENV = ('PATH', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TZ', 'DOCKER_HOST')
@@ -531,6 +551,11 @@ def staged_inventory(directory):
         return None
 
 
+def cleanup_warning(path):
+    with path.open('rb') as stream:
+        return any(marker in line for line in stream for marker in CLEANUP_WARNINGS)
+
+
 def run(experiment, arm, output, baseline):
     require(os.name == 'posix', 'run requires POSIX process groups')
     require((baseline is not None) == (arm == 'treatment'),
@@ -552,6 +577,7 @@ def run(experiment, arm, output, baseline):
         'manifest_sha256': experiment.manifest_sha256,
         'case_sha256': experiment.case_sha256,
         'run_dir': str(directory),
+        'run_sha256': experiment.run_sha256(arm, directory),
         'arm': arm,
         'runtime': experiment.runtime,
         'task_sha256': digest(canonical(list(experiment.inventories[arm].values()))),
@@ -610,8 +636,9 @@ def run(experiment, arm, output, baseline):
     finally:
         receipt['staged_after'] = staged_inventory(directory)
         jobs = directory / 'jobs'
+        job = jobs / arm
         if not jobs.is_symlink():
-            receipt['job_sha256'] = tree_hash_if_available(jobs / arm)
+            receipt['job_sha256'] = tree_hash_if_available(job)
         if status == 'SUCCEEDED':
             if receipt['staged_after'] == receipt['staged_before']:
                 try:
@@ -622,6 +649,12 @@ def run(experiment, arm, output, baseline):
                     status = 'INPUTS_CHANGED'
             else:
                 status = 'INPUTS_CHANGED'
+        if status == 'SUCCEEDED' and receipt['job_sha256'] is not None:
+            try:
+                if any(cleanup_warning(log) for log in job.glob('*/trial.log') if log.is_file()):
+                    status = 'CLEANUP_FAILED'
+            except OSError:
+                status = 'CLEANUP_UNVERIFIED'
         receipt['status'] = status
         receipt['exit_code'] = code
         if status == 'SUCCEEDED':
@@ -630,7 +663,7 @@ def run(experiment, arm, output, baseline):
     return receipt
 
 
-def check_job(experiment, arm, job, staged):
+def check_job(experiment, arm, job, staged, verifier_env):
     config = read_object(safe_path(job, 'config.json'), 'Harbor job config')
     result = read_object(safe_path(job, 'result.json'), 'Harbor job result')
     expected = experiment.trials[arm]
@@ -644,6 +677,7 @@ def check_job(experiment, arm, job, staged):
     check_local_task(tasks[0], staged)
     check_agent_config(agents[0], experiment.runtime)
     check_fresh_config(config)
+    check_verifier_config(config, verifier_env)
     job_id = uuid_string(result.get('id'), 'job id')
     require(type(result.get('n_total_trials')) is int and result['n_total_trials'] == expected,
             'job result has the wrong scheduled trial count')
@@ -674,6 +708,14 @@ def check_agent_config(config, runtime):
             'job or trial has a mismatched agent configuration')
 
 
+def check_verifier_config(config, expected_env):
+    verifier = config.get('verifier')
+    require(isinstance(verifier, dict) and verifier.get('env') == expected_env
+            and verifier.get('import_path') is None and not verifier.get('kwargs')
+            and verifier.get('disable', False) is False,
+            'job or trial has mismatched native verifier environment')
+
+
 def check_fresh_config(config):
     require(not any(config.get(key) for key in ('install_only', 'user_agent', 'source_trial',
                                                 'source_jobs', 'datasets', 'extra_instruction_paths',
@@ -694,14 +736,16 @@ def timestamps(start, finish):
             'invalid trial timestamps')
 
 
-def check_exposure(experiment, arm, trial, trial_id):
-    path = safe_path(trial, 'verifier/exposure.json')
-    exposure = read_object(path, 'exposure')
-    fields(exposure, ('schema', 'trial_id', 'arm', 'case_sha256', 'instructions',
-                      'trajectory', 'evidence', *IMAGE_FIELDS), 'exposure')
-    require(exposure['schema'] == 'experiment-exposure.v1' and exposure['trial_id'] == trial_id
-            and exposure['arm'] == arm and exposure['case_sha256'] == experiment.case_sha256,
-            'exposure receipt does not bind this trial, arm and case')
+def check_observation(experiment, arm, trial, run_sha256):
+    path = safe_path(trial, OBSERVATION_PATH)
+    raw = path.read_bytes()
+    exposure = parse_json(raw, 'exposure observation')
+    fields(exposure, ('schema', 'arm', 'case_sha256', 'run_sha256', 'instructions',
+                      'trajectory', 'evidence'), 'exposure observation')
+    require(exposure['schema'] == 'experiment-exposure-observation.v1'
+            and exposure['arm'] == arm and exposure['case_sha256'] == experiment.case_sha256
+            and exposure['run_sha256'] == run_sha256,
+            'exposure observation does not bind this arm, case and run')
     expected = [
         {'path': name, 'sha256': experiment.inventories[arm][name]['sha256']}
         for name in experiment.intervention_paths
@@ -710,15 +754,18 @@ def check_exposure(experiment, arm, trial, trial_id):
     require(all(isinstance(item, dict) and isinstance(item.get('path'), str) for item in instructions)
             and sorted(instructions, key=lambda item: item['path']) == expected,
             'exposure receipt does not bind all intervention files')
-    for key, image in experiment.images[arm].items():
-        require(exposure[key] == image, f'exposure receipt has wrong {key}')
     trace = verify_ref(trial, exposure['trajectory'], 'raw trajectory')
-    require(trace != path and trace.stat().st_size > 0, 'raw trajectory is empty or is the exposure receipt')
+    require(trace != path and trace.stat().st_size > 0,
+            'raw trajectory is empty or is the exposure observation')
     verify_refs(trial, exposure['evidence'], 'exposure evidence')
-    return file_digest(path)
+    return {'path': OBSERVATION_PATH, 'sha256': digest(raw)}, exposure['trajectory']['sha256']
 
 
-def check_trial(experiment, arm, trial, staged, expected_checksum, job_id, result):
+def check_trial(experiment, arm, trial, expected_checksum, job_id, result, result_sha256):
+    directory = trial.parent.parent.parent
+    staged = directory / 'staged' / 'task'
+    run_sha256 = experiment.run_sha256(arm, directory)
+    verifier_env = experiment.verifier_env(arm, run_sha256)
     trial_id = uuid_string(result.get('id'), 'trial id')
     require(result.get('trial_name') == trial.name and result.get('trial_uri') == trial.as_uri(),
             'trial result does not bind its direct trial location')
@@ -739,7 +786,10 @@ def check_trial(experiment, arm, trial, staged, expected_checksum, job_id, resul
         check_local_task(source.get('task'), staged)
         check_agent_config(source.get('agent'), experiment.runtime)
         check_fresh_config(source)
+        check_verifier_config(source, verifier_env)
 
+    log = safe_path(trial, 'trial.log')
+    require(not cleanup_warning(log), 'Harbor trial log reports a cleanup failure')
     require('exception_info' in result and result['exception_info'] is None,
             'trial contains a Harbor exception or lacks exception metadata')
     require(result.get('verifier_environment_mode') == 'separate' and not result.get('step_results'),
@@ -771,10 +821,21 @@ def check_trial(experiment, arm, trial, staged, expected_checksum, job_id, resul
         require(type(value) in (int, float) and value in (0, 1), f'invalid binary reward {key}')
     require(rewards['valid'] == rewards['exposure_verified'] == 1,
             'verifier did not validate trial setup and exposure')
-    exposure_sha = check_exposure(experiment, arm, trial, trial_id)
+    observation, trajectory_sha = check_observation(experiment, arm, trial, run_sha256)
     return {
         'trial_id': trial_id,
-        'exposure_sha256': exposure_sha,
+        'trajectory_sha256': trajectory_sha,
+        'exposure': {
+            'schema': 'experiment-exposure.v1',
+            'trial_id': trial_id,
+            'job_id': job_id,
+            'arm': arm,
+            'case_sha256': experiment.case_sha256,
+            'run_sha256': run_sha256,
+            'result_sha256': result_sha256,
+            'observation': observation,
+            'qualified_images': experiment.images[arm],
+        },
         'rewards': {key: int(value) for key, value in rewards.items()},
         'started_at': result['started_at'],
         'finished_at': result['finished_at'],
@@ -792,7 +853,8 @@ def trial_reports(experiment, arm, directory, job_sha, errors):
     if job_sha is None or tree_hash_if_available(job) != job_sha:
         errors.append('Harbor job output inventory is missing or changed')
     try:
-        job_id = check_job(experiment, arm, job, staged)
+        bindings = experiment.verifier_env(arm, experiment.run_sha256(arm, directory))
+        job_id = check_job(experiment, arm, job, staged, bindings)
     except (OSError, ValueError) as exc:
         errors.append(str(exc))
         job_id = None
@@ -833,15 +895,26 @@ def trial_reports(experiment, arm, directory, job_sha, errors):
                 if isinstance(kind, str) and re.fullmatch(r'[A-Za-z][A-Za-z0-9_.]{0,127}', kind):
                     row['exception_type'] = kind
             require(job_id is not None, 'trial cannot be attributed to a complete Harbor job')
-            row.update(check_trial(experiment, arm, trial, staged, checksum, job_id, result))
+            row.update(check_trial(experiment, arm, trial, checksum, job_id, result,
+                                   row['result_sha256']))
             row['valid'] = True
         except (OSError, ValueError) as exc:
             row['errors'].append(str(exc))
     ids = Counter(row['trial_id'] for row in reports if row['trial_id'] is not None)
+    observations = Counter(row['exposure']['observation']['sha256']
+                           for row in reports if 'exposure' in row)
+    trajectories = Counter(row['trajectory_sha256'] for row in reports if 'exposure' in row)
     for row in reports:
-        if row['trial_id'] is not None and ids[row['trial_id']] > 1:
+        if ids[row['trial_id']] > 1:
             row['valid'] = False
             row['errors'].append('duplicate trial id')
+        if 'exposure' in row:
+            if observations[row['exposure']['observation']['sha256']] > 1:
+                row['valid'] = False
+                row['errors'].append('duplicate exposure observation')
+            if trajectories[row['trajectory_sha256']] > 1:
+                row['valid'] = False
+                row['errors'].append('duplicate native trajectory')
     return reports, unexpected
 
 
@@ -849,8 +922,9 @@ def assess(experiment, arm, directory):
     directory = resolve_input(directory, directory=True)
     raw = safe_path(directory, 'launch.json').read_bytes()
     launch = parse_json(raw, 'launch')
+    run_sha256 = experiment.run_sha256(arm, directory)
     require(isinstance(launch, dict) and launch.get('schema') == LAUNCH_SCHEMA
-            and launch.get('run_dir') == str(directory)
+            and launch.get('run_dir') == str(directory) and launch.get('run_sha256') == run_sha256
             and launch.get('arm') == arm and launch.get('runtime') == experiment.runtime
             and launch.get('manifest_sha256') == experiment.manifest_sha256
             and launch.get('case_sha256') == experiment.case_sha256,
@@ -906,6 +980,7 @@ def assess(experiment, arm, directory):
         'schema': COLLECTION_SCHEMA,
         'status': status,
         'run_dir': str(directory),
+        'run_sha256': run_sha256,
         'launch_sha256': digest(raw),
         'manifest_sha256': experiment.manifest_sha256,
         'case_sha256': experiment.case_sha256,

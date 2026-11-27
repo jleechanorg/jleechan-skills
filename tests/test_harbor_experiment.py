@@ -227,6 +227,7 @@ def test_plan_never_launches(case, monkeypatch, capsys):
         assert argv[argv.index('--job-name') + 1] == arm
         assert argv[argv.index('--effort') + 1] == 'high'
         assert argv[argv.index('--n-attempts') + 1] == '5'
+        assert 'HARBOR_EXPERIMENT_RUN_SHA256=<RUN_SHA256>' in argv
 
 
 def test_reviews_bind_exact_files_and_executing_code(case):
@@ -376,10 +377,15 @@ if mode in ('timeout', 'interrupt'):
 if mode == 'failed':
     sys.exit(23)
 
-args = dict(zip(sys.argv[2::2], sys.argv[3::2]))
+pairs = list(zip(sys.argv[2::2], sys.argv[3::2]))
+args = dict(pairs)
+verifier_env = dict(value.split('=', 1) for key, value in pairs if key == '--verifier-env')
 task = Path(args['-p'])
 jobs = Path(args['--jobs-dir'])
 arm = args['--job-name']
+assert verifier_env['HARBOR_EXPERIMENT_ARM'] == arm
+assert verifier_env['HARBOR_EXPERIMENT_CASE_SHA256'] == settings['case_sha256']
+run_sha256 = verifier_env['HARBOR_EXPERIMENT_RUN_SHA256']
 job = jobs / arm
 job.mkdir(parents=True)
 agent = {'name': args['-a'], 'model_name': args['-m'],
@@ -390,7 +396,7 @@ job_id = str(uuid4())
 job_config = {
     'job_name': arm, 'jobs_dir': str(jobs), 'n_attempts': n,
     'n_concurrent_trials': int(args['--n-concurrent']), 'agents': [agent],
-    'tasks': [{'path': str(task)}],
+    'tasks': [{'path': str(task)}], 'verifier': {'env': verifier_env},
 }
 write(job / 'config.json', job_config)
 results = []
@@ -401,8 +407,14 @@ for i in range(n):
     path.mkdir()
     identifier = str(uuid4()) if mode != 'duplicate' or i == 0 else results[0]['id']
     config = {'task': {'path': str(task)}, 'agent': agent, 'trial_name': name,
-              'trials_dir': str(job), 'job_id': job_id}
+              'trials_dir': str(job), 'job_id': job_id, 'verifier': {'env': verifier_env}}
+    if mode == 'wrong_verifier_env' and i == 0:
+        config['verifier'] = {'env': {**verifier_env, 'HARBOR_EXPERIMENT_ARM': 'unrelated'}}
     write(path / 'config.json', config)
+    log = 'Host Harbor trial log\n'
+    if mode == 'cleanup_warning' and i == 0:
+        log += 'WARNING Docker compose down failed: fake cleanup problem\n'
+    (path / 'trial.log').write_text(log)
     observed = i == 0 and arm == 'baseline' and mode != 'no_reproduction'
     rewards = {'valid': 1.0, 'exposure_verified': 1, 'incident_failure': int(observed),
                'task_completed': int(not observed and (mode != 'regression' or i != 0)),
@@ -426,25 +438,25 @@ for i in range(n):
     verifier.mkdir()
     trace = path / 'agent' / 'raw.jsonl'
     trace.parent.mkdir()
-    trace.write_text('recorded trajectory')
+    trace.write_text(f'recorded native trajectory {identifier}')
     evidence = verifier / 'native-read.txt'
     evidence.write_text('verified instruction read')
     exposure = {
-        'schema': 'experiment-exposure.v1', 'trial_id': identifier, 'arm': arm,
-        'case_sha256': settings['case_sha256'],
+        'schema': 'experiment-exposure-observation.v1',
+        'arm': verifier_env['HARBOR_EXPERIMENT_ARM'],
+        'case_sha256': verifier_env['HARBOR_EXPERIMENT_CASE_SHA256'],
+        'run_sha256': run_sha256,
         'instructions': [{'path': item, 'sha256': sha(task / item)}
                          for item in settings['intervention_paths']],
         'trajectory': {'path': 'agent/raw.jsonl', 'sha256': sha(trace)},
         'evidence': [{'path': 'verifier/native-read.txt', 'sha256': sha(evidence)}],
-        **settings['images'][arm],
     }
     if i == 0:
         changes = {
-            'trial': ('trial_id', str(uuid4())),
             'arm': ('arm', 'treatment'),
             'case': ('case_sha256', 'f' * 64),
             'instruction': ('instructions', [{'path': 'environment/AGENTS.md', 'sha256': 'f' * 64}]),
-            'image': ('agent_image_digest', settings['images']['treatment']['agent_image_digest']),
+            'run': ('run_sha256', 'f' * 64),
             'trajectory': ('trajectory', {'path': 'agent/raw.jsonl', 'sha256': 'f' * 64}),
             'evidence': ('evidence', []),
             'missing_instruction': ('instructions', exposure['instructions'][:-1]),
@@ -462,8 +474,13 @@ for i in range(n):
             result['exception_info'] = {'exception_type': 'SetupError'}
         if mode == 'nested':
             write(verifier / 'result.json', result)
+    observation = verifier / 'exposure-observation.json'
     if mode != 'no_exposure' or i != 0:
-        write(verifier / 'exposure.json', exposure)
+        write(observation, exposure)
+    if mode == 'copied_observation' and i == 1:
+        previous = job / 'task__0'
+        observation.write_bytes((previous / 'verifier/exposure-observation.json').read_bytes())
+        trace.write_bytes((previous / 'agent/raw.jsonl').read_bytes())
     if mode != 'missing' or i != 0:
         write(path / 'result.json', result)
     results.append(result)
@@ -497,7 +514,7 @@ class FakeHarbor:
     def set_mode(self, mode=None, **kwargs):
         self.binary.with_suffix('.json').write_bytes(canonical_bytes({
             'mode': mode, 'case_sha256': self.case.case_sha256,
-            'intervention_paths': self.case.manifest['intervention_paths'], 'images': self.case.images,
+            'intervention_paths': self.case.manifest['intervention_paths'],
             **kwargs,
         }))
 
@@ -533,6 +550,9 @@ def test_baseline_launch_uses_pinned_harbor_argv(harbor, monkeypatch):
         '-a', 'codex', '-m', 'openai/gpt-example', '--agent-kwarg', 'version=1.2.3',
         '--effort', 'high', '--jobs-dir', str(directory / 'jobs'), '--job-name', 'baseline',
         '--n-attempts', '5', '--n-concurrent', '2',
+        '--verifier-env', f'HARBOR_EXPERIMENT_CASE_SHA256={harbor.case.case_sha256}',
+        '--verifier-env', 'HARBOR_EXPERIMENT_ARM=baseline',
+        '--verifier-env', f'HARBOR_EXPERIMENT_RUN_SHA256={launch["run_sha256"]}',
     ]
     assert len(harbor.calls) == 1
     assert (directory / 'stdout.log').read_text() == 'fake stdout\n'
@@ -587,7 +607,7 @@ def test_treatment_requires_reproduced_matching_baseline(harbor):
 
 
 @pytest.mark.parametrize('mode', ['missing', 'duplicate', 'wrong_runtime', 'wrong_checksum',
-                                  'wrong_job', 'invalid', 'exception', 'nested', 'boolean_reward'])
+                                  'wrong_job', 'invalid', 'exception', 'nested', 'boolean_reward', 'wrong_verifier_env'])
 def test_invalid_trials_do_not_reproduce(harbor, mode):
     harbor.set_mode(mode)
     launched, directory = harbor.run()
@@ -598,9 +618,9 @@ def test_invalid_trials_do_not_reproduce(harbor, mode):
     assert report['invalid_trials'] >= 1
 
 
-@pytest.mark.parametrize('mode', ['no_exposure', 'trial', 'arm', 'case', 'instruction',
-                                  'image', 'trajectory', 'evidence'])
-def test_exposure_requires_trial_arm_instruction_image_and_trajectory_bindings(harbor, mode):
+@pytest.mark.parametrize('mode', ['no_exposure', 'arm', 'case', 'run', 'instruction',
+                                  'trajectory', 'evidence'])
+def test_exposure_requires_arm_case_run_instruction_and_trajectory_bindings(harbor, mode):
     harbor.set_mode(mode)
     launched, directory = harbor.run()
     assert launched.returncode == 0, launched.stderr
@@ -710,3 +730,64 @@ def test_added_empty_staging_directory_invalidates_launch(harbor):
     launched, directory = harbor.run()
     assert launched.returncode != 0
     assert json.loads((directory / 'launch.json').read_bytes())['status'] == 'INPUTS_CHANGED'
+
+
+def test_verifier_metadata_handoff_and_host_envelope(harbor):
+    launched, directory = harbor.run()
+    assert launched.returncode == 0, launched.stderr
+    launch = json.loads((directory / 'launch.json').read_bytes())
+    expected = sha(canonical_bytes({
+        'manifest_sha256': sha(harbor.case.path.read_bytes()),
+        'arm': 'baseline',
+        'run_dir': str(directory.resolve()),
+    }))
+    assert launch['run_sha256'] == expected
+    trial = directory / 'jobs/baseline/task__0'
+    observation = trial / 'verifier/exposure-observation.json'
+    original_bytes = observation.read_bytes()
+    _, _, report = harbor.collect(directory)
+    assert report['status'] == 'REPRODUCED'
+    assert observation.read_bytes() == original_bytes
+    assert not (trial / 'verifier/exposure.json').exists()
+    raw = json.loads(original_bytes)
+    assert raw['run_sha256'] == expected
+    assert 'trial_id' not in raw
+    result_bytes = (trial / 'result.json').read_bytes()
+    result = json.loads(result_bytes)
+    assert report['trials'][0]['exposure'] == {
+        'schema': 'experiment-exposure.v1',
+        'trial_id': result['id'],
+        'job_id': result['config']['job_id'],
+        'arm': 'baseline',
+        'case_sha256': harbor.case.case_sha256,
+        'run_sha256': expected,
+        'result_sha256': sha(result_bytes),
+        'observation': {'path': 'verifier/exposure-observation.json', 'sha256': sha(original_bytes)},
+        'qualified_images': harbor.case.images['baseline'],
+    }
+
+
+def test_copied_observation_and_native_trajectory_are_invalid(harbor):
+    harbor.set_mode('copied_observation')
+    launched, directory = harbor.run()
+    assert launched.returncode == 0, launched.stderr
+    _, _, report = harbor.collect(directory)
+    assert report['status'] == 'INCOMPLETE'
+    assert report['invalid_trials'] == 2
+    for row in report['trials'][:2]:
+        assert not row['valid']
+        assert 'duplicate exposure observation' in row['errors']
+        assert 'duplicate native trajectory' in row['errors']
+
+
+def test_harbor_shutdown_warning_invalidates_collection(harbor):
+    harbor.set_mode('cleanup_warning')
+    launched, directory = harbor.run()
+    assert launched.returncode != 0
+    launch = json.loads((directory / 'launch.json').read_bytes())
+    assert launch['exit_code'] == 0
+    assert launch['cleanup'] == 'unverified'
+    _, _, report = harbor.collect(directory)
+    assert report['status'] == 'INCOMPLETE'
+    assert report['incident_failures'] == 0
+    assert any('cleanup' in reason for reason in report['trials'][0]['errors'])
