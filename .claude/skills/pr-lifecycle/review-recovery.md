@@ -16,7 +16,7 @@ The Markdown instruction-only route in [review-routing.md](review-routing.md#mar
 
 ## Self-review fallback when independent votes cannot be obtained
 
-A missing reviewer vote never ends the work. Use this fallback once every seat in [advice's order of attempts](../advice/reviewer-selection.md#order-of-attempts-for-a-missing-vote) has an attempt receipt or an evidenced skip reason and the independent votes countable at the head are still fewer than the selected route requires. Quota, missing login, timeout, a vendor failure, `WITHHELD` for coverage and a non-countable approval all qualify; "not attempted" does not. A competent blocking finding from any attempt still means `NOT APPROVED` and is fixed first.
+A missing reviewer vote never ends the work. Use this fallback once every seat in [advice's order of attempts](../advice/reviewer-selection.md#order-of-attempts-for-a-missing-vote) has an attempt receipt or an evidenced skip reason and the independent votes countable at the head are still fewer than the selected route requires. Quota, missing login, timeout, a vendor failure, `WITHHELD` for coverage and a non-countable approval all qualify; "not attempted" does not. A competent blocking finding from any attempt still means `NOT APPROVED` and is fixed first. A recorded access-smoke failure with its reason (see [advice's candidate checks](../advice/reviewer-selection.md#candidate-checks-fan-out-and-fallback)) is an evidenced skip reason for that seat; a passed smoke is health evidence only — never an attempt, a receipt or a vote.
 
 Then the PR driver:
 
