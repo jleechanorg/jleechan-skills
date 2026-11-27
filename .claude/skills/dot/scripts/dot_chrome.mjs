@@ -682,7 +682,9 @@ async function send(page, file, dry, opts = {}) {
   const alertText = await page.evaluate(() => {
     const alerts = Array.from(document.querySelectorAll('[role="alert"], [data-testid*="alert"], div[class*="banner"], div[class*="error"]'));
     for (const el of alerts) {
+      if (el.querySelector('article, [data-message-author-role]')) continue;
       const t = (el.innerText || '').trim();
+      if (!t || t.length > 500) continue;
       if (/usage limit|abuse prevention|rate limit|too many requests|dot is on a break/i.test(t)) return t;
     }
     return '';
