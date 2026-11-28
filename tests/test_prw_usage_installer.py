@@ -76,6 +76,7 @@ exit 0
     (source / "scripts" / "prw_local_usage.py").write_text("print('stub collector')\n")
     (source / "scripts" / "run_prw_local_usage.sh").write_text("#!/bin/sh\n")
     full_env = dict(os.environ, HOME=str(home), PATH="%s:%s" % (bin_dir, os.environ["PATH"]), **git_env)
+    full_env.pop("XDG_CONFIG_HOME", None)
     for cmd in (["init", "-b", "main"], ["add", "."], ["commit", "-m", "stub"]):
         subprocess.run(["git", *cmd], cwd=source, env=full_env, check=True, capture_output=True)
     sha = subprocess.run(
