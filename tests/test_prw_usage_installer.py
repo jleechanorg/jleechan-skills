@@ -298,4 +298,3 @@ def test_linux_replace_stops_and_disables_timer_before_reenabling(env):
     assert disables and reloads and enables
     assert disables[0] < reloads[0] < enables[0]
     assert not any("prw-local-usage.service" in c and "disable" in c for c in calls)
-
