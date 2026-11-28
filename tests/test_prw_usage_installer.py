@@ -23,6 +23,7 @@ def env(tmp_path):
     bin_dir.mkdir()
     calls = tmp_path / "calls"
     marker = tmp_path / "loaded.marker"
+    systemd_state = tmp_path / "systemd.state"
     uname_file = tmp_path / "uname.override"
     uname_stub = bin_dir / "uname"
     uname_stub.write_text(
@@ -38,13 +39,31 @@ def env(tmp_path):
         stub.chmod(stub.stat().st_mode | stat.S_IEXEC)
     systemctl_stub = bin_dir / "systemctl"
     systemctl_stub.write_text(
-        '#!/bin/sh\necho "systemctl $@" >> "%s"\n'
-        'for arg in "$@"; do\n'
-        '  if [ "$arg" = "is-active" ] || [ "$arg" = "is-enabled" ]; then\n'
-        '    [ -e "%s" ]; exit $?\n'
-        '  fi\n'
-        'done\n'
-        'exit 0\n' % (calls, marker)
+        """#!/bin/sh
+printf 'systemctl' >> '%s'
+printf ' <%s>' "$@" >> '%s'
+printf '\\n' >> '%s'
+state=$(cat '%s' 2>/dev/null || echo inactive)
+case "$2" in
+  show)
+    [ "$state" = query-failure ] && exit 42
+    case "$state" in
+      active) printf 'LoadState=loaded\\nActiveState=active\\nUnitFileState=disabled\\n' ;;
+      enabled) printf 'LoadState=loaded\\nActiveState=inactive\\nUnitFileState=enabled\\n' ;;
+      *) printf 'LoadState=not-found\\nActiveState=inactive\\nUnitFileState=\\n' ;;
+    esac
+    exit 0 ;;
+  is-active)
+    [ "$state" = active ] && exit 0
+    [ "$state" = query-failure ] && exit 42
+    exit 3 ;;
+  is-enabled)
+    [ "$state" = query-failure ] && exit 42
+    [ "$state" = enabled ] && { printf 'enabled\\n'; exit 0; }
+    printf 'disabled\\n'; exit 1 ;;
+esac
+exit 0
+""" % (calls, "%s", calls, calls, systemd_state)
     )
     systemctl_stub.chmod(systemctl_stub.stat().st_mode | stat.S_IEXEC)
     git_env = {
@@ -68,6 +87,7 @@ def env(tmp_path):
 
     ctx = Ctx()
     ctx.home, ctx.marker, ctx.sha, ctx.env = home, marker, sha, full_env
+    ctx.systemd_state = systemd_state
     ctx.set_os = lambda os_name: uname_file.write_text(os_name + "\n")
     ctx.calls = lambda: calls.read_text().splitlines() if calls.exists() else []
     ctx.release = home / ".local/share/prw-local-usage/releases" / sha
@@ -272,29 +292,77 @@ def test_linux_activate_copies_staged_units_and_enables_timer(env):
     assert daemon_reloads[-1] < enables[-1]
 
 
+def test_linux_activate_uses_absolute_xdg_config_home(env, tmp_path):
+    env.set_os("Linux")
+    config_home = tmp_path / "xdg-config"
+    env.env["XDG_CONFIG_HOME"] = str(config_home)
+    done = env.run("--activate")
+    assert done.returncode == 0, done.stderr
+    assert (config_home / "systemd/user/prw-local-usage.service").exists()
+    assert (config_home / "systemd/user/prw-local-usage.timer").exists()
+    assert not env.service_dest.exists()
+    assert not env.timer_dest.exists()
+
+
 def test_linux_refuses_when_timer_active_without_replace(env):
     env.set_os("Linux")
-    env.marker.write_text("")
+    env.systemd_state.write_text("active\n")
     done = env.run("--activate")
     assert done.returncode != 0
     assert "--replace" in done.stderr
     assert not env.timer_dest.exists()
     assert not env.release.exists()
     calls = [c for c in env.calls() if c.startswith("systemctl")]
-    assert any("is-active" in c or "is-enabled" in c for c in calls)
     assert not any("launchctl" in c for c in env.calls())
+
+
+def test_linux_refuses_when_timer_enabled_without_replace(env):
+    env.set_os("Linux")
+    env.systemd_state.write_text("enabled\n")
+    done = env.run("--activate")
+    assert done.returncode != 0
+    assert "--replace" in done.stderr
+    assert not env.timer_dest.exists()
+    assert not env.release.exists()
+    calls = [c for c in env.calls() if c.startswith("systemctl")]
+    assert not any("<daemon-reload>" in c or "<enable>" in c for c in calls)
+
+
+def test_linux_query_failure_preserves_existing_units_without_staging(env):
+    env.set_os("Linux")
+    env.systemd_state.write_text("query-failure\n")
+    env.systemd_user.mkdir(parents=True)
+    env.service_dest.write_text("existing service\n")
+    env.timer_dest.write_text("existing timer\n")
+    done = env.run("--activate")
+    assert done.returncode != 0
+    assert "systemctl" in done.stderr.lower()
+    assert env.service_dest.read_text() == "existing service\n"
+    assert env.timer_dest.read_text() == "existing timer\n"
+    assert not env.release.exists()
+    calls = [c for c in env.calls() if c.startswith("systemctl")]
+    assert not any("<daemon-reload>" in c or "<enable>" in c or "<disable>" in c for c in calls)
 
 
 def test_linux_replace_stops_and_disables_timer_before_reenabling(env):
     env.set_os("Linux")
-    env.marker.write_text("")
+    env.systemd_state.write_text("active\n")
     done = env.run("--replace", "--activate")
     assert done.returncode == 0, done.stderr
     assert env.service_dest.exists() and env.timer_dest.exists()
     calls = [c for c in env.calls() if c.startswith("systemctl")]
-    disables = [i for i, c in enumerate(calls) if "disable" in c and "prw-local-usage.timer" in c]
+    disables = [i for i, c in enumerate(calls) if "<disable>" in c and "<--now>" in c]
     reloads = [i for i, c in enumerate(calls) if "daemon-reload" in c]
     enables = [i for i, c in enumerate(calls) if "enable" in c and "--now" in c and "prw-local-usage.timer" in c]
     assert disables and reloads and enables
     assert disables[0] < reloads[0] < enables[0]
     assert not any("prw-local-usage.service" in c and "disable" in c for c in calls)
+
+
+def test_linux_staged_unit_escapes_line_breaks_in_argv(env):
+    env.set_os("Linux")
+    done = env.run("--machine", "first\nsecond\rthird")
+    assert done.returncode == 0, done.stderr
+    lines = env.staged_service.read_text().splitlines()
+    exec_start = next(line for line in lines if line.startswith("ExecStart="))
+    assert exec_start.endswith(r'"first\nsecond\rthird"')

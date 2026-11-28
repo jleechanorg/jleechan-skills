@@ -72,6 +72,7 @@ for w in "${WORDS[@]}"; do
   q="$(printf '%q' "$w")"; CMD+="${CMD:+ }${q//%/\\%}"  # cron turns an unescaped % into a newline
   # systemd words: double-quoted, with \ and " escaped, and % and $ doubled (specifiers / variable expansion)
   u="${w//\\/\\\\}"; u="${u//\"/\\\"}"; u="${u//%/%%}"; u="${u//\$/\$\$}"
+  u="${u//$'\n'/\\n}"; u="${u//$'\r'/\\r}"
   UNIT_CMD+="${UNIT_CMD:+ }\"$u\""
 done
 
@@ -151,12 +152,44 @@ fi
 
 if [[ "$OS" == "Linux" ]]; then
   if [[ "$ACTIVATE" == 1 ]]; then
-    if systemctl --user is-active --quiet "$SYSTEMD_TIMER" 2>/dev/null || systemctl --user is-enabled --quiet "$SYSTEMD_TIMER" 2>/dev/null; then
-      LOADED=1
-      [[ "$REPLACE" == 1 ]] || die "$SYSTEMD_TIMER is already active or enabled; pass --replace to reinstall"
-    else
-      LOADED=0
-    fi
+    SYSTEMD_STATUS="$(systemctl --user show --no-pager --all \
+      --property=LoadState --property=ActiveState --property=UnitFileState \
+      "$SYSTEMD_TIMER")" || die "cannot inspect $SYSTEMD_TIMER with systemctl"
+
+    LOAD_STATE="" ACTIVE_STATE="" UNIT_FILE_STATE=""
+    while IFS='=' read -r property value; do
+      case "$property" in
+        LoadState) LOAD_STATE="$value" ;;
+        ActiveState) ACTIVE_STATE="$value" ;;
+        UnitFileState) UNIT_FILE_STATE="$value" ;;
+      esac
+    done <<< "$SYSTEMD_STATUS"
+
+    case "$LOAD_STATE" in
+      not-found)
+        [[ "$ACTIVE_STATE" == inactive && -z "$UNIT_FILE_STATE" ]] ||
+          die "unexpected systemd state for missing $SYSTEMD_TIMER"
+        LOADED=0
+        ;;
+      loaded)
+        case "$ACTIVE_STATE" in
+          active|reloading|refreshing) LOADED=1 ;;
+          inactive|failed) LOADED=0 ;;
+          *) die "cannot safely interpret $SYSTEMD_TIMER active state: $ACTIVE_STATE" ;;
+        esac
+        case "$UNIT_FILE_STATE" in
+          enabled|enabled-runtime|static|alias|indirect|generated)
+            LOADED=1
+            ;;
+          disabled|masked) ;;
+          *) die "cannot safely interpret $SYSTEMD_TIMER unit-file state: $UNIT_FILE_STATE" ;;
+        esac
+        ;;
+      *) die "cannot safely interpret $SYSTEMD_TIMER load state: $LOAD_STATE" ;;
+    esac
+
+    [[ "$LOADED" == 0 || "$REPLACE" == 1 ]] ||
+      die "$SYSTEMD_TIMER is already active or enabled; pass --replace to reinstall"
   else
     LOADED=0
   fi
@@ -199,9 +232,12 @@ fi
 if [[ "$ACTIVATE" == 1 ]]; then
   if [[ "$OS" == "Linux" ]]; then
     [[ "$LOADED" == 0 ]] || systemctl --user disable --now "$SYSTEMD_TIMER"
-    mkdir -p "$HOME/.config/systemd/user"
-    cp "$STAGED_SERVICE" "$HOME/.config/systemd/user/$SYSTEMD_SERVICE"
-    cp "$STAGED_TIMER" "$HOME/.config/systemd/user/$SYSTEMD_TIMER"
+    SYSTEMD_USER_DIR="$HOME/.config"
+    [[ "${XDG_CONFIG_HOME:-}" != /* ]] || SYSTEMD_USER_DIR="$XDG_CONFIG_HOME"
+    SYSTEMD_USER_DIR="$SYSTEMD_USER_DIR/systemd/user"
+    mkdir -p "$SYSTEMD_USER_DIR"
+    cp "$STAGED_SERVICE" "$SYSTEMD_USER_DIR/$SYSTEMD_SERVICE"
+    cp "$STAGED_TIMER" "$SYSTEMD_USER_DIR/$SYSTEMD_TIMER"
     systemctl --user daemon-reload
     systemctl --user enable --now "$SYSTEMD_TIMER"
     echo "activated $SYSTEMD_TIMER"
