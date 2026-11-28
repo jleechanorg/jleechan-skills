@@ -4,6 +4,7 @@
 # The old com.jleechan.prw-metrics label is never written, loaded or unloaded here.
 #
 # Usage: install-prw-metrics-launchd.sh --repos a/b,c/d --roadmap-remote URL [--roadmap-branch main]
+#          [--usage-remote URL]
 #          [--source-repo PATH] [--source-rev REV] [--dry-run] [--replace-slim] [--activate]
 set -euo pipefail
 
@@ -12,7 +13,7 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TEMPLATE="$REPO_DIR/launchd/$LABEL.plist.template"
 SOURCE_REPO="$REPO_DIR"
 SOURCE_REV="origin/main"
-REPOS="" REMOTE="" BRANCH="main"
+REPOS="" REMOTE="" BRANCH="main" USAGE_REMOTE=""
 DRY_RUN=0 REPLACE=0 ACTIVATE=0
 
 die() { echo "ERROR: $*" >&2; exit 1; }
@@ -22,6 +23,7 @@ while [[ $# -gt 0 ]]; do
     --repos) REPOS="${2:?}"; shift 2 ;;
     --roadmap-remote) REMOTE="${2:?}"; shift 2 ;;
     --roadmap-branch) BRANCH="${2:?}"; shift 2 ;;
+    --usage-remote) USAGE_REMOTE="${2:?}"; shift 2 ;;
     --source-repo) SOURCE_REPO="${2:?}"; shift 2 ;;
     --source-rev) SOURCE_REV="${2:?}"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift ;;
@@ -34,17 +36,41 @@ done
 [[ -n "$REMOTE" ]] || die "--roadmap-remote is required"
 [[ -f "$TEMPLATE" ]] || die "template not found: $TEMPLATE"
 
+# Same rule as prw_metrics.embeds_credentials; both remotes land in a readable plist.
+for pair in "--usage-remote=$USAGE_REMOTE" "--roadmap-remote=$REMOTE"; do
+  [[ -n "${pair#*=}" ]] || continue
+  if python3 - "${pair#*=}" <<'PY'
+import re, sys
+url = sys.argv[1]
+m = re.match(r"^([A-Za-z][A-Za-z0-9+.-]*)://([^/]*)", url)
+if not m:
+    user = re.match(r"^([^@/]*)@", url)
+    bad = bool(user and ":" in user.group(1))
+elif "@" not in m.group(2):
+    bad = False
+else:
+    user = m.group(2).rsplit("@", 1)[0]
+    bad = ":" in user or m.group(1).lower().split("+")[-1] in ("http", "https")
+sys.exit(0 if bad else 1)
+PY
+  then
+    echo "ERROR: ${pair%%=*} must not embed credentials" >&2
+    exit 2
+  fi
+done
+
 SHA="$(git -C "$SOURCE_REPO" rev-parse --verify "${SOURCE_REV}^{commit}")" || die "cannot resolve $SOURCE_REV"
 RELEASE_DIR="$HOME/.local/share/prw-metrics-slim/releases/$SHA"
 PLIST_DEST="$HOME/Library/LaunchAgents/$LABEL.plist"
 UID_NUM="$(/usr/bin/id -u)"
 
 render() {
-  python3 - "$TEMPLATE" "$HOME" "$RELEASE_DIR" "$REPOS" "$REMOTE" "$BRANCH" <<'PY'
+  python3 - "$TEMPLATE" "$HOME" "$RELEASE_DIR" "$REPOS" "$REMOTE" "$BRANCH" "$USAGE_REMOTE" <<'PY'
 import plistlib, sys
-tpl, home, release, repos, remote, branch = sys.argv[1:7]
+tpl, home, release, repos, remote, branch, usage = sys.argv[1:8]
 subs = {"@HOME@": home, "@RELEASE_DIR@": release, "@REPOS@": repos,
-        "@ROADMAP_REMOTE@": remote, "@ROADMAP_BRANCH@": branch}
+        "@ROADMAP_REMOTE@": remote, "@ROADMAP_BRANCH@": branch,
+        "@USAGE_REMOTE@": usage}
 def fill(obj):
     if isinstance(obj, str):
         for key, val in subs.items():
@@ -56,7 +82,12 @@ def fill(obj):
         return {k: fill(v) for k, v in obj.items()}
     return obj
 with open(tpl, "rb") as f:
-    sys.stdout.buffer.write(plistlib.dumps(fill(plistlib.load(f)), sort_keys=False))
+    plist = fill(plistlib.load(f))
+if not usage:  # optional: drop the flag and its value
+    args = plist["ProgramArguments"]
+    i = args.index("--usage-remote")
+    del args[i:i + 2]
+sys.stdout.buffer.write(plistlib.dumps(plist, sort_keys=False))
 PY
 }
 
