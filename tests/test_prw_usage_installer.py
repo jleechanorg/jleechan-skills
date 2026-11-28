@@ -23,13 +23,49 @@ def env(tmp_path):
     bin_dir.mkdir()
     calls = tmp_path / "calls"
     marker = tmp_path / "loaded.marker"
-    for name in ("launchctl", "crontab", "systemctl"):
+    systemd_state = tmp_path / "systemd.state"
+    uname_file = tmp_path / "uname.override"
+    uname_stub = bin_dir / "uname"
+    uname_stub.write_text(
+        '#!/bin/sh\nif [ -e "%s" ]; then cat "%s"; else echo "Darwin"; fi\n' % (uname_file, uname_file)
+    )
+    uname_stub.chmod(uname_stub.stat().st_mode | stat.S_IEXEC)
+    for name in ("launchctl", "crontab"):
         stub = bin_dir / name
         stub.write_text(
             '#!/bin/sh\necho "%s $@" >> "%s"\n'
             'if [ "$1" = print ]; then [ -e "%s" ]; exit $?; fi\nexit 0\n' % (name, calls, marker)
         )
         stub.chmod(stub.stat().st_mode | stat.S_IEXEC)
+    systemctl_stub = bin_dir / "systemctl"
+    systemctl_stub.write_text(
+        """#!/bin/sh
+printf 'systemctl' >> '%s'
+printf ' <%s>' "$@" >> '%s'
+printf '\\n' >> '%s'
+state=$(cat '%s' 2>/dev/null || echo inactive)
+case "$2" in
+  show)
+    [ "$state" = query-failure ] && exit 42
+    case "$state" in
+      active) printf 'LoadState=loaded\\nActiveState=active\\nUnitFileState=disabled\\n' ;;
+      enabled) printf 'LoadState=loaded\\nActiveState=inactive\\nUnitFileState=enabled\\n' ;;
+      *) printf 'LoadState=not-found\\nActiveState=inactive\\nUnitFileState=\\n' ;;
+    esac
+    exit 0 ;;
+  is-active)
+    [ "$state" = active ] && exit 0
+    [ "$state" = query-failure ] && exit 42
+    exit 3 ;;
+  is-enabled)
+    [ "$state" = query-failure ] && exit 42
+    [ "$state" = enabled ] && { printf 'enabled\\n'; exit 0; }
+    printf 'disabled\\n'; exit 1 ;;
+esac
+exit 0
+""" % (calls, "%s", calls, calls, systemd_state)
+    )
+    systemctl_stub.chmod(systemctl_stub.stat().st_mode | stat.S_IEXEC)
     git_env = {
         "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null",
         "GIT_AUTHOR_NAME": "T", "GIT_AUTHOR_EMAIL": "t@example.invalid",
@@ -40,6 +76,7 @@ def env(tmp_path):
     (source / "scripts" / "prw_local_usage.py").write_text("print('stub collector')\n")
     (source / "scripts" / "run_prw_local_usage.sh").write_text("#!/bin/sh\n")
     full_env = dict(os.environ, HOME=str(home), PATH="%s:%s" % (bin_dir, os.environ["PATH"]), **git_env)
+    full_env.pop("XDG_CONFIG_HOME", None)
     for cmd in (["init", "-b", "main"], ["add", "."], ["commit", "-m", "stub"]):
         subprocess.run(["git", *cmd], cwd=source, env=full_env, check=True, capture_output=True)
     sha = subprocess.run(
@@ -51,10 +88,17 @@ def env(tmp_path):
 
     ctx = Ctx()
     ctx.home, ctx.marker, ctx.sha, ctx.env = home, marker, sha, full_env
+    ctx.systemd_state = systemd_state
+    ctx.set_os = lambda os_name: uname_file.write_text(os_name + "\n")
     ctx.calls = lambda: calls.read_text().splitlines() if calls.exists() else []
     ctx.release = home / ".local/share/prw-local-usage/releases" / sha
     ctx.plist = home / "Library/LaunchAgents" / (LABEL + ".plist")
     ctx.staged = ctx.release / (LABEL + ".plist")
+    ctx.systemd_user = home / ".config" / "systemd" / "user"
+    ctx.service_dest = ctx.systemd_user / "prw-local-usage.service"
+    ctx.timer_dest = ctx.systemd_user / "prw-local-usage.timer"
+    ctx.staged_service = ctx.release / "prw-local-usage.service"
+    ctx.staged_timer = ctx.release / "prw-local-usage.timer"
 
     def run(*extra, remote=REMOTE):
         cmd = ["bash", str(INSTALLER), "--source-repo", str(source), "--source-rev", sha]
@@ -217,3 +261,109 @@ def test_print_crontab_and_systemd_text_round_trip_awkward_words(env, tmp_path):
     unescaped = [re.sub(r"\\(.)", r"\1", q).replace("%%", "%").replace("$$", "$") for q in quoted]
     assert unescaped == argv
     assert "%%20" in unit
+
+
+def test_linux_stage_only_creates_service_and_timer_under_release_without_systemctl(env):
+    env.set_os("Linux")
+    done = env.run()
+    assert done.returncode == 0, done.stderr
+    assert env.staged_service.exists()
+    assert env.staged_timer.exists()
+    assert not env.service_dest.exists()
+    assert not env.timer_dest.exists()
+    assert not env.systemd_user.exists()
+    assert not any("systemctl" in c for c in env.calls())
+    assert not env.plist.exists()
+    service_txt = env.staged_service.read_text()
+    assert "ExecStart=" in service_txt and "run_prw_local_usage.sh" in service_txt and env.sha in service_txt
+    timer_txt = env.staged_timer.read_text()
+    assert "OnCalendar=*:37:00" in timer_txt and "Persistent=true" in timer_txt and "WantedBy=timers.target" in timer_txt
+
+
+def test_linux_activate_copies_staged_units_and_enables_timer(env):
+    env.set_os("Linux")
+    done = env.run("--activate")
+    assert done.returncode == 0, done.stderr
+    assert env.service_dest.exists()
+    assert env.timer_dest.exists()
+    calls = [c for c in env.calls() if c.startswith("systemctl")]
+    daemon_reloads = [i for i, c in enumerate(calls) if "daemon-reload" in c]
+    enables = [i for i, c in enumerate(calls) if "enable" in c and "--now" in c and "prw-local-usage.timer" in c]
+    assert daemon_reloads and enables
+    assert daemon_reloads[-1] < enables[-1]
+
+
+def test_linux_activate_uses_absolute_xdg_config_home(env, tmp_path):
+    env.set_os("Linux")
+    config_home = tmp_path / "xdg-config"
+    env.env["XDG_CONFIG_HOME"] = str(config_home)
+    done = env.run("--activate")
+    assert done.returncode == 0, done.stderr
+    assert (config_home / "systemd/user/prw-local-usage.service").exists()
+    assert (config_home / "systemd/user/prw-local-usage.timer").exists()
+    assert not env.service_dest.exists()
+    assert not env.timer_dest.exists()
+
+
+def test_linux_refuses_when_timer_active_without_replace(env):
+    env.set_os("Linux")
+    env.systemd_state.write_text("active\n")
+    done = env.run("--activate")
+    assert done.returncode != 0
+    assert "--replace" in done.stderr
+    assert not env.timer_dest.exists()
+    assert not env.release.exists()
+    calls = [c for c in env.calls() if c.startswith("systemctl")]
+    assert not any("launchctl" in c for c in env.calls())
+
+
+def test_linux_refuses_when_timer_enabled_without_replace(env):
+    env.set_os("Linux")
+    env.systemd_state.write_text("enabled\n")
+    done = env.run("--activate")
+    assert done.returncode != 0
+    assert "--replace" in done.stderr
+    assert not env.timer_dest.exists()
+    assert not env.release.exists()
+    calls = [c for c in env.calls() if c.startswith("systemctl")]
+    assert not any("<daemon-reload>" in c or "<enable>" in c for c in calls)
+
+
+def test_linux_query_failure_preserves_existing_units_without_staging(env):
+    env.set_os("Linux")
+    env.systemd_state.write_text("query-failure\n")
+    env.systemd_user.mkdir(parents=True)
+    env.service_dest.write_text("existing service\n")
+    env.timer_dest.write_text("existing timer\n")
+    done = env.run("--activate")
+    assert done.returncode != 0
+    assert "systemctl" in done.stderr.lower()
+    assert env.service_dest.read_text() == "existing service\n"
+    assert env.timer_dest.read_text() == "existing timer\n"
+    assert not env.release.exists()
+    calls = [c for c in env.calls() if c.startswith("systemctl")]
+    assert not any("<daemon-reload>" in c or "<enable>" in c or "<disable>" in c for c in calls)
+
+
+def test_linux_replace_stops_and_disables_timer_before_reenabling(env):
+    env.set_os("Linux")
+    env.systemd_state.write_text("active\n")
+    done = env.run("--replace", "--activate")
+    assert done.returncode == 0, done.stderr
+    assert env.service_dest.exists() and env.timer_dest.exists()
+    calls = [c for c in env.calls() if c.startswith("systemctl")]
+    disables = [i for i, c in enumerate(calls) if "<disable>" in c and "<--now>" in c]
+    reloads = [i for i, c in enumerate(calls) if "daemon-reload" in c]
+    enables = [i for i, c in enumerate(calls) if "enable" in c and "--now" in c and "prw-local-usage.timer" in c]
+    assert disables and reloads and enables
+    assert disables[0] < reloads[0] < enables[0]
+    assert not any("prw-local-usage.service" in c and "disable" in c for c in calls)
+
+
+def test_linux_staged_unit_escapes_line_breaks_in_argv(env):
+    env.set_os("Linux")
+    done = env.run("--machine", "first\nsecond\rthird")
+    assert done.returncode == 0, done.stderr
+    lines = env.staged_service.read_text().splitlines()
+    exec_start = next(line for line in lines if line.startswith("ExecStart="))
+    assert exec_start.endswith(r'"first\nsecond\rthird"')

@@ -1,15 +1,19 @@
 #!/usr/bin/env bash
-# Install the local usage collector as a pinned release plus a STAGED launchd plist (com.jleechan.prw-local-usage).
-# Installing never loads or starts anything; only --activate copies the plist into ~/Library/LaunchAgents and
-# enables/bootstraps it. The com.jleechan.prw-metrics* labels are never touched. The job runs hourly at :37.
-# Linux and other hosts: nothing is installed automatically in v1. --print-crontab prints (never installs)
-# an equivalent crontab line and a systemd user timer+service pair for you to review and install by hand.
+# Install the local usage collector as a pinned release plus a STAGED service/timer/plist.
+# On macOS: staged launchd plist (com.jleechan.prw-local-usage).
+# On Linux: staged systemd user service and timer (prw-local-usage.service, prw-local-usage.timer).
+# Installing never loads or starts anything; only --activate copies the units into ~/Library/LaunchAgents
+# or ~/.config/systemd/user and enables/bootstraps/starts them. The job runs hourly at :37.
+# --print-crontab prints (never installs) crontab and systemd user timer+service text.
 #
 # Usage: install-prw-local-usage.sh --roadmap-remote URL [--roadmap-branch main] [--machine LABEL]
 #          [--source-repo PATH] [--source-rev REV] [--dry-run] [--replace] [--activate] [--print-crontab]
 set -euo pipefail
 
 LABEL="com.jleechan.prw-local-usage"
+SYSTEMD_SERVICE="prw-local-usage.service"
+SYSTEMD_TIMER="prw-local-usage.timer"
+OS="$(uname -s)"
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TEMPLATE="$REPO_DIR/launchd/$LABEL.plist.template"
 SOURCE_REPO="$REPO_DIR" SOURCE_REV="origin/main"
@@ -62,28 +66,29 @@ UID_NUM="$(/usr/bin/id -u)"
 ARGS=(--publish-remote "$REMOTE" --publish-branch "$BRANCH")
 [[ -z "$MACHINE" ]] || ARGS+=(--machine "$MACHINE")
 
-if [[ "$PRINT_CRON" == 1 ]]; then
-  WORDS=(/bin/bash "$RELEASE_DIR/scripts/run_prw_local_usage.sh" "${ARGS[@]}")
-  CMD="" UNIT_CMD=""
-  for w in "${WORDS[@]}"; do
-    q="$(printf '%q' "$w")"; CMD+="${CMD:+ }${q//%/\\%}"  # cron turns an unescaped % into a newline
-    # systemd words: double-quoted, with \ and " escaped, and % and $ doubled (specifiers / variable expansion)
-    u="${w//\\/\\\\}"; u="${u//\"/\\\"}"; u="${u//%/%%}"; u="${u//\$/\$\$}"
-    UNIT_CMD+="${UNIT_CMD:+ }\"$u\""
-  done
-  cat <<TXT
-# crontab line (hourly at :37); install by hand with: crontab -e
-37 * * * * PATH=/usr/local/bin:\$HOME/.local/bin:/usr/bin:/bin $CMD
+WORDS=(/bin/bash "$RELEASE_DIR/scripts/run_prw_local_usage.sh" "${ARGS[@]}")
+CMD="" UNIT_CMD=""
+for w in "${WORDS[@]}"; do
+  q="$(printf '%q' "$w")"; CMD+="${CMD:+ }${q//%/\\%}"  # cron turns an unescaped % into a newline
+  # systemd words: double-quoted, with \ and " escaped, and % and $ doubled (specifiers / variable expansion)
+  u="${w//\\/\\\\}"; u="${u//\"/\\\"}"; u="${u//%/%%}"; u="${u//\$/\$\$}"
+  u="${u//$'\n'/\\n}"; u="${u//$'\r'/\\r}"
+  UNIT_CMD+="${UNIT_CMD:+ }\"$u\""
+done
 
-# ~/.config/systemd/user/prw-local-usage.service
+render_systemd_service() {
+  cat <<TXT
 [Unit]
 Description=PRW local usage collector
 [Service]
 Type=oneshot
 Environment=PATH=/usr/local/bin:%h/.local/bin:/usr/bin:/bin
 ExecStart=$UNIT_CMD
+TXT
+}
 
-# ~/.config/systemd/user/prw-local-usage.timer
+render_systemd_timer() {
+  cat <<TXT
 [Unit]
 Description=Hourly PRW local usage collector
 [Timer]
@@ -91,6 +96,19 @@ OnCalendar=*:37:00
 Persistent=true
 [Install]
 WantedBy=timers.target
+TXT
+}
+
+if [[ "$PRINT_CRON" == 1 ]]; then
+  cat <<TXT
+# crontab line (hourly at :37); install by hand with: crontab -e
+37 * * * * PATH=/usr/local/bin:\$HOME/.local/bin:/usr/bin:/bin $CMD
+
+# ~/.config/systemd/user/$SYSTEMD_SERVICE
+$(render_systemd_service)
+
+# ~/.config/systemd/user/$SYSTEMD_TIMER
+$(render_systemd_timer)
 TXT
   exit 0
 fi
@@ -122,33 +140,113 @@ PY
 }
 
 if [[ "$DRY_RUN" == 1 ]]; then
-  render
+  if [[ "$OS" == "Linux" ]]; then
+    render_systemd_service
+    echo ""
+    render_systemd_timer
+  else
+    render
+  fi
   exit 0
 fi
 
-if launchctl print "gui/$UID_NUM/$LABEL" >/dev/null 2>&1; then
-  LOADED=1
-  [[ "$REPLACE" == 1 ]] || die "$LABEL is already loaded; pass --replace to reinstall"
+if [[ "$OS" == "Linux" ]]; then
+  if [[ "$ACTIVATE" == 1 ]]; then
+    SYSTEMD_STATUS="$(systemctl --user show --no-pager --all \
+      --property=LoadState --property=ActiveState --property=UnitFileState \
+      "$SYSTEMD_TIMER")" || die "cannot inspect $SYSTEMD_TIMER with systemctl"
+
+    LOAD_STATE="" ACTIVE_STATE="" UNIT_FILE_STATE=""
+    while IFS='=' read -r property value; do
+      case "$property" in
+        LoadState) LOAD_STATE="$value" ;;
+        ActiveState) ACTIVE_STATE="$value" ;;
+        UnitFileState) UNIT_FILE_STATE="$value" ;;
+      esac
+    done <<< "$SYSTEMD_STATUS"
+
+    case "$LOAD_STATE" in
+      not-found)
+        [[ "$ACTIVE_STATE" == inactive && -z "$UNIT_FILE_STATE" ]] ||
+          die "unexpected systemd state for missing $SYSTEMD_TIMER"
+        LOADED=0
+        ;;
+      loaded)
+        case "$ACTIVE_STATE" in
+          active|reloading|refreshing) LOADED=1 ;;
+          inactive|failed) LOADED=0 ;;
+          *) die "cannot safely interpret $SYSTEMD_TIMER active state: $ACTIVE_STATE" ;;
+        esac
+        case "$UNIT_FILE_STATE" in
+          enabled|enabled-runtime|static|alias|indirect|generated)
+            LOADED=1
+            ;;
+          disabled|masked) ;;
+          *) die "cannot safely interpret $SYSTEMD_TIMER unit-file state: $UNIT_FILE_STATE" ;;
+        esac
+        ;;
+      *) die "cannot safely interpret $SYSTEMD_TIMER load state: $LOAD_STATE" ;;
+    esac
+
+    [[ "$LOADED" == 0 || "$REPLACE" == 1 ]] ||
+      die "$SYSTEMD_TIMER is already active or enabled; pass --replace to reinstall"
+  else
+    LOADED=0
+  fi
 else
-  LOADED=0
+  if launchctl print "gui/$UID_NUM/$LABEL" >/dev/null 2>&1; then
+    LOADED=1
+    [[ "$REPLACE" == 1 ]] || die "$LABEL is already loaded; pass --replace to reinstall"
+  else
+    LOADED=0
+  fi
 fi
 
-mkdir -p "$RELEASE_DIR" "$HOME/Library/Logs"
+mkdir -p "$RELEASE_DIR"
+if [[ "$OS" != "Linux" ]]; then
+  mkdir -p "$HOME/Library/Logs"
+fi
 git -C "$SOURCE_REPO" archive "$SHA" scripts | tar -x -C "$RELEASE_DIR"
 
-# Staged inside the release dir; launchd loads everything in ~/Library/LaunchAgents at login, so only --activate copies it.
-STAGED="$RELEASE_DIR/$LABEL.plist"
-render > "$STAGED.tmp"
-if [[ -x /usr/bin/plutil ]]; then /usr/bin/plutil -lint "$STAGED.tmp" >/dev/null; fi
-mv "$STAGED.tmp" "$STAGED"
-chmod 644 "$STAGED"
-echo "installed $LABEL at release $SHA (staged at $STAGED, not loaded)"
+if [[ "$OS" == "Linux" ]]; then
+  STAGED_SERVICE="$RELEASE_DIR/$SYSTEMD_SERVICE"
+  STAGED_TIMER="$RELEASE_DIR/$SYSTEMD_TIMER"
+  render_systemd_service > "$STAGED_SERVICE.tmp"
+  mv "$STAGED_SERVICE.tmp" "$STAGED_SERVICE"
+  chmod 644 "$STAGED_SERVICE"
+
+  render_systemd_timer > "$STAGED_TIMER.tmp"
+  mv "$STAGED_TIMER.tmp" "$STAGED_TIMER"
+  chmod 644 "$STAGED_TIMER"
+  echo "installed $SYSTEMD_TIMER at release $SHA (staged at $RELEASE_DIR, not loaded)"
+else
+  # Staged inside the release dir; launchd loads everything in ~/Library/LaunchAgents at login, so only --activate copies it.
+  STAGED="$RELEASE_DIR/$LABEL.plist"
+  render > "$STAGED.tmp"
+  if [[ -x /usr/bin/plutil ]]; then /usr/bin/plutil -lint "$STAGED.tmp" >/dev/null; fi
+  mv "$STAGED.tmp" "$STAGED"
+  chmod 644 "$STAGED"
+  echo "installed $LABEL at release $SHA (staged at $STAGED, not loaded)"
+fi
 
 if [[ "$ACTIVATE" == 1 ]]; then
-  [[ "$LOADED" == 0 ]] || launchctl bootout "gui/$UID_NUM/$LABEL"
-  mkdir -p "$HOME/Library/LaunchAgents"
-  cp "$STAGED" "$PLIST_DEST"
-  launchctl enable "gui/$UID_NUM/$LABEL"
-  launchctl bootstrap "gui/$UID_NUM" "$PLIST_DEST"
-  echo "activated $LABEL"
+  if [[ "$OS" == "Linux" ]]; then
+    [[ "$LOADED" == 0 ]] || systemctl --user disable --now "$SYSTEMD_TIMER"
+    SYSTEMD_USER_DIR="$HOME/.config"
+    [[ "${XDG_CONFIG_HOME:-}" != /* ]] || SYSTEMD_USER_DIR="$XDG_CONFIG_HOME"
+    SYSTEMD_USER_DIR="$SYSTEMD_USER_DIR/systemd/user"
+    mkdir -p "$SYSTEMD_USER_DIR"
+    cp "$STAGED_SERVICE" "$SYSTEMD_USER_DIR/$SYSTEMD_SERVICE"
+    cp "$STAGED_TIMER" "$SYSTEMD_USER_DIR/$SYSTEMD_TIMER"
+    systemctl --user daemon-reload
+    systemctl --user enable --now "$SYSTEMD_TIMER"
+    echo "activated $SYSTEMD_TIMER"
+  else
+    [[ "$LOADED" == 0 ]] || launchctl bootout "gui/$UID_NUM/$LABEL"
+    mkdir -p "$HOME/Library/LaunchAgents"
+    cp "$STAGED" "$PLIST_DEST"
+    launchctl enable "gui/$UID_NUM/$LABEL"
+    launchctl bootstrap "gui/$UID_NUM" "$PLIST_DEST"
+    echo "activated $LABEL"
+  fi
 fi
